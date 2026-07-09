@@ -15,6 +15,10 @@ Define how Pipe Deck evaluates automatic routing rules in a way that is determin
 - ML-based policy inference.
 - Fully dynamic scripting language for Phase 1.
 
+## Relationship to Phase 2 `routing_rules`
+
+Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`): save on dropdown change, re-apply on refresh. It does not implement this spec's evaluation order, explainability panel, or simulation mode. Phase 3 should either migrate `routing_rules` into the full rule model or treat them as implicit default rules with lower priority than authored rules.
+
 ## Rule Model (Draft)
 
 A rule contains:

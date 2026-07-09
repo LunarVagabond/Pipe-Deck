@@ -57,6 +57,26 @@ All roadmap items must improve Linux audio clarity, control, or reliability for 
 - Packaging produces at least one testable artifact per target family.
 - Failures surface actionable messages rather than silent errors.
 
+### Phase 2 Status (2026-07-09)
+
+**Complete for milestone purposes.** Acceptance criteria above are met in the current codebase.
+
+Delivered beyond the original minimum:
+
+- Device-to-device routing (virtual sink → hardware output or virtual mic via `pw-link`)
+- Stream → virtual mic routing (hidden feed sink + auto link)
+- Lightweight route persistence in `config.yaml` (`routing_rules`) re-applied when apps return
+- Dashboard routing matrix with dropdown targets and connection lines
+
+Explicit carry-over to later phases (not Phase 2 blockers):
+
+- Native PipeWire event subscription (still polling `pw-dump` at 1s)
+- Multi-output routing, monitor paths, first-run wizard, search
+- Full visual drag/connect routing editor (lines + dropdowns exist today)
+- Rule engine UI, explainability, simulation (see Phase 3)
+
+**Phase 3 is ready to start.**
+
 ## Phase 3: Rules and Advanced Routing UX
 
 ### Scope

@@ -618,4 +618,12 @@ mod tests {
             "pipe-deck-feed-virtual-input"
         );
     }
+
+    #[test]
+    fn feed_sink_description_uses_virtual_mic_label() {
+        assert_eq!(
+            feed_sink_description("YouTube to Discord"),
+            "YouTube to Discord (Pipe Deck route)"
+        );
+    }
 }

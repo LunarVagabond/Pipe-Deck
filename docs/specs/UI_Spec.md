@@ -50,10 +50,10 @@ Users should understand current audio state quickly and complete common routing 
 
 ### Route an Application
 
-1. Select app stream.
-2. Select target sink/source.
-3. Preview change explanation.
-4. Apply and confirm status.
+1. Open Dashboard routing matrix.
+2. Find the application stream in the **Applications** column.
+3. Choose a target from **Route to** (output, virtual sink, or virtual mic).
+4. Confirm the connection line and dropdown reflect the new route. Undo if needed.
 
 ### Save and Restore Profile
 
@@ -63,9 +63,19 @@ Users should understand current audio state quickly and complete common routing 
 
 ### Understand Why Audio Is Routed
 
-- Display active rule/manual override source.
-- Show concise reason text for current mapping.
-- Provide jump-to-fix actions.
+- Current route is visible in the matrix (dropdown selection + connection line).
+- Phase 3 adds rule/manual override explanations and jump-to-fix actions.
+
+## Dashboard Layout (Phase 2)
+
+The default dashboard uses a four-column routing matrix:
+
+- **Applications** — active streams with per-stream **Route to** dropdown
+- **Routing** — virtual sinks (including third-party sinks like Soundux) with **Route to** for device chains
+- **Outputs** — hardware and virtual playback endpoints
+- **Inputs** — hardware and virtual capture endpoints
+
+Connection lines draw between linked nodes. There is no separate "saved routes" panel — persistence is implicit when the user changes a dropdown.
 
 ## Progressive Disclosure
 

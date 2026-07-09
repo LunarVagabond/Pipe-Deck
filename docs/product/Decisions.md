@@ -86,6 +86,16 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
   - Shared theme tokens live in `src/styles/_variables.scss`.
 - Rationale: Keeps presentation separate from component logic, makes styles easier to scan and reuse, and avoids scattered scoped blocks.
 
+### PD-011 Lightweight Route Persistence (Phase 2)
+
+- Status: Accepted
+- Decision: Last-chosen routes from the dashboard matrix are saved in `config.yaml` under `routing_rules` and re-applied on graph refresh.
+- Constraints:
+  - No dedicated rules UI in Phase 2; the graph is the source of truth for display.
+  - Full rule engine (priority, explainability, simulation) remains Phase 3 per `Rule_Engine_Spec.md`.
+  - Stream rules key on `app_name` (optional `media_name`); device rules key on virtual sink `system_name`.
+- Rationale: Users need routes to stick when ephemeral streams disappear (e.g. Soundux idle) without learning a separate rules vocabulary.
+
 ## Related Documents
 
 - `docs/product/Product_Requirements.md`

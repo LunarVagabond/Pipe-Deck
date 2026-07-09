@@ -49,6 +49,28 @@ Future direction:
 - Managed virtual device sets tied to profiles.
 - Optional daemon-managed persistence lifecycle.
 
+## Phase 2 Routing Mechanics
+
+Pipe Deck uses three routing hops depending on the target:
+
+| User action | Mechanism | Notes |
+|-------------|-----------|-------|
+| App → sink | `pactl move-sink-input` | Standard per-application output routing |
+| App → virtual mic | Hidden feed sink + `pw-link` | Feed sink `pipe-deck-feed-{slug}` is internal plumbing; labeled `{mic name} (Pipe Deck route)` in other apps |
+| Virtual sink → output/mic | `pw-link` monitor→playback/input | e.g. Soundux Sink → headphones or virtual mic |
+
+### Feed sinks
+
+- Created on demand when routing playback to a virtual input.
+- Hidden from the Pipe Deck UI; garbage-collected when idle or when the virtual mic is removed.
+- Renaming a virtual mic updates the feed label when safe (no active stream on the feed).
+
+### Discovery
+
+- Primary graph from `pw-dump`; supplemented with `pactl` for stream targets and levels.
+- Pipe Deck-owned virtual devices use stable `virtual-*` IDs from the in-app registry, not raw `node-*` IDs from `pw-dump`.
+- Graph refresh polls every 1 second (native PipeWire subscription deferred).
+
 ## Automatic Mapping (Long-Term Direction)
 
 Objective: reduce manual sink/source mapping for common setups.

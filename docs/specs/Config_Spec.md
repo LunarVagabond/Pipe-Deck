@@ -61,7 +61,10 @@ profile_index:
     name: Streaming
     file: profiles/streaming.yaml
 devices: {}        # known device metadata and aliases
-rules: []          # rule definitions (Phase 3+)
+routing_rules:     # lightweight persisted routes (Phase 2); see below
+  stream_rules: []
+  device_rules: []
+rules: []          # full rule engine definitions (Phase 3+)
 plugins: {}        # plugin enablement (Phase 5+)
 diagnostics:
   verbosity: normal
@@ -94,6 +97,30 @@ rule_overrides: []      # optional (Phase 3+)
 - **Volume/mute state:** optional capture of levels when saving
 - **Device assumptions:** optional hints for restore (e.g., expected USB interface)
 - **Rule overrides:** optional rule activation overrides (Phase 3+)
+
+## Routing Rules (`config.yaml`, Phase 2)
+
+When a user picks a route from the dashboard matrix, Pipe Deck saves a lightweight rule so the choice survives idle streams and re-applies when audio starts again. This is **not** the Phase 3 rule engine — there is no priority stack, simulation UI, or explainability panel yet.
+
+```yaml
+routing_rules:
+  stream_rules:
+    - app_name: Firefox
+      target_system_name: pipe-deck-test          # virtual mic system name
+    - app_name: Soundux
+      media_name: miniaudio                       # optional disambiguation
+      target_system_name: soundux_sink
+  device_rules:
+    - source_system_name: soundux_sink            # virtual sink
+      target_system_name: pipe-deck-test          # hardware output or virtual mic
+```
+
+### Semantics
+
+- **stream_rules:** When a matching playback/capture stream appears, move it to `target_system_name`.
+- **device_rules:** Link virtual sink monitor ports to the target device (`pw-link` for sink→output or sink→virtual mic).
+- Rules are replaced per source (one stream rule per `app_name`, one device rule per `source_system_name`).
+- User-facing state is shown only in the dashboard graph (dropdown + connection lines), not a separate rules list.
 
 ## Profile Swap Semantics
 

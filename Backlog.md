@@ -10,6 +10,8 @@ Every backlog item should answer yes to:
 
 Work in this order. Earlier slices unblock later ones.
 
+**Status:** Complete for milestone gate (2026-07-09). See `docs/product/Roadmap.md` for acceptance criteria and carry-over items.
+
 ### 2.1 Scaffold
 
 - [x] Initialize Tauri 2 + Vue 3 + TypeScript project structure
@@ -25,7 +27,7 @@ Work in this order. Earlier slices unblock later ones.
 - [x] Stable internal IDs for devices and streams
 - [x] `get_runtime_graph` Tauri command
 - [x] Dashboard view: list devices, streams, and active links
-- [x] Live refresh when PipeWire state changes (poll every 2s)
+- [x] Live refresh when PipeWire state changes (poll every 1s via `pw-dump`)
 - [ ] Replace `pw-dump` polling with native pipewire-rs event subscription
 
 ### 2.3 Profiles (File-First YAML)
@@ -40,11 +42,15 @@ Work in this order. Earlier slices unblock later ones.
 ### 2.4 Routing and Mixer
 
 - [x] Per-application routing (apply routing intents)
+- [x] Device-to-device routing (virtual sink → output or virtual mic)
+- [x] Stream → virtual mic routing (feed sink + internal link)
+- [x] Persist last-chosen routes in `config.yaml` (`routing_rules`)
 - [x] Undo/rollback action for routing edits
 - [x] Basic mixer panel with level state and mute control
 - [x] Create virtual input
 - [x] Create virtual output
-- [x] Rename devices
+- [x] Remove virtual devices
+- [x] Rename devices (aliases sync to feed sink labels for virtual mics)
 - [ ] Device icons and categories
 - [ ] Multi-output routing
 - [ ] Monitor paths
@@ -52,7 +58,8 @@ Work in this order. Earlier slices unblock later ones.
 
 ### 2.5 UX Polish
 
-- [ ] Visual routing interactions
+- [x] Routing connection lines in dashboard matrix
+- [ ] Visual drag/connect routing editor
 - [ ] First-run wizard
 - [ ] Search
 
@@ -66,6 +73,8 @@ Work in this order. Earlier slices unblock later ones.
 - [x] Document runtime dependencies per distro
 
 ## Phase 3: Rules and Advanced Routing UX
+
+**Ready to start.** Phase 2 delivered lightweight `routing_rules` persistence (save on dropdown change, re-apply on refresh). Phase 3 replaces/extends this with the full rule engine from `docs/specs/Rule_Engine_Spec.md` (priority, explainability, simulation, dedicated rules UI).
 
 - [ ] Match by executable
 - [ ] Match by app name
