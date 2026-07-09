@@ -1,0 +1,114 @@
+.app-shell {
+  display: grid;
+  grid-template-columns: 200px 1fr;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  position: sticky;
+  top: 0;
+  overflow: hidden;
+  background: #0b0f14;
+  border-right: 1px solid var(--border);
+  padding: 1.25rem 0.85rem;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-weight: 700;
+  font-size: 1rem;
+  margin-bottom: 1.5rem;
+  padding: 0 0.5rem;
+  color: var(--text);
+}
+
+.brand-icon {
+  color: var(--accent-purple);
+}
+
+.nav-item {
+  display: block;
+  padding: 0.55rem 0.75rem;
+  border-radius: 8px;
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.9rem;
+  margin-bottom: 0.15rem;
+
+  &.active {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  &.disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+}
+
+.daemon-status {
+  margin-top: auto;
+  padding: 0.75rem 0.5rem 0;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: var(--accent-teal);
+}
+
+.main-area {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.85rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: rgba(11, 15, 20, 0.95);
+  backdrop-filter: blur(8px);
+}
+
+.topbar-title {
+  font-weight: 600;
+}
+
+.topbar-btn {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text-muted);
+  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem 1.5rem;
+  background: linear-gradient(180deg, #0b0f14 0%, #10151d 100%);
+}

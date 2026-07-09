@@ -1,0 +1,98 @@
+.routing-matrix {
+  position: relative;
+  min-height: 420px;
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.25rem;
+  overflow: hidden;
+}
+
+.routing-matrix .connections {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.routing-matrix .columns {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  min-height: 380px;
+}
+
+.routing-matrix .column h3 {
+  margin: 0 0 1rem;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.routing-matrix .node {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.55rem 0.65rem;
+  margin-bottom: 0.65rem;
+  background: rgba(11, 15, 20, 0.72);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+
+  strong {
+    display: block;
+    font-size: 0.9rem;
+  }
+}
+
+.routing-matrix .node-icon {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: #0b0f14;
+  flex-shrink: 0;
+
+  &.routing {
+    background: var(--surface-2);
+    color: var(--text);
+    border: 2px solid var(--accent-purple);
+  }
+
+  &.output,
+  &.input {
+    background: var(--surface-2);
+    font-size: 1rem;
+  }
+}
+
+.routing-matrix .node-sub {
+  display: block;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.routing-matrix .empty {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+@media (max-width: 1000px) {
+  .routing-matrix .columns {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .routing-matrix .connections {
+    display: none;
+  }
+}

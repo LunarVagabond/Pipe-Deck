@@ -1,0 +1,130 @@
+# Backlog
+
+## Baseline Gate
+
+Every backlog item should answer yes to:
+
+- Does this make Linux audio easier to understand and manage?
+
+## Phase 2: Foundation Runtime and Core Flows
+
+Work in this order. Earlier slices unblock later ones.
+
+### 2.1 Scaffold
+
+- [x] Initialize Tauri 2 + Vue 3 + TypeScript project structure
+- [x] Set up Rust core engine and Tauri command boundary
+- [x] Define domain model types (Rust + TypeScript)
+- [x] Wire Tauri IPC event stream for core → UI updates
+- [x] Boot app on Linux with empty dashboard shell
+
+### 2.2 Enumeration (Read-Only)
+
+- [x] PipeWire adapter: enumerate via `pw-dump` (live session data)
+- [x] Normalize nodes, ports, links into runtime graph model
+- [x] Stable internal IDs for devices and streams
+- [x] `get_runtime_graph` Tauri command
+- [x] Dashboard view: list devices, streams, and active links
+- [x] Live refresh when PipeWire state changes (poll every 2s)
+- [ ] Replace `pw-dump` polling with native pipewire-rs event subscription
+
+### 2.3 Profiles (File-First YAML)
+
+- [ ] Config store: load/save `config.yaml` and profile files
+- [ ] Profile validator with schema versioning
+- [ ] Profile save: capture current state → write YAML
+- [ ] Profile swapper: load → validate → apply → update active pointer
+- [ ] Rollback on failed profile apply
+- [ ] Export/import profile files (copy or simple archive)
+
+### 2.4 Routing and Mixer
+
+- [ ] Per-application routing (apply routing intents)
+- [ ] Undo/rollback action for routing edits
+- [ ] Basic mixer panel with level state and mute control
+- [ ] Create virtual input
+- [ ] Create virtual output
+- [ ] Rename devices
+- [ ] Device icons and categories
+- [ ] Multi-output routing
+- [ ] Monitor paths
+- [ ] Contextual notifications
+
+### 2.5 UX Polish
+
+- [ ] Visual routing interactions
+- [ ] First-run wizard
+- [ ] Search
+
+### 2.6 Packaging Baseline
+
+- [ ] Binary build via `cargo tauri build`
+- [ ] `.deb` package artifact
+- [ ] `.rpm` package artifact
+- [ ] Flatpak manifest and build pipeline
+- [ ] CI build matrix with install smoke tests
+- [ ] Document runtime dependencies per distro
+
+## Phase 3: Rules and Advanced Routing UX
+
+- [ ] Match by executable
+- [ ] Match by app name
+- [ ] Match by window class
+- [ ] Default categories
+- [ ] Define portable rule serialization format
+- [ ] Add rule simulation mode before apply
+- [ ] Add rule conflict/fallback test matrix
+- [ ] Add UI wireframe references
+- [ ] Add interaction timing targets
+- [ ] Define onboarding checklist and first-run helper behavior
+
+## Phase 4: Persistence and Background Management
+
+- [ ] Optional daemon for restore/background behavior
+- [ ] Restore on login/session start
+- [ ] Persistent virtual device lifecycle
+- [ ] Add sequence diagrams for route change, profile restore, and auto-map workflows
+- [ ] Add boundary-level test strategy (unit, integration, simulated PipeWire events)
+- [ ] Add event lifecycle states and reconciliation strategy
+- [ ] Define deterministic conflict resolution for competing mapping candidates
+- [ ] Prototype and document safe-mode behavior for first-run environments
+- [ ] Add config compatibility tests
+- [ ] Production packaging hardening (repos, systemd, desktop integration)
+
+## Phase 5: Ecosystem and Integrations
+
+- [ ] OBS integration
+- [ ] EasyEffects integration
+- [ ] Plugin SDK
+- [ ] Remote API/automation entrypoints
+- [ ] Define plugin manifest schema
+- [ ] Publish starter plugin template
+- [ ] Add plugin review checklist for community maintainers
+
+## Documentation and Project Follow-Ups
+
+### Product and Planning
+
+- [x] Phase 2 scaffold and packaging specs
+- [x] File-first YAML config and profile swap contract
+- [ ] Convert product requirements into versioned milestones
+- [ ] Add measurable UX benchmarks (task completion time, misroute recovery time)
+- [ ] Link requirements to implementation epics
+
+### Project Process
+
+- [x] Add Makefile as canonical development interface
+- [ ] Add issue and PR templates
+- [ ] Add architecture decision record (ADR) process
+- [ ] Add release documentation workflow
+
+## Open Questions / Ideas
+
+- Which PipeWire Rust bindings to use (pipewire-rs vs alternatives)?
+- What plugin signing and trust model should be required for default distribution?
+- What constraints and review rules should govern plugin-contributed UI surfaces?
+- Which PipeWire metadata fields are sufficiently stable across distributions for deterministic mapping?
+- What confidence threshold should permit auto-apply versus suggest-only mapping behavior?
+- Which config fields are immutable versus user-editable by policy?
+- What minimum telemetry policy, if any, is acceptable while preserving user trust and privacy expectations?
+- When (if ever) does SQLite become justified over file-first YAML?
