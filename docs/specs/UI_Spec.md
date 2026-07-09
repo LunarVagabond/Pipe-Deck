@@ -64,9 +64,10 @@ Users should understand current audio state quickly and complete common routing 
 ### Understand Why Audio Is Routed
 
 - Current route is visible in the matrix (dropdown selection + connection line).
-- Phase 3 adds rule/manual override explanations and jump-to-fix actions.
+- Each application stream shows a collapsible **route explanation** panel: matched rule, match reasons, skipped candidates, and manual-override status.
+- **Change route** in the panel focuses the stream's target dropdown.
 
-## Dashboard Layout (Phase 2)
+## Dashboard Layout
 
 The default dashboard uses a four-column routing matrix:
 
@@ -75,7 +76,14 @@ The default dashboard uses a four-column routing matrix:
 - **Outputs** — hardware and virtual playback endpoints
 - **Inputs** — hardware and virtual capture endpoints
 
-Connection lines draw between linked nodes. There is no separate "saved routes" panel — persistence is implicit when the user changes a dropdown.
+Connection lines draw between linked nodes. Authored policies are managed in the **Rules** view; dashboard dropdown changes also persist lightweight `routing_rules` at lower priority.
+
+## Rules View (Phase 3)
+
+- Full-width table of authored rules (name, conditions, target, status, actions).
+- **+ New Rule** opens a centered modal for name, priority, target selection, and conditions.
+- **Simulate** runs a dry-run preview without applying routes.
+- Collapsible identity reference table helps fill condition values from active streams.
 
 ## Progressive Disclosure
 

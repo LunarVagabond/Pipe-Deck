@@ -73,6 +73,22 @@ pub fn parse_stream_identity(props: &serde_json::Map<String, serde_json::Value>)
     (app_name, executable)
 }
 
+/// Best-effort window class from PipeWire metadata.
+/// True X11 WM_CLASS is not always exposed; we try known keys in priority order.
+pub fn parse_window_class(props: &serde_json::Map<String, serde_json::Value>) -> Option<String> {
+    for key in [
+        "window.x11.class",
+        "application.id",
+        "application.icon-name",
+    ] {
+        let value = prop_str(props, key);
+        if !value.is_empty() {
+            return Some(value);
+        }
+    }
+    None
+}
+
 fn prop_str(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
     props
         .get(key)
@@ -108,5 +124,28 @@ mod tests {
             parse_stream_identity(props.as_object().expect("props object"));
         assert_eq!(app_name, "discord");
         assert_eq!(executable.as_deref(), Some("discord"));
+    }
+
+    #[test]
+    fn parses_window_class_from_application_id() {
+        let props = serde_json::json!({
+            "application.id": "org.mozilla.firefox"
+        });
+        assert_eq!(
+            parse_window_class(props.as_object().expect("props object")).as_deref(),
+            Some("org.mozilla.firefox")
+        );
+    }
+
+    #[test]
+    fn prefers_x11_class_over_application_id() {
+        let props = serde_json::json!({
+            "window.x11.class": "firefox",
+            "application.id": "org.mozilla.firefox"
+        });
+        assert_eq!(
+            parse_window_class(props.as_object().expect("props object")).as_deref(),
+            Some("firefox")
+        );
     }
 }

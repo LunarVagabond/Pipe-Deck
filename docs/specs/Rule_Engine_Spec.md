@@ -17,9 +17,18 @@ Define how Pipe Deck evaluates automatic routing rules in a way that is determin
 
 ## Relationship to Phase 2 `routing_rules`
 
-Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`): save on dropdown change, re-apply on refresh. It does not implement this spec's evaluation order, explainability panel, or simulation mode. Phase 3 should either migrate `routing_rules` into the full rule model or treat them as implicit default rules with lower priority than authored rules.
+Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`): save on dropdown change, re-apply on refresh. Phase 3 extends this with the full rule engine while keeping `routing_rules` as implicit low-priority candidates.
 
-## Rule Model (Draft)
+**Implemented behavior (2026-07-09):**
+
+- Authored `rules[]` entries are evaluated with explicit priority and explainability.
+- Dashboard dropdown changes still append to `routing_rules.stream_rules` at implicit priority `-1000` (minus index), so authored rules win when both match.
+- On first upgrade, existing `routing_rules.stream_rules` migrate once into `rules[]` when `rules` is empty.
+- Session manual overrides block auto-apply until cleared (including when the user re-selects the rule's target).
+
+See `docs/specs/Config_Spec.md` for serialization and precedence details.
+
+## Rule Model
 
 A rule contains:
 
@@ -30,7 +39,7 @@ A rule contains:
 
 ## Condition Sources
 
-- Application identity (name, executable, window class where available).
+- Application identity (name, executable, window class where available — best-effort from `window.x11.class`, `application.id`, or `application.icon-name`).
 - Process name and application ID where available.
 - Stream direction (playback/capture).
 - Device type/category.

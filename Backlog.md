@@ -74,18 +74,24 @@ Work in this order. Earlier slices unblock later ones.
 
 ## Phase 3: Rules and Advanced Routing UX
 
-**Ready to start.** Phase 2 delivered lightweight `routing_rules` persistence (save on dropdown change, re-apply on refresh). Phase 3 replaces/extends this with the full rule engine from `docs/specs/Rule_Engine_Spec.md` (priority, explainability, simulation, dedicated rules UI).
+**Complete for milestone gate (2026-07-09).** See `docs/product/Roadmap.md` for acceptance criteria and carry-over items.
 
-- [ ] Match by executable
-- [ ] Match by app name
-- [ ] Match by window class
-- [ ] Default categories
-- [ ] Define portable rule serialization format
-- [ ] Add rule simulation mode before apply
+- [x] Match by executable
+- [x] Match by app name
+- [x] Match by window class (best-effort from PipeWire metadata)
+- [x] Default categories
+- [x] Define portable rule serialization format (`rules[]` in `config.yaml`)
+- [x] Add rule simulation mode before apply
 - [ ] Add rule conflict/fallback test matrix
 - [ ] Add UI wireframe references
 - [ ] Add interaction timing targets
 - [ ] Define onboarding checklist and first-run helper behavior
+
+Carry-over to later phases:
+
+- [ ] Visual drag/connect routing editor
+- [ ] Rule edit UI (create/delete/enable exist; edit deferred)
+- [ ] Tray / system quick controls
 
 ## Phase 4: Persistence and Background Management
 

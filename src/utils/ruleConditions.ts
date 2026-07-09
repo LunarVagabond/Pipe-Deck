@@ -39,7 +39,7 @@ export const CONDITION_TYPE_OPTIONS: ConditionTypeMeta[] = [
     type: "window_class",
     label: "Window Class",
     description:
-      "The desktop window class when available. Helpful when executable and app name are ambiguous.",
+      "Best-effort desktop identity from PipeWire metadata (X11 class when present, otherwise application.id or icon name). May be unavailable on some Wayland setups.",
     example: "firefox",
     placeholder: "e.g. firefox",
   },

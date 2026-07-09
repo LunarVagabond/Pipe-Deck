@@ -75,8 +75,6 @@ Explicit carry-over to later phases (not Phase 2 blockers):
 - Full visual drag/connect routing editor (lines + dropdowns exist today)
 - Rule engine UI, explainability, simulation (see Phase 3)
 
-**Phase 3 is ready to start.**
-
 ## Phase 3: Rules and Advanced Routing UX
 
 ### Scope
@@ -98,6 +96,30 @@ Explicit carry-over to later phases (not Phase 2 blockers):
 - Rule outcomes are deterministic and auditable.
 - Manual override behavior is consistent with spec.
 - Users can identify and resolve routing conflicts quickly.
+
+### Phase 3 Status (2026-07-09)
+
+**Complete for milestone purposes.** Core acceptance criteria above are met.
+
+Delivered:
+
+- Full `rules[]` model with priority, enable/disable, CRUD, and one-time migration from `routing_rules`
+- Deterministic evaluator with explainability trace (`RouteExplanation` on each stream)
+- Dashboard explainability panel (collapsed summary + expanded detail)
+- Rules view: full-width table, **+ New Rule** modal, simulation preview
+- Matchers: `app_name`, `executable`, `media_name`, `direction`, `category`, `regex`, `window_class` (best-effort from PipeWire metadata)
+- Session manual-override tracking (cleared when user picks the same target the rule would apply)
+- Dry-run `simulate_rules` command and UI
+
+Explicit carry-over (not Phase 3 blockers):
+
+- Visual drag/connect routing graph editor
+- Tray / system quick controls
+- In-app rule **edit** flow (create, delete, enable/disable exist today)
+- `safeguards.fallback_policy` enforcement in evaluation
+- Dedicated conflict-resolution UI beyond skipped-candidate explanations
+
+**Phase 4 is ready to start.**
 
 ## Phase 4: Persistence and Background Management
 

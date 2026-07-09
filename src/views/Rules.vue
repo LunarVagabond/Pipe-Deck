@@ -626,7 +626,12 @@ onMounted(loadRules);
     </Teleport>
 
     <section v-if="showSimulation" class="rules-simulation">
-      <h3>Simulation preview</h3>
+      <div class="rules-simulation-header">
+        <h3>Simulation preview</h3>
+        <button type="button" class="rules-simulation-close" @click="showSimulation = false">
+          Close
+        </button>
+      </div>
       <article
         v-for="result in simulation"
         :key="result.stream_id"

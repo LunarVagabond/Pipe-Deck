@@ -64,7 +64,7 @@ devices: {}        # known device metadata and aliases
 routing_rules:     # lightweight persisted routes (Phase 2); see below
   stream_rules: []
   device_rules: []
-rules: []          # full rule engine definitions (Phase 3+)
+rules: []          # authored auto-routing rules (Phase 3+)
 plugins: {}        # plugin enablement (Phase 5+)
 diagnostics:
   verbosity: normal
@@ -98,30 +98,74 @@ rule_overrides: []      # optional (Phase 3+)
 - **Device assumptions:** optional hints for restore (e.g., expected USB interface)
 - **Rule overrides:** optional rule activation overrides (Phase 3+)
 
-## Routing Rules (`config.yaml`, Phase 2)
+## Routing Rules (`config.yaml`)
 
-When a user picks a route from the dashboard matrix, Pipe Deck saves a lightweight rule so the choice survives idle streams and re-applies when audio starts again. This is **not** the Phase 3 rule engine — there is no priority stack, simulation UI, or explainability panel yet.
+Pipe Deck uses two complementary persistence layers for automatic routing.
+
+### Authored rules (`rules[]`, Phase 3+)
+
+User-defined policies with priority, conditions, enable/disable, and simulation. Evaluated by the rule engine in `src-tauri/src/core/rule_engine.rs`. See [Rule Engine Spec](./Rule_Engine_Spec.md).
+
+```yaml
+rules:
+  - id: firefox-hdmi
+    name: Firefox to HDMI
+    enabled: true
+    priority: 10
+    conditions:
+      - type: executable
+        value: firefox
+    action:
+      target_system_name: hdmi
+    safeguards:
+      fallback_policy: keep_current
+```
+
+#### Condition types
+
+| `type` | Fields | Notes |
+|--------|--------|-------|
+| `app_name` | `value` | PipeWire `application.name` |
+| `executable` | `value` | Process binary |
+| `media_name` | `value` | Disambiguates multiple streams per app |
+| `window_class` | `value` | Best-effort: `window.x11.class`, else `application.id`, else `application.icon-name` |
+| `direction` | `value` | `playback` or `capture` |
+| `category` | `value` | Heuristic bucket (`Game`, `Music`, `Chat`, etc.) |
+| `regex` | `field`, `pattern` | Match on `app_name`, `executable`, `media_name`, or `window_class` |
+
+#### Evaluation precedence
+
+1. Session manual overrides (dashboard picks that differ from the winning rule) block auto-apply for that stream identity.
+2. All matching authored rules and persisted stream rules are collected as candidates.
+3. Highest `priority` wins; ties break by candidate order.
+4. Authored rules typically use positive priority (default `10`). Dashboard-saved `routing_rules` use implicit low priority (`-1000` minus index) so authored rules win when both match.
+
+On first launch after upgrading from Phase 2-only configs, existing `routing_rules.stream_rules` are migrated into `rules[]` once (when `rules` is empty) and cleared from `routing_rules`.
+
+### Lightweight persisted routes (`routing_rules`, Phase 2+)
+
+When a user picks a route from the dashboard matrix, Pipe Deck also saves a lightweight rule so the choice survives idle streams and re-applies when audio starts again. These coexist with authored `rules[]` at lower priority.
 
 ```yaml
 routing_rules:
   stream_rules:
     - app_name: Firefox
       executable: firefox
-      target_system_name: pipe-deck-test          # virtual mic system name
+      target_system_name: pipe-deck-test
     - app_name: Soundux
-      media_name: miniaudio                       # optional disambiguation
+      media_name: miniaudio
       target_system_name: soundux_sink
   device_rules:
-    - source_system_name: soundux_sink            # virtual sink
-      target_system_name: pipe-deck-test          # hardware output or virtual mic
+    - source_system_name: soundux_sink
+      target_system_name: pipe-deck-test
 ```
 
-### Semantics
+#### Semantics
 
 - **stream_rules:** When a matching playback/capture stream appears, move it to `target_system_name`.
 - **device_rules:** Link virtual sink monitor ports to the target device (`pw-link` for sink→output or sink→virtual mic).
-- Rules are replaced per source (one stream rule per `app_name`, one device rule per `source_system_name`).
-- User-facing state is shown only in the dashboard graph (dropdown + connection lines), not a separate rules list.
+- Stream rules are replaced per composite identity key (`app_name` + optional `executable` + optional `media_name`), not per `app_name` alone.
+- Dashboard dropdown + connection lines show live state; the Rules view lists authored policies; explainability panels show why each stream routed.
 
 ## Profile Swap Semantics
 

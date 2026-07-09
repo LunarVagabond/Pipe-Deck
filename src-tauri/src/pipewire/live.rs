@@ -3,7 +3,7 @@ use crate::core::models::{
     Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
 };
 use crate::core::rule_engine::ApplyRulesContext;
-use crate::core::stream_identity::parse_stream_identity;
+use crate::core::stream_identity::{parse_stream_identity, parse_window_class};
 use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
 use crate::pipewire::pactl;
 use crate::pipewire::pw_link;
@@ -172,11 +172,12 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
 
             if media_class.contains("Stream/Output") {
                 let (app_name, executable) = parse_stream_identity(&props);
+                let window_class = parse_window_class(&props);
                 streams.push(Stream {
                     id: id.clone(),
                     app_name,
                     executable,
-                    window_class: None,
+                    window_class,
                     system_name: if node_name.is_empty() {
                         None
                     } else {
@@ -193,11 +194,12 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
 
             if media_class.contains("Stream/Input") {
                 let (app_name, executable) = parse_stream_identity(&props);
+                let window_class = parse_window_class(&props);
                 streams.push(Stream {
                     id: id.clone(),
                     app_name,
                     executable,
-                    window_class: None,
+                    window_class,
                     system_name: if node_name.is_empty() {
                         None
                     } else {
