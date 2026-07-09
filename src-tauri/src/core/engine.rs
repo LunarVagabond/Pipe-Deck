@@ -912,9 +912,29 @@ fn merge_virtual_devices(
     registry: &VirtualDeviceRegistry,
     device_id_remap: &mut HashMap<String, String>,
 ) {
+    let multi_by_name: HashMap<String, bool> = ConfigStore::new()
+        .virtual_devices()
+        .into_iter()
+        .map(|spec| (format!("pipe-deck-{}", spec.slug), spec.multi))
+        .collect();
+
     let mut id_remap = HashMap::new();
 
     for entry in registry.list_devices() {
+        let sink_mode = if entry.direction == crate::core::models::DeviceDirection::Output {
+            let multi = multi_by_name
+                .get(&entry.system_name)
+                .copied()
+                .unwrap_or(entry.multi);
+            Some(if multi {
+                crate::core::models::SinkMode::Multi
+            } else {
+                crate::core::models::SinkMode::Single
+            })
+        } else {
+            None
+        };
+
         if let Some(device) = graph
             .devices
             .iter_mut()
@@ -927,6 +947,7 @@ fn merge_virtual_devices(
             device.label = entry.label.clone();
             device.kind = crate::core::models::DeviceKind::Virtual;
             device.direction = entry.direction.clone();
+            device.sink_mode = sink_mode;
             if device.volume_percent.is_none() {
                 device.volume_percent = Some(100);
             }
@@ -934,7 +955,9 @@ fn merge_virtual_devices(
                 device.muted = Some(false);
             }
         } else {
-            graph.devices.push(entry.to_device());
+            let mut device = entry.to_device();
+            device.sink_mode = sink_mode;
+            graph.devices.push(device);
         }
     }
 

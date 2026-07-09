@@ -52,6 +52,9 @@ pub fn apply_sink_targets(
             &target.system_name,
             target_is_virtual_source,
         )?;
+        let mut allowed = HashSet::new();
+        allowed.insert(target.system_name.clone());
+        prune_stale_fan_out_links(&sink.system_name, &allowed)?;
         return Ok(());
     }
 

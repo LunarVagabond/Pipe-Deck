@@ -20,7 +20,7 @@ pub fn link_sink_monitor_to_target(
         return Ok(());
     }
 
-    disconnect_sink_monitor(source_system_name)?;
+    disconnect_sink_monitor_route(source_system_name, target_system_name)?;
 
     for (monitor_suffix, input_suffix) in suffix_pairs {
         let output_port = format!("{source_system_name}{monitor_suffix}");
