@@ -42,6 +42,53 @@ export function deviceColumn(device: Device): NodeColumn | null {
   return null;
 }
 
+export type RuleTargetKind = "output" | "input";
+
+export function isSelectableOutputTarget(device: Device): boolean {
+  if (device.system_name.startsWith("pipe-deck-feed-")) {
+    return false;
+  }
+  return device.direction === "output" || device.direction === "duplex";
+}
+
+export function isSelectableInputTarget(device: Device): boolean {
+  if (device.system_name.startsWith("pipe-deck-feed-")) {
+    return false;
+  }
+  return device.direction === "input" || device.direction === "duplex";
+}
+
+export function devicesForTargetKind(
+  devices: Device[],
+  kind: RuleTargetKind,
+): Device[] {
+  const predicate =
+    kind === "output" ? isSelectableOutputTarget : isSelectableInputTarget;
+  return devices.filter(predicate).sort((left, right) => {
+    const leftVirtual = left.kind === "virtual" ? 0 : 1;
+    const rightVirtual = right.kind === "virtual" ? 0 : 1;
+    if (leftVirtual !== rightVirtual) {
+      return leftVirtual - rightVirtual;
+    }
+    return left.label.localeCompare(right.label);
+  });
+}
+
+export function inferRuleTargetKind(
+  device: Device | undefined,
+): RuleTargetKind {
+  if (!device) {
+    return "output";
+  }
+  return isSelectableInputTarget(device) && device.direction === "input"
+    ? "input"
+    : "output";
+}
+
+export function ruleTargetKindLabel(kind: RuleTargetKind): string {
+  return kind === "output" ? "Output" : "Input";
+}
+
 export function targetLabel(device: Device): string {
   if (device.kind === "virtual" && device.direction === "input") {
     return `${device.label} (virtual mic)`;
@@ -58,6 +105,7 @@ export function deviceSubtitle(device: Device): string {
 
 export function streamSubtitle(stream: {
   app_name: string;
+  executable?: string;
   media_name?: string;
   direction: string;
   is_system?: boolean;
@@ -66,7 +114,11 @@ export function streamSubtitle(stream: {
     return "System stream";
   }
   if (stream.media_name && stream.media_name !== stream.app_name) {
-    return stream.media_name;
+    const suffix = stream.executable ? ` · ${stream.executable}` : "";
+    return `${stream.media_name}${suffix}`;
+  }
+  if (stream.executable && stream.executable !== stream.app_name) {
+    return stream.executable;
   }
   return stream.direction === "capture" ? "Capture stream" : "Playback stream";
 }

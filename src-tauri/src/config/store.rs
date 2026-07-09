@@ -1,4 +1,4 @@
-use crate::core::models::{AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry, RoutingRulesConfig};
+use crate::core::models::{AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry, Rule, RoutingRulesConfig};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -44,7 +44,7 @@ impl ConfigStore {
             .unwrap_or_else(|_| PathBuf::from(".pipe-deck"))
     }
 
-    fn default_config() -> AppConfig {
+    pub fn default_config() -> AppConfig {
         AppConfig {
             version: 1,
             active_profile: Some("default".into()),
@@ -56,6 +56,7 @@ impl ConfigStore {
             devices: HashMap::new(),
             preferences: Preferences::default(),
             routing_rules: RoutingRulesConfig::default(),
+            rules: Vec::new(),
         }
     }
 
@@ -158,5 +159,35 @@ impl ConfigStore {
 
     pub fn list_profiles(&self) -> Result<Vec<ProfileIndexEntry>, ConfigError> {
         Ok(self.load_config()?.profile_index)
+    }
+
+    pub fn list_rules(&self) -> Result<Vec<Rule>, ConfigError> {
+        Ok(self.load_config()?.rules)
+    }
+
+    pub fn save_rule(&self, rule: Rule) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        if let Some(existing) = config.rules.iter_mut().find(|item| item.id == rule.id) {
+            *existing = rule;
+        } else {
+            config.rules.push(rule);
+        }
+        config.rules.sort_by(|left, right| right.priority.cmp(&left.priority));
+        self.save_config(&config)
+    }
+
+    pub fn delete_rule(&self, rule_id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.rules.retain(|rule| rule.id != rule_id);
+        self.save_config(&config)
+    }
+
+    pub fn toggle_rule(&self, rule_id: &str, enabled: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(rule) = config.rules.iter_mut().find(|rule| rule.id == rule_id) else {
+            return Err(ConfigError::Read(format!("rule not found: {rule_id}")));
+        };
+        rule.enabled = enabled;
+        self.save_config(&config)
     }
 }

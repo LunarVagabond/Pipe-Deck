@@ -2,9 +2,11 @@ use crate::config::profile_store::{import_profile_archive, ProfileStore};
 use crate::config::ConfigStore;
 use crate::core::models::{
     ApplyResult, DeviceRouteIntent, Profile, ProfileIndexEntry, RoutingIntent, RuntimeGraph,
-    VirtualDeviceResult,
+    Rule, SimulationResult, VirtualDeviceResult,
 };
 use crate::core::profile::{capture_profile_from_graph, update_profile_timestamp};
+use crate::core::rule_engine::{self, ApplyRulesContext};
+use crate::core::stream_identity::StreamIdentityKey;
 use crate::core::routing::{
     apply_device_route_intent, apply_profile_routing, apply_profile_volumes, apply_routing_intent,
     capture_routing_snapshot, restore_routing_snapshot, RoutingSnapshot,
@@ -38,6 +40,7 @@ pub struct CoreEngine {
     virtual_registry: Arc<VirtualDeviceRegistry>,
     device_id_remap: HashMap<String, String>,
     last_error: Option<String>,
+    manual_overrides: HashSet<StreamIdentityKey>,
 }
 
 impl CoreEngine {
@@ -49,6 +52,7 @@ impl CoreEngine {
             virtual_registry: VirtualDeviceRegistry::new(),
             device_id_remap: HashMap::new(),
             last_error: None,
+            manual_overrides: HashSet::new(),
         }
     }
 
@@ -76,6 +80,7 @@ impl CoreEngine {
         ConfigStore::new()
             .ensure_layout()
             .map_err(|error| EngineError::Config(error.to_string()))?;
+        let _ = rule_engine::ensure_rules_migrated();
 
         if std::env::var("PIPE_DECK_USE_MOCK").as_deref() != Ok("1") {
             self.virtual_registry
@@ -112,9 +117,7 @@ impl CoreEngine {
             &self.virtual_registry,
             &mut self.device_id_remap,
         );
-        if self.graph.data_source != "mock" {
-            crate::pipewire::live::apply_graph_routing(&mut self.graph);
-        }
+        self.apply_routing_rules();
         Ok(())
     }
 
@@ -125,8 +128,61 @@ impl CoreEngine {
             &self.virtual_registry,
             &mut self.device_id_remap,
         );
-        if self.graph.data_source != "mock" {
-            crate::pipewire::live::apply_graph_routing(&mut self.graph);
+        self.apply_routing_rules();
+    }
+
+    fn apply_routing_rules(&mut self) {
+        let config = ConfigStore::new()
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
+        rule_engine::reconcile_manual_overrides(
+            &self.graph,
+            &mut self.manual_overrides,
+            &config.rules,
+            &config.routing_rules.stream_rules,
+        );
+
+        let ctx = ApplyRulesContext {
+            manual_overrides: &self.manual_overrides,
+            dry_run: false,
+            mock_graph_only: self.graph.data_source == "mock",
+        };
+        crate::pipewire::live::apply_graph_routing(&mut self.graph, &ctx);
+    }
+
+    fn sync_manual_override_for_ids(&mut self, stream_id: &str, target_device_id: &str) {
+        let config = ConfigStore::new()
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
+        let Some((stream, target_system_name)) = (|| {
+            let stream = self
+                .graph
+                .streams
+                .iter()
+                .find(|stream| stream.id == stream_id)?
+                .clone();
+            let target_system_name = self
+                .graph
+                .devices
+                .iter()
+                .find(|device| device.id == target_device_id)?
+                .system_name
+                .clone();
+            Some((stream, target_system_name))
+        })() else {
+            return;
+        };
+
+        let identity = crate::core::stream_identity::stream_identity_key(&stream);
+        if rule_engine::should_track_manual_override(
+            &stream,
+            &target_system_name,
+            &config.rules,
+            &config.routing_rules.stream_rules,
+        ) {
+            self.manual_overrides.insert(identity);
+        } else {
+            self.manual_overrides.remove(&identity);
         }
     }
 
@@ -294,11 +350,26 @@ impl CoreEngine {
             ) {
                 let _ = crate::core::routing_rules::save_stream_route_rule(stream, target);
             }
+        } else if let (Some(stream), Some(target)) = (
+            self.graph
+                .streams
+                .iter()
+                .find(|stream| stream.id == intent.stream_id),
+            self.graph
+                .devices
+                .iter()
+                .find(|device| device.id == intent.target_device_id),
+        ) {
+            let _ = crate::core::routing_rules::save_stream_route_rule(stream, target);
         }
+
+        self.sync_manual_override_for_ids(&intent.stream_id, &intent.target_device_id);
 
         self.rollback_stack.push(snapshot);
         if self.graph.data_source != "mock" {
             self.refresh_graph()?;
+        } else {
+            self.apply_routing_rules();
         }
         Ok(ApplyResult {
             success: true,
@@ -560,6 +631,34 @@ impl CoreEngine {
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())
+    }
+
+    pub fn list_rules(&self) -> Result<Vec<Rule>, EngineError> {
+        ConfigStore::new()
+            .list_rules()
+            .map_err(|error| EngineError::Config(error.to_string()))
+    }
+
+    pub fn save_rule(&self, rule: Rule) -> Result<(), EngineError> {
+        ConfigStore::new()
+            .save_rule(rule)
+            .map_err(|error| EngineError::Config(error.to_string()))
+    }
+
+    pub fn delete_rule(&self, rule_id: &str) -> Result<(), EngineError> {
+        ConfigStore::new()
+            .delete_rule(rule_id)
+            .map_err(|error| EngineError::Config(error.to_string()))
+    }
+
+    pub fn toggle_rule(&self, rule_id: &str, enabled: bool) -> Result<(), EngineError> {
+        ConfigStore::new()
+            .toggle_rule(rule_id, enabled)
+            .map_err(|error| EngineError::Config(error.to_string()))
+    }
+
+    pub fn simulate_rules(&self) -> Vec<SimulationResult> {
+        rule_engine::simulate_rules(&self.graph)
     }
 }
 

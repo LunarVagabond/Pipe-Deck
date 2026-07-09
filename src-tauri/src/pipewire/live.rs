@@ -2,6 +2,8 @@ use crate::config::ConfigStore;
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
 };
+use crate::core::rule_engine::ApplyRulesContext;
+use crate::core::stream_identity::parse_stream_identity;
 use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
 use crate::pipewire::pactl;
 use crate::pipewire::pw_link;
@@ -118,11 +120,11 @@ pub fn enrich_graph_from_pactl(graph: &mut RuntimeGraph) {
     apply_pactl_playback_targets(graph);
 }
 
-pub fn apply_graph_routing(graph: &mut RuntimeGraph) {
+pub fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>) {
     gc_feed_sinks(graph);
     apply_pactl_playback_targets(graph);
     apply_pw_link_device_routes(graph);
-    let _ = crate::core::routing_rules::apply_persisted_routing_rules(graph);
+    let _ = crate::core::routing_rules::apply_persisted_routing_rules(graph, ctx);
     apply_pactl_playback_targets(graph);
     apply_routing_visual_links(graph);
 }
@@ -169,9 +171,12 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
             let id = node_id(object.id);
 
             if media_class.contains("Stream/Output") {
+                let (app_name, executable) = parse_stream_identity(&props);
                 streams.push(Stream {
                     id: id.clone(),
-                    app_name: stream_label(&props),
+                    app_name,
+                    executable,
+                    window_class: None,
                     system_name: if node_name.is_empty() {
                         None
                     } else {
@@ -181,14 +186,18 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     current_target: None,
                     media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
+                    route_explanation: None,
                 });
                 continue;
             }
 
             if media_class.contains("Stream/Input") {
+                let (app_name, executable) = parse_stream_identity(&props);
                 streams.push(Stream {
                     id: id.clone(),
-                    app_name: stream_label(&props),
+                    app_name,
+                    executable,
+                    window_class: None,
                     system_name: if node_name.is_empty() {
                         None
                     } else {
@@ -198,6 +207,7 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     current_target: None,
                     media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
+                    route_explanation: None,
                 });
                 continue;
             }
@@ -565,22 +575,6 @@ fn prettify_node_name(node_name: &str) -> String {
         .join(" ")
 }
 
-fn stream_label(props: &serde_json::Map<String, Value>) -> String {
-    for key in [
-        "application.name",
-        "application.process.binary",
-        "media.name",
-        "node.nick",
-        "node.name",
-    ] {
-        let value = prop_str(props, key);
-        if !value.is_empty() {
-            return value;
-        }
-    }
-    "Unknown Stream".into()
-}
-
 fn stream_media_name(props: &serde_json::Map<String, Value>) -> Option<String> {
     let media_name = prop_str(props, "media.name");
     if media_name.is_empty() {
@@ -601,6 +595,8 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
         graph.streams.push(Stream {
             id: format!("pactl-sink-input-{}", input.index),
             app_name: input.application_name.clone(),
+            executable: input.executable.clone(),
+            window_class: None,
             system_name: input.node_name.clone(),
             direction: StreamDirection::Playback,
             current_target: input
@@ -609,6 +605,7 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
                 .and_then(|sink_name| resolve_playback_target_device_id(graph, &sink_name)),
             media_name: input.media_name.clone(),
             is_system: is_system_stream_name(&input.application_name, &input.node_name),
+            route_explanation: None,
         });
     }
 }
@@ -749,7 +746,13 @@ fn stream_matches_pactl_input(stream: &Stream, input: &pactl::PactlSinkInput) ->
     }
 
     if stream.app_name != input.application_name {
-        return false;
+        if stream
+            .executable
+            .as_deref()
+            .is_none_or(|executable| executable != input.application_name)
+        {
+            return false;
+        }
     }
 
     match (&stream.media_name, &input.media_name) {
@@ -887,11 +890,14 @@ mod tests {
         graph.streams.push(Stream {
             id: "node-42".into(),
             app_name: "Firefox".into(),
+            executable: Some("firefox".into()),
+            window_class: None,
             system_name: Some("Firefox".into()),
             direction: StreamDirection::Playback,
             current_target: target,
             media_name: None,
             is_system: false,
+            route_explanation: None,
         });
         apply_routing_visual_links(&mut graph);
 

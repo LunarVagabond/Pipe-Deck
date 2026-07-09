@@ -106,6 +106,7 @@ When a user picks a route from the dashboard matrix, Pipe Deck saves a lightweig
 routing_rules:
   stream_rules:
     - app_name: Firefox
+      executable: firefox
       target_system_name: pipe-deck-test          # virtual mic system name
     - app_name: Soundux
       media_name: miniaudio                       # optional disambiguation

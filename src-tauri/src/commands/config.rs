@@ -2,16 +2,7 @@ use crate::config::ConfigStore;
 
 #[tauri::command]
 pub fn get_config() -> crate::core::models::AppConfig {
-    ConfigStore::new().load_config().unwrap_or_else(|_| {
-        crate::core::models::AppConfig {
-            version: 1,
-            active_profile: None,
-            profile_index: vec![],
-            preferences: crate::core::models::Preferences::default(),
-            devices: std::collections::HashMap::new(),
-            routing_rules: crate::core::models::RoutingRulesConfig::default(),
-        }
-    })
+    ConfigStore::new().load_config().unwrap_or_else(|_| ConfigStore::default_config())
 }
 
 #[tauri::command]

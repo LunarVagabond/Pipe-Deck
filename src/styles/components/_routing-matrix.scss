@@ -1,6 +1,8 @@
 .routing-matrix {
   position: relative;
   min-height: 420px;
+  width: 100%;
+  max-width: 100%;
   background: var(--surface-1);
   border: 1px solid var(--border);
   border-radius: 14px;
@@ -8,6 +10,7 @@
   overflow-x: auto;
   overflow-y: visible;
   -webkit-overflow-scrolling: touch;
+  scrollbar-gutter: stable;
 }
 
 .routing-matrix .connections {

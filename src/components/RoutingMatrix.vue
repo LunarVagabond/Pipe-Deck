@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import RouteExplanationPanel from "./RouteExplanationPanel.vue";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import { useApplyResult } from "../stores/notices";
 import type { Device, RuntimeGraph, Stream } from "../types/graph";
@@ -264,6 +265,7 @@ function accentForDevice(device: Device): string | undefined {
               <span class="routing-label">Route to</span>
               <select
                 class="routing-select"
+                :data-stream-route-select="stream.id"
                 :value="stream.current_target ?? ''"
                 @change="onTargetChange(stream.id, $event)"
               >
@@ -277,6 +279,7 @@ function accentForDevice(device: Device): string | undefined {
                 </option>
               </select>
             </div>
+            <RouteExplanationPanel :stream="stream" :devices="graph.devices" />
           </div>
         </div>
       </section>

@@ -1,0 +1,72 @@
+.route-explanation {
+  margin-top: 0.35rem;
+}
+
+.route-explanation-toggle {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.2rem 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.route-explanation-toggle:hover {
+  color: var(--text-primary);
+}
+
+.route-explanation-summary {
+  flex: 1;
+}
+
+.route-explanation-chevron {
+  color: var(--accent-purple);
+}
+
+.route-explanation-detail {
+  margin-top: 0.35rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.45rem;
+  background: rgba(124, 92, 255, 0.08);
+  border: 1px solid rgba(124, 92, 255, 0.18);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.route-explanation-row {
+  display: grid;
+  grid-template-columns: 4.5rem 1fr;
+  gap: 0.35rem 0.5rem;
+  margin-bottom: 0.35rem;
+}
+
+.route-explanation-row ul {
+  margin: 0;
+  padding-left: 1rem;
+}
+
+.route-explanation-label {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.route-explanation-fix {
+  margin-top: 0.25rem;
+  padding: 0.2rem 0.45rem;
+  border: 1px solid rgba(124, 92, 255, 0.35);
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--accent-purple);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.route-explanation-fix:hover {
+  background: rgba(124, 92, 255, 0.12);
+}

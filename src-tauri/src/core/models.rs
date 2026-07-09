@@ -44,6 +44,10 @@ pub struct Stream {
     pub id: String,
     pub app_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub executable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub system_name: Option<String>,
     pub direction: StreamDirection,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,6 +56,8 @@ pub struct Stream {
     pub media_name: Option<String>,
     #[serde(default)]
     pub is_system: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub route_explanation: Option<RouteExplanation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -113,14 +119,122 @@ pub struct AppConfig {
     pub devices: std::collections::HashMap<String, DeviceAliasEntry>,
     #[serde(default)]
     pub routing_rules: RoutingRulesConfig,
+    #[serde(default)]
+    pub rules: Vec<Rule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RouteSource {
+    ManualOverride,
+    PersistedRule,
+    AuthoredRule,
+    NoRule,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ActionStatus {
+    Applied,
+    Blocked,
+    SkippedManualOverride,
+    TargetUnavailable,
+    Simulated,
+    NoAction,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SkippedCandidate {
+    pub rule_key: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteExplanation {
+    pub source: RouteSource,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_rule_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub matched_rule_key: Option<String>,
+    pub match_reasons: Vec<String>,
+    pub skipped_candidates: Vec<SkippedCandidate>,
+    pub action_status: ActionStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub target_system_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StreamRouteRule {
-    pub app_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub app_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executable: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_name: Option<String>,
     pub target_system_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Rule {
+    pub id: String,
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub priority: i32,
+    #[serde(default)]
+    pub conditions: Vec<RuleCondition>,
+    pub action: RuleAction,
+    #[serde(default)]
+    pub safeguards: RuleSafeguards,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum RuleCondition {
+    AppName { value: String },
+    Executable { value: String },
+    WindowClass { value: String },
+    MediaName { value: String },
+    Direction { value: StreamDirection },
+    Category { value: String },
+    Regex { field: String, pattern: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuleAction {
+    pub target_system_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum FallbackPolicy {
+    KeepCurrent,
+    SafeDefault,
+}
+
+impl Default for FallbackPolicy {
+    fn default() -> Self {
+        Self::KeepCurrent
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RuleSafeguards {
+    #[serde(default)]
+    pub fallback_policy: FallbackPolicy,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SimulationResult {
+    pub stream_id: String,
+    pub explanation: RouteExplanation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub would_target_device_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -8,6 +8,7 @@ use std::process::Command;
 pub struct PactlSinkInput {
     pub index: u32,
     pub application_name: String,
+    pub executable: Option<String>,
     pub node_name: Option<String>,
     pub media_name: Option<String>,
     pub sink_index: Option<u32>,
@@ -534,6 +535,14 @@ fn find_client_index(
         return Ok(entry.index);
     }
 
+    if let Some(executable) = &stream.executable {
+        if let Some(entry) = entries.iter().find(|entry| {
+            entry.application_name.as_deref() == Some(executable.as_str())
+        }) {
+            return Ok(entry.index);
+        }
+    }
+
     Err(AdapterError::Message(format!(
         "could not find pactl client for stream {}",
         stream.app_name
@@ -550,6 +559,7 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
     let mut inputs = Vec::new();
     let mut current_index = None;
     let mut current_app = None;
+    let mut current_executable = None;
     let mut current_node = None;
     let mut current_media = None;
     let mut current_sink = None;
@@ -562,6 +572,7 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
                     inputs.push(PactlSinkInput {
                         index,
                         application_name,
+                        executable: current_executable.take(),
                         node_name: current_node.take(),
                         media_name: current_media.take(),
                         sink_index: current_sink.take(),
@@ -569,10 +580,15 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
                 }
             }
             current_index = rest.parse().ok();
+            current_executable = None;
             continue;
         }
         if let Some(rest) = line.strip_prefix("application.name = ") {
             current_app = Some(rest.trim_matches('"').to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("application.process.binary = ") {
+            current_executable = Some(rest.trim_matches('"').to_string());
             continue;
         }
         if let Some(rest) = line.strip_prefix("node.name = ") {
@@ -593,6 +609,7 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
             inputs.push(PactlSinkInput {
                 index,
                 application_name,
+                executable: current_executable,
                 node_name: current_node,
                 media_name: current_media,
                 sink_index: current_sink,

@@ -4,12 +4,14 @@ import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import Dashboard from "./views/Dashboard.vue";
 import Profiles from "./views/Profiles.vue";
+import Rules from "./views/Rules.vue";
 import { useApplyResult } from "./stores/notices";
 import type { AppView } from "./types/graph";
 
 const navItems: { id: AppView; label: string; enabled: boolean }[] = [
   { id: "dashboard", label: "Dashboard", enabled: true },
   { id: "profiles", label: "Profiles", enabled: true },
+  { id: "rules", label: "Rules", enabled: true },
   { id: "routing", label: "Routing", enabled: false },
   { id: "mixer", label: "Mixer", enabled: false },
   { id: "sources", label: "Sources", enabled: false },
@@ -83,6 +85,7 @@ async function createVirtual(kind: "output" | "input") {
       <main class="content">
         <Dashboard v-if="activeView === 'dashboard'" />
         <Profiles v-else-if="activeView === 'profiles'" />
+        <Rules v-else-if="activeView === 'rules'" />
       </main>
     </div>
 
