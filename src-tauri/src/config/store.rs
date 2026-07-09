@@ -119,6 +119,15 @@ impl ConfigStore {
                 alias: alias.to_string(),
             },
         );
+        if let Some(slug) = system_name
+            .strip_prefix("pipe-deck-")
+            .filter(|_| !system_name.starts_with("pipe-deck-feed-"))
+        {
+            if let Some(entry) = config.virtual_devices.iter_mut().find(|entry| entry.slug == slug)
+            {
+                entry.label = alias.to_string();
+            }
+        }
         self.save_config(&config)
     }
 

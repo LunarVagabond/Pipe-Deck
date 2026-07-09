@@ -70,6 +70,10 @@ impl CoreEngine {
         &self.graph
     }
 
+    pub fn virtual_registry(&self) -> &Arc<VirtualDeviceRegistry> {
+        &self.virtual_registry
+    }
+
     pub fn last_error(&self) -> Option<&str> {
         self.last_error.as_deref()
     }
@@ -960,6 +964,9 @@ fn merge_virtual_devices(
             graph.devices.push(device);
         }
     }
+
+    crate::pipewire::live::apply_device_aliases(&mut graph.devices);
+    crate::pipewire::live::apply_device_levels(&mut graph.devices);
 
     for (old_id, new_id) in id_remap {
         device_id_remap.insert(old_id.clone(), new_id.clone());

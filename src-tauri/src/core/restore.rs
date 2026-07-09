@@ -263,6 +263,8 @@ pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, registry: &VirtualDev
             graph.devices.push(device);
         }
     }
+
+    crate::pipewire::live::apply_device_aliases(&mut graph.devices);
 }
 
 pub fn spec_from_create_result(

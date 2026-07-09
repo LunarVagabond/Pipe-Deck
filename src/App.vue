@@ -27,6 +27,7 @@ const activeView = ref<AppView>("dashboard");
 const daemonStatus = ref("Checking…");
 const showNewModal = ref(false);
 const newDeviceName = ref("");
+const canCreateVirtual = computed(() => newDeviceName.value.trim().length > 0);
 const { handleApplyResult } = useApplyResult();
 
 const topbarTitle = computed(() => {
@@ -70,7 +71,8 @@ async function refreshPluginPanels() {
 }
 
 async function createVirtual(kind: "output" | "input" | "multi") {
-  const name = newDeviceName.value.trim() || (kind === "input" ? "Virtual Input" : "Virtual Output");
+  const name = newDeviceName.value.trim();
+  if (!name) return;
   const command =
     kind === "input"
       ? "create_virtual_input"
@@ -142,12 +144,13 @@ async function createVirtual(kind: "output" | "input" | "multi") {
     <div v-if="showNewModal" class="new-device-modal" @click.self="showNewModal = false">
       <div class="new-device-dialog">
         <h2>Create virtual device</h2>
-        <input v-model="newDeviceName" type="text" placeholder="Device name" />
+        <input v-model="newDeviceName" type="text" placeholder="e.g. Game Mix" />
+        <p class="new-device-hint">Display name can include spaces. The system id uses dashes (Game Mix → pipe-deck-game-mix).</p>
         <div class="dialog-actions">
           <button type="button" @click="showNewModal = false">Cancel</button>
-          <button type="button" class="primary" @click="createVirtual('input')">Virtual input</button>
-          <button type="button" class="primary" @click="createVirtual('output')">Virtual output</button>
-          <button type="button" class="primary" @click="createVirtual('multi')">Multi output</button>
+          <button type="button" class="primary" :disabled="!canCreateVirtual" @click="createVirtual('input')">Virtual input</button>
+          <button type="button" class="primary" :disabled="!canCreateVirtual" @click="createVirtual('output')">Virtual output</button>
+          <button type="button" class="primary" :disabled="!canCreateVirtual" @click="createVirtual('multi')">Multi output</button>
         </div>
       </div>
     </div>

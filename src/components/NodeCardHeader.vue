@@ -5,6 +5,8 @@ const props = defineProps<{
   label: string;
   editable?: boolean;
   deletable?: boolean;
+  layout?: "inline" | "stacked";
+  showLabelTooltip?: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -59,54 +61,112 @@ function onKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="node-card-header">
-    <div class="node-card-title">
-      <input
-        v-if="editing && editable"
-        ref="inputRef"
-        v-model="draft"
-        class="node-card-title-input"
-        @blur="commitEdit"
-        @keydown="onKeydown"
-      />
-      <strong v-else>{{ label }}</strong>
-    </div>
-    <div v-if="editable || deletable" class="node-card-actions">
-      <button
-        v-if="editable"
-        type="button"
-        class="icon-btn edit-btn"
-        aria-label="Rename"
-        @click="startEdit"
+  <div class="node-card-header" :class="{ 'is-stacked': layout === 'stacked' }">
+    <template v-if="layout === 'stacked'">
+      <div
+        v-if="editable || deletable || $slots['toolbar-extra']"
+        class="node-card-toolbar"
       >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12L15.62 4.5a1.5 1.5 0 0 0-2.12 0L3 15v5z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.75"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </button>
-      <button
-        v-if="deletable"
-        type="button"
-        class="icon-btn delete-btn"
-        aria-label="Delete"
-        @click="emit('delete')"
-      >
-        <svg viewBox="0 0 24 24" aria-hidden="true">
-          <path
-            d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-1 12H10a2 2 0 0 1-2-2V7h10v10a2 2 0 0 1-2 2z"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="1.75"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          />
-        </svg>
-      </button>
-    </div>
+        <div v-if="editable || deletable" class="node-card-actions">
+          <button
+            v-if="editable"
+            type="button"
+            class="icon-btn edit-btn"
+            aria-label="Rename"
+            @click="startEdit"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12L15.62 4.5a1.5 1.5 0 0 0-2.12 0L3 15v5z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+          <button
+            v-if="deletable"
+            type="button"
+            class="icon-btn delete-btn"
+            aria-label="Delete"
+            @click="emit('delete')"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-1 12H10a2 2 0 0 1-2-2V7h10v10a2 2 0 0 1-2 2z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.75"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
+        <slot name="toolbar-extra" />
+      </div>
+      <div class="node-card-title">
+        <input
+          v-if="editing && editable"
+          ref="inputRef"
+          v-model="draft"
+          class="node-card-title-input"
+          @blur="commitEdit"
+          @keydown="onKeydown"
+        />
+        <strong v-else :title="showLabelTooltip ? label : undefined">{{ label }}</strong>
+      </div>
+    </template>
+    <template v-else>
+      <div class="node-card-title">
+        <input
+          v-if="editing && editable"
+          ref="inputRef"
+          v-model="draft"
+          class="node-card-title-input"
+          @blur="commitEdit"
+          @keydown="onKeydown"
+        />
+        <strong v-else :title="showLabelTooltip ? label : undefined">{{ label }}</strong>
+      </div>
+      <div v-if="editable || deletable" class="node-card-actions">
+        <button
+          v-if="editable"
+          type="button"
+          class="icon-btn edit-btn"
+          aria-label="Rename"
+          @click="startEdit"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 20h4l10.5-10.5a1.5 1.5 0 0 0 0-2.12L15.62 4.5a1.5 1.5 0 0 0-2.12 0L3 15v5z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+        <button
+          v-if="deletable"
+          type="button"
+          class="icon-btn delete-btn"
+          aria-label="Delete"
+          @click="emit('delete')"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path
+              d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2m-1 12H10a2 2 0 0 1-2-2V7h10v10a2 2 0 0 1-2 2z"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.75"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
+      </div>
+    </template>
   </div>
 </template>

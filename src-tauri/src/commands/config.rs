@@ -1,4 +1,6 @@
 use crate::config::ConfigStore;
+use crate::AppState;
+use tauri::State;
 
 #[tauri::command]
 pub fn get_config() -> crate::core::models::AppConfig {
@@ -11,7 +13,12 @@ pub fn list_profiles() -> Vec<crate::core::models::ProfileIndexEntry> {
 }
 
 #[tauri::command]
-pub fn set_device_alias(system_name: String, alias: String) -> Result<(), String> {
+pub async fn set_device_alias(
+    system_name: String,
+    alias: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     ConfigStore::new()
         .set_device_alias(&system_name, &alias)
         .map_err(|error| error.to_string())?;
@@ -20,6 +27,16 @@ pub fn set_device_alias(system_name: String, alias: String) -> Result<(), String
         let _ = crate::pipewire::pactl::sync_feed_sink_for_virtual_input(&system_name, &alias);
     }
 
+    {
+        let engine = state.engine.read().await;
+        if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
+            let _ = engine.virtual_registry().set_label(&system_name, &alias);
+        }
+    }
+
+    let mut engine = state.engine.write().await;
+    engine.refresh_graph().map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
     Ok(())
 }
 

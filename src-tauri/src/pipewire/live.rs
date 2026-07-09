@@ -343,10 +343,16 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
 
 fn finalize_graph(graph: &mut RuntimeGraph) {
     apply_device_aliases(&mut graph.devices);
-    apply_pactl_levels(&mut graph.devices);
+    apply_device_levels(&mut graph.devices);
 }
 
-fn apply_device_aliases(devices: &mut [Device]) {
+/// Refresh volume/mute from pactl. Virtual pipe-deck devices are merged after pw-dump
+/// enumeration, so callers must invoke this again once virtual devices are on the graph.
+pub fn apply_device_levels(devices: &mut [Device]) {
+    apply_pactl_levels(devices);
+}
+
+pub fn apply_device_aliases(devices: &mut [Device]) {
     let aliases = ConfigStore::new().device_aliases();
     for device in devices {
         if let Some(alias) = aliases.get(&device.system_name) {
@@ -374,6 +380,25 @@ fn apply_pactl_levels(devices: &mut [Device]) {
         if let Some(levels) = levels {
             device.volume_percent = levels.volume_percent;
             device.muted = levels.muted;
+        }
+
+        if device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output {
+            let monitor_name = format!("{}.monitor", device.system_name);
+            let Some(monitor) = source_levels.get(&monitor_name) else {
+                continue;
+            };
+            if monitor.muted == Some(true) {
+                device.muted = Some(true);
+            }
+            match (device.volume_percent, monitor.volume_percent) {
+                (Some(sink), Some(monitor_volume)) => {
+                    device.volume_percent = Some(sink.min(monitor_volume));
+                }
+                (None, Some(monitor_volume)) => {
+                    device.volume_percent = Some(monitor_volume);
+                }
+                _ => {}
+            }
         }
     }
 }

@@ -304,6 +304,18 @@
     background: var(--accent-purple);
     border-color: var(--accent-purple);
     color: #fff;
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+  }
+
+  .new-device-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--text-muted);
+    line-height: 1.4;
   }
 }
 

@@ -1,4 +1,5 @@
-use crate::core::models::{DeviceDirection, RuntimeGraph, StreamDirection};
+use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirection};
+use crate::config::store::ConfigStore;
 use crate::pipewire::adapter::AdapterError;
 use crate::pipewire::pw_link;
 use std::collections::HashMap;
@@ -299,19 +300,23 @@ pub fn set_device_volume(device_id: &str, graph: &RuntimeGraph, percent: u8) -> 
         .ok_or_else(|| AdapterError::Message(format!("device not found: {device_id}")))?;
 
     let percent = percent.min(100);
+    let volume_arg = format!("{percent}%");
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => {
-            run_pactl(&[
-                "set-sink-volume",
-                &device.system_name,
-                &format!("{percent}%"),
-            ])?;
+            run_pactl(&["set-sink-volume", &device.system_name, &volume_arg])?;
+            if uses_monitor_fan_out(device) {
+                run_pactl(&[
+                    "set-source-volume",
+                    &monitor_source_name(&device.system_name),
+                    &volume_arg,
+                ])?;
+            }
         }
         DeviceDirection::Input => {
             run_pactl(&[
                 "set-source-volume",
                 &device.system_name,
-                &format!("{percent}%"),
+                &volume_arg,
             ])?;
         }
     }
@@ -329,6 +334,13 @@ pub fn set_device_mute(device_id: &str, graph: &RuntimeGraph, muted: bool) -> Re
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => {
             run_pactl(&["set-sink-mute", &device.system_name, flag])?;
+            if uses_monitor_fan_out(device) {
+                run_pactl(&[
+                    "set-source-mute",
+                    &monitor_source_name(&device.system_name),
+                    flag,
+                ])?;
+            }
         }
         DeviceDirection::Input => {
             run_pactl(&["set-source-mute", &device.system_name, flag])?;
@@ -337,17 +349,34 @@ pub fn set_device_mute(device_id: &str, graph: &RuntimeGraph, muted: bool) -> Re
     Ok(())
 }
 
+fn uses_monitor_fan_out(device: &crate::core::models::Device) -> bool {
+    device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output
+}
+
+fn monitor_source_name(sink_system_name: &str) -> String {
+    format!("{sink_system_name}.monitor")
+}
+
 pub fn create_null_sink(name: &str, description: &str) -> Result<String, AdapterError> {
-    let description = escape_sink_property(description);
+    let props = description_module_args(description);
     let output = run_pactl(&[
         "load-module",
         "module-null-sink",
         &format!("sink_name={name}"),
-        &format!(
-            "sink_properties=device.description=\"{description}\" node.description=\"{description}\" node.nick=\"{description}\""
-        ),
+        &props[0],
+        &props[1],
+        &props[2],
     ])?;
     Ok(output.trim().to_string())
+}
+
+fn description_module_args(description: &str) -> [String; 3] {
+    let description = escape_sink_property(description);
+    [
+        format!("device.description=\"{description}\""),
+        format!("node.description=\"{description}\""),
+        format!("node.nick=\"{description}\""),
+    ]
 }
 
 fn escape_sink_property(value: &str) -> String {
@@ -357,12 +386,15 @@ fn escape_sink_property(value: &str) -> String {
 /// PipeWire does not provide `module-null-source`. Create a virtual capture
 /// endpoint using a null sink configured as an Audio/Source node.
 pub fn create_virtual_source(name: &str, description: &str) -> Result<String, AdapterError> {
+    let props = description_module_args(description);
     let output = run_pactl(&[
         "load-module",
         "module-null-sink",
         "media.class=Audio/Source/Virtual",
         &format!("sink_name={name}"),
-        &format!("sink_properties=device.description=\"{description}\""),
+        &props[0],
+        &props[1],
+        &props[2],
         "channel_map=front-left,front-right",
     ])?;
     Ok(output.trim().to_string())
@@ -371,13 +403,11 @@ pub fn create_virtual_source(name: &str, description: &str) -> Result<String, Ad
 pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, AdapterError> {
     let output = run_pactl(&["list", "modules", "short"])?;
     for line in output.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(index) = parts.next() else {
+        let Some((module_id, args)) = parse_module_short_line(line) else {
             continue;
         };
-        let args = parts.collect::<Vec<_>>().join(" ");
         if args.contains(&format!("sink_name={sink_name}")) {
-            return Ok(Some(index.to_string()));
+            return Ok(Some(module_id));
         }
     }
     Ok(None)
@@ -386,13 +416,12 @@ pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, Ad
 pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, AdapterError> {
     let output = run_pactl(&["list", "modules", "short"])?;
     let mut entries = Vec::new();
+    let config_labels = configured_virtual_labels();
 
     for line in output.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(module_id) = parts.next() else {
+        let Some((module_id, args)) = parse_module_short_line(line) else {
             continue;
         };
-        let args = parts.collect::<Vec<_>>().join(" ");
         let Some(system_name) = extract_arg_value(&args, "sink_name=") else {
             continue;
         };
@@ -406,10 +435,12 @@ pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, AdapterError>
         } else {
             DeviceDirection::Output
         };
-        let label = extract_description(&args).unwrap_or_else(|| system_name.clone());
+        let label = configured_label_for_system_name(&system_name, &config_labels)
+            .or_else(|| extract_description(&args))
+            .unwrap_or_else(|| system_name.clone());
 
         entries.push(PactlVirtualModule {
-            module_id: module_id.to_string(),
+            module_id,
             device_id: format!("virtual-{slug}"),
             system_name,
             label,
@@ -436,20 +467,58 @@ fn list_modules_for_sink_prefix(prefix: &str) -> Result<Vec<(String, String)>, A
     let mut entries = Vec::new();
 
     for line in output.lines() {
-        let mut parts = line.split_whitespace();
-        let Some(module_id) = parts.next() else {
+        let Some((module_id, args)) = parse_module_short_line(line) else {
             continue;
         };
-        let args = parts.collect::<Vec<_>>().join(" ");
         let Some(sink_name) = extract_arg_value(&args, "sink_name=") else {
             continue;
         };
         if sink_name.starts_with(prefix) {
-            entries.push((module_id.to_string(), sink_name));
+            entries.push((module_id, sink_name));
         }
     }
 
     Ok(entries)
+}
+
+/// `pactl list modules short` is tab-separated: index, module name, arguments.
+/// Arguments may contain spaces inside quoted property values.
+fn parse_module_short_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    if line.contains('\t') {
+        let mut parts = line.splitn(3, '\t');
+        let module_id = parts.next()?.trim().to_string();
+        let _module_name = parts.next()?;
+        let args = parts.next().unwrap_or("").trim().to_string();
+        return Some((module_id, args));
+    }
+
+    let mut parts = line.splitn(3, char::is_whitespace);
+    let module_id = parts.next()?.to_string();
+    let _module_name = parts.next()?;
+    let args = parts.next().unwrap_or("").to_string();
+    Some((module_id, args))
+}
+
+fn configured_virtual_labels() -> HashMap<String, String> {
+    let mut labels = ConfigStore::new().device_aliases();
+    for spec in ConfigStore::new().virtual_devices() {
+        labels
+            .entry(format!("pipe-deck-{}", spec.slug))
+            .or_insert(spec.label);
+    }
+    labels
+}
+
+fn configured_label_for_system_name(
+    system_name: &str,
+    labels: &HashMap<String, String>,
+) -> Option<String> {
+    labels.get(system_name).cloned()
 }
 
 fn extract_arg_value(args: &str, prefix: &str) -> Option<String> {
@@ -464,11 +533,22 @@ fn extract_arg_value(args: &str, prefix: &str) -> Option<String> {
 }
 
 fn extract_description(args: &str) -> Option<String> {
-    let marker = "device.description=\"";
+    // node.nick survives legacy sink_properties bundles that truncated device.description.
+    extract_quoted_property(args, "node.nick=\"")
+        .or_else(|| extract_quoted_property(args, "node.description=\""))
+        .or_else(|| extract_quoted_property(args, "device.description=\""))
+}
+
+fn extract_quoted_property(args: &str, marker: &str) -> Option<String> {
     let start = args.find(marker)? + marker.len();
     let rest = &args[start..];
     let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    let value = rest[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
 }
 
 pub fn unload_module(module_id: &str) -> Result<(), AdapterError> {
@@ -778,6 +858,35 @@ mod tests {
         assert_eq!(
             feed_sink_description("YouTube to Discord"),
             "YouTube to Discord (Pipe Deck route)"
+        );
+    }
+
+    #[test]
+    fn parse_module_short_line_preserves_quoted_spaces() {
+        let line = "42\tmodule-null-sink\tsink_name=pipe-deck-the-run node.description=\"The Run\" node.nick=\"The Run\" device.description=\"The Run\"";
+        let (id, args) = parse_module_short_line(line).unwrap();
+        assert_eq!(id, "42");
+        assert_eq!(
+            extract_arg_value(&args, "sink_name="),
+            Some("pipe-deck-the-run".into())
+        );
+        assert_eq!(extract_description(&args), Some("The Run".into()));
+    }
+
+    #[test]
+    fn parse_module_short_line_space_separated_args() {
+        let line = r#"12 module-null-sink sink_name=pipe-deck-game-mix node.description="Game Mix" node.nick="Game Mix" device.description="Game Mix""#;
+        let (id, args) = parse_module_short_line(line).unwrap();
+        assert_eq!(id, "12");
+        assert_eq!(extract_description(&args), Some("Game Mix".into()));
+    }
+
+    #[test]
+    fn extract_description_prefers_node_nick_for_legacy_modules() {
+        let args = r#"sink_name=pipe-deck-old sink_properties=device.description="Test" node.description="Test" node.nick="Test With Name Spaces""#;
+        assert_eq!(
+            extract_description(args),
+            Some("Test With Name Spaces".into())
         );
     }
 }

@@ -59,6 +59,18 @@ impl VirtualDeviceRegistry {
             .unwrap_or_default()
     }
 
+    pub fn set_label(&self, system_name: &str, label: &str) -> Result<(), AdapterError> {
+        let mut devices = self
+            .devices
+            .lock()
+            .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?;
+        let Some(entry) = devices.get_mut(system_name) else {
+            return Ok(());
+        };
+        entry.label = label.to_string();
+        Ok(())
+    }
+
     pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
         self.create_output_with_mode(name, false)
     }

@@ -1,7 +1,7 @@
 # -----------------------------------------------------------------------------
 # Pipe Deck — generated artifacts, dependencies, secrets, and local tooling
 # -----------------------------------------------------------------------------
-
+.vscode/
 # Dependencies
 node_modules/
 
