@@ -1,0 +1,40 @@
+app-id: com.pipedeck.PipeDeck
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+  - org.freedesktop.Sdk.Extension.node20
+command: pipe-deck
+
+finish-args:
+  - --share=network
+  - --socket=pipewire-pulse
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  - --filesystem=xdg-config/pipe-deck:create
+
+modules:
+  - name: pipe-deck
+    buildsystem: simple
+    build-commands:
+      - npm ci
+      - npm run build
+      - cargo build --release --manifest-path src-tauri/Cargo.toml
+      - install -Dm755 src-tauri/target/release/pipe-deck /app/bin/pipe-deck
+      - install -Dm644 src-tauri/icons/128x128.png /app/share/icons/hicolor/128x128/apps/com.pipedeck.PipeDeck.png
+      - |
+        cat > /app/share/applications/com.pipedeck.PipeDeck.desktop <<'EOF'
+        [Desktop Entry]
+        Name=Pipe Deck
+        Comment=Linux Audio Control Center
+        Exec=pipe-deck
+        Icon=com.pipedeck.PipeDeck
+        Terminal=false
+        Type=Application
+        Categories=AudioVideo;Audio;
+        EOF
+    sources:
+      - type: dir
+        path: ..

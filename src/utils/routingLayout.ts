@@ -32,6 +32,9 @@ export function streamAccent(streamId: string): string {
 }
 
 export function deviceColumn(device: Device): NodeColumn | null {
+  if (device.system_name.startsWith("pipe-deck-feed-")) {
+    return null;
+  }
   if (device.direction === "output" || device.direction === "duplex") {
     return device.kind === "virtual" ? "routing" : "outputs";
   }
@@ -39,11 +42,33 @@ export function deviceColumn(device: Device): NodeColumn | null {
   return null;
 }
 
+export function targetLabel(device: Device): string {
+  if (device.kind === "virtual" && device.direction === "input") {
+    return `${device.label} (virtual mic)`;
+  }
+  return device.label;
+}
+
 export function deviceSubtitle(device: Device): string {
   if (device.direction === "output" || device.direction === "duplex") {
     return device.kind === "virtual" ? "Virtual Sink" : "Hardware Output";
   }
   return device.kind === "virtual" ? "Virtual Source" : "Hardware Input";
+}
+
+export function streamSubtitle(stream: {
+  app_name: string;
+  media_name?: string;
+  direction: string;
+  is_system?: boolean;
+}): string {
+  if (stream.is_system) {
+    return "System stream";
+  }
+  if (stream.media_name && stream.media_name !== stream.app_name) {
+    return stream.media_name;
+  }
+  return stream.direction === "capture" ? "Capture stream" : "Playback stream";
 }
 
 export function linkColor(sourceId: string, _targetId: string): string {

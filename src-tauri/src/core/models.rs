@@ -35,15 +35,21 @@ pub struct Device {
     pub volume_percent: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current_target: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Stream {
     pub id: String,
     pub app_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_name: Option<String>,
     pub direction: StreamDirection,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_target: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_name: Option<String>,
     #[serde(default)]
     pub is_system: bool,
 }
@@ -105,4 +111,82 @@ pub struct AppConfig {
     pub preferences: Preferences,
     #[serde(default)]
     pub devices: std::collections::HashMap<String, DeviceAliasEntry>,
+    #[serde(default)]
+    pub routing_rules: RoutingRulesConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StreamRouteRule {
+    pub app_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_name: Option<String>,
+    pub target_system_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceRouteRule {
+    pub source_system_name: String,
+    pub target_system_name: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoutingRulesConfig {
+    #[serde(default)]
+    pub stream_rules: Vec<StreamRouteRule>,
+    #[serde(default)]
+    pub device_rules: Vec<DeviceRouteRule>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceRouteIntent {
+    pub source_device_id: String,
+    pub target_device_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoutingIntent {
+    pub stream_id: String,
+    pub target_device_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct VolumeStateEntry {
+    pub volume_percent: u8,
+    #[serde(default)]
+    pub muted: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct Profile {
+    pub version: u32,
+    pub id: String,
+    pub name: String,
+    pub created: String,
+    pub updated: String,
+    pub routing_intents: Vec<RoutingIntent>,
+    #[serde(default)]
+    pub volume_state: std::collections::HashMap<String, VolumeStateEntry>,
+    #[serde(default)]
+    pub device_assumptions: std::collections::HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProfileExportManifest {
+    pub version: u32,
+    pub exported_at: String,
+    pub profile_id: String,
+    pub profile_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApplyResult {
+    pub success: bool,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VirtualDeviceResult {
+    pub device_id: String,
+    pub system_name: String,
+    pub label: String,
 }

@@ -1,19 +1,24 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import type { RuntimeGraph } from "../types/graph";
+import { invoke } from "@tauri-apps/api/core";
+import NodeCardHeader from "./NodeCardHeader.vue";
+import { useApplyResult } from "../stores/notices";
+import type { Device, RuntimeGraph, Stream } from "../types/graph";
 import {
   deviceColumn,
   deviceSubtitle,
   linkColor,
   streamAccent,
+  streamSubtitle,
+  targetLabel,
   type MatrixNode,
 } from "../utils/routingLayout";
-import type { Device } from "../types/graph";
 
-const props = defineProps<{
+const { graph } = defineProps<{
   graph: RuntimeGraph;
 }>();
 
+const { handleApplyResult } = useApplyResult();
 const matrixRef = ref<HTMLElement | null>(null);
 const nodeRefs = ref<Record<string, HTMLElement | null>>({});
 
@@ -26,23 +31,19 @@ interface LinePath {
 const lines = ref<LinePath[]>([]);
 
 const columns = computed(() => {
-  const apps: MatrixNode[] = props.graph.streams.map((stream) => ({
-      id: stream.id,
-      label: stream.app_name,
-      column: "applications" as const,
-      accent: streamAccent(stream.id),
-      subtitle: stream.is_system
-        ? "System stream"
-        : stream.direction === "capture"
-          ? "Capture stream"
-          : "Playback stream",
-    }));
+  const apps: MatrixNode[] = graph.streams.map((stream) => ({
+    id: stream.id,
+    label: stream.app_name,
+    column: "applications" as const,
+    accent: streamAccent(stream.id),
+    subtitle: streamSubtitle(stream),
+  }));
 
   const routing: MatrixNode[] = [];
   const outputs: MatrixNode[] = [];
   const inputs: MatrixNode[] = [];
 
-  for (const device of props.graph.devices) {
+  for (const device of graph.devices) {
     const column = deviceColumn(device);
     if (!column) continue;
 
@@ -61,6 +62,34 @@ const columns = computed(() => {
 
   return { apps, routing, outputs, inputs };
 });
+
+function targetsForStream(stream: Stream) {
+  return graph.devices.filter((device) => {
+    if (device.system_name.startsWith("pipe-deck-feed-")) return false;
+    if (stream.direction === "playback") {
+      return (
+        device.direction === "output" ||
+        device.direction === "duplex" ||
+        (device.kind === "virtual" && device.direction === "input")
+      );
+    }
+    return device.direction === "input" || device.direction === "duplex";
+  });
+}
+
+function targetsForVirtualSink(device: Device) {
+  return graph.devices.filter((candidate) => {
+    if (candidate.id === device.id) return false;
+    if (candidate.kind === "physical" && candidate.direction === "output") {
+      return true;
+    }
+    return candidate.kind === "virtual" && candidate.direction === "input";
+  });
+}
+
+function deviceById(id: string) {
+  return graph.devices.find((device) => device.id === id);
+}
 
 function setNodeRef(id: string, el: HTMLElement | null) {
   if (el) nodeRefs.value[id] = el;
@@ -93,7 +122,7 @@ async function updateLines() {
   await nextTick();
 
   const nextLines: LinePath[] = [];
-  for (const link of props.graph.links) {
+  for (const link of graph.links) {
     const sourceEl = nodeRefs.value[link.source_id];
     const targetEl = nodeRefs.value[link.target_id];
     if (!sourceEl || !targetEl) continue;
@@ -109,6 +138,68 @@ async function updateLines() {
   }
 
   lines.value = nextLines;
+}
+
+async function onDeviceRouteChange(sourceDeviceId: string, event: Event) {
+  const targetDeviceId = (event.target as HTMLSelectElement).value;
+  if (!targetDeviceId) return;
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("set_device_route", {
+      sourceDeviceId,
+      targetDeviceId,
+    });
+    handleApplyResult(result, "Device routing updated");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+async function onTargetChange(streamId: string, event: Event) {
+  const targetDeviceId = (event.target as HTMLSelectElement).value;
+  if (!targetDeviceId) return;
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("set_stream_target", {
+      streamId,
+      targetDeviceId,
+    });
+    handleApplyResult(result, "Routing updated");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+async function saveRename(device: Device, alias: string) {
+  try {
+    await invoke("set_device_alias", { systemName: device.system_name, alias });
+    handleApplyResult({ success: true }, "Device renamed");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+async function removeVirtual(device: Device) {
+  if (!window.confirm(`Delete virtual device "${device.label}"?`)) {
+    return;
+  }
+
+  try {
+    await invoke("remove_virtual_device", { systemName: device.system_name });
+    handleApplyResult({ success: true }, "Virtual device removed");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
 }
 
 let resizeObserver: ResizeObserver | null = null;
@@ -127,7 +218,7 @@ onUnmounted(() => {
   window.removeEventListener("resize", updateLines);
 });
 
-watch(() => props.graph, () => updateLines(), { deep: true });
+watch(() => graph, () => updateLines(), { deep: true });
 
 function accentForDevice(device: Device): string | undefined {
   if (device.kind === "virtual" && device.direction === "output") {
@@ -155,17 +246,37 @@ function accentForDevice(device: Device): string | undefined {
       <section class="column">
         <h3>Applications</h3>
         <div
-          v-for="node in columns.apps"
-          :key="node.id"
-          :ref="(el) => setNodeRef(node.id, el as HTMLElement | null)"
+          v-for="stream in graph.streams"
+          :key="stream.id"
+          :ref="(el) => setNodeRef(stream.id, el as HTMLElement | null)"
           class="node"
         >
-          <span class="node-icon" :style="{ background: node.accent }">
-            {{ node.label.charAt(0) }}
+          <span class="node-icon" :style="{ background: streamAccent(stream.id) }">
+            {{ stream.app_name.charAt(0) }}
           </span>
-          <div>
-            <strong>{{ node.label }}</strong>
-            <span v-if="node.subtitle" class="node-sub">{{ node.subtitle }}</span>
+          <div class="node-body">
+            <strong class="stream-title">{{ stream.app_name }}</strong>
+            <span class="node-sub">{{ streamSubtitle(stream) }}</span>
+            <div
+              class="routing-picker"
+              :class="stream.direction === 'capture' ? 'capture' : 'playback'"
+            >
+              <span class="routing-label">Route to</span>
+              <select
+                class="routing-select"
+                :value="stream.current_target ?? ''"
+                @change="onTargetChange(stream.id, $event)"
+              >
+                <option value="" disabled>Select target</option>
+                <option
+                  v-for="target in targetsForStream(stream)"
+                  :key="target.id"
+                  :value="target.id"
+                >
+                  {{ targetLabel(target) }}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
       </section>
@@ -185,9 +296,36 @@ function accentForDevice(device: Device): string | undefined {
           >
             {{ node.label.charAt(0) }}
           </span>
-          <div>
-            <strong>{{ node.label }}</strong>
+          <div class="node-body">
+            <NodeCardHeader
+              v-if="deviceById(node.id)"
+              :label="deviceById(node.id)!.label"
+              editable
+              :deletable="deviceById(node.id)!.system_name.startsWith('pipe-deck-')"
+              @save="(name) => saveRename(deviceById(node.id)!, name)"
+              @delete="removeVirtual(deviceById(node.id)!)"
+            />
             <span class="node-sub">{{ node.subtitle }}</span>
+            <div
+              v-if="deviceById(node.id)"
+              class="routing-picker playback"
+            >
+              <span class="routing-label">Route to</span>
+              <select
+                class="routing-select"
+                :value="deviceById(node.id)!.current_target ?? ''"
+                @change="onDeviceRouteChange(node.id, $event)"
+              >
+                <option value="" disabled>Select output</option>
+                <option
+                  v-for="target in targetsForVirtualSink(deviceById(node.id)!)"
+                  :key="target.id"
+                  :value="target.id"
+                >
+                  {{ target.label }}
+                </option>
+              </select>
+            </div>
           </div>
         </div>
       </section>
@@ -201,8 +339,15 @@ function accentForDevice(device: Device): string | undefined {
           class="node"
         >
           <span class="node-icon output">🔊</span>
-          <div>
-            <strong>{{ node.label }}</strong>
+          <div class="node-body">
+            <NodeCardHeader
+              v-if="deviceById(node.id)"
+              :label="deviceById(node.id)!.label"
+              editable
+              :deletable="deviceById(node.id)!.kind === 'virtual' && deviceById(node.id)!.system_name.startsWith('pipe-deck-')"
+              @save="(name) => saveRename(deviceById(node.id)!, name)"
+              @delete="removeVirtual(deviceById(node.id)!)"
+            />
             <span class="node-sub">{{ node.subtitle }}</span>
           </div>
         </div>
@@ -217,8 +362,15 @@ function accentForDevice(device: Device): string | undefined {
           class="node"
         >
           <span class="node-icon input">🎤</span>
-          <div>
-            <strong>{{ node.label }}</strong>
+          <div class="node-body">
+            <NodeCardHeader
+              v-if="deviceById(node.id)"
+              :label="deviceById(node.id)!.label"
+              editable
+              :deletable="deviceById(node.id)!.kind === 'virtual' && deviceById(node.id)!.system_name.startsWith('pipe-deck-')"
+              @save="(name) => saveRename(deviceById(node.id)!, name)"
+              @delete="removeVirtual(deviceById(node.id)!)"
+            />
             <span class="node-sub">{{ node.subtitle }}</span>
           </div>
         </div>

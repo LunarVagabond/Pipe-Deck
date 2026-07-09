@@ -1,4 +1,4 @@
-use crate::core::models::{AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry};
+use crate::core::models::{AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry, RoutingRulesConfig};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -55,7 +55,20 @@ impl ConfigStore {
             }],
             devices: HashMap::new(),
             preferences: Preferences::default(),
+            routing_rules: RoutingRulesConfig::default(),
         }
+    }
+
+    pub fn routing_rules(&self) -> RoutingRulesConfig {
+        self.load_config()
+            .map(|config| config.routing_rules)
+            .unwrap_or_default()
+    }
+
+    pub fn save_routing_rules(&self, rules: &RoutingRulesConfig) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.routing_rules = rules.clone();
+        self.save_config(&config)
     }
 
     pub fn load_config(&self) -> Result<AppConfig, ConfigError> {
@@ -106,6 +119,40 @@ impl ConfigStore {
     pub fn set_show_system_streams(&self, show: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         config.preferences.show_system_streams = show;
+        self.save_config(&config)
+    }
+
+    pub fn ensure_layout(&self) -> Result<(), ConfigError> {
+        fs::create_dir_all(&self.config_dir)
+            .map_err(|error| ConfigError::Write(format!("{error}")))?;
+        fs::create_dir_all(self.config_dir.join("profiles"))
+            .map_err(|error| ConfigError::Write(format!("{error}")))?;
+
+        let profile_store = crate::config::profile_store::ProfileStore::new(self.config_dir.clone());
+        profile_store
+            .ensure_default_profile()
+            .map_err(|error| ConfigError::Write(error.to_string()))?;
+
+        if !self.config_path().exists() {
+            self.save_config(&Self::default_config())?;
+        }
+
+        Ok(())
+    }
+
+    pub fn add_profile_to_index(&self, entry: ProfileIndexEntry) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        if let Some(existing) = config.profile_index.iter_mut().find(|item| item.id == entry.id) {
+            *existing = entry;
+        } else {
+            config.profile_index.push(entry);
+        }
+        self.save_config(&config)
+    }
+
+    pub fn set_active_profile(&self, profile_id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.active_profile = Some(profile_id.to_string());
         self.save_config(&config)
     }
 

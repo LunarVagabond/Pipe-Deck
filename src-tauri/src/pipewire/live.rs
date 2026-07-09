@@ -3,6 +3,8 @@ use crate::core::models::{
     Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
 };
 use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
+use crate::pipewire::pactl;
+use crate::pipewire::pw_link;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -11,7 +13,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-const POLL_INTERVAL: Duration = Duration::from_secs(2);
+const POLL_INTERVAL: Duration = Duration::from_secs(1);
 
 pub struct LivePipeWireAdapter {
     cached_graph: Arc<Mutex<RuntimeGraph>>,
@@ -106,7 +108,38 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, AdapterError> {
         AdapterError::Message(format!("failed to parse pw-dump output: {error}"))
     })?;
 
-    Ok(normalize_pw_dump(&objects))
+    let mut graph = normalize_pw_dump(&objects);
+    enrich_graph_from_pactl(&mut graph);
+    Ok(graph)
+}
+
+pub fn enrich_graph_from_pactl(graph: &mut RuntimeGraph) {
+    merge_pactl_playback_streams(graph);
+    apply_pactl_playback_targets(graph);
+}
+
+pub fn apply_graph_routing(graph: &mut RuntimeGraph) {
+    gc_feed_sinks(graph);
+    apply_pactl_playback_targets(graph);
+    apply_pw_link_device_routes(graph);
+    let _ = crate::core::routing_rules::apply_persisted_routing_rules(graph);
+    apply_pactl_playback_targets(graph);
+    apply_routing_visual_links(graph);
+}
+
+fn gc_feed_sinks(graph: &RuntimeGraph) {
+    let known_virtual_inputs: HashSet<String> = graph
+        .devices
+        .iter()
+        .filter(|device| {
+            device.direction == DeviceDirection::Input
+                && device.kind == DeviceKind::Virtual
+                && device.system_name.starts_with("pipe-deck-")
+        })
+        .map(|device| device.system_name.clone())
+        .collect();
+
+    let _ = pactl::gc_feed_sinks(&known_virtual_inputs);
 }
 
 fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
@@ -126,7 +159,10 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
             }
 
             let node_name = prop_str(&props, "node.name");
-            if node_name.contains(".monitor") {
+            if node_name.contains(".monitor")
+                || node_name.starts_with("pipe-deck-feed-")
+                || node_name.starts_with("pipe-deck-")
+            {
                 continue;
             }
 
@@ -136,8 +172,14 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                 streams.push(Stream {
                     id: id.clone(),
                     app_name: stream_label(&props),
+                    system_name: if node_name.is_empty() {
+                        None
+                    } else {
+                        Some(node_name.clone())
+                    },
                     direction: StreamDirection::Playback,
                     current_target: None,
+                    media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
                 });
                 continue;
@@ -147,8 +189,14 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                 streams.push(Stream {
                     id: id.clone(),
                     app_name: stream_label(&props),
+                    system_name: if node_name.is_empty() {
+                        None
+                    } else {
+                        Some(node_name.clone())
+                    },
                     direction: StreamDirection::Capture,
                     current_target: None,
+                    media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
                 });
                 continue;
@@ -159,24 +207,27 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     id: id.clone(),
                     system_name: node_name.clone(),
                     label: device_label(&props, &media_class),
-                    kind: if is_virtual_device(&props) {
-                        DeviceKind::Virtual
-                    } else {
+                    kind: if is_hardware_audio_endpoint(&props) {
                         DeviceKind::Physical
+                    } else {
+                        DeviceKind::Virtual
                     },
                     direction: DeviceDirection::Output,
                     volume_percent: None,
                     muted: None,
+                    current_target: None,
                 });
                 continue;
             }
 
-            if media_class == "Audio/Source" {
+            if is_source_media_class(&media_class) {
                 devices.push(Device {
                     id,
                     system_name: node_name,
                     label: device_label(&props, &media_class),
-                    kind: if is_virtual_device(&props) {
+                    kind: if is_hardware_audio_endpoint(&props) {
+                        DeviceKind::Physical
+                    } else if is_virtual_device(&props) {
                         DeviceKind::Virtual
                     } else {
                         DeviceKind::Physical
@@ -184,6 +235,7 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     direction: DeviceDirection::Input,
                     volume_percent: None,
                     muted: None,
+                    current_target: None,
                 });
             }
         }
@@ -374,6 +426,21 @@ fn should_skip_media_class(media_class: &str) -> bool {
         || media_class.starts_with("Video/")
 }
 
+fn is_source_media_class(media_class: &str) -> bool {
+    media_class.starts_with("Audio/Source")
+}
+
+fn is_hardware_audio_endpoint(props: &serde_json::Map<String, Value>) -> bool {
+    if props.contains_key("api.alsa.pcm.card") || props.contains_key("api.alsa.pcm.device") {
+        return true;
+    }
+
+    matches!(
+        prop_str(props, "device.api").as_str(),
+        "alsa" | "bluez5" | "v4l2"
+    )
+}
+
 fn is_system_stream(props: &serde_json::Map<String, Value>) -> bool {
     let app_name = prop_str(props, "application.name");
     let process = prop_str(props, "application.process.binary");
@@ -401,15 +468,22 @@ fn is_virtual_device(props: &serde_json::Map<String, Value>) -> bool {
     }
 
     let node_name = prop_str(props, "node.name");
-    node_name.contains("null") || node_name.contains("easyeffects")
+    node_name.starts_with("pipe-deck-")
+        || node_name.contains("null")
+        || node_name.contains("easyeffects")
 }
 
 fn device_label(props: &serde_json::Map<String, Value>, media_class: &str) -> String {
     let profile = prop_str(props, "device.profile.description");
     let card = prop_str(props, "api.alsa.card.name");
     let description = prop_str(props, "node.description");
+    let node_name = prop_str(props, "node.name");
 
     if media_class == "Audio/Sink" {
+        if profile.is_empty() && description.is_empty() && card.is_empty() && !node_name.is_empty() {
+            return prettify_node_name(&node_name);
+        }
+
         let kind = if profile.contains("HDMI") || description.contains("HDMI") {
             "HDMI / DP"
         } else if profile.contains("Analog") || description.contains("Analog") {
@@ -417,20 +491,27 @@ fn device_label(props: &serde_json::Map<String, Value>, media_class: &str) -> St
         } else if !profile.is_empty() {
             profile.as_str()
         } else {
-            return fallback_device_label(&description, &card);
+            return fallback_device_label(&description, &card, &node_name);
         };
 
         return format!("{} - {}", kind, device_short_name(&card, &description));
     }
 
-    if media_class == "Audio/Source" {
-        return format!(
+    if is_source_media_class(media_class) {
+        if is_virtual_device(props) {
+            return fallback_device_label(&description, &card, &node_name);
+        }
+
+        let label = format!(
             "Microphone - {}",
             device_short_name(&card, &description)
         );
+        if label != "Microphone - " {
+            return label;
+        }
     }
 
-    fallback_device_label(&description, &card)
+    fallback_device_label(&description, &card, &node_name)
 }
 
 fn device_short_name(card: &str, description: &str) -> String {
@@ -456,14 +537,32 @@ fn device_short_name(card: &str, description: &str) -> String {
         .to_string()
 }
 
-fn fallback_device_label(description: &str, card: &str) -> String {
+fn fallback_device_label(description: &str, card: &str, node_name: &str) -> String {
     if !description.is_empty() {
         return description.to_string();
     }
     if !card.is_empty() {
         return card.to_string();
     }
+    if !node_name.is_empty() {
+        return prettify_node_name(node_name);
+    }
     "Unknown Device".into()
+}
+
+fn prettify_node_name(node_name: &str) -> String {
+    node_name
+        .replace('_', " ")
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                None => String::new(),
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn stream_label(props: &serde_json::Map<String, Value>) -> String {
@@ -480,6 +579,190 @@ fn stream_label(props: &serde_json::Map<String, Value>) -> String {
         }
     }
     "Unknown Stream".into()
+}
+
+fn stream_media_name(props: &serde_json::Map<String, Value>) -> Option<String> {
+    let media_name = prop_str(props, "media.name");
+    if media_name.is_empty() {
+        return None;
+    }
+    Some(media_name)
+}
+
+fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
+    let sink_names = pactl::load_sink_index_names();
+    let inputs = pactl::list_sink_inputs();
+
+    for input in inputs {
+        if graph.streams.iter().any(|stream| stream_matches_pactl_input(stream, &input)) {
+            continue;
+        }
+
+        graph.streams.push(Stream {
+            id: format!("pactl-sink-input-{}", input.index),
+            app_name: input.application_name.clone(),
+            system_name: input.node_name.clone(),
+            direction: StreamDirection::Playback,
+            current_target: input
+                .sink_index
+                .and_then(|index| sink_names.get(&index).cloned())
+                .and_then(|sink_name| resolve_playback_target_device_id(graph, &sink_name)),
+            media_name: input.media_name.clone(),
+            is_system: is_system_stream_name(&input.application_name, &input.node_name),
+        });
+    }
+}
+
+fn apply_pactl_playback_targets(graph: &mut RuntimeGraph) {
+    let sink_names = pactl::load_sink_index_names();
+
+    for input in pactl::list_sink_inputs() {
+        let Some(sink_index) = input.sink_index else {
+            continue;
+        };
+        let Some(sink_name) = sink_names.get(&sink_index) else {
+            continue;
+        };
+        let Some(target_id) = resolve_playback_target_device_id(graph, sink_name) else {
+            continue;
+        };
+
+        let Some(stream) = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream_matches_pactl_input(stream, &input))
+        else {
+            continue;
+        };
+
+        stream.current_target = Some(target_id);
+    }
+}
+
+fn resolve_playback_target_device_id(
+    graph: &RuntimeGraph,
+    sink_system_name: &str,
+) -> Option<String> {
+    if let Some(device) = graph
+        .devices
+        .iter()
+        .find(|device| device.system_name == sink_system_name)
+    {
+        return Some(device.id.clone());
+    }
+
+    let slug = sink_system_name.strip_prefix("pipe-deck-feed-")?;
+    let virtual_input_name = format!("pipe-deck-{slug}");
+    graph
+        .devices
+        .iter()
+        .find(|device| {
+            device.system_name == virtual_input_name && device.direction == DeviceDirection::Input
+        })
+        .map(|device| device.id.clone())
+}
+
+fn apply_routing_visual_links(graph: &mut RuntimeGraph) {
+    graph.links.retain(|link| !link.id.starts_with("route-stream-"));
+
+    for stream in &graph.streams {
+        let Some(target_id) = &stream.current_target else {
+            continue;
+        };
+
+        if graph.links.iter().any(|link| {
+            link.source_id == stream.id && link.target_id == *target_id
+        }) {
+            continue;
+        }
+
+        graph.links.push(Link {
+            id: format!("route-stream-{}", stream.id),
+            source_id: stream.id.clone(),
+            target_id: target_id.clone(),
+        });
+    }
+}
+
+fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
+    let routes = pw_link::list_monitor_routes();
+    let name_to_id: HashMap<String, String> = graph
+        .devices
+        .iter()
+        .map(|device| (device.system_name.clone(), device.id.clone()))
+        .collect();
+
+    for device in &mut graph.devices {
+        if device.direction == DeviceDirection::Output && device.kind == DeviceKind::Virtual {
+            device.current_target = None;
+        }
+    }
+
+    graph.links.retain(|link| !link.id.starts_with("pwlink-"));
+
+    for (source_name, target_name) in routes {
+        let Some(source_id) = name_to_id.get(&source_name) else {
+            continue;
+        };
+        let Some(target_id) = name_to_id.get(&target_name) else {
+            continue;
+        };
+
+        let source_is_virtual = graph.devices.iter().any(|device| {
+            device.id == *source_id
+                && device.kind == DeviceKind::Virtual
+                && device.direction == DeviceDirection::Output
+        });
+        if !source_is_virtual {
+            continue;
+        }
+
+        if let Some(device) = graph.devices.iter_mut().find(|device| device.id == *source_id) {
+            device.current_target = Some(target_id.clone());
+        }
+
+        graph.links.push(Link {
+            id: format!("pwlink-{source_name}-{target_name}"),
+            source_id: source_id.clone(),
+            target_id: target_id.clone(),
+        });
+    }
+}
+
+fn stream_matches_pactl_input(stream: &Stream, input: &pactl::PactlSinkInput) -> bool {
+    if stream.id == format!("pactl-sink-input-{}", input.index) {
+        return true;
+    }
+
+    if stream.direction != StreamDirection::Playback {
+        return false;
+    }
+
+    if let Some(system_name) = &stream.system_name {
+        if input
+            .node_name
+            .as_deref()
+            .is_some_and(|node_name| node_name == system_name)
+        {
+            return true;
+        }
+    }
+
+    if stream.app_name != input.application_name {
+        return false;
+    }
+
+    match (&stream.media_name, &input.media_name) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn is_system_stream_name(application_name: &str, node_name: &Option<String>) -> bool {
+    let node_name = node_name.as_deref().unwrap_or_default();
+    application_name.contains("speech-dispatcher")
+        || node_name.contains("speech-dispatcher")
 }
 
 #[cfg(test)]
@@ -535,6 +818,86 @@ mod tests {
             "Audio/Source",
         );
         assert_eq!(label, "Microphone - Arctis Nova Pro Wireless");
+    }
+
+    #[test]
+    fn virtual_source_media_class_is_discovered() {
+        let objects = vec![PwDumpObject {
+            id: 99,
+            object_type: "PipeWire:Interface:Node".into(),
+            info: Some(serde_json::json!({
+                "props": {
+                    "media.class": "Audio/Source/Virtual",
+                    "node.name": "soundux-custom-mic",
+                    "node.description": "Custom Mic",
+                    "factory.name": "support.null-audio-sink"
+                }
+            })),
+        }];
+
+        let graph = normalize_pw_dump(&objects);
+        assert_eq!(graph.devices.len(), 1);
+        assert_eq!(graph.devices[0].system_name, "soundux-custom-mic");
+        assert_eq!(graph.devices[0].direction, DeviceDirection::Input);
+        assert_eq!(graph.devices[0].kind, DeviceKind::Virtual);
+    }
+
+    #[test]
+    fn pipe_deck_devices_are_left_to_virtual_registry() {
+        let objects = vec![PwDumpObject {
+            id: 99,
+            object_type: "PipeWire:Interface:Node".into(),
+            info: Some(serde_json::json!({
+                "props": {
+                    "media.class": "Audio/Source/Virtual",
+                    "node.name": "pipe-deck-test-mic",
+                    "node.description": "Test Mic",
+                    "factory.name": "support.null-audio-sink"
+                }
+            })),
+        }];
+
+        let graph = normalize_pw_dump(&objects);
+        assert!(graph.devices.is_empty());
+    }
+
+    #[test]
+    fn feed_sink_maps_to_virtual_input_target() {
+        let mut graph = RuntimeGraph {
+            devices: vec![Device {
+                id: "virtual-test".into(),
+                system_name: "pipe-deck-test".into(),
+                label: "test".into(),
+                kind: DeviceKind::Virtual,
+                direction: DeviceDirection::Input,
+                volume_percent: Some(100),
+                muted: Some(false),
+                current_target: None,
+            }],
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "pipewire".into(),
+            notice: None,
+        };
+
+        let target = resolve_playback_target_device_id(&graph, "pipe-deck-feed-test");
+        assert_eq!(target.as_deref(), Some("virtual-test"));
+
+        apply_routing_visual_links(&mut graph);
+        graph.streams.push(Stream {
+            id: "node-42".into(),
+            app_name: "Firefox".into(),
+            system_name: Some("Firefox".into()),
+            direction: StreamDirection::Playback,
+            current_target: target,
+            media_name: None,
+            is_system: false,
+        });
+        apply_routing_visual_links(&mut graph);
+
+        assert_eq!(graph.links.len(), 1);
+        assert_eq!(graph.links[0].source_id, "node-42");
+        assert_eq!(graph.links[0].target_id, "virtual-test");
     }
 
     #[test]

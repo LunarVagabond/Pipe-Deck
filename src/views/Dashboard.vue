@@ -3,13 +3,28 @@ import { computed, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import MixerStrip from "../components/MixerStrip.vue";
 import RoutingMatrix from "../components/RoutingMatrix.vue";
+import { useApplyResult } from "../stores/notices";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { filterRuntimeGraph } from "../utils/filterGraph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { config } = useAppConfig();
+const { handleApplyResult } = useApplyResult();
 
 const showSystemStreams = ref(false);
+const canUndo = ref(false);
+
+async function refreshCanUndo() {
+  try {
+    canUndo.value = await invoke<boolean>("can_undo_routing");
+  } catch {
+    canUndo.value = false;
+  }
+}
+
+watch(graph, () => {
+  void refreshCanUndo();
+}, { immediate: true });
 
 watch(
   config,
@@ -58,6 +73,21 @@ async function onToggleSystemStreams(event: Event) {
     showSystemStreams.value = previous;
   }
 }
+
+async function undoRouting() {
+  if (!canUndo.value) return;
+
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("undo_last_routing");
+    handleApplyResult(result, "Routing change undone");
+    await refreshCanUndo();
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
 </script>
 
 <template>
@@ -81,6 +111,7 @@ async function onToggleSystemStreams(event: Event) {
           </span>
         </label>
         <span class="profile-pill">{{ profileName }}</span>
+        <button type="button" :disabled="!canUndo" @click="undoRouting">Undo</button>
         <button type="button" @click="refresh">Refresh</button>
       </div>
     </header>

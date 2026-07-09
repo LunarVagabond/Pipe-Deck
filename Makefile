@@ -16,9 +16,11 @@ install: ## Install frontend dependencies
 start: dev ## Run the desktop app in development mode
 
 dev: ## Run the desktop app in development mode (Tauri + Vite)
+	rm -rf node_modules/.vite
 	$(NPM) run tauri dev
 
 dev-frontend: ## Run only the Vite frontend dev server
+	rm -rf node_modules/.vite
 	$(NPM) run dev
 
 build: ## Build production desktop bundles (.deb, .rpm, AppImage, binary)

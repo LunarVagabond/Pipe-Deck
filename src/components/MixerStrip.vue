@@ -1,15 +1,24 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+import NodeCardHeader from "./NodeCardHeader.vue";
+import { useApplyResult } from "../stores/notices";
 import type { Device } from "../types/graph";
 
 const props = defineProps<{
   devices: Device[];
 }>();
 
+const { handleApplyResult } = useApplyResult();
+const pendingVolumes = ref<Record<string, number>>({});
+let debounceTimers: Record<string, number> = {};
+
 interface MixerChannel {
   id: string;
   label: string;
+  systemName: string;
   direction: Device["direction"];
+  kind: Device["kind"];
   level: number;
   muted: boolean;
 }
@@ -22,8 +31,10 @@ function toChannel(device: Device): MixerChannel | null {
   return {
     id: device.id,
     label: device.label,
+    systemName: device.system_name,
     direction: device.direction,
-    level: device.volume_percent,
+    kind: device.kind,
+    level: pendingVolumes.value[device.id] ?? device.volume_percent,
     muted: device.muted ?? false,
   };
 }
@@ -45,6 +56,61 @@ const inputChannels = computed(() =>
 const hasChannels = computed(
   () => outputChannels.value.length > 0 || inputChannels.value.length > 0,
 );
+
+function scheduleVolume(deviceId: string, percent: number) {
+  pendingVolumes.value[deviceId] = percent;
+  window.clearTimeout(debounceTimers[deviceId]);
+  debounceTimers[deviceId] = window.setTimeout(async () => {
+    try {
+      await invoke("set_device_volume", { deviceId, percent });
+    } catch (error) {
+      handleApplyResult(
+        { success: false, message: error instanceof Error ? error.message : String(error) },
+        "",
+      );
+    }
+  }, 120);
+}
+
+async function toggleMute(channel: MixerChannel) {
+  try {
+    await invoke("set_device_mute", { deviceId: channel.id, muted: !channel.muted });
+    handleApplyResult({ success: true }, channel.muted ? "Unmuted" : "Muted");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+async function saveRename(channel: MixerChannel, alias: string) {
+  try {
+    await invoke("set_device_alias", { systemName: channel.systemName, alias });
+    handleApplyResult({ success: true }, "Device renamed");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+async function removeVirtual(channel: MixerChannel) {
+  if (!window.confirm(`Delete virtual device "${channel.label}"?`)) {
+    return;
+  }
+
+  try {
+    await invoke("remove_virtual_device", { systemName: channel.systemName });
+    handleApplyResult({ success: true }, "Virtual device removed");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
 </script>
 
 <template>
@@ -58,8 +124,14 @@ const hasChannels = computed(
             :key="channel.id"
             class="channel"
           >
-            <div class="channel-header">
-              <span class="channel-label">{{ channel.label }}</span>
+            <div class="channel-top">
+              <NodeCardHeader
+                :label="channel.label"
+                editable
+                :deletable="channel.kind === 'virtual'"
+                @save="(name) => saveRename(channel, name)"
+                @delete="removeVirtual(channel)"
+              />
               <span class="channel-badge">Output</span>
             </div>
             <div class="slider-row">
@@ -68,16 +140,16 @@ const hasChannels = computed(
                 min="0"
                 max="100"
                 :value="channel.level"
-                disabled
                 :aria-label="`${channel.label} volume`"
+                @input="scheduleVolume(channel.id, Number(($event.target as HTMLInputElement).value))"
               />
               <span class="level">{{ channel.level }}%</span>
               <button
                 type="button"
                 class="mute"
                 :class="{ active: channel.muted }"
-                disabled
                 :aria-label="channel.muted ? 'Muted' : 'Unmuted'"
+                @click="toggleMute(channel)"
               >
                 {{ channel.muted ? "🔇" : "🔊" }}
               </button>
@@ -94,8 +166,14 @@ const hasChannels = computed(
             :key="channel.id"
             class="channel"
           >
-            <div class="channel-header">
-              <span class="channel-label">{{ channel.label }}</span>
+            <div class="channel-top">
+              <NodeCardHeader
+                :label="channel.label"
+                editable
+                :deletable="channel.kind === 'virtual'"
+                @save="(name) => saveRename(channel, name)"
+                @delete="removeVirtual(channel)"
+              />
               <span class="channel-badge input">Input</span>
             </div>
             <div class="slider-row">
@@ -104,16 +182,16 @@ const hasChannels = computed(
                 min="0"
                 max="100"
                 :value="channel.level"
-                disabled
                 :aria-label="`${channel.label} volume`"
+                @input="scheduleVolume(channel.id, Number(($event.target as HTMLInputElement).value))"
               />
               <span class="level">{{ channel.level }}%</span>
               <button
                 type="button"
                 class="mute"
                 :class="{ active: channel.muted }"
-                disabled
                 :aria-label="channel.muted ? 'Muted' : 'Unmuted'"
+                @click="toggleMute(channel)"
               >
                 {{ channel.muted ? "🔇" : "🔊" }}
               </button>
@@ -124,7 +202,5 @@ const hasChannels = computed(
     </template>
 
     <p v-else class="empty">No mixer channels detected.</p>
-
-    <p class="note">Read-only levels from PipeWire. Interactive mixer controls coming soon.</p>
   </footer>
 </template>

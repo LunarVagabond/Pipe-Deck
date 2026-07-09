@@ -39,8 +39,14 @@
     padding: 0.5rem 0.9rem;
     cursor: pointer;
 
-    &:hover {
+    &:hover:not(:disabled) {
       border-color: var(--accent-purple);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+      color: var(--text-muted);
     }
   }
 }

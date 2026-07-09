@@ -10,13 +10,16 @@ export interface Device {
   direction: DeviceDirection;
   volume_percent?: number;
   muted?: boolean;
+  current_target?: string;
 }
 
 export interface Stream {
   id: string;
   app_name: string;
+  system_name?: string;
   direction: StreamDirection;
   current_target?: string;
+  media_name?: string;
   is_system?: boolean;
 }
 
@@ -55,3 +58,44 @@ export interface AppConfig {
   preferences?: Preferences;
   devices?: Record<string, DeviceAliasEntry>;
 }
+
+export interface RoutingIntent {
+  stream_id: string;
+  target_device_id: string;
+}
+
+export interface VolumeStateEntry {
+  volume_percent: number;
+  muted?: boolean;
+}
+
+export interface Profile {
+  version: number;
+  id: string;
+  name: string;
+  created: string;
+  updated: string;
+  routing_intents: RoutingIntent[];
+  volume_state?: Record<string, VolumeStateEntry>;
+  device_assumptions?: Record<string, string>;
+}
+
+export interface ApplyResult {
+  success: boolean;
+  message?: string;
+}
+
+export interface VirtualDeviceResult {
+  device_id: string;
+  system_name: string;
+  label: string;
+}
+
+export type AppView =
+  | "dashboard"
+  | "profiles"
+  | "routing"
+  | "mixer"
+  | "sources"
+  | "effects"
+  | "settings";

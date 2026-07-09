@@ -5,7 +5,9 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 1.25rem;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: visible;
+  -webkit-overflow-scrolling: touch;
 }
 
 .routing-matrix .connections {
@@ -21,9 +23,14 @@
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(220px, 1fr));
   gap: 1rem;
   min-height: 380px;
+  min-width: 940px;
+}
+
+.routing-matrix .column {
+  min-width: 0;
 }
 
 .routing-matrix .column h3 {
@@ -36,17 +43,35 @@
 
 .routing-matrix .node {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.65rem;
   padding: 0.55rem 0.65rem;
   margin-bottom: 0.65rem;
   background: rgba(11, 15, 20, 0.72);
   border: 1px solid var(--border);
   border-radius: 10px;
+  min-width: 0;
+  position: relative;
+
+  .node-body {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .stream-title {
+    display: block;
+    font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 
   strong {
     display: block;
     font-size: 0.9rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 
@@ -78,6 +103,109 @@
   display: block;
   font-size: 0.72rem;
   color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routing-matrix .routing-picker {
+  margin-top: 0.45rem;
+
+  .routing-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+
+  .routing-select {
+    appearance: none;
+    width: 100%;
+    max-width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text);
+    font-size: 0.78rem;
+    font-weight: 500;
+    line-height: 1.3;
+    padding: 0.42rem 1.85rem 0.42rem 0.6rem;
+    cursor: pointer;
+    transition:
+      border-color 0.15s ease,
+      box-shadow 0.15s ease,
+      background 0.15s ease;
+    background-repeat: no-repeat;
+    background-position: right 0.55rem center;
+    background-size: 0.85rem;
+    color-scheme: dark;
+
+    &:hover {
+      border-color: rgba(124, 92, 255, 0.55);
+    }
+
+    &:focus-visible {
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.28);
+    }
+
+    option {
+      background: var(--surface-2);
+      color: var(--text);
+    }
+
+    option:disabled {
+      color: var(--text-muted);
+    }
+  }
+
+  &.playback .routing-label {
+    color: rgba(167, 146, 255, 0.95);
+  }
+
+  &.playback .routing-select {
+    border-color: rgba(124, 92, 255, 0.42);
+    background-color: rgba(124, 92, 255, 0.1);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%23a792ff' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+    &:hover {
+      border-color: rgba(124, 92, 255, 0.72);
+      background-color: rgba(124, 92, 255, 0.16);
+    }
+
+    &:focus-visible {
+      border-color: rgba(124, 92, 255, 0.85);
+      box-shadow:
+        0 0 0 2px rgba(124, 92, 255, 0.28),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+  }
+
+  &.capture .routing-label {
+    color: rgba(72, 214, 181, 0.95);
+  }
+
+  &.capture .routing-select {
+    border-color: rgba(38, 195, 163, 0.42);
+    background-color: rgba(38, 195, 163, 0.1);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2348d6b5' stroke-width='2.25' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+
+    &:hover {
+      border-color: rgba(38, 195, 163, 0.72);
+      background-color: rgba(38, 195, 163, 0.16);
+    }
+
+    &:focus-visible {
+      border-color: rgba(38, 195, 163, 0.85);
+      box-shadow:
+        0 0 0 2px rgba(38, 195, 163, 0.24),
+        inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    }
+  }
 }
 
 .routing-matrix .empty {
@@ -87,12 +215,19 @@
   font-style: italic;
 }
 
-@media (max-width: 1000px) {
+@media (max-width: 1200px) {
   .routing-matrix .columns {
     grid-template-columns: 1fr 1fr;
+    min-width: 0;
   }
 
   .routing-matrix .connections {
     display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .routing-matrix .columns {
+    grid-template-columns: 1fr;
   }
 }

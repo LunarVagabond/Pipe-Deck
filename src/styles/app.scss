@@ -98,11 +98,10 @@
 .topbar-btn {
   border: 1px solid var(--border);
   background: var(--surface-2);
-  color: var(--text-muted);
+  color: var(--text);
   border-radius: 8px;
   padding: 0.35rem 0.75rem;
-  cursor: not-allowed;
-  opacity: 0.6;
+  cursor: pointer;
 }
 
 .content {

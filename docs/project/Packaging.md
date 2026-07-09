@@ -54,15 +54,33 @@ Installed packages must not embed user config; first run creates defaults in use
 
 Runtime dependencies (document per distro):
 
-- PipeWire (session must be running)
-- WirePlumber (typical session manager on most distros)
+| Distro family | PipeWire | Session manager | Notes |
+|---------------|----------|-----------------|-------|
+| Debian/Ubuntu | `pipewire` | `wireplumber` | `pactl` from `pipewire-pulse` or `pulseaudio-utils` |
+| Fedora/RHEL | `pipewire` | `wireplumber` | `pw-dump` from `pipewire-utils` |
+| Arch | `pipewire` | `wireplumber` | Same as above |
+| Flatpak | Portal/socket | Portal | Manifest uses `--socket=pipewire-pulse` |
 
 Build dependencies:
 
 - Rust toolchain
-- Node.js (frontend build)
+- Node.js 20+ (frontend build)
 - Tauri system dependencies (webkit2gtk, etc. on Linux)
 - Flatpak SDK (for Flatpak builds only)
+
+### Build Commands
+
+```bash
+make check          # frontend type-check + Rust check
+make test           # Rust unit tests
+make build          # production bundles (deb/rpm/AppImage/binary)
+```
+
+Flatpak (local):
+
+```bash
+flatpak-builder --force-clean flatpak/build flatpak/com.pipedeck.PipeDeck.yml
+```
 
 ## CI Strategy (Phase 2)
 

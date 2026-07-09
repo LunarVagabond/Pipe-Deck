@@ -27,6 +27,23 @@ pub fn run() {
             commands::config::list_profiles,
             commands::config::set_device_alias,
             commands::config::set_show_system_streams,
+            commands::profile::get_profile,
+            commands::profile::save_profile,
+            commands::profile::save_profile_as,
+            commands::profile::import_profile,
+            commands::profile::import_profile_archive,
+            commands::profile::export_profile,
+            commands::profile::swap_profile,
+            commands::routing::set_stream_target,
+            commands::routing::set_device_route,
+            commands::routing::undo_last_routing,
+            commands::routing::can_undo_routing,
+            commands::routing::get_last_error,
+            commands::mixer::set_device_volume,
+            commands::mixer::set_device_mute,
+            commands::virtual_device::create_virtual_output,
+            commands::virtual_device::create_virtual_input,
+            commands::virtual_device::remove_virtual_device,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

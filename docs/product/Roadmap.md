@@ -31,7 +31,7 @@ All roadmap items must improve Linux audio clarity, control, or reliability for 
 
 ### Implementation Sequence
 
-1. **Scaffold** — Tauri app shell, Vue TypeScript frontend, Rust core engine boundary. See [Phase 2 Scaffold](../architecture/Phase2_Scaffold.md).
+1. **Scaffold** — Tauri app shell, Vue TypeScript frontend, Rust core engine boundary.
 2. **Enumeration** — PipeWire discovery pipeline and normalized runtime graph; read-only dashboard UI.
 3. **Profiles** — YAML file-based desired state, profile swapper, save/load, export/import.
 4. **Routing and mixer** — Apply routing intents, basic mixer panel, undo/rollback.

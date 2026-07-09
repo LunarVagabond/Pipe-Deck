@@ -2,5 +2,7 @@
 @use "base";
 @use "app";
 @use "views/dashboard";
+@use "views/profiles";
 @use "components/routing-matrix";
 @use "components/mixer-strip";
+@use "components/node-card-header";

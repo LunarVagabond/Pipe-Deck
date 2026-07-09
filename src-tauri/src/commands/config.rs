@@ -9,6 +9,7 @@ pub fn get_config() -> crate::core::models::AppConfig {
             profile_index: vec![],
             preferences: crate::core::models::Preferences::default(),
             devices: std::collections::HashMap::new(),
+            routing_rules: crate::core::models::RoutingRulesConfig::default(),
         }
     })
 }
@@ -22,7 +23,13 @@ pub fn list_profiles() -> Vec<crate::core::models::ProfileIndexEntry> {
 pub fn set_device_alias(system_name: String, alias: String) -> Result<(), String> {
     ConfigStore::new()
         .set_device_alias(&system_name, &alias)
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+
+    if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
+        let _ = crate::pipewire::pactl::sync_feed_sink_for_virtual_input(&system_name, &alias);
+    }
+
+    Ok(())
 }
 
 #[tauri::command]

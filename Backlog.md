@@ -30,25 +30,25 @@ Work in this order. Earlier slices unblock later ones.
 
 ### 2.3 Profiles (File-First YAML)
 
-- [ ] Config store: load/save `config.yaml` and profile files
-- [ ] Profile validator with schema versioning
-- [ ] Profile save: capture current state → write YAML
-- [ ] Profile swapper: load → validate → apply → update active pointer
-- [ ] Rollback on failed profile apply
-- [ ] Export/import profile files (copy or simple archive)
+- [x] Config store: load/save `config.yaml` and profile files
+- [x] Profile validator with schema versioning
+- [x] Profile save: capture current state → write YAML
+- [x] Profile swapper: load → validate → apply → update active pointer
+- [x] Rollback on failed profile apply
+- [x] Export/import profile files (copy or simple archive)
 
 ### 2.4 Routing and Mixer
 
-- [ ] Per-application routing (apply routing intents)
-- [ ] Undo/rollback action for routing edits
-- [ ] Basic mixer panel with level state and mute control
-- [ ] Create virtual input
-- [ ] Create virtual output
-- [ ] Rename devices
+- [x] Per-application routing (apply routing intents)
+- [x] Undo/rollback action for routing edits
+- [x] Basic mixer panel with level state and mute control
+- [x] Create virtual input
+- [x] Create virtual output
+- [x] Rename devices
 - [ ] Device icons and categories
 - [ ] Multi-output routing
 - [ ] Monitor paths
-- [ ] Contextual notifications
+- [x] Contextual notifications
 
 ### 2.5 UX Polish
 
@@ -58,12 +58,12 @@ Work in this order. Earlier slices unblock later ones.
 
 ### 2.6 Packaging Baseline
 
-- [ ] Binary build via `cargo tauri build`
-- [ ] `.deb` package artifact
-- [ ] `.rpm` package artifact
-- [ ] Flatpak manifest and build pipeline
-- [ ] CI build matrix with install smoke tests
-- [ ] Document runtime dependencies per distro
+- [x] Binary build via `cargo tauri build`
+- [x] `.deb` package artifact (Tauri bundle target)
+- [x] `.rpm` package artifact (Tauri bundle target)
+- [x] Flatpak manifest and build pipeline
+- [x] CI build matrix with install smoke tests
+- [x] Document runtime dependencies per distro
 
 ## Phase 3: Rules and Advanced Routing UX
 
