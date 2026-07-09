@@ -67,12 +67,18 @@ Pipe Deck should reduce setup time, reduce confusion, and increase confidence.
 
 No implementation commitments are part of this phase.
 
+## Implementation Status (summary)
+
+Phases 1–4 are complete for milestone purposes (see `docs/product/Roadmap.md`):
+
+- **Phase 2:** Desktop app, routing, profiles, mixer, baseline packaging
+- **Phase 3:** Rule engine, explainability, simulation, rule edit UI
+- **Phase 4:** Virtual device persistence, optional daemon restore, packaging hardening
+
 ## Future Implementation Phases (Directional)
 
-- Initial desktop UI with routing and profile workflows.
-- Core orchestration layer for PipeWire interactions.
-- Optional daemon for persistence and restore workflows.
-- Rule engine and plugin extension points.
+- Plugin ecosystem and external automation (Phase 5).
+- Native PipeWire event subscription and advanced routing editor (carry-over).
 
 ## Long-Term Goal: Automatic Mapping
 

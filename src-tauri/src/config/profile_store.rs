@@ -194,9 +194,9 @@ pub fn validate_profile(profile: &Profile) -> Result<(), ProfileError> {
         return Err(ProfileError::Validation("profile name is required".into()));
     }
     for intent in &profile.routing_intents {
-        if intent.stream_id.trim().is_empty() || intent.target_device_id.trim().is_empty() {
+        if intent.stream_id.trim().is_empty() || intent.target_ids().is_empty() {
             return Err(ProfileError::Validation(
-                "routing intents require stream_id and target_device_id".into(),
+                "routing intents require stream_id and at least one target".into(),
             ));
         }
     }
@@ -292,7 +292,8 @@ mod tests {
             updated: "2026-07-09T10:00:00Z".into(),
             routing_intents: vec![RoutingIntent {
                 stream_id: "node-1".into(),
-                target_device_id: "node-2".into(),
+                target_device_id: Some("node-2".into()),
+                target_device_ids: vec!["node-2".into()],
             }],
             volume_state: [(
                 "node-2".into(),

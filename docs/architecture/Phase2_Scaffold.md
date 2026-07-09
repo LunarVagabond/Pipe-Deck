@@ -39,6 +39,22 @@ src-tauri/src/
     mock.rs                   # Mock graph for PIPE_DECK_USE_MOCK=1
 ```
 
+## Phase 4 Additions
+
+```
+src/views/Settings.vue        # Restore preferences and daemon status
+src/components/ToggleSwitch.vue
+src/components/ConfirmDialog.vue
+src/stores/confirm.ts
+src/utils/routeExplanation.ts
+
+src-tauri/src/
+  core/restore.rs             # Shared GUI + daemon restore
+  daemon/mod.rs               # systemd install, status file, daemon run loop
+  bin/pipe-deck-daemon.rs     # Headless restore binary
+  packaging/pipe-deck-daemon.service
+```
+
 ## Control Flow
 
 1. UI invokes a Tauri command (`set_stream_target`, `swap_profile`, etc.).
@@ -51,6 +67,8 @@ src-tauri/src/
 - `make dev` — run the desktop app
 - `make test` — Rust unit tests
 - `make check` — format, lint, and type checks
+- `make smoke` — unit tests, frontend check, daemon compile
+- `make flatpak` — local Flatpak build
 - `PIPE_DECK_USE_MOCK=1 make dev` — UI without live PipeWire
 
 ## Related Documents

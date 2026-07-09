@@ -1,0 +1,13 @@
+[Unit]
+Description=Pipe Deck background restore daemon
+After=pipewire.service wireplumber.service pipewire-pulse.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/pipe-deck-daemon
+Environment=PIPE_DECK_USE_MOCK=0
+
+[Install]
+WantedBy=default.target

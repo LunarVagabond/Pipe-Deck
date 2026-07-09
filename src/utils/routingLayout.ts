@@ -96,8 +96,18 @@ export function targetLabel(device: Device): string {
   return device.label;
 }
 
+export function isMultiSink(device: Device): boolean {
+  return device.sink_mode === "multi";
+}
+
 export function deviceSubtitle(device: Device): string {
+  if (device.system_name.startsWith("pipe-deck-split-")) {
+    return "Split fan-out sink";
+  }
   if (device.direction === "output" || device.direction === "duplex") {
+    if (device.kind === "virtual" && isMultiSink(device)) {
+      return "Multi Output Sink";
+    }
     return device.kind === "virtual" ? "Virtual Sink" : "Hardware Output";
   }
   return device.kind === "virtual" ? "Virtual Source" : "Hardware Input";

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.pipedeck.PipeDeck</id>
+  <name>Pipe Deck</name>
+  <summary>Linux Audio Control Center</summary>
+  <description>
+    <p>
+      Pipe Deck helps you understand and manage Linux audio routing, virtual devices,
+      profiles, and automation rules on PipeWire systems.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.pipedeck.PipeDeck.desktop</launchable>
+  <url type="homepage">https://github.com/pipedeck/pipe-deck</url>
+  <developer_name>Pipe Deck Contributors</developer_name>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-07-09" />
+  </releases>
+</component>

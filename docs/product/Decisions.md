@@ -46,8 +46,9 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
 
 ### PD-006 Daemon Requirement Boundary
 
-- Status: Accepted
+- Status: Accepted (implemented Phase 4)
 - Decision: Daemon remains optional until persistence and restore workflows require background ownership.
+- Phase 4 implementation: `pipe-deck-daemon` binary, user systemd unit, Settings UI toggle; disabled by default.
 - Rationale: Avoid early operational complexity while preserving future extensibility.
 
 ### PD-007 Automatic Mapping Rollout Policy
@@ -95,6 +96,43 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
   - Authored rules are managed in the Rules view; dashboard explainability shows why each stream routed.
   - Full rule engine (priority, explainability, simulation) is implemented per `Rule_Engine_Spec.md`.
 - Rationale: Users need routes to stick when ephemeral streams disappear without learning a separate rules vocabulary, while power users can author explicit policies that override implicit dashboard saves.
+
+### PD-012 Phase 4 Restore Model
+
+- Status: Accepted
+- Decision: Virtual device definitions persist in `config.yaml` (`virtual_devices[]`); restore runs on app open by default and optionally at login via daemon.
+- Constraints:
+  - GUI and daemon share `restore.rs` and the same YAML contract.
+  - Daemon safe mode: corrupt or missing config logs status and exits without creating devices.
+  - Dashboard-saved routes display as **Manual route** in explainability; authored rules show rule name.
+- Rationale: Survive reboots without forcing always-on services; keep automation labels user-readable.
+
+### PD-014 Plugin API Transport
+
+- Status: Accepted (Phase 5)
+- Decision: Plugin host communicates via JSON-RPC 2.0 over stdin/stdout with newline-delimited messages.
+- Constraints:
+  - Request timeout 5 seconds; hung plugins are killed without blocking core routing.
+  - `api_version: 1` in manifest must match host support.
+- Rationale: Simple, language-agnostic, debuggable transport for subprocess isolation.
+
+### PD-015 First-Party Effects
+
+- Status: Accepted (Phase 5)
+- Decision: Audio effects (EQ, compressor) ship as a first-party bundled plugin using PipeWire `filter-chain`; no EasyEffects dependency.
+- Constraints:
+  - Effects apply only to Pipe Deck-owned virtual devices (`pipe-deck-*`) in v1.
+  - Plugin ships enabled by default; maintained in-tree.
+- Rationale: Pipe Deck owns the audio stack; effects are core product value, not an external tool integration.
+
+### PD-016 First-Party Audio Ownership
+
+- Status: Accepted (Phase 5)
+- Decision: Pipe Deck owns routing, effects, and virtual devices; external audio tool integrations (EasyEffects, OBS) are out of product scope.
+- Constraints:
+  - Community connector plugins may exist post-Phase 5 but never replace first-party paths.
+  - Multi-output routing is a core engine feature (fan-out virtual sink + `pw-link`).
+- Rationale: Pipe Deck is the Linux Audio Control Center, not a launcher for other audio tools.
 
 ## Related Documents
 

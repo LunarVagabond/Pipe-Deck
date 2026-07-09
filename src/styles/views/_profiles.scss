@@ -58,6 +58,59 @@
   color: var(--text-muted);
 }
 
+.profiles-help {
+  margin: 0.35rem 0 1rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  max-width: 52rem;
+}
+
+.profile-drift {
+  margin-bottom: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 176, 32, 0.45);
+  border-radius: 12px;
+  background: rgba(255, 176, 32, 0.08);
+
+  &.in-sync {
+    border-color: rgba(38, 195, 163, 0.45);
+    background: rgba(38, 195, 163, 0.08);
+  }
+
+  h2 {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+
+  p {
+    margin: 0;
+  }
+}
+
+.profile-drift-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.profile-drift-list {
+  margin: 0;
+  padding-left: 1.1rem;
+
+  li {
+    margin-bottom: 0.35rem;
+  }
+}
+
+.profile-drift-arrow {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
 .profiles-form {
   display: flex;
   gap: 0.5rem;

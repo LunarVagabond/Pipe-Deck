@@ -3,6 +3,7 @@ import { computed, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import MixerStrip from "../components/MixerStrip.vue";
 import RoutingMatrix from "../components/RoutingMatrix.vue";
+import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { filterRuntimeGraph } from "../utils/filterGraph";
@@ -53,8 +54,7 @@ const isEmpty = computed(
     displayGraph.value.streams.length === 0,
 );
 
-async function onToggleSystemStreams(event: Event) {
-  const next = (event.target as HTMLInputElement).checked;
+async function onToggleSystemStreams(next: boolean) {
   const previous = showSystemStreams.value;
   showSystemStreams.value = next;
 
@@ -94,22 +94,18 @@ async function undoRouting() {
   <div class="dashboard">
     <header class="header">
       <div>
-        <p class="eyebrow">Linux Audio Control Center</p>
+        <p class="eyebrow">Live PipeWire routing</p>
         <h1>Dashboard</h1>
       </div>
       <div class="header-actions">
-        <label class="toggle-switch">
-          <span class="toggle-label">Show system streams</span>
-          <input
-            type="checkbox"
-            class="toggle-input"
-            :checked="showSystemStreams"
-            @change="onToggleSystemStreams"
+        <div class="header-toggle">
+          <span class="toggle-row-label">Show system streams</span>
+          <ToggleSwitch
+            :model-value="showSystemStreams"
+            :show-state-labels="false"
+            @update:model-value="onToggleSystemStreams"
           />
-          <span class="toggle-track" aria-hidden="true">
-            <span class="toggle-thumb" />
-          </span>
-        </label>
+        </div>
         <span class="profile-pill">{{ profileName }}</span>
         <button type="button" :disabled="!canUndo" @click="undoRouting">Undo</button>
         <button type="button" @click="refresh">Refresh</button>

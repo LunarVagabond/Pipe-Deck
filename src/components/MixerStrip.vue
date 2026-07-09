@@ -3,6 +3,7 @@ import { computed, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import { useApplyResult } from "../stores/notices";
+import { useConfirm } from "../stores/confirm";
 import type { Device } from "../types/graph";
 
 const props = defineProps<{
@@ -10,6 +11,7 @@ const props = defineProps<{
 }>();
 
 const { handleApplyResult } = useApplyResult();
+const { confirm } = useConfirm();
 const pendingVolumes = ref<Record<string, number>>({});
 let debounceTimers: Record<string, number> = {};
 
@@ -97,7 +99,12 @@ async function saveRename(channel: MixerChannel, alias: string) {
 }
 
 async function removeVirtual(channel: MixerChannel) {
-  if (!window.confirm(`Delete virtual device "${channel.label}"?`)) {
+  const confirmed = await confirm(`Delete virtual device "${channel.label}"?`, {
+    title: "Delete virtual device",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
     return;
   }
 

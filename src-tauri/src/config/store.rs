@@ -1,4 +1,7 @@
-use crate::core::models::{AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry, Rule, RoutingRulesConfig};
+use crate::core::models::{
+    AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry, Rule, RoutingRulesConfig,
+    VirtualDeviceSpec,
+};
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -57,6 +60,8 @@ impl ConfigStore {
             preferences: Preferences::default(),
             routing_rules: RoutingRulesConfig::default(),
             rules: Vec::new(),
+            virtual_devices: Vec::new(),
+            plugins: HashMap::new(),
         }
     }
 
@@ -121,6 +126,66 @@ impl ConfigStore {
         let mut config = self.load_config()?;
         config.preferences.show_system_streams = show;
         self.save_config(&config)
+    }
+
+    pub fn virtual_devices(&self) -> Vec<VirtualDeviceSpec> {
+        self.load_config()
+            .map(|config| config.virtual_devices)
+            .unwrap_or_default()
+    }
+
+    pub fn save_virtual_devices(&self, devices: &[VirtualDeviceSpec]) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.virtual_devices = devices.to_vec();
+        self.save_config(&config)
+    }
+
+    pub fn add_virtual_device(&self, spec: VirtualDeviceSpec) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        if let Some(existing) = config
+            .virtual_devices
+            .iter_mut()
+            .find(|entry| entry.id == spec.id || entry.slug == spec.slug)
+        {
+            *existing = spec;
+        } else {
+            config.virtual_devices.push(spec);
+        }
+        self.save_config(&config)
+    }
+
+    pub fn remove_virtual_device(&self, id_or_system_name: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let slug = id_or_system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(id_or_system_name)
+            .strip_prefix("virtual-")
+            .unwrap_or(id_or_system_name);
+        config.virtual_devices.retain(|entry| {
+            entry.id != id_or_system_name
+                && entry.slug != slug
+                && entry.id != format!("virtual-{slug}")
+                && format!("pipe-deck-{}", entry.slug) != id_or_system_name
+        });
+        self.save_config(&config)
+    }
+
+    pub fn set_restore_on_startup(&self, enabled: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.restore_on_startup = enabled;
+        self.save_config(&config)
+    }
+
+    pub fn set_background_restore(&self, enabled: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.background_restore = enabled;
+        self.save_config(&config)
+    }
+
+    pub fn preferences(&self) -> Preferences {
+        self.load_config()
+            .map(|config| config.preferences)
+            .unwrap_or_default()
     }
 
     pub fn ensure_layout(&self) -> Result<(), ConfigError> {
@@ -189,5 +254,64 @@ impl ConfigStore {
         };
         rule.enabled = enabled;
         self.save_config(&config)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::models::VirtualDeviceSpec;
+    use std::fs;
+    use std::sync::{Mutex, OnceLock};
+
+    fn with_temp_config<F: FnOnce(&ConfigStore)>(run: F) {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-config-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+        let store = ConfigStore::new();
+        run(&store);
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+    }
+
+    #[test]
+    fn legacy_config_without_virtual_devices_deserializes() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "version: 1\npreferences:\n  show_system_streams: false\nprofile_index: []\n",
+            )
+            .unwrap();
+            let config = store.load_config().unwrap();
+            assert!(config.virtual_devices.is_empty());
+            assert!(config.preferences.restore_on_startup);
+        });
+    }
+
+    #[test]
+    fn virtual_device_round_trip_persists() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            let spec = VirtualDeviceSpec {
+                id: "virtual-test".into(),
+                slug: "test".into(),
+                label: "Test".into(),
+                direction: crate::core::models::DeviceDirection::Output,
+                created_at: "2026-07-09T10:00:00Z".into(),
+                multi: false,
+            };
+            store.add_virtual_device(spec.clone()).unwrap();
+            let loaded = store.virtual_devices();
+            assert_eq!(loaded.len(), 1);
+            assert_eq!(loaded[0], spec);
+            store.remove_virtual_device("virtual-test").unwrap();
+            assert!(store.virtual_devices().is_empty());
+        });
     }
 }

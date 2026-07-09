@@ -4,7 +4,7 @@ use crate::core::models::{
 };
 use crate::core::stream_identity::{rule_identity_key, stream_identity_key};
 use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl;
+use crate::pipewire::split_sink;
 
 pub fn apply_persisted_routing_rules(
     graph: &mut RuntimeGraph,
@@ -21,21 +21,26 @@ pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), Ad
         app_name: Some(stream.app_name.clone()),
         executable: stream.executable.clone(),
         media_name: stream.media_name.clone(),
-        target_system_name: target.system_name.clone(),
+        target_system_name: Some(target.system_name.clone()),
+        target_system_names: Vec::new(),
     });
     ConfigStore::new()
         .save_routing_rules(&rules)
         .map_err(|error| AdapterError::Message(error.to_string()))
 }
 
-pub fn save_device_route_rule(source: &Device, target: &Device) -> Result<(), AdapterError> {
+pub fn save_device_route_rule(source: &Device, targets: &[Device]) -> Result<(), AdapterError> {
+    if targets.is_empty() {
+        return Ok(());
+    }
     let mut rules = ConfigStore::new().routing_rules();
     rules
         .device_rules
         .retain(|rule| rule.source_system_name != source.system_name);
     rules.device_rules.push(DeviceRouteRule {
         source_system_name: source.system_name.clone(),
-        target_system_name: target.system_name.clone(),
+        target_system_name: targets.first().map(|device| device.system_name.clone()),
+        target_system_names: targets.iter().map(|device| device.system_name.clone()).collect(),
     });
     ConfigStore::new()
         .save_routing_rules(&rules)
@@ -47,7 +52,23 @@ pub fn apply_stream_to_target(
     stream: &Stream,
     target: &Device,
 ) -> Result<(), AdapterError> {
-    pactl::move_stream_to_target(graph, &stream.id, &target.id)
+    split_sink::apply_stream_to_sink(graph, &stream.id, &target.id)
+}
+
+pub fn apply_stream_to_sink_id(
+    graph: &RuntimeGraph,
+    stream: &Stream,
+    target_device_id: &str,
+) -> Result<(), AdapterError> {
+    split_sink::apply_stream_to_sink(graph, &stream.id, target_device_id)
+}
+
+pub fn apply_sink_to_targets(
+    graph: &RuntimeGraph,
+    sink_device_id: &str,
+    target_device_ids: &[String],
+) -> Result<(), AdapterError> {
+    split_sink::apply_sink_targets(graph, sink_device_id, target_device_ids)
 }
 
 pub fn find_device_by_system_name<'a>(
@@ -63,8 +84,7 @@ pub fn find_device_by_system_name<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::StreamDirection;
-    use crate::core::rule_engine::stream_matches_persisted_rule;
+    use crate::core::models::{DeviceDirection, DeviceKind, SinkMode, StreamDirection};
 
     fn sample_stream(app_name: &str, executable: Option<&str>, media_name: Option<&str>) -> Stream {
         Stream {
@@ -75,6 +95,7 @@ mod tests {
             system_name: None,
             direction: StreamDirection::Playback,
             current_target: None,
+            current_targets: Vec::new(),
             media_name: media_name.map(str::to_string),
             is_system: false,
             route_explanation: None,
@@ -82,28 +103,71 @@ mod tests {
     }
 
     #[test]
-    fn app_only_rule_matches_legacy_shape() {
-        let stream = sample_stream("Firefox", Some("firefox"), None);
+    fn persisted_rule_matches_executable_only() {
+        let stream = sample_stream("Discord Canary", Some("discord"), None);
         let rule = StreamRouteRule {
-            app_name: Some("Firefox".into()),
-            executable: None,
+            app_name: None,
+            executable: Some("discord".into()),
             media_name: None,
-            target_system_name: "browser".into(),
+            target_system_name: Some("chat".into()),
+            target_system_names: Vec::new(),
         };
 
-        assert!(stream_matches_persisted_rule(&stream, &rule).is_some());
+        assert!(crate::core::rule_engine::stream_matches_persisted_rule(&stream, &rule).is_some());
     }
 
     #[test]
-    fn executable_rule_does_not_false_positive() {
-        let stream = sample_stream("Discord", Some("discord"), None);
-        let rule = StreamRouteRule {
-            app_name: None,
-            executable: Some("spotify".into()),
-            media_name: None,
-            target_system_name: "music".into(),
+    fn save_device_route_rule_stores_multiple_targets() {
+        let dir = std::env::temp_dir().join(format!("pipe-deck-rules-{}", std::process::id()));
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = ConfigStore::new();
+        store.ensure_layout().unwrap();
+        let source = Device {
+            id: "multi-bus".into(),
+            system_name: "pipe-deck-multi-bus".into(),
+            label: "Multi Bus".into(),
+            kind: DeviceKind::Virtual,
+            direction: DeviceDirection::Output,
+            sink_mode: Some(SinkMode::Multi),
+            volume_percent: None,
+            muted: None,
+            current_target: None,
+            current_targets: Vec::new(),
         };
-
-        assert!(stream_matches_persisted_rule(&stream, &rule).is_none());
+        let targets = vec![
+            Device {
+                id: "headphones".into(),
+                system_name: "alsa-headphones".into(),
+                label: "Headphones".into(),
+                kind: DeviceKind::Physical,
+                direction: DeviceDirection::Output,
+                sink_mode: None,
+                volume_percent: None,
+                muted: None,
+                current_target: None,
+                current_targets: Vec::new(),
+            },
+            Device {
+                id: "speakers".into(),
+                system_name: "alsa-speakers".into(),
+                label: "Speakers".into(),
+                kind: DeviceKind::Physical,
+                direction: DeviceDirection::Output,
+                sink_mode: None,
+                volume_percent: None,
+                muted: None,
+                current_target: None,
+                current_targets: Vec::new(),
+            },
+        ];
+        save_device_route_rule(&source, &targets).unwrap();
+        let rules = ConfigStore::new().routing_rules();
+        assert_eq!(rules.device_rules.len(), 1);
+        assert_eq!(
+            rules.device_rules[0].target_system_names,
+            vec!["alsa-headphones".to_string(), "alsa-speakers".to_string()]
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

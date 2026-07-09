@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""Minimal Pipe Deck plugin template."""
+
+import json
+import sys
+
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        method = message.get("method")
+        msg_id = message.get("id")
+
+        if method == "initialize" and msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"plugin_version": "0.1.0"}})
+            continue
+
+        if method == "shutdown":
+            if msg_id is not None:
+                send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+            break
+
+        if msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+
+
+if __name__ == "__main__":
+    main()

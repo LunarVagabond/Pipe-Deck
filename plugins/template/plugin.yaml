@@ -1,0 +1,9 @@
+id: echo
+name: Echo Template
+version: 0.1.0
+api_version: 1
+entry: bin/echo-plugin
+bundled: false
+description: Minimal plugin template for community development
+capabilities:
+  - graph.read

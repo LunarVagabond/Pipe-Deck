@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""First-party Pipe Deck Effects plugin — JSON-RPC 2.0 over stdio."""
+
+import json
+import sys
+
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def handle_initialize(params):
+    send({"jsonrpc": "2.0", "id": 1, "result": {"plugin_version": "0.1.0", "status": "ready"}})
+    send({
+        "jsonrpc": "2.0",
+        "method": "ui.panel.register",
+        "params": {
+            "id": "effects",
+            "title": "Effects",
+            "summary": "EQ and compressor for Pipe Deck virtual devices. Configure per-device chains in Settings.",
+        },
+    })
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        method = message.get("method")
+        msg_id = message.get("id")
+
+        if method == "initialize":
+            handle_initialize(message.get("params", {}))
+            continue
+
+        if method == "shutdown":
+            if msg_id is not None:
+                send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+            break
+
+        if method == "graph.updated":
+            continue
+
+        if msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+
+
+if __name__ == "__main__":
+    main()

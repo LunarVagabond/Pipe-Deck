@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useApplyResult } from "../stores/notices";
+import { useConfirm } from "../stores/confirm";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
 import type { Device, Rule, RuleCondition, SimulationResult, Stream } from "../types/graph";
 import {
@@ -28,10 +29,14 @@ import {
 const rules = ref<Rule[]>([]);
 const simulation = ref<SimulationResult[]>([]);
 const showSimulation = ref(false);
-const showCreateModal = ref(false);
+const showRuleModal = ref(false);
+const editingRuleId = ref<string | null>(null);
 const draftTargetKind = ref<RuleTargetKind>("output");
 const { handleApplyResult } = useApplyResult();
+const { confirm } = useConfirm();
 const { graph } = useRuntimeGraph();
+
+const isEditing = computed(() => editingRuleId.value !== null);
 
 const filteredTargetDevices = computed(() =>
   devicesForTargetKind(graph.value.devices, draftTargetKind.value),
@@ -74,30 +79,71 @@ async function loadRules() {
 }
 
 function openCreateModal() {
+  editingRuleId.value = null;
   draft.value = emptyRule();
   draftTargetKind.value = "output";
   activeConditionIndex.value = 0;
   showIdentityReference.value = true;
-  showCreateModal.value = true;
+  showRuleModal.value = true;
 }
 
-function closeCreateModal() {
-  showCreateModal.value = false;
+function cloneRule(rule: Rule): Rule {
+  return JSON.parse(JSON.stringify(rule)) as Rule;
+}
+
+function openEditModal(rule: Rule) {
+  try {
+    editingRuleId.value = rule.id;
+    draft.value = cloneRule(rule);
+    if (!draft.value.safeguards) {
+      draft.value.safeguards = { fallback_policy: "keep_current" };
+    }
+    if (draft.value.conditions.length === 0) {
+      draft.value.conditions = [{ type: "executable", value: "" }];
+    }
+    draftTargetKind.value = inferRuleTargetKind(
+      deviceBySystemName(rule.action.target_system_name),
+    );
+    activeConditionIndex.value = 0;
+    showIdentityReference.value = true;
+    showRuleModal.value = true;
+  } catch (error) {
+    handleApplyResult(
+      {
+        success: false,
+        message: error instanceof Error ? error.message : "Failed to open rule editor",
+      },
+      "",
+    );
+  }
+}
+
+function closeRuleModal() {
+  showRuleModal.value = false;
+  editingRuleId.value = null;
 }
 
 async function saveDraft() {
   const cleaned: Rule = {
     ...draft.value,
+    name: draft.value.name.trim() || "Untitled rule",
     conditions: draft.value.conditions.filter((condition) => conditionValue(condition).trim()),
   };
   if (!cleaned.action.target_system_name) {
     handleApplyResult({ success: false, message: "Select a target device" }, "");
     return;
   }
+  if (cleaned.conditions.length === 0) {
+    handleApplyResult({ success: false, message: "Add at least one condition" }, "");
+    return;
+  }
   try {
     await invoke("save_rule", { rule: cleaned });
-    handleApplyResult({ success: true }, "Rule saved");
-    closeCreateModal();
+    handleApplyResult(
+      { success: true },
+      isEditing.value ? "Rule updated" : "Rule created",
+    );
+    closeRuleModal();
     draft.value = emptyRule();
     draftTargetKind.value = "output";
     await loadRules();
@@ -109,9 +155,18 @@ async function saveDraft() {
   }
 }
 
-async function removeRule(ruleId: string) {
+async function removeRule(rule: Rule) {
+  const confirmed = await confirm(`Delete rule "${rule.name}"?`, {
+    title: "Delete rule",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
+    return;
+  }
+
   try {
-    await invoke("delete_rule", { ruleId });
+    await invoke("delete_rule", { ruleId: rule.id });
     handleApplyResult({ success: true }, "Rule deleted");
     await loadRules();
   } catch (error) {
@@ -336,10 +391,11 @@ onMounted(loadRules);
 
               <td class="rules-actions-cell">
                 <div class="rule-card-actions">
-                  <button type="button" @click="toggleRule(rule)">
+                  <button type="button" @click.stop="openEditModal(rule)">Edit</button>
+                  <button type="button" @click.stop="toggleRule(rule)">
                     {{ rule.enabled ? "Disable" : "Enable" }}
                   </button>
-                  <button type="button" class="danger" @click="removeRule(rule.id)">Delete</button>
+                  <button type="button" class="danger" @click.stop="removeRule(rule)">Delete</button>
                 </div>
               </td>
             </tr>
@@ -350,26 +406,34 @@ onMounted(loadRules);
 
     <Teleport to="body">
       <div
-        v-if="showCreateModal"
+        v-if="showRuleModal"
         class="rules-modal"
-        @click.self="closeCreateModal"
+        @click.self="closeRuleModal"
       >
         <div
           class="rules-modal-dialog"
           role="dialog"
           aria-modal="true"
-          aria-labelledby="create-rule-title"
+          :aria-labelledby="isEditing ? 'edit-rule-title' : 'create-rule-title'"
         >
           <header class="rules-modal-header">
             <div>
-              <h2 id="create-rule-title">Create rule</h2>
-              <p>Define the app signal, choose a target, and save it as a reusable policy.</p>
+              <h2 :id="isEditing ? 'edit-rule-title' : 'create-rule-title'">
+                {{ isEditing ? "Edit rule" : "Create rule" }}
+              </h2>
+              <p>
+                {{
+                  isEditing
+                    ? "Update the rule name, conditions, target, or priority."
+                    : "Define the app signal, choose a target, and save it as a reusable policy."
+                }}
+              </p>
             </div>
             <button
               type="button"
               class="rules-modal-close"
               aria-label="Close"
-              @click="closeCreateModal"
+              @click="closeRuleModal"
             >
               ×
             </button>
@@ -536,7 +600,7 @@ onMounted(loadRules);
                     type="button"
                     class="condition-remove"
                     :disabled="draft.conditions.length <= 1"
-                    @click="removeCondition(index)"
+                    @click.stop="removeCondition(index)"
                   >
                     Remove
                   </button>
@@ -618,8 +682,10 @@ onMounted(loadRules);
           </div>
 
           <div class="rules-modal-actions">
-            <button type="button" @click="closeCreateModal">Cancel</button>
-            <button type="button" class="primary" @click="saveDraft">Save rule</button>
+            <button type="button" @click="closeRuleModal">Cancel</button>
+            <button type="button" class="primary" @click="saveDraft">
+              {{ isEditing ? "Save changes" : "Save rule" }}
+            </button>
           </div>
         </div>
       </div>

@@ -4,8 +4,8 @@ use crate::core::models::{
     RouteSource, Rule, RuleCondition, RoutingRulesConfig, RuntimeGraph, SkippedCandidate,
     SimulationResult, Stream, StreamRouteRule,
 };
-use crate::core::routing_rules::{apply_stream_to_target, find_device_by_system_name};
-use crate::core::stream_identity::{identity_matches, rule_identity_key, stream_identity_key};
+use crate::core::routing_rules::find_device_by_system_name;
+use crate::core::stream_identity::{identity_matches, stream_identity_key};
 use crate::pipewire::adapter::AdapterError;
 use crate::pipewire::pw_link;
 use regex::Regex;
@@ -14,6 +14,7 @@ use std::collections::HashSet;
 #[derive(Debug, Clone)]
 pub struct ApplyRulesContext<'a> {
     pub manual_overrides: &'a HashSet<crate::core::stream_identity::StreamIdentityKey>,
+    pub device_manual_overrides: &'a HashSet<String>,
     pub dry_run: bool,
     pub mock_graph_only: bool,
 }
@@ -22,7 +23,7 @@ pub struct ApplyRulesContext<'a> {
 struct CandidateRule {
     key: String,
     rule_id: Option<String>,
-    target_system_name: String,
+    target_system_names: Vec<String>,
     match_reasons: Vec<String>,
     priority: i32,
     source: RouteSource,
@@ -181,7 +182,7 @@ fn collect_stream_candidates(
             candidates.push(CandidateRule {
                 key: rule.name.clone(),
                 rule_id: Some(rule.id.clone()),
-                target_system_name: rule.action.target_system_name.clone(),
+                target_system_names: rule.action.target_system_names_resolved(),
                 match_reasons: reasons,
                 priority: rule.priority,
                 source: RouteSource::AuthoredRule,
@@ -192,9 +193,9 @@ fn collect_stream_candidates(
     for (index, rule) in persisted_rules.iter().enumerate() {
         if let Some(reasons) = stream_matches_persisted_rule(stream, rule) {
             candidates.push(CandidateRule {
-                key: persisted_rule_key(rule, index),
+                key: persisted_rule_display_name(),
                 rule_id: None,
-                target_system_name: rule.target_system_name.clone(),
+                target_system_names: rule.target_system_names_resolved(),
                 match_reasons: reasons,
                 priority: -1_000 - index as i32,
                 source: RouteSource::PersistedRule,
@@ -206,15 +207,8 @@ fn collect_stream_candidates(
     candidates
 }
 
-fn persisted_rule_key(rule: &StreamRouteRule, index: usize) -> String {
-    let identity = rule_identity_key(rule);
-    format!(
-        "persisted:{}:{}:{}:{}",
-        index,
-        identity.app_name,
-        identity.executable.as_deref().unwrap_or("*"),
-        identity.media_name.as_deref().unwrap_or("*"),
-    )
+fn persisted_rule_display_name() -> String {
+    "Manual route".into()
 }
 
 pub fn should_track_manual_override(
@@ -228,6 +222,123 @@ pub fn should_track_manual_override(
     match explanation.target_system_name.as_deref() {
         Some(rule_target) => rule_target != target_system_name,
         None => false,
+    }
+}
+
+pub fn detect_external_manual_overrides(
+    graph: &RuntimeGraph,
+    overrides: &mut HashSet<crate::core::stream_identity::StreamIdentityKey>,
+    authored_rules: &[Rule],
+    persisted_rules: &[StreamRouteRule],
+) {
+    for stream in &graph.streams {
+        if stream.is_system {
+            continue;
+        }
+        let Some(current_target_id) = &stream.current_target else {
+            continue;
+        };
+        let Some(device) = graph
+            .devices
+            .iter()
+            .find(|device| device.id == *current_target_id)
+        else {
+            continue;
+        };
+
+        if should_track_manual_override(
+            stream,
+            &device.system_name,
+            authored_rules,
+            persisted_rules,
+        ) {
+            overrides.insert(stream_identity_key(stream));
+        }
+    }
+}
+
+fn actual_device_target_system_names(
+    graph: &RuntimeGraph,
+    source: &crate::core::models::Device,
+) -> HashSet<String> {
+    let from_graph: HashSet<String> = source
+        .resolved_targets()
+        .iter()
+        .filter_map(|id| {
+            graph
+                .devices
+                .iter()
+                .find(|device| device.id == *id)
+                .map(|device| device.system_name.clone())
+        })
+        .collect();
+    if !from_graph.is_empty() {
+        return from_graph;
+    }
+
+    pw_link::list_all_monitor_routes_for_source(&source.system_name)
+        .into_iter()
+        .collect()
+}
+
+fn device_matches_rule(
+    graph: &RuntimeGraph,
+    source: &crate::core::models::Device,
+    rule: &DeviceRouteRule,
+) -> bool {
+    let expected: HashSet<String> = rule.target_system_names_resolved().into_iter().collect();
+    if expected.is_empty() {
+        return true;
+    }
+    actual_device_target_system_names(graph, source) == expected
+}
+
+pub fn detect_external_device_manual_overrides(
+    graph: &RuntimeGraph,
+    overrides: &mut HashSet<String>,
+    device_rules: &[DeviceRouteRule],
+) {
+    for rule in device_rules {
+        let Some(source) = find_device_by_system_name(graph, &rule.source_system_name) else {
+            continue;
+        };
+        if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
+            continue;
+        }
+        let actual = actual_device_target_system_names(graph, source);
+        if actual.is_empty() {
+            continue;
+        }
+        if !device_matches_rule(graph, source, rule) {
+            overrides.insert(source.id.clone());
+        }
+    }
+}
+
+pub fn reconcile_device_manual_overrides(
+    graph: &RuntimeGraph,
+    overrides: &mut HashSet<String>,
+    device_rules: &[DeviceRouteRule],
+) {
+    let stale: Vec<String> = overrides
+        .iter()
+        .filter(|source_id| {
+            let Some(source) = graph.devices.iter().find(|device| device.id == **source_id) else {
+                return true;
+            };
+            let Some(rule) = device_rules
+                .iter()
+                .find(|rule| rule.source_system_name == source.system_name)
+            else {
+                return true;
+            };
+            device_matches_rule(graph, source, rule)
+        })
+        .cloned()
+        .collect();
+
+    for source_id in stale {
+        overrides.remove(&source_id);
     }
 }
 
@@ -290,7 +401,7 @@ pub fn evaluate_stream_route(
             source: RouteSource::ManualOverride,
             matched_rule_id: None,
             matched_rule_key: None,
-            match_reasons: vec!["Manual route selected this session".into()],
+            match_reasons: vec!["Live routing differs from saved rules (respected)".into()],
             skipped_candidates: candidates
                 .into_iter()
                 .map(|candidate| SkippedCandidate {
@@ -299,10 +410,8 @@ pub fn evaluate_stream_route(
                 })
                 .collect(),
             action_status: ActionStatus::SkippedManualOverride,
-            target_system_name: stream
-                .current_target
-                .as_ref()
-                .and_then(|_| None),
+            target_system_name: None,
+            target_system_names: Vec::new(),
         };
     }
 
@@ -315,6 +424,7 @@ pub fn evaluate_stream_route(
             skipped_candidates: Vec::new(),
             action_status: ActionStatus::NoAction,
             target_system_name: None,
+            target_system_names: Vec::new(),
         };
     };
 
@@ -337,7 +447,8 @@ pub fn evaluate_stream_route(
         match_reasons: winner.match_reasons.clone(),
         skipped_candidates,
         action_status: ActionStatus::NoAction,
-        target_system_name: Some(winner.target_system_name.clone()),
+        target_system_name: winner.target_system_names.first().cloned(),
+        target_system_names: winner.target_system_names.clone(),
     }
 }
 
@@ -366,7 +477,11 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         }
 
-        let Some(target_system_name) = explanation.target_system_name.clone() else {
+        let target_system_name = explanation
+            .target_system_name
+            .clone()
+            .or_else(|| explanation.target_system_names.first().cloned());
+        let Some(target_system_name) = target_system_name else {
             explanation.action_status = ActionStatus::NoAction;
             if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
                 stream_mut.route_explanation = Some(explanation);
@@ -374,13 +489,23 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         };
 
-        let Some(target) = find_device_by_system_name(graph, &target_system_name).cloned() else {
+        let Some(target_device) =
+            find_device_by_system_name(graph, &target_system_name).cloned()
+        else {
             explanation.action_status = ActionStatus::TargetUnavailable;
             if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
                 stream_mut.route_explanation = Some(explanation);
             }
             continue;
         };
+
+        if stream.current_target.as_deref() == Some(target_device.id.as_str()) {
+            explanation.action_status = ActionStatus::Applied;
+            if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
+                stream_mut.route_explanation = Some(explanation);
+            }
+            continue;
+        }
 
         if ctx.dry_run {
             explanation.action_status = ActionStatus::Simulated;
@@ -393,14 +518,16 @@ pub fn apply_routing_rules_with_explanations(
         let apply_result = if ctx.mock_graph_only {
             Ok(())
         } else {
-            apply_stream_to_target(graph, &stream, &target)
+            crate::core::routing::apply_stream_to_sink(graph, &stream, &target_device.id)
+                .map_err(|error| AdapterError::Message(error.to_string()))
         };
 
         match apply_result {
             Ok(()) => {
                 explanation.action_status = ActionStatus::Applied;
                 if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
-                    stream_mut.current_target = Some(target.id.clone());
+                    stream_mut.current_target = Some(target_device.id.clone());
+                    stream_mut.current_targets.clear();
                     stream_mut.route_explanation = Some(explanation);
                 }
             }
@@ -434,38 +561,50 @@ fn apply_device_rules(
             if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
                 continue;
             }
-            if let Some(target) = find_device_by_system_name(graph, &rule.target_system_name) {
-                let source_id = source.id.clone();
-                let target_id = target.id.clone();
-                let already = source
+            let source_id = source.id.clone();
+            if ctx.device_manual_overrides.contains(&source_id) {
+                continue;
+            }
+            let target_system_names = rule.target_system_names_resolved();
+            let target_devices: Vec<_> = target_system_names
+                .iter()
+                .filter_map(|system_name| find_device_by_system_name(graph, system_name).cloned())
+                .collect();
+            if target_devices.is_empty() {
+                continue;
+            }
+            let target_ids: Vec<String> = target_devices.iter().map(|device| device.id.clone()).collect();
+            let already = if source.is_multi_sink() {
+                device_matches_rule(graph, source, rule)
+            } else if let Some(target) = target_devices.first() {
+                source
                     .current_target
                     .as_ref()
-                    .is_some_and(|id| id == &target_id)
+                    .is_some_and(|id| id == &target.id)
                     || pw_link::is_sink_monitor_routed_to(
                         &source.system_name,
                         &target.system_name,
                         target.direction == DeviceDirection::Input,
-                    );
-                let routed = if already {
-                    true
-                } else if ctx.mock_graph_only {
-                    true
-                } else {
-                    pw_link::link_sink_monitor_to_target(
-                        &source.system_name,
-                        &target.system_name,
-                        target.direction == DeviceDirection::Input,
                     )
+            } else {
+                false
+            };
+            let routed = if already {
+                true
+            } else if ctx.mock_graph_only {
+                true
+            } else {
+                crate::core::routing::apply_sink_targets(graph, &source_id, &target_ids)
                     .is_ok()
-                };
-                if routed {
-                    if let Some(device) = graph
-                        .devices
-                        .iter_mut()
-                        .find(|device| device.id == source_id)
-                    {
-                        device.current_target = Some(target_id);
-                    }
+            };
+            if routed {
+                if let Some(device) = graph
+                    .devices
+                    .iter_mut()
+                    .find(|device| device.id == source_id)
+                {
+                    device.current_targets = target_ids.clone();
+                    device.current_target = target_ids.first().cloned();
                 }
             }
         }
@@ -539,6 +678,7 @@ pub fn migrate_routing_rules_to_authored(rules: &RoutingRulesConfig) -> Vec<Rule
                 conditions,
                 action: crate::core::models::RuleAction {
                     target_system_name: rule.target_system_name.clone(),
+                    target_system_names: rule.target_system_names_resolved(),
                 },
                 safeguards: Default::default(),
             }
@@ -566,7 +706,9 @@ pub fn ensure_rules_migrated() -> Result<(), AdapterError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::StreamDirection;
+    use crate::core::models::{
+        Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection,
+    };
 
     fn sample_stream(app_name: &str, executable: Option<&str>, media_name: Option<&str>) -> Stream {
         Stream {
@@ -577,6 +719,7 @@ mod tests {
             system_name: None,
             direction: StreamDirection::Playback,
             current_target: None,
+            current_targets: Vec::new(),
             media_name: media_name.map(str::to_string),
             is_system: false,
             route_explanation: None,
@@ -590,7 +733,8 @@ mod tests {
             app_name: None,
             executable: Some("discord".into()),
             media_name: None,
-            target_system_name: "chat".into(),
+            target_system_name: Some("chat".into()),
+            target_system_names: Vec::new(),
         };
 
         assert!(stream_matches_persisted_rule(&stream, &rule).is_some());
@@ -603,13 +747,15 @@ mod tests {
             app_name: Some("Soundux".into()),
             executable: None,
             media_name: Some("miniaudio".into()),
-            target_system_name: "sink".into(),
+            target_system_name: Some("sink".into()),
+            target_system_names: Vec::new(),
         };
         let non_matching = StreamRouteRule {
             app_name: Some("Soundux".into()),
             executable: None,
             media_name: Some("other".into()),
-            target_system_name: "sink".into(),
+            target_system_name: Some("sink".into()),
+            target_system_names: Vec::new(),
         };
 
         assert!(stream_matches_persisted_rule(&stream, &matching).is_some());
@@ -628,7 +774,8 @@ mod tests {
                 value: "Game".into(),
             }],
             action: crate::core::models::RuleAction {
-                target_system_name: "game_sink".into(),
+                target_system_name: Some("game_sink".into()),
+                target_system_names: Vec::new(),
             },
             safeguards: Default::default(),
         };
@@ -648,7 +795,8 @@ mod tests {
                 value: "Firefox".into(),
             }],
             action: crate::core::models::RuleAction {
-                target_system_name: "hdmi".into(),
+                target_system_name: Some("hdmi".into()),
+                target_system_names: Vec::new(),
             },
             safeguards: Default::default(),
         }];
@@ -670,13 +818,74 @@ mod tests {
                 app_name: Some("Discord".into()),
                 executable: Some("discord".into()),
                 media_name: None,
-                target_system_name: "chat".into(),
+                target_system_name: Some("chat".into()),
+                target_system_names: Vec::new(),
             }],
             &overrides,
         );
 
         assert_eq!(explanation.source, RouteSource::ManualOverride);
         assert_eq!(explanation.action_status, ActionStatus::SkippedManualOverride);
+    }
+
+    #[test]
+    fn detect_external_manual_override_when_system_differs_from_rule() {
+        let stream = Stream {
+            id: "slack-playback".into(),
+            app_name: "Slack".into(),
+            executable: Some("slack".into()),
+            window_class: None,
+            system_name: Some("Slack".into()),
+            direction: crate::core::models::StreamDirection::Playback,
+            current_target: Some("headphones".into()),
+            current_targets: Vec::new(),
+            media_name: None,
+            is_system: false,
+            route_explanation: None,
+        };
+        let graph = RuntimeGraph {
+            devices: vec![
+                Device {
+                    id: "headphones".into(),
+                    system_name: "alsa-headphones".into(),
+                    label: "Headphones".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+                Device {
+                    id: "speakers".into(),
+                    system_name: "alsa-speakers".into(),
+                    label: "Speakers".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+            ],
+            streams: vec![stream],
+            links: Vec::new(),
+            data_source: "pipewire".into(),
+            notice: None,
+        };
+        let persisted = vec![StreamRouteRule {
+            app_name: Some("Slack".into()),
+            executable: Some("slack".into()),
+            media_name: None,
+            target_system_name: Some("alsa-speakers".into()),
+            target_system_names: Vec::new(),
+        }];
+
+        let mut overrides = HashSet::new();
+        detect_external_manual_overrides(&graph, &mut overrides, &[], &persisted);
+        assert!(overrides.contains(&stream_identity_key(&graph.streams[0])));
     }
 
     #[test]
@@ -692,7 +901,8 @@ mod tests {
                 pattern: "Custom.*".into(),
             }],
             action: crate::core::models::RuleAction {
-                target_system_name: "custom_sink".into(),
+                target_system_name: Some("custom_sink".into()),
+                target_system_names: Vec::new(),
             },
             safeguards: Default::default(),
         };

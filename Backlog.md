@@ -69,7 +69,7 @@ Work in this order. Earlier slices unblock later ones.
 - [x] `.deb` package artifact (Tauri bundle target)
 - [x] `.rpm` package artifact (Tauri bundle target)
 - [x] Flatpak manifest and build pipeline
-- [x] CI build matrix with install smoke tests
+- [x] CI build matrix with install smoke tests (`make smoke` in CI; full Flatpak build deferred)
 - [x] Document runtime dependencies per distro
 
 ## Phase 3: Rules and Advanced Routing UX
@@ -90,31 +90,46 @@ Work in this order. Earlier slices unblock later ones.
 Carry-over to later phases:
 
 - [ ] Visual drag/connect routing editor
-- [ ] Rule edit UI (create/delete/enable exist; edit deferred)
+- [x] Rule edit UI (create, edit, delete, enable/disable)
 - [ ] Tray / system quick controls
 
 ## Phase 4: Persistence and Background Management
 
-- [ ] Optional daemon for restore/background behavior
-- [ ] Restore on login/session start
-- [ ] Persistent virtual device lifecycle
-- [ ] Add sequence diagrams for route change, profile restore, and auto-map workflows
-- [ ] Add boundary-level test strategy (unit, integration, simulated PipeWire events)
-- [ ] Add event lifecycle states and reconciliation strategy
-- [ ] Define deterministic conflict resolution for competing mapping candidates
-- [ ] Prototype and document safe-mode behavior for first-run environments
-- [ ] Add config compatibility tests
-- [ ] Production packaging hardening (repos, systemd, desktop integration)
+**Complete for milestone purposes (2026-07-09).** See `docs/product/Roadmap.md` for acceptance criteria.
+
+- [x] Optional daemon for restore/background behavior
+- [x] Restore on login/session start
+- [x] Persistent virtual device lifecycle
+- [x] Add sequence diagrams for route change, profile restore, and auto-map workflows
+- [x] Add boundary-level test strategy (unit, integration, simulated PipeWire events)
+- [x] Add event lifecycle states and reconciliation strategy
+- [x] Add config compatibility tests
+- [x] Production packaging hardening (systemd, desktop integration, CI smoke; repos deferred)
+
+Carry-over (not Phase 4 blockers):
+
+- [ ] apt/rpm repository publishing
+- [ ] Full Flatpak build in CI (manifest validation only today)
+- [ ] Define deterministic conflict resolution for competing mapping candidates (deferred unless restore exposes new conflicts)
+- [ ] Extended first-run wizard beyond daemon safe-mode exit
 
 ## Phase 5: Ecosystem and Integrations
 
-- [ ] OBS integration
-- [ ] EasyEffects integration
-- [ ] Plugin SDK
-- [ ] Remote API/automation entrypoints
-- [ ] Define plugin manifest schema
-- [ ] Publish starter plugin template
-- [ ] Add plugin review checklist for community maintainers
+**Complete for milestone purposes (2026-07-09).** See `docs/product/Roadmap.md`.
+
+- [x] Plugin runtime (subprocess host, JSON-RPC stdio, capability gate, audit log)
+- [x] Plugin manifest schema and config `plugins:` block
+- [x] Settings UI for plugin enable/disable and capability approval
+- [x] `pipe-deck` CLI (graph, route, profile, rules, plugins)
+- [x] First-party bundled `pipe-deck-effects` plugin
+- [x] Multi-output routing (fan-out virtual sink + pw-link)
+- [x] Starter plugin template (`plugins/template/`)
+- [x] Contributor docs (`docs/project/Plugins.md`, `Plugin_Review_Checklist.md`)
+
+Removed from scope (PD-016 first-party audio ownership):
+
+- OBS integration — out of product scope
+- EasyEffects integration — replaced by first-party effects plugin
 
 ## Documentation and Project Follow-Ups
 

@@ -1,0 +1,11 @@
+id: pipe-deck-effects
+name: Pipe Deck Effects
+version: 0.1.0
+api_version: 1
+entry: bin/pipe-deck-effects
+bundled: true
+description: First-party EQ and compressor for Pipe Deck virtual devices
+capabilities:
+  - graph.read
+  - effects.manage
+  - ui.panel.register

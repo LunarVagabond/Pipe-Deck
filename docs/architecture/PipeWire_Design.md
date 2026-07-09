@@ -39,6 +39,12 @@ Normalization requirements:
 
 ## Virtual Device Strategy
 
+Implemented (Phase 4):
+
+- Virtual devices persist in `config.yaml` (`virtual_devices[]`) on create/remove.
+- Startup and optional daemon restore recreate `pipe-deck-{slug}` modules idempotently.
+- Profile save captures `device_assumptions` for virtual devices; profile swap restores them first.
+
 Near-term direction:
 
 - Create virtual devices only when explicitly requested.
@@ -46,8 +52,7 @@ Near-term direction:
 
 Future direction:
 
-- Managed virtual device sets tied to profiles.
-- Optional daemon-managed persistence lifecycle.
+- Managed virtual device sets tied to profiles beyond current assumption IDs.
 
 ## Phase 2 Routing Mechanics
 

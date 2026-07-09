@@ -38,6 +38,7 @@ impl MockPipeWireAdapter {
                     media_name: None,
                     is_system: false,
                     route_explanation: None,
+                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-spotify".into(),
@@ -50,6 +51,7 @@ impl MockPipeWireAdapter {
                     media_name: None,
                     is_system: false,
                     route_explanation: None,
+                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-steam".into(),
@@ -62,6 +64,7 @@ impl MockPipeWireAdapter {
                     media_name: None,
                     is_system: false,
                     route_explanation: None,
+                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-firefox".into(),
@@ -74,6 +77,7 @@ impl MockPipeWireAdapter {
                     media_name: None,
                     is_system: false,
                     route_explanation: None,
+                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-obs".into(),
@@ -86,6 +90,7 @@ impl MockPipeWireAdapter {
                     media_name: None,
                     is_system: false,
                     route_explanation: None,
+                    current_targets: Vec::new(),
                 },
             ],
             links: vec![
@@ -173,9 +178,11 @@ fn mock_device(
         label: label.into(),
         kind,
         direction,
+        sink_mode: None,
         volume_percent: Some(70),
         muted: Some(false),
         current_target: None,
+        current_targets: Vec::new(),
     }
 }
 

@@ -82,8 +82,25 @@ Connection lines draw between linked nodes. Authored policies are managed in the
 
 - Full-width table of authored rules (name, conditions, target, status, actions).
 - **+ New Rule** opens a centered modal for name, priority, target selection, and conditions.
+- **Edit** reopens the same modal for rename, condition, and target changes.
 - **Simulate** runs a dry-run preview without applying routes.
 - Collapsible identity reference table helps fill condition values from active streams.
+
+## Settings View (Phase 4)
+
+- **Restore on startup:** Off/On toggle — recreate virtual devices and reapply routes when the app opens (default on).
+- **Background restore:** Off/On toggle — install and enable `pipe-deck-daemon` user systemd service for login-time restore (default off).
+- **Background service status:** enabled state, last run, devices restored, and last error from `daemon.json`.
+- Flatpak installs: background restore may be unavailable; in-app restore remains supported.
+
+## Route Explanation Labels
+
+| Source | Dashboard summary |
+|--------|-------------------|
+| Authored rule | `Routed by {Rule Name} → {device}` |
+| Dashboard-saved route (`routing_rules`) | `Routed manually → {device}` |
+| Session manual override | `Manual choice this session` |
+| No match | `No matching auto-route rule` |
 
 ## Progressive Disclosure
 
@@ -121,7 +138,7 @@ Connection lines draw between linked nodes. Authored policies are managed in the
 - Routing: node-link visual editor with direct drag/connect behavior.
 - Mixer: per-channel sliders with meters and mute/solo controls.
 - Profiles: one-click profile switch with summary of included virtual sinks/sources and rules.
-- Settings: compact toggles for startup behavior, tray mode, updates, and language.
+- Settings: restore-on-startup and optional background-restore toggles (Off/On), daemon status panel.
 
 ## Traceability to User Value
 

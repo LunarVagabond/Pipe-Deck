@@ -1,4 +1,4 @@
-use crate::core::models::{Device, DeviceDirection, DeviceKind, VirtualDeviceResult};
+use crate::core::models::{Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceResult};
 use crate::pipewire::adapter::AdapterError;
 use crate::pipewire::pactl;
 use std::collections::HashMap;
@@ -11,6 +11,7 @@ pub struct VirtualDeviceEntry {
     pub system_name: String,
     pub label: String,
     pub direction: DeviceDirection,
+    pub multi: bool,
 }
 
 #[derive(Default)]
@@ -44,6 +45,7 @@ impl VirtualDeviceRegistry {
                     system_name: module.system_name,
                     label: module.label,
                     direction: module.direction,
+                    multi: module.multi,
                 });
         }
 
@@ -58,6 +60,18 @@ impl VirtualDeviceRegistry {
     }
 
     pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
+        self.create_output_with_mode(name, false)
+    }
+
+    pub fn create_multi_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
+        self.create_output_with_mode(name, true)
+    }
+
+    fn create_output_with_mode(
+        self: &Arc<Self>,
+        name: &str,
+        multi: bool,
+    ) -> Result<VirtualDeviceResult, AdapterError> {
         let slug = slugify(name);
         let system_name = format!("pipe-deck-{slug}");
         let module_id = pactl::create_null_sink(&system_name, name)?;
@@ -67,6 +81,7 @@ impl VirtualDeviceRegistry {
             system_name: system_name.clone(),
             label: name.to_string(),
             direction: DeviceDirection::Output,
+            multi,
         };
         self.insert_entry(entry.clone())?;
         Ok(entry.into_result())
@@ -82,6 +97,7 @@ impl VirtualDeviceRegistry {
             system_name: system_name.clone(),
             label: name.to_string(),
             direction: DeviceDirection::Input,
+            multi: false,
         };
         self.insert_entry(entry.clone())?;
         Ok(entry.into_result())
@@ -144,6 +160,7 @@ impl VirtualDeviceEntry {
             device_id: self.device_id,
             system_name: self.system_name,
             label: self.label,
+            multi: self.multi,
         }
     }
 
@@ -154,14 +171,23 @@ impl VirtualDeviceEntry {
             label: self.label.clone(),
             kind: DeviceKind::Virtual,
             direction: self.direction.clone(),
+            sink_mode: match self.direction {
+                DeviceDirection::Output | DeviceDirection::Duplex => Some(if self.multi {
+                    SinkMode::Multi
+                } else {
+                    SinkMode::Single
+                }),
+                DeviceDirection::Input => None,
+            },
             volume_percent: Some(100),
             muted: Some(false),
             current_target: None,
+            current_targets: Vec::new(),
         }
     }
 }
 
-fn slugify(name: &str) -> String {
+pub fn slugify(name: &str) -> String {
     let slug = name
         .to_lowercase()
         .chars()

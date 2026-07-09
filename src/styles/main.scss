@@ -4,7 +4,11 @@
 @use "views/dashboard";
 @use "views/profiles";
 @use "components/routing-matrix";
+@use "components/stream-route-picker";
 @use "components/mixer-strip";
 @use "components/node-card-header";
 @use "components/route-explanation";
+@use "components/toggle-switch";
+@use "components/confirm-dialog";
 @use "views/rules";
+@use "views/settings";

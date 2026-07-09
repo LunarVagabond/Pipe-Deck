@@ -1,7 +1,9 @@
 pub mod commands;
 pub mod config;
 pub mod core;
+pub mod daemon;
 pub mod pipewire;
+pub mod plugins;
 
 use core::engine::CoreEngine;
 use std::sync::Arc;
@@ -33,9 +35,13 @@ pub fn run() {
             commands::profile::import_profile,
             commands::profile::import_profile_archive,
             commands::profile::export_profile,
+            commands::profile::get_profile_drift,
+            commands::profile::apply_profile_routes,
             commands::profile::swap_profile,
             commands::routing::set_stream_target,
+            commands::routing::set_stream_targets,
             commands::routing::set_device_route,
+            commands::routing::set_device_targets,
             commands::routing::undo_last_routing,
             commands::routing::can_undo_routing,
             commands::routing::get_last_error,
@@ -47,8 +53,17 @@ pub fn run() {
             commands::mixer::set_device_volume,
             commands::mixer::set_device_mute,
             commands::virtual_device::create_virtual_output,
+            commands::virtual_device::create_virtual_multi_output,
             commands::virtual_device::create_virtual_input,
             commands::virtual_device::remove_virtual_device,
+            commands::daemon::get_daemon_status,
+            commands::daemon::enable_background_restore,
+            commands::daemon::disable_background_restore,
+            commands::daemon::set_restore_on_startup,
+            commands::plugins::list_plugins,
+            commands::plugins::set_plugin_enabled,
+            commands::plugins::grant_plugin_capabilities,
+            commands::plugins::list_plugin_ui_panels,
         ])
         .setup(|app| {
             let handle = app.handle().clone();

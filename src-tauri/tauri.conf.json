@@ -26,12 +26,39 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": [
+      "bin/pipe-deck-daemon"
+    ],
+    "resources": [
+      "packaging/pipe-deck-daemon.service"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "linux": {
+      "deb": {
+        "depends": [
+          "pipewire",
+          "wireplumber",
+          "pipewire-pulse | pulseaudio-utils"
+        ],
+        "files": {
+          "/usr/lib/systemd/user/pipe-deck-daemon.service": "packaging/pipe-deck-daemon.service",
+          "/usr/share/applications/com.pipedeck.PipeDeck.desktop": "../../packaging/com.pipedeck.PipeDeck.desktop",
+          "/usr/share/metainfo/com.pipedeck.PipeDeck.metainfo.xml": "../../packaging/com.pipedeck.PipeDeck.metainfo.xml"
+        }
+      },
+      "rpm": {
+        "depends": [
+          "pipewire",
+          "wireplumber",
+          "pipewire-pulse"
+        ]
+      }
+    }
   }
 }

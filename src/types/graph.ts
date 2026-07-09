@@ -24,7 +24,10 @@ export interface RouteExplanation {
   skipped_candidates: SkippedCandidate[];
   action_status: ActionStatus;
   target_system_name?: string;
+  target_system_names?: string[];
 }
+
+export type SinkMode = "single" | "multi";
 
 export interface Device {
   id: string;
@@ -32,9 +35,11 @@ export interface Device {
   label: string;
   kind: DeviceKind;
   direction: DeviceDirection;
+  sink_mode?: SinkMode;
   volume_percent?: number;
   muted?: boolean;
   current_target?: string;
+  current_targets?: string[];
 }
 
 export interface Stream {
@@ -45,6 +50,7 @@ export interface Stream {
   system_name?: string;
   direction: StreamDirection;
   current_target?: string;
+  current_targets?: string[];
   media_name?: string;
   is_system?: boolean;
   route_explanation?: RouteExplanation;
@@ -76,18 +82,22 @@ export interface ProfileIndexEntry {
 
 export interface Preferences {
   show_system_streams?: boolean;
+  restore_on_startup?: boolean;
+  background_restore?: boolean;
 }
 
 export interface StreamRouteRule {
   app_name?: string;
   executable?: string;
   media_name?: string;
-  target_system_name: string;
+  target_system_name?: string;
+  target_system_names?: string[];
 }
 
 export interface DeviceRouteRule {
   source_system_name: string;
-  target_system_name: string;
+  target_system_name?: string;
+  target_system_names?: string[];
 }
 
 export interface RoutingRulesConfig {
@@ -105,7 +115,8 @@ export type RuleCondition =
   | { type: "regex"; field: string; pattern: string };
 
 export interface RuleAction {
-  target_system_name: string;
+  target_system_name?: string;
+  target_system_names?: string[];
 }
 
 export interface RuleSafeguards {
@@ -136,11 +147,42 @@ export interface AppConfig {
   devices?: Record<string, DeviceAliasEntry>;
   routing_rules?: RoutingRulesConfig;
   rules?: Rule[];
+  virtual_devices?: VirtualDeviceSpec[];
+  plugins?: Record<string, PluginEntry>;
+}
+
+export interface PluginEntry {
+  enabled: boolean;
+  granted_capabilities: string[];
+  config?: Record<string, unknown>;
+}
+
+export type PluginRuntimeStatus = "stopped" | "running" | "error";
+
+export interface PluginUiPanel {
+  id: string;
+  title: string;
+  summary: string;
+}
+
+export interface PluginStatus {
+  id: string;
+  name: string;
+  version: string;
+  description?: string;
+  bundled: boolean;
+  enabled: boolean;
+  requested_capabilities: string[];
+  granted_capabilities: string[];
+  runtime_status: PluginRuntimeStatus;
+  last_error?: string;
+  ui_panels: PluginUiPanel[];
 }
 
 export interface RoutingIntent {
   stream_id: string;
-  target_device_id: string;
+  target_device_id?: string;
+  target_device_ids?: string[];
 }
 
 export interface VolumeStateEntry {
@@ -159,6 +201,22 @@ export interface Profile {
   device_assumptions?: Record<string, string>;
 }
 
+export interface RoutingDriftItem {
+  stream_id: string;
+  stream_label: string;
+  live_target_id?: string;
+  live_target_label?: string;
+  desired_target_id?: string;
+  desired_target_label?: string;
+}
+
+export interface RoutingDrift {
+  profile_id: string;
+  profile_name: string;
+  has_drift: boolean;
+  items: RoutingDriftItem[];
+}
+
 export interface ApplyResult {
   success: boolean;
   message?: string;
@@ -168,6 +226,25 @@ export interface VirtualDeviceResult {
   device_id: string;
   system_name: string;
   label: string;
+  multi?: boolean;
+}
+
+export interface DaemonStatus {
+  running: boolean;
+  enabled: boolean;
+  pid?: number;
+  last_run?: string;
+  last_error?: string;
+  devices_restored?: number;
+}
+
+export interface VirtualDeviceSpec {
+  id: string;
+  slug: string;
+  label: string;
+  direction: DeviceDirection;
+  created_at: string;
+  multi?: boolean;
 }
 
 export type AppView =

@@ -1,6 +1,8 @@
 pub mod engine;
 pub mod models;
 pub mod profile;
+pub mod profile_drift;
+pub mod restore;
 pub mod routing;
 pub mod routing_rules;
 pub mod rule_engine;

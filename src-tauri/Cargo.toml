@@ -4,10 +4,20 @@ version = "0.1.0"
 description = "Linux Audio Control Center"
 authors = ["Pipe Deck Contributors"]
 edition = "2021"
+default-run = "pipe-deck"
 
 [lib]
 name = "pipe_deck_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "pipe-deck-daemon"
+path = "src/bin/pipe-deck-daemon.rs"
+
+# Headless CLI — must not use the package name `pipe-deck` (that is the Tauri GUI binary from src/main.rs).
+[[bin]]
+name = "pipe-deck-cli"
+path = "src/bin/pipe-deck.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }

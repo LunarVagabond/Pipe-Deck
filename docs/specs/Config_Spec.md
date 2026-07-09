@@ -50,8 +50,9 @@ Environment override: `PIPE_DECK_CONFIG_DIR` (optional).
 ```yaml
 version: 1
 preferences:
-  landing_view: dashboard
-  apply_immediately: true
+  show_system_streams: false
+  restore_on_startup: true       # recreate virtual devices when GUI opens
+  background_restore: false      # enable systemd daemon at login (Phase 4)
 active_profile: gaming
 profile_index:
   - id: gaming
@@ -61,14 +62,98 @@ profile_index:
     name: Streaming
     file: profiles/streaming.yaml
 devices: {}        # known device metadata and aliases
+virtual_devices:   # persisted virtual device definitions (Phase 4)
+  - id: virtual-game-mix
+    slug: game-mix
+    label: Game Mix
+    direction: output
+    created_at: "2026-07-09T10:00:00Z"
 routing_rules:     # lightweight persisted routes (Phase 2); see below
   stream_rules: []
   device_rules: []
 rules: []          # authored auto-routing rules (Phase 3+)
-plugins: {}        # plugin enablement (Phase 5+)
+plugins:           # plugin enablement and capability grants (Phase 5)
+  pipe-deck-effects:
+    enabled: true
+    granted_capabilities:
+      - graph.read
+      - effects.manage
+      - ui.panel.register
+    config:
+      chains: {}
 diagnostics:
   verbosity: normal
 ```
+
+### Plugins (`plugins`, Phase 5)
+
+Map of plugin ID → runtime state. See [Plugin API](./Plugin_API.md).
+
+```yaml
+plugins:
+  pipe-deck-effects:
+    enabled: true
+    granted_capabilities:
+      - graph.read
+      - effects.manage
+      - ui.panel.register
+    config:              # opaque per-plugin config blob
+      chains:
+        virtual-game-mix:
+          eq_low: 0
+          eq_mid: 0
+          eq_high: 0
+          compressor: false
+  my-community-plugin:
+    enabled: false
+    granted_capabilities: []
+    config: {}
+```
+
+| Field | Description |
+|-------|-------------|
+| `enabled` | Whether the host should start this plugin |
+| `granted_capabilities` | User-approved subset of manifest `capabilities` |
+| `config` | Plugin-owned settings persisted by the host |
+
+Bundled first-party plugins ship with `enabled: true` and default grants on first run.
+
+### Multi-output routing (Phase 5)
+
+Stream routes may target multiple outputs simultaneously. Profiles and rules use `target_device_ids` (array); legacy `target_device_id` (single string) is still accepted on load.
+
+```yaml
+routing_intents:
+  - stream_id: firefox-playback
+    target_device_ids:
+      - headphones
+      - desk-speakers
+```
+
+Fan-out uses a `pipe-deck-split-*` virtual sink plus `pw-link` monitor routes to each output.
+
+### Virtual devices (`virtual_devices[]`, Phase 4)
+
+Each entry describes a Pipe Deck-owned virtual sink or source that should be recreated after reboot or session restart:
+
+- **id:** stable internal ID (`virtual-{slug}`)
+- **slug:** suffix used in PipeWire node name `pipe-deck-{slug}`
+- **label:** user-facing name
+- **direction:** `output` or `input`
+- **created_at:** ISO 8601 timestamp
+
+On first run after upgrade, existing `pipe-deck-*` PipeWire modules are migrated into this list automatically.
+
+### Restore preferences
+
+- **restore_on_startup:** when true, the GUI (or daemon) recreates missing virtual devices and reapplies persisted routes on start.
+- **background_restore:** when true, the optional `pipe-deck-daemon` user service is enabled for login-time restore.
+
+### Daemon status and safe mode (Phase 4)
+
+- **Status file:** `~/.local/state/pipe-deck/daemon.json` (`pid`, `last_run`, `last_error`, `devices_restored`)
+- **Safe mode:** if config is missing or corrupt on daemon start, the daemon records the error and exits without modifying PipeWire
+- **Flatpak note:** user systemd background restore may be unavailable in the sandbox; in-app restore on launch remains supported
 
 ## Profile Format (`profiles/<name>.yaml`)
 
@@ -95,7 +180,7 @@ rule_overrides: []      # optional (Phase 3+)
 - **Metadata:** `id`, `name`, `created`, `updated`
 - **Routing intents:** stream → sink/source target mappings
 - **Volume/mute state:** optional capture of levels when saving
-- **Device assumptions:** optional hints for restore (e.g., expected USB interface)
+- **Device assumptions:** virtual device IDs present when the profile was saved; used to restore missing devices before applying routing intents
 - **Rule overrides:** optional rule activation overrides (Phase 3+)
 
 ## Routing Rules (`config.yaml`)
@@ -171,9 +256,10 @@ routing_rules:
 
 1. **Load:** core reads profile YAML from disk.
 2. **Validate:** schema version, required fields, routing intent shape.
-3. **Apply:** core sends routing intents to PipeWire integration layer.
-4. **Commit:** on success, update `active_profile` in `config.yaml`; emit state events; UI re-renders.
-5. **Rollback:** on failure, revert to last known-good applied state; surface actionable error.
+3. **Restore virtual devices:** recreate profile `device_assumptions` if missing from PipeWire.
+4. **Apply:** core sends routing intents to PipeWire integration layer.
+5. **Commit:** on success, update `active_profile` in `config.yaml`; emit state events; UI re-renders.
+6. **Rollback:** on failure, revert to last known-good applied state; surface actionable error.
 
 Profile swap must be atomic from the user's perspective: either the new profile is fully applied or the prior state is restored.
 

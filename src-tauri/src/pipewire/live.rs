@@ -117,13 +117,25 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, AdapterError> {
 
 pub fn enrich_graph_from_pactl(graph: &mut RuntimeGraph) {
     merge_pactl_playback_streams(graph);
+    merge_pactl_capture_streams(graph);
     apply_pactl_playback_targets(graph);
+    apply_pactl_capture_targets(graph);
+}
+
+pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
+    gc_feed_sinks(graph);
+    apply_pactl_playback_targets(graph);
+    apply_pactl_capture_targets(graph);
+    apply_pw_link_device_routes(graph);
+    apply_routing_visual_links(graph);
+
+    for stream in &mut graph.streams {
+        stream.route_explanation = None;
+    }
 }
 
 pub fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>) {
-    gc_feed_sinks(graph);
-    apply_pactl_playback_targets(graph);
-    apply_pw_link_device_routes(graph);
+    sync_live_routing_graph(graph);
     let _ = crate::core::routing_rules::apply_persisted_routing_rules(graph, ctx);
     apply_pactl_playback_targets(graph);
     apply_routing_visual_links(graph);
@@ -185,6 +197,7 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     },
                     direction: StreamDirection::Playback,
                     current_target: None,
+                    current_targets: Vec::new(),
                     media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
                     route_explanation: None,
@@ -207,6 +220,7 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     },
                     direction: StreamDirection::Capture,
                     current_target: None,
+                    current_targets: Vec::new(),
                     media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
                     route_explanation: None,
@@ -225,9 +239,11 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                         DeviceKind::Virtual
                     },
                     direction: DeviceDirection::Output,
+                    sink_mode: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
+                    current_targets: Vec::new(),
                 });
                 continue;
             }
@@ -245,9 +261,11 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                         DeviceKind::Physical
                     },
                     direction: DeviceDirection::Input,
+                    sink_mode: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
+                    current_targets: Vec::new(),
                 });
             }
         }
@@ -605,6 +623,7 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
                 .sink_index
                 .and_then(|index| sink_names.get(&index).cloned())
                 .and_then(|sink_name| resolve_playback_target_device_id(graph, &sink_name)),
+            current_targets: Vec::new(),
             media_name: input.media_name.clone(),
             is_system: is_system_stream_name(&input.application_name, &input.node_name),
             route_explanation: None,
@@ -614,6 +633,7 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
 
 fn apply_pactl_playback_targets(graph: &mut RuntimeGraph) {
     let sink_names = pactl::load_sink_index_names();
+    let mut updates: Vec<(String, String)> = Vec::new();
 
     for input in pactl::list_sink_inputs() {
         let Some(sink_index) = input.sink_index else {
@@ -625,17 +645,100 @@ fn apply_pactl_playback_targets(graph: &mut RuntimeGraph) {
         let Some(target_id) = resolve_playback_target_device_id(graph, sink_name) else {
             continue;
         };
-
-        let Some(stream) = graph
+        let Some(stream_id) = graph
             .streams
-            .iter_mut()
+            .iter()
             .find(|stream| stream_matches_pactl_input(stream, &input))
+            .map(|stream| stream.id.clone())
         else {
             continue;
         };
-
-        stream.current_target = Some(target_id);
+        updates.push((stream_id, target_id));
     }
+
+    for (stream_id, target_id) in updates {
+        let Some(stream) = graph.streams.iter_mut().find(|stream| stream.id == stream_id) else {
+            continue;
+        };
+        stream.current_target = Some(target_id);
+        stream.current_targets.clear();
+    }
+}
+
+fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
+    let source_names = pactl::load_source_index_names();
+
+    for output in pactl::list_source_outputs() {
+        if graph
+            .streams
+            .iter()
+            .any(|stream| stream_matches_pactl_source_output(stream, &output))
+        {
+            continue;
+        }
+
+        graph.streams.push(Stream {
+            id: format!("pactl-source-output-{}", output.index),
+            app_name: output.application_name.clone(),
+            executable: output.executable.clone(),
+            window_class: None,
+            system_name: output.node_name.clone(),
+            direction: StreamDirection::Capture,
+            current_target: output
+                .source_index
+                .and_then(|index| source_names.get(&index).cloned())
+                .and_then(|source_name| resolve_capture_target_device_id(graph, &source_name)),
+            current_targets: Vec::new(),
+            media_name: output.media_name.clone(),
+            is_system: is_system_stream_name(&output.application_name, &output.node_name),
+            route_explanation: None,
+        });
+    }
+}
+
+fn apply_pactl_capture_targets(graph: &mut RuntimeGraph) {
+    let source_names = pactl::load_source_index_names();
+    let mut updates: Vec<(String, String)> = Vec::new();
+
+    for output in pactl::list_source_outputs() {
+        let Some(source_index) = output.source_index else {
+            continue;
+        };
+        let Some(source_name) = source_names.get(&source_index) else {
+            continue;
+        };
+        let Some(target_id) = resolve_capture_target_device_id(graph, source_name) else {
+            continue;
+        };
+        let Some(stream_id) = graph
+            .streams
+            .iter()
+            .find(|stream| stream_matches_pactl_source_output(stream, &output))
+            .map(|stream| stream.id.clone())
+        else {
+            continue;
+        };
+        updates.push((stream_id, target_id));
+    }
+
+    for (stream_id, target_id) in updates {
+        let Some(stream) = graph.streams.iter_mut().find(|stream| stream.id == stream_id) else {
+            continue;
+        };
+        stream.current_target = Some(target_id);
+        stream.current_targets.clear();
+    }
+}
+
+fn resolve_capture_target_device_id(
+    graph: &RuntimeGraph,
+    source_system_name: &str,
+) -> Option<String> {
+    graph
+        .devices
+        .iter()
+        .find(|device| device.system_name == source_system_name)
+        .map(|device| device.id.clone())
 }
 
 fn resolve_playback_target_device_id(
@@ -694,6 +797,7 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
     for device in &mut graph.devices {
         if device.direction == DeviceDirection::Output && device.kind == DeviceKind::Virtual {
             device.current_target = None;
+            device.current_targets.clear();
         }
     }
 
@@ -717,7 +821,17 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
         }
 
         if let Some(device) = graph.devices.iter_mut().find(|device| device.id == *source_id) {
-            device.current_target = Some(target_id.clone());
+            if device.is_multi_sink() {
+                if !device.current_targets.contains(target_id) {
+                    device.current_targets.push(target_id.clone());
+                }
+                if device.current_target.is_none() {
+                    device.current_target = Some(target_id.clone());
+                }
+            } else {
+                device.current_target = Some(target_id.clone());
+                device.current_targets = vec![target_id.clone()];
+            }
         }
 
         graph.links.push(Link {
@@ -725,6 +839,57 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
             source_id: source_id.clone(),
             target_id: target_id.clone(),
         });
+    }
+
+    for device in &mut graph.devices {
+        if !device.is_multi_sink() {
+            continue;
+        }
+        let fan_out_names = pw_link::list_all_monitor_routes_for_source(&device.system_name);
+        let target_ids: Vec<String> = fan_out_names
+            .iter()
+            .filter_map(|name| name_to_id.get(name).cloned())
+            .collect();
+        if !target_ids.is_empty() {
+            device.current_targets = target_ids.clone();
+            device.current_target = target_ids.first().cloned();
+        }
+    }
+}
+
+fn stream_matches_pactl_source_output(stream: &Stream, output: &pactl::PactlSourceOutput) -> bool {
+    if stream.id == format!("pactl-source-output-{}", output.index) {
+        return true;
+    }
+
+    if stream.direction != StreamDirection::Capture {
+        return false;
+    }
+
+    if let Some(system_name) = &stream.system_name {
+        if output
+            .node_name
+            .as_deref()
+            .is_some_and(|node_name| node_name == system_name)
+        {
+            return true;
+        }
+    }
+
+    if stream.app_name != output.application_name {
+        if stream
+            .executable
+            .as_deref()
+            .is_none_or(|executable| executable != output.application_name)
+        {
+            return false;
+        }
+    }
+
+    match (&stream.media_name, &output.media_name) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
     }
 }
 
@@ -875,9 +1040,11 @@ mod tests {
                 label: "test".into(),
                 kind: DeviceKind::Virtual,
                 direction: DeviceDirection::Input,
+                sink_mode: None,
                 volume_percent: Some(100),
                 muted: Some(false),
                 current_target: None,
+                current_targets: Vec::new(),
             }],
             streams: Vec::new(),
             links: Vec::new(),
@@ -896,7 +1063,8 @@ mod tests {
             window_class: None,
             system_name: Some("Firefox".into()),
             direction: StreamDirection::Playback,
-            current_target: target,
+            current_target: target.clone(),
+            current_targets: target.clone().into_iter().collect(),
             media_name: None,
             is_system: false,
             route_explanation: None,

@@ -95,13 +95,25 @@ flatpak-builder --force-clean flatpak/build flatpak/com.pipedeck.PipeDeck.yml
   - Filesystem access for `~/.config/pipe-deck` (or XDG config portal)
 - Evaluate PipeWire portal vs direct socket during Flatpak slice.
 
-## Phase 4 Hardening (Future)
+## Phase 4 Hardening
 
-- systemd user service for optional daemon.
-- Desktop file and icon installation.
-- apt/rpm repository publishing.
-- Consistent post-install behavior across distributions.
-- AppStream metadata for software centers.
+- systemd user service for optional daemon (`pipe-deck-daemon.service`).
+- Desktop file and AppStream metadata in `packaging/`.
+- Runtime dependencies declared in Tauri bundle config.
+- `make flatpak` and `make smoke` for local validation.
+- CI: smoke checks, Ubuntu bundles, RPM build, Flatpak metadata validation.
+
+### Daemon install paths
+
+| Format | Daemon binary | systemd unit |
+|--------|---------------|--------------|
+| `.deb` | `/usr/bin/pipe-deck-daemon` (external bin) | `/usr/lib/systemd/user/pipe-deck-daemon.service` |
+| Dev build | `src-tauri/target/release/pipe-deck-daemon` | `~/.config/systemd/user/pipe-deck-daemon.service` (via Settings UI) |
+| Flatpak | `/app/bin/pipe-deck-daemon` | User systemd not supported in sandbox |
+
+Enable background restore from the in-app **Settings** view (installs user unit, runs `systemctl --user enable --now`).
+
+Flatpak note: background restore via user systemd may be unavailable inside the Flatpak sandbox; in-app restore on launch remains available.
 
 ## Decisions
 

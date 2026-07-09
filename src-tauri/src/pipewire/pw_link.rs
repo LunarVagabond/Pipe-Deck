@@ -59,6 +59,57 @@ fn monitor_route_matches(
     })
 }
 
+pub fn list_all_monitor_routes_for_source(source_system_name: &str) -> Vec<String> {
+    let output = match Command::new("pw-link").arg("-l").output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut targets = Vec::new();
+    let mut current_target_port: Option<String> = None;
+    let prefix = format!("{source_system_name}:");
+
+    for line in text.lines() {
+        if let Some(source_port) = line.strip_prefix("  |<- ") {
+            let source_port = source_port.trim();
+            if source_port.starts_with(&prefix) {
+                if let Some(target_port) = current_target_port.as_deref() {
+                    if let Some((_, target_name)) = parse_stereo_route_pair(source_port, target_port)
+                    {
+                        if !targets.contains(&target_name) {
+                            targets.push(target_name);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && trimmed.contains(':') {
+            current_target_port = Some(trimmed.to_string());
+        }
+    }
+
+    targets
+}
+
+pub fn disconnect_sink_monitor_route(
+    source_system_name: &str,
+    target_system_name: &str,
+) -> Result<(), AdapterError> {
+    for (monitor_suffix, input_suffix) in STEREO_MONITOR_SUFFIXES
+        .iter()
+        .chain(STEREO_INPUT_SUFFIXES.iter())
+    {
+        let output_port = format!("{source_system_name}{monitor_suffix}");
+        let input_port = format!("{target_system_name}{input_suffix}");
+        let _ = run_pw_link(&["-d", &output_port, &input_port]);
+    }
+    Ok(())
+}
+
 pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), AdapterError> {
     for (output_port, input_port) in list_monitor_links_for_source(source_system_name) {
         let _ = run_pw_link(&["-d", &output_port, &input_port]);

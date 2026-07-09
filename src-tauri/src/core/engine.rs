@@ -1,22 +1,25 @@
 use crate::config::profile_store::{import_profile_archive, ProfileStore};
 use crate::config::ConfigStore;
 use crate::core::models::{
-    ApplyResult, DeviceRouteIntent, Profile, ProfileIndexEntry, RoutingIntent, RuntimeGraph,
-    Rule, SimulationResult, VirtualDeviceResult,
+    ApplyResult, DeviceDirection, DeviceRouteIntent, PluginStatus, Profile, ProfileIndexEntry,
+    RoutingDrift, RoutingIntent, RuntimeGraph, Rule, SimulationResult, VirtualDeviceResult,
 };
 use crate::core::profile::{capture_profile_from_graph, update_profile_timestamp};
+use crate::core::profile_drift::compare_profile_to_graph;
+use crate::core::restore::{self, spec_from_create_result};
 use crate::core::rule_engine::{self, ApplyRulesContext};
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::core::routing::{
     apply_device_route_intent, apply_profile_routing, apply_profile_volumes, apply_routing_intent,
     capture_routing_snapshot, restore_routing_snapshot, RoutingSnapshot,
 };
+use crate::plugins::PluginManager;
 use crate::pipewire::adapter::PipeWireAdapter;
 use crate::pipewire::pactl;
 use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
 use tokio::sync::RwLock;
@@ -41,6 +44,8 @@ pub struct CoreEngine {
     device_id_remap: HashMap<String, String>,
     last_error: Option<String>,
     manual_overrides: HashSet<StreamIdentityKey>,
+    device_manual_overrides: HashSet<String>,
+    plugin_manager: Mutex<PluginManager>,
 }
 
 impl CoreEngine {
@@ -53,6 +58,8 @@ impl CoreEngine {
             device_id_remap: HashMap::new(),
             last_error: None,
             manual_overrides: HashSet::new(),
+            device_manual_overrides: HashSet::new(),
+            plugin_manager: Mutex::new(PluginManager::new()),
         }
     }
 
@@ -81,14 +88,21 @@ impl CoreEngine {
             .ensure_layout()
             .map_err(|error| EngineError::Config(error.to_string()))?;
         let _ = rule_engine::ensure_rules_migrated();
+        self.initialize_plugins();
 
         if std::env::var("PIPE_DECK_USE_MOCK").as_deref() != Ok("1") {
-            self.virtual_registry
-                .discover_from_pactl()
+            let restore_result = restore::restore_session(&self.virtual_registry)
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
+            self.apply_restore_notice(&restore_result);
         }
 
         self.refresh_graph()?;
+        let config = ConfigStore::new()
+            .load_config()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+        if config.preferences.restore_on_startup {
+            let _ = self.apply_desired_routing();
+        }
         self.emit_graph_update(app);
 
         let app_handle = app.clone();
@@ -107,7 +121,18 @@ impl CoreEngine {
         Ok(())
     }
 
+    pub fn initialize_plugins(&mut self) {
+        if let Ok(mut plugins) = self.plugin_manager.lock() {
+            plugins.discover();
+            plugins.ensure_bundled_defaults();
+            if let Err(error) = plugins.start_enabled().map_err(|e| e) {
+                eprintln!("plugin start warning: {error}");
+            }
+        }
+    }
+
     pub fn refresh_graph(&mut self) -> Result<(), EngineError> {
+        let _ = self.virtual_registry.discover_from_pactl();
         self.graph = self
             .adapter
             .fetch_graph()
@@ -117,33 +142,106 @@ impl CoreEngine {
             &self.virtual_registry,
             &mut self.device_id_remap,
         );
-        self.apply_routing_rules();
+        self.sync_live_graph();
+        if let Ok(mut plugins) = self.plugin_manager.lock() {
+            plugins.push_graph(&self.graph);
+        }
         Ok(())
     }
 
     pub fn apply_graph_update(&mut self, graph: RuntimeGraph) {
+        let _ = self.virtual_registry.discover_from_pactl();
         self.graph = graph;
         merge_virtual_devices(
             &mut self.graph,
             &self.virtual_registry,
             &mut self.device_id_remap,
         );
+        self.sync_live_graph();
+        if let Ok(mut plugins) = self.plugin_manager.lock() {
+            plugins.push_graph(&self.graph);
+        }
+    }
+
+    fn sync_live_graph(&mut self) {
+        crate::pipewire::live::sync_live_routing_graph(&mut self.graph);
+    }
+
+    pub fn apply_desired_routing(&mut self) -> Result<(), EngineError> {
+        self.manual_overrides.clear();
+        self.device_manual_overrides.clear();
         self.apply_routing_rules();
+        Ok(())
+    }
+
+    pub fn get_profile_drift(&self, profile_id: &str) -> Result<RoutingDrift, EngineError> {
+        let profile = self.get_profile(profile_id)?;
+        Ok(compare_profile_to_graph(&profile, &self.graph))
+    }
+
+    pub fn apply_profile_routes(&mut self, profile_id: &str) -> Result<ApplyResult, EngineError> {
+        self.clear_last_error();
+        let profile = self.get_profile(profile_id)?;
+        let snapshot = capture_routing_snapshot(&self.graph);
+
+        let apply_result = if self.graph.data_source == "mock" {
+            apply_mock_profile(&mut self.graph, &profile)
+        } else {
+            apply_profile_routing(&self.graph, &profile)
+                .map_err(|error| EngineError::Routing(error.to_string()))
+        };
+
+        if let Err(error) = apply_result {
+            let message = error.to_string();
+            self.last_error = Some(message.clone());
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(message),
+            });
+        }
+
+        self.rollback_stack.push(snapshot);
+        if self.graph.data_source != "mock" {
+            self.refresh_graph()?;
+        }
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     fn apply_routing_rules(&mut self) {
         let config = ConfigStore::new()
             .load_config()
             .unwrap_or_else(|_| ConfigStore::default_config());
+
         rule_engine::reconcile_manual_overrides(
             &self.graph,
             &mut self.manual_overrides,
             &config.rules,
             &config.routing_rules.stream_rules,
         );
+        rule_engine::reconcile_device_manual_overrides(
+            &self.graph,
+            &mut self.device_manual_overrides,
+            &config.routing_rules.device_rules,
+        );
+
+        rule_engine::detect_external_manual_overrides(
+            &self.graph,
+            &mut self.manual_overrides,
+            &config.rules,
+            &config.routing_rules.stream_rules,
+        );
+        rule_engine::detect_external_device_manual_overrides(
+            &self.graph,
+            &mut self.device_manual_overrides,
+            &config.routing_rules.device_rules,
+        );
 
         let ctx = ApplyRulesContext {
             manual_overrides: &self.manual_overrides,
+            device_manual_overrides: &self.device_manual_overrides,
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
         };
@@ -317,15 +415,18 @@ impl CoreEngine {
     ) -> Result<ApplyResult, EngineError> {
         self.clear_last_error();
         let snapshot = capture_routing_snapshot(&self.graph);
+        let resolved_target = self.resolve_device_id(target_device_id);
         let intent = RoutingIntent {
             stream_id: stream_id.to_string(),
-            target_device_id: self.resolve_device_id(target_device_id),
+            target_device_id: Some(resolved_target.clone()),
+            target_device_ids: Vec::new(),
         };
 
         let apply_result = if self.graph.data_source == "mock" {
             apply_mock_routing(&mut self.graph, &intent)
         } else {
-            apply_routing_intent(&self.graph, &intent).map_err(|error| EngineError::Routing(error.to_string()))
+            apply_routing_intent(&self.graph, &intent)
+                .map_err(|error| EngineError::Routing(error.to_string()))
         };
 
         if let Err(error) = apply_result {
@@ -337,39 +438,22 @@ impl CoreEngine {
             });
         }
 
-        if self.graph.data_source != "mock" {
-            if let (Some(stream), Some(target)) = (
-                self.graph
-                    .streams
-                    .iter()
-                    .find(|stream| stream.id == intent.stream_id),
-                self.graph
-                    .devices
-                    .iter()
-                    .find(|device| device.id == intent.target_device_id),
-            ) {
-                let _ = crate::core::routing_rules::save_stream_route_rule(stream, target);
-            }
-        } else if let (Some(stream), Some(target)) = (
-            self.graph
-                .streams
-                .iter()
-                .find(|stream| stream.id == intent.stream_id),
-            self.graph
+        if let Some(stream) = self.graph.streams.iter().find(|s| s.id == intent.stream_id) {
+            if let Some(target) = self
+                .graph
                 .devices
                 .iter()
-                .find(|device| device.id == intent.target_device_id),
-        ) {
-            let _ = crate::core::routing_rules::save_stream_route_rule(stream, target);
+                .find(|device| device.id == resolved_target)
+            {
+                let _ = crate::core::routing_rules::save_stream_route_rule(stream, target);
+            }
         }
 
-        self.sync_manual_override_for_ids(&intent.stream_id, &intent.target_device_id);
+        self.sync_manual_override_for_ids(&intent.stream_id, &resolved_target);
 
         self.rollback_stack.push(snapshot);
         if self.graph.data_source != "mock" {
             self.refresh_graph()?;
-        } else {
-            self.apply_routing_rules();
         }
         Ok(ApplyResult {
             success: true,
@@ -377,16 +461,81 @@ impl CoreEngine {
         })
     }
 
+    pub fn set_stream_targets(
+        &mut self,
+        stream_id: &str,
+        target_device_ids: &[String],
+    ) -> Result<ApplyResult, EngineError> {
+        let Some(primary) = target_device_ids.first() else {
+            return Ok(ApplyResult {
+                success: false,
+                message: Some("at least one target is required".into()),
+            });
+        };
+        self.set_stream_target(stream_id, primary)
+    }
+
+    pub fn list_plugins(&self) -> Vec<PluginStatus> {
+        self.plugin_manager
+            .lock()
+            .map(|manager| manager.list_status())
+            .unwrap_or_default()
+    }
+
+    pub fn set_plugin_enabled(&mut self, plugin_id: &str, enabled: bool) -> Result<(), String> {
+        self.plugin_manager
+            .lock()
+            .map_err(|_| "plugin manager lock poisoned".to_string())?
+            .set_enabled(plugin_id, enabled)
+    }
+
+    pub fn grant_plugin_capabilities(
+        &mut self,
+        plugin_id: &str,
+        capabilities: Vec<String>,
+    ) -> Result<(), String> {
+        self.plugin_manager
+            .lock()
+            .map_err(|_| "plugin manager lock poisoned".to_string())?
+            .grant_capabilities(plugin_id, capabilities)
+    }
+
+    pub fn plugin_ui_panels(&self) -> Vec<(String, crate::core::models::PluginUiPanel)> {
+        self.plugin_manager
+            .lock()
+            .map(|manager| manager.ui_panels())
+            .unwrap_or_default()
+    }
+
+    pub fn shutdown_plugins(&mut self) {
+        if let Ok(mut manager) = self.plugin_manager.lock() {
+            manager.shutdown_all();
+        }
+    }
+
     pub fn set_device_route(
         &mut self,
         source_device_id: &str,
         target_device_id: &str,
     ) -> Result<ApplyResult, EngineError> {
+        self.set_device_targets(source_device_id, &[target_device_id.to_string()])
+    }
+
+    pub fn set_device_targets(
+        &mut self,
+        source_device_id: &str,
+        target_device_ids: &[String],
+    ) -> Result<ApplyResult, EngineError> {
         self.clear_last_error();
         let snapshot = capture_routing_snapshot(&self.graph);
+        let resolved_targets: Vec<String> = target_device_ids
+            .iter()
+            .map(|id| self.resolve_device_id(id))
+            .collect();
         let intent = DeviceRouteIntent {
             source_device_id: self.resolve_device_id(source_device_id),
-            target_device_id: self.resolve_device_id(target_device_id),
+            target_device_id: resolved_targets.first().cloned(),
+            target_device_ids: resolved_targets.clone(),
         };
 
         let apply_result = if self.graph.data_source == "mock" {
@@ -405,18 +554,18 @@ impl CoreEngine {
             });
         }
 
-        if self.graph.data_source != "mock" {
-            if let (Some(source), Some(target)) = (
-                self.graph
-                    .devices
-                    .iter()
-                    .find(|device| device.id == intent.source_device_id),
-                self.graph
-                    .devices
-                    .iter()
-                    .find(|device| device.id == intent.target_device_id),
-            ) {
-                let _ = crate::core::routing_rules::save_device_route_rule(source, target);
+        if let Some(source) = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == intent.source_device_id)
+        {
+            let targets: Vec<_> = resolved_targets
+                .iter()
+                .filter_map(|id| self.graph.devices.iter().find(|d| d.id == *id).cloned())
+                .collect();
+            if !targets.is_empty() {
+                let _ = crate::core::routing_rules::save_device_route_rule(source, &targets);
             }
         }
 
@@ -466,6 +615,8 @@ impl CoreEngine {
 
     pub fn swap_profile(&mut self, profile_id: &str) -> Result<ApplyResult, EngineError> {
         self.clear_last_error();
+        self.manual_overrides.clear();
+        self.device_manual_overrides.clear();
         let store = ConfigStore::new();
         let config = store
             .load_config()
@@ -476,6 +627,23 @@ impl CoreEngine {
             .map_err(|error| EngineError::Profile(error.to_string()))?;
 
         let snapshot = capture_routing_snapshot(&self.graph);
+
+        if self.graph.data_source != "mock" {
+            let restore_result = restore::restore_profile_virtual_devices(
+                &self.virtual_registry,
+                &profile,
+            )
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+            if !restore_result.errors.is_empty() {
+                let message = restore_result.errors.join("; ");
+                self.last_error = Some(message.clone());
+                return Ok(ApplyResult {
+                    success: false,
+                    message: Some(message),
+                });
+            }
+            self.refresh_graph()?;
+        }
 
         let routing_result = if self.graph.data_source == "mock" {
             apply_mock_profile(&mut self.graph, &profile)
@@ -561,6 +729,21 @@ impl CoreEngine {
     }
 
     pub fn create_virtual_output(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {
+        self.create_virtual_output_with_mode(name, false)
+    }
+
+    pub fn create_virtual_multi_output(
+        &mut self,
+        name: &str,
+    ) -> Result<VirtualDeviceResult, EngineError> {
+        self.create_virtual_output_with_mode(name, true)
+    }
+
+    fn create_virtual_output_with_mode(
+        &mut self,
+        name: &str,
+        multi: bool,
+    ) -> Result<VirtualDeviceResult, EngineError> {
         if self.graph.data_source == "mock" {
             let slug = name.to_lowercase().replace(' ', "-");
             let system_name = format!("pipe-deck-{slug}");
@@ -570,21 +753,42 @@ impl CoreEngine {
                 label: name.to_string(),
                 kind: crate::core::models::DeviceKind::Virtual,
                 direction: crate::core::models::DeviceDirection::Output,
+                sink_mode: Some(if multi {
+                    crate::core::models::SinkMode::Multi
+                } else {
+                    crate::core::models::SinkMode::Single
+                }),
                 volume_percent: Some(100),
                 muted: Some(false),
                 current_target: None,
+                current_targets: Vec::new(),
             });
             return Ok(VirtualDeviceResult {
                 device_id: format!("virtual-{slug}"),
                 system_name,
                 label: name.to_string(),
+                multi,
             });
         }
 
-        let result = self
-            .virtual_registry
-            .create_output(name)
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        let result = if multi {
+            self.virtual_registry
+                .create_multi_output(name)
+                .map_err(|error| EngineError::Adapter(error.to_string()))?
+        } else {
+            self.virtual_registry
+                .create_output(name)
+                .map_err(|error| EngineError::Adapter(error.to_string()))?
+        };
+        ConfigStore::new()
+            .add_virtual_device(spec_from_create_result(
+                &result.device_id,
+                &result.system_name,
+                &result.label,
+                DeviceDirection::Output,
+                multi,
+            ))
+            .map_err(|error| EngineError::Config(error.to_string()))?;
         self.refresh_graph()?;
         Ok(result)
     }
@@ -599,14 +803,17 @@ impl CoreEngine {
                 label: name.to_string(),
                 kind: crate::core::models::DeviceKind::Virtual,
                 direction: crate::core::models::DeviceDirection::Input,
+                sink_mode: None,
                 volume_percent: Some(100),
                 muted: Some(false),
                 current_target: None,
+                current_targets: Vec::new(),
             });
             return Ok(VirtualDeviceResult {
                 device_id: format!("virtual-{slug}"),
                 system_name,
                 label: name.to_string(),
+                multi: false,
             });
         }
 
@@ -614,6 +821,15 @@ impl CoreEngine {
             .virtual_registry
             .create_input(name)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        ConfigStore::new()
+            .add_virtual_device(spec_from_create_result(
+                &result.device_id,
+                &result.system_name,
+                &result.label,
+                DeviceDirection::Input,
+                false,
+            ))
+            .map_err(|error| EngineError::Config(error.to_string()))?;
         self.refresh_graph()?;
         Ok(result)
     }
@@ -629,6 +845,9 @@ impl CoreEngine {
         self.virtual_registry
             .remove_device(system_name)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        ConfigStore::new()
+            .remove_virtual_device(system_name)
+            .map_err(|error| EngineError::Config(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())
     }
@@ -659,6 +878,22 @@ impl CoreEngine {
 
     pub fn simulate_rules(&self) -> Vec<SimulationResult> {
         rule_engine::simulate_rules(&self.graph)
+    }
+
+    fn apply_restore_notice(&mut self, result: &crate::core::models::RestoreResult) {
+        let mut parts = Vec::new();
+        if !result.created.is_empty() {
+            parts.push(format!("Restored {} virtual device(s)", result.created.len()));
+        }
+        for warning in &result.warnings {
+            parts.push(warning.clone());
+        }
+        for error in &result.errors {
+            parts.push(format!("Restore error: {error}"));
+        }
+        if !parts.is_empty() {
+            self.graph.notice = Some(parts.join(". "));
+        }
     }
 }
 
@@ -726,22 +961,23 @@ fn apply_mock_routing(
     graph: &mut RuntimeGraph,
     intent: &RoutingIntent,
 ) -> Result<(), EngineError> {
+    let target_id = intent
+        .target_device_id
+        .as_ref()
+        .or_else(|| intent.target_device_ids.first())
+        .ok_or_else(|| EngineError::Routing("routing intent has no target".into()))?;
     let stream = graph
         .streams
         .iter_mut()
         .find(|stream| stream.id == intent.stream_id)
         .ok_or_else(|| EngineError::Routing(format!("stream not found: {}", intent.stream_id)))?;
-    if !graph
-        .devices
-        .iter()
-        .any(|device| device.id == intent.target_device_id)
-    {
+    if !graph.devices.iter().any(|device| device.id == *target_id) {
         return Err(EngineError::Routing(format!(
-            "target device not found: {}",
-            intent.target_device_id
+            "target device not found: {target_id}"
         )));
     }
-    stream.current_target = Some(intent.target_device_id.clone());
+    stream.current_target = Some(target_id.clone());
+    stream.current_targets.clear();
     Ok(())
 }
 
@@ -751,9 +987,11 @@ fn apply_mock_snapshot(
 ) -> Result<(), EngineError> {
     for stream in &mut graph.streams {
         stream.current_target = None;
+        stream.current_targets.clear();
     }
     for device in &mut graph.devices {
         device.current_target = None;
+        device.current_targets.clear();
     }
     for intent in &snapshot.stream_intents {
         apply_mock_routing(graph, intent)?;
@@ -768,6 +1006,7 @@ fn apply_mock_device_route(
     graph: &mut RuntimeGraph,
     intent: &DeviceRouteIntent,
 ) -> Result<(), EngineError> {
+    let targets = intent.target_ids();
     if !graph
         .devices
         .iter()
@@ -778,15 +1017,12 @@ fn apply_mock_device_route(
             intent.source_device_id
         )));
     }
-    if !graph
-        .devices
-        .iter()
-        .any(|device| device.id == intent.target_device_id)
-    {
-        return Err(EngineError::Routing(format!(
-            "target device not found: {}",
-            intent.target_device_id
-        )));
+    for target_id in &targets {
+        if !graph.devices.iter().any(|device| device.id == *target_id) {
+            return Err(EngineError::Routing(format!(
+                "target device not found: {target_id}"
+            )));
+        }
     }
 
     let device = graph
@@ -794,13 +1030,15 @@ fn apply_mock_device_route(
         .iter_mut()
         .find(|device| device.id == intent.source_device_id)
         .expect("source device exists");
-    device.current_target = Some(intent.target_device_id.clone());
+    device.current_targets = targets.clone();
+    device.current_target = targets.first().cloned();
     Ok(())
 }
 
 fn apply_mock_profile(graph: &mut RuntimeGraph, profile: &Profile) -> Result<(), EngineError> {
     for stream in &mut graph.streams {
         stream.current_target = None;
+        stream.current_targets.clear();
     }
     for intent in &profile.routing_intents {
         apply_mock_routing(graph, intent)?;

@@ -1,6 +1,8 @@
 pub mod config;
+pub mod daemon;
 pub mod graph;
 pub mod mixer;
+pub mod plugins;
 pub mod profile;
 pub mod routing;
 pub mod rules;

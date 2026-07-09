@@ -3,11 +3,14 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import RouteExplanationPanel from "./RouteExplanationPanel.vue";
 import NodeCardHeader from "./NodeCardHeader.vue";
+import SinkRoutePicker from "./SinkRoutePicker.vue";
 import { useApplyResult } from "../stores/notices";
+import { useConfirm } from "../stores/confirm";
 import type { Device, RuntimeGraph, Stream } from "../types/graph";
 import {
   deviceColumn,
   deviceSubtitle,
+  isMultiSink,
   linkColor,
   streamAccent,
   streamSubtitle,
@@ -20,6 +23,7 @@ const { graph } = defineProps<{
 }>();
 
 const { handleApplyResult } = useApplyResult();
+const { confirm } = useConfirm();
 const matrixRef = ref<HTMLElement | null>(null);
 const nodeRefs = ref<Record<string, HTMLElement | null>>({});
 
@@ -27,6 +31,83 @@ interface LinePath {
   id: string;
   d: string;
   color: string;
+  markerId: string;
+}
+
+function markerIdForColor(color: string): string {
+  return `routing-arrow-${color.replace("#", "")}`;
+}
+
+const arrowColors = computed(() => [...new Set(lines.value.map((line) => line.color))]);
+
+function streamForLink(link: { source_id: string; target_id: string }) {
+  return graph.streams.find((stream) => stream.id === link.source_id);
+}
+
+function linkAudioFlow(link: { source_id: string; target_id: string }) {
+  const stream = streamForLink(link);
+  if (stream?.direction === "capture") {
+    // Capture reads from the input device: mic → app.
+    return {
+      fromId: link.target_id,
+      toId: link.source_id,
+    };
+  }
+
+  return {
+    fromId: link.source_id,
+    toId: link.target_id,
+  };
+}
+
+function nodeAnchor(
+  el: HTMLElement,
+  side: "left" | "right",
+  inset = 0,
+): { x: number; y: number } {
+  const point = nodeCenter(el, side);
+  point.x += side === "left" ? inset : -inset;
+  return point;
+}
+
+function connectionSides(fromId: string, toId: string) {
+  const fromEl = nodeRefs.value[fromId];
+  const toEl = nodeRefs.value[toId];
+  if (!fromEl || !toEl) {
+    return null;
+  }
+
+  const fromLeft = nodeCenter(fromEl, "left").x;
+  const fromRight = nodeCenter(fromEl, "right").x;
+  const toLeft = nodeCenter(toEl, "left").x;
+  const toRight = nodeCenter(toEl, "right").x;
+  const fromCenterX = (fromLeft + fromRight) / 2;
+  const toCenterX = (toLeft + toRight) / 2;
+
+  if (toCenterX >= fromCenterX) {
+    return {
+      fromSide: "right" as const,
+      toSide: "left" as const,
+    };
+  }
+
+  return {
+    fromSide: "left" as const,
+    toSide: "right" as const,
+  };
+}
+
+function buildPath(
+  from: { x: number; y: number },
+  to: { x: number; y: number },
+  fromSide: "left" | "right",
+  toSide: "left" | "right",
+): string {
+  const span = Math.abs(to.x - from.x);
+  const dx = Math.max(span * 0.45, 40);
+  const c1x = fromSide === "right" ? from.x + dx : from.x - dx;
+  const c2x = toSide === "left" ? to.x - dx : to.x + dx;
+  return `M ${from.x} ${from.y} C ${c1x} ${from.y}, ${c2x} ${to.y}, ${to.x} ${to.y}`;
 }
 
 const lines = ref<LinePath[]>([]);
@@ -64,10 +145,13 @@ const columns = computed(() => {
   return { apps, routing, outputs, inputs };
 });
 
-function targetsForStream(stream: Stream) {
+function sinksForStream(stream: Stream) {
   return graph.devices.filter((device) => {
     if (device.system_name.startsWith("pipe-deck-feed-")) return false;
     if (stream.direction === "playback") {
+      if (device.kind === "virtual" && device.direction === "output") {
+        return true;
+      }
       return (
         device.direction === "output" ||
         device.direction === "duplex" ||
@@ -111,34 +195,49 @@ function nodeCenter(el: HTMLElement, side: "left" | "right") {
   return { x, y };
 }
 
-function buildPath(
-  from: { x: number; y: number },
-  to: { x: number; y: number },
-): string {
-  const dx = Math.max((to.x - from.x) * 0.45, 40);
-  return `M ${from.x} ${from.y} C ${from.x + dx} ${from.y}, ${to.x - dx} ${to.y}, ${to.x} ${to.y}`;
-}
-
 async function updateLines() {
   await nextTick();
 
   const nextLines: LinePath[] = [];
   for (const link of graph.links) {
-    const sourceEl = nodeRefs.value[link.source_id];
-    const targetEl = nodeRefs.value[link.target_id];
-    if (!sourceEl || !targetEl) continue;
+    const { fromId, toId } = linkAudioFlow(link);
+    const sides = connectionSides(fromId, toId);
+    if (!sides) continue;
 
-    const from = nodeCenter(sourceEl, "right");
-    const to = nodeCenter(targetEl, "left");
+    const fromEl = nodeRefs.value[fromId];
+    const toEl = nodeRefs.value[toId];
+    if (!fromEl || !toEl) continue;
 
+    const from = nodeAnchor(fromEl, sides.fromSide, 3);
+    const to = nodeAnchor(toEl, sides.toSide, 3);
+
+    const color = linkColor(link.source_id, link.target_id);
     nextLines.push({
       id: link.id,
-      d: buildPath(from, to),
-      color: linkColor(link.source_id, link.target_id),
+      d: buildPath(from, to, sides.fromSide, sides.toSide),
+      color,
+      markerId: markerIdForColor(color),
     });
   }
 
   lines.value = nextLines;
+}
+
+async function onStreamTargetChange(streamId: string, event: Event) {
+  const targetDeviceId = (event.target as HTMLSelectElement).value;
+  if (!targetDeviceId) return;
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("set_stream_target", {
+      streamId,
+      targetDeviceId,
+    });
+    handleApplyResult(result, "Routing updated");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
 }
 
 async function onDeviceRouteChange(sourceDeviceId: string, event: Event) {
@@ -150,23 +249,6 @@ async function onDeviceRouteChange(sourceDeviceId: string, event: Event) {
       targetDeviceId,
     });
     handleApplyResult(result, "Device routing updated");
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
-  }
-}
-
-async function onTargetChange(streamId: string, event: Event) {
-  const targetDeviceId = (event.target as HTMLSelectElement).value;
-  if (!targetDeviceId) return;
-  try {
-    const result = await invoke<{ success: boolean; message?: string }>("set_stream_target", {
-      streamId,
-      targetDeviceId,
-    });
-    handleApplyResult(result, "Routing updated");
   } catch (error) {
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
@@ -188,7 +270,12 @@ async function saveRename(device: Device, alias: string) {
 }
 
 async function removeVirtual(device: Device) {
-  if (!window.confirm(`Delete virtual device "${device.label}"?`)) {
+  const confirmed = await confirm(`Delete virtual device "${device.label}"?`, {
+    title: "Delete virtual device",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -232,14 +319,39 @@ function accentForDevice(device: Device): string | undefined {
 <template>
   <div ref="matrixRef" class="routing-matrix">
     <svg class="connections" aria-hidden="true">
+      <defs>
+        <marker
+          v-for="color in arrowColors"
+          :id="markerIdForColor(color)"
+          :key="color"
+          viewBox="0 0 12 12"
+          refX="11"
+          refY="6"
+          markerWidth="12"
+          markerHeight="12"
+          orient="auto"
+          markerUnits="userSpaceOnUse"
+        >
+          <path
+            d="M0,1 L11,6 L0,11 Z"
+            :fill="color"
+            fill-opacity="0.95"
+            :stroke="color"
+            stroke-width="0.75"
+            stroke-linejoin="round"
+          />
+        </marker>
+      </defs>
       <path
         v-for="line in lines"
         :key="line.id"
         :d="line.d"
         :stroke="line.color"
-        stroke-width="2"
+        stroke-width="2.5"
         fill="none"
-        stroke-opacity="0.85"
+        stroke-opacity="0.9"
+        stroke-linecap="round"
+        :marker-end="`url(#${line.markerId})`"
       />
     </svg>
 
@@ -262,16 +374,18 @@ function accentForDevice(device: Device): string | undefined {
               class="routing-picker"
               :class="stream.direction === 'capture' ? 'capture' : 'playback'"
             >
-              <span class="routing-label">Route to</span>
+              <span class="routing-label">
+                {{ stream.direction === "capture" ? "Record from" : "Route to" }}
+              </span>
               <select
                 class="routing-select"
                 :data-stream-route-select="stream.id"
                 :value="stream.current_target ?? ''"
-                @change="onTargetChange(stream.id, $event)"
+                @change="onStreamTargetChange(stream.id, $event)"
               >
                 <option value="" disabled>Select target</option>
                 <option
-                  v-for="target in targetsForStream(stream)"
+                  v-for="target in sinksForStream(stream)"
                   :key="target.id"
                   :value="target.id"
                 >
@@ -313,8 +427,14 @@ function accentForDevice(device: Device): string | undefined {
               v-if="deviceById(node.id)"
               class="routing-picker playback"
             >
-              <span class="routing-label">Route to</span>
+              <span class="routing-label">{{ isMultiSink(deviceById(node.id)!) ? "Outputs" : "Route to" }}</span>
+              <SinkRoutePicker
+                v-if="isMultiSink(deviceById(node.id)!)"
+                :sink="deviceById(node.id)!"
+                :targets="targetsForVirtualSink(deviceById(node.id)!)"
+              />
               <select
+                v-else
                 class="routing-select"
                 :value="deviceById(node.id)!.current_target ?? ''"
                 @change="onDeviceRouteChange(node.id, $event)"

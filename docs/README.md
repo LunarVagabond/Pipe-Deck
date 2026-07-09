@@ -33,6 +33,8 @@ If the answer is no, the feature should be refined or dropped.
 ### Project
 - [Contributing](./project/Contributing.md)
 - [Packaging](./project/Packaging.md)
+- [Plugins](./project/Plugins.md)
+- [Plugin Review Checklist](./project/Plugin_Review_Checklist.md)
 - [Backlog](../Backlog.md)
 
 ## Document Pattern

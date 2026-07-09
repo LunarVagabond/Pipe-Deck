@@ -11,6 +11,8 @@ dist-ssr/
 
 # Rust / Tauri
 src-tauri/target/
+src-tauri/src-tauri/
+src-tauri/bin/
 
 # Environment and secrets
 .env

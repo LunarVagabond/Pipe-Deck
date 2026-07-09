@@ -14,12 +14,34 @@ pub struct PactlSinkInput {
     pub sink_index: Option<u32>,
 }
 
+#[derive(Debug, Clone)]
+pub struct PactlSourceOutput {
+    pub index: u32,
+    pub application_name: String,
+    pub executable: Option<String>,
+    pub node_name: Option<String>,
+    pub media_name: Option<String>,
+    pub source_index: Option<u32>,
+}
+
 pub fn list_sink_inputs() -> Vec<PactlSinkInput> {
     parse_sink_inputs()
 }
 
+pub fn list_source_outputs() -> Vec<PactlSourceOutput> {
+    parse_source_outputs()
+}
+
 pub fn load_sink_index_names() -> HashMap<u32, String> {
-    let output = match Command::new("pactl").args(["list", "sinks", "short"]).output() {
+    load_short_index_names("sinks")
+}
+
+pub fn load_source_index_names() -> HashMap<u32, String> {
+    load_short_index_names("sources")
+}
+
+fn load_short_index_names(kind: &str) -> HashMap<u32, String> {
+    let output = match Command::new("pactl").args(["list", kind, "short"]).output() {
         Ok(output) if output.status.success() => output,
         _ => return HashMap::new(),
     };
@@ -43,17 +65,51 @@ pub fn move_stream_to_target(
     stream_id: &str,
     target_device_id: &str,
 ) -> Result<(), AdapterError> {
+    let target = graph
+        .devices
+        .iter()
+        .find(|device| device.id == target_device_id)
+        .ok_or_else(|| AdapterError::Message(format!("target device not found: {target_device_id}")))?;
+
+    move_stream_to_resolved_target(graph, stream_id, target)
+}
+
+pub fn move_stream_to_sink_name(
+    graph: &RuntimeGraph,
+    stream_id: &str,
+    sink_system_name: &str,
+) -> Result<(), AdapterError> {
     let stream = graph
         .streams
         .iter()
         .find(|stream| stream.id == stream_id)
         .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
 
-    let target = graph
-        .devices
+    if stream.direction != StreamDirection::Playback {
+        return Err(AdapterError::Message(
+            "only playback streams can be moved to a sink".into(),
+        ));
+    }
+
+    let input_index = find_sink_input_index(graph, stream)?;
+    run_pactl(&[
+        "move-sink-input",
+        &input_index.to_string(),
+        sink_system_name,
+    ])?;
+    Ok(())
+}
+
+fn move_stream_to_resolved_target(
+    graph: &RuntimeGraph,
+    stream_id: &str,
+    target: &crate::core::models::Device,
+) -> Result<(), AdapterError> {
+    let stream = graph
+        .streams
         .iter()
-        .find(|device| device.id == target_device_id)
-        .ok_or_else(|| AdapterError::Message(format!("target device not found: {target_device_id}")))?;
+        .find(|stream| stream.id == stream_id)
+        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
 
     match stream.direction {
         StreamDirection::Playback => {
@@ -230,7 +286,7 @@ pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -
     Ok(())
 }
 
-fn sink_exists(name: &str) -> Result<bool, AdapterError> {
+pub fn sink_exists(name: &str) -> Result<bool, AdapterError> {
     let output = run_pactl(&["list", "sinks", "short"])?;
     Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
@@ -343,8 +399,8 @@ pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, AdapterError>
         if !system_name.starts_with("pipe-deck-") || system_name.starts_with("pipe-deck-feed-") {
             continue;
         }
-
         let slug = system_name.strip_prefix("pipe-deck-").unwrap_or(&system_name);
+        let multi = system_name.starts_with("pipe-deck-split-");
         let direction = if args.contains("media.class=Audio/Source/Virtual") {
             DeviceDirection::Input
         } else {
@@ -358,6 +414,7 @@ pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, AdapterError>
             system_name,
             label,
             direction,
+            multi,
         });
     }
 
@@ -371,6 +428,7 @@ pub struct PactlVirtualModule {
     pub system_name: String,
     pub label: String,
     pub direction: DeviceDirection,
+    pub multi: bool,
 }
 
 fn list_modules_for_sink_prefix(prefix: &str) -> Result<Vec<(String, String)>, AdapterError> {
@@ -522,6 +580,14 @@ fn find_client_index(
         }
     }
 
+    if let Some(rest) = stream.id.strip_prefix("pactl-source-output-") {
+        if let Ok(index) = rest.parse::<u32>() {
+            if entries.iter().any(|entry| entry.index == index) {
+                return Ok(index);
+            }
+        }
+    }
+
     if let Some(system_name) = &stream.system_name {
         if let Some(entry) = entries.iter().find(|entry| entry.node_name.as_deref() == Some(system_name.as_str())) {
             return Ok(entry.index);
@@ -618,6 +684,77 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
     }
 
     inputs
+}
+
+fn parse_source_outputs() -> Vec<PactlSourceOutput> {
+    let output = match Command::new("pactl").args(["list", "source-outputs"]).output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut outputs = Vec::new();
+    let mut current_index = None;
+    let mut current_app = None;
+    let mut current_executable = None;
+    let mut current_node = None;
+    let mut current_media = None;
+    let mut current_source = None;
+
+    for line in text.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Source Output #") {
+            if let Some(index) = current_index.take() {
+                if let Some(application_name) = current_app.take() {
+                    outputs.push(PactlSourceOutput {
+                        index,
+                        application_name,
+                        executable: current_executable.take(),
+                        node_name: current_node.take(),
+                        media_name: current_media.take(),
+                        source_index: current_source.take(),
+                    });
+                }
+            }
+            current_index = rest.parse().ok();
+            current_executable = None;
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("application.name = ") {
+            current_app = Some(rest.trim_matches('"').to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("application.process.binary = ") {
+            current_executable = Some(rest.trim_matches('"').to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("node.name = ") {
+            current_node = Some(rest.trim_matches('"').to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("media.name = ") {
+            current_media = Some(rest.trim_matches('"').to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("Source: ") {
+            current_source = rest.trim().parse().ok();
+        }
+    }
+
+    if let Some(index) = current_index {
+        if let Some(application_name) = current_app {
+            outputs.push(PactlSourceOutput {
+                index,
+                application_name,
+                executable: current_executable,
+                node_name: current_node,
+                media_name: current_media,
+                source_index: current_source,
+            });
+        }
+    }
+
+    outputs
 }
 
 #[cfg(test)]

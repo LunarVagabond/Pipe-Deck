@@ -1,0 +1,72 @@
+.sink-route-picker {
+  position: relative;
+
+  .route-dropdown {
+    position: relative;
+  }
+
+  .route-dropdown-trigger {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    text-align: left;
+  }
+
+  .route-dropdown-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .route-dropdown-panel {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    right: 0;
+    z-index: 4;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    max-height: 12rem;
+    overflow-y: auto;
+    padding: 0.35rem;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+  }
+
+  .route-dropdown-option {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    padding: 0.4rem 0.45rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    line-height: 1.35;
+    color: var(--text);
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(124, 92, 255, 0.12);
+    }
+
+    input {
+      margin-top: 0.15rem;
+      flex-shrink: 0;
+      accent-color: var(--accent-purple);
+    }
+
+    span {
+      min-width: 0;
+    }
+  }
+
+  &.capture .route-dropdown-option:hover {
+    background: rgba(38, 195, 163, 0.12);
+  }
+
+  &.capture .route-dropdown-option input {
+    accent-color: var(--accent-teal);
+  }
+}

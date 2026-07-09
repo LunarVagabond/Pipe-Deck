@@ -69,6 +69,17 @@ The system must answer:
 - Which candidates were skipped and why?
 - Whether action was executed, partially executed, or blocked.
 
+### User-facing labels (implemented)
+
+| `RouteSource` | Display label |
+|---------------|---------------|
+| `authored_rule` | Rule name (`rules[].name`) |
+| `persisted_rule` | **Manual route** (dashboard-saved `routing_rules`) |
+| `manual_override` | **Manual choice this session** |
+| `no_rule` | No matching auto-route rule |
+
+Internal candidate keys are not shown in the dashboard summary.
+
 ## Safety Requirements
 
 - Never orphan critical streams without fallback.

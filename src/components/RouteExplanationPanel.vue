@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { Stream } from "../types/graph";
+import { formatRuleLabel, routeExplanationSummary } from "../utils/routeExplanation";
 
 const { stream, devices } = defineProps<{
   stream: Stream;
@@ -17,22 +18,11 @@ const summary = computed(() => {
     return "No routing explanation available";
   }
 
-  if (detail.source === "manual_override") {
-    return "Manual choice this session";
-  }
-
-  if (detail.source === "no_rule") {
-    return "No matching auto-route rule";
-  }
-
   const targetName =
     detail.target_system_name &&
     devices.find((device) => device.system_name === detail.target_system_name)?.label;
-  const ruleLabel = detail.matched_rule_key ?? detail.matched_rule_id ?? "rule";
-  if (targetName) {
-    return `Routed by ${ruleLabel} → ${targetName}`;
-  }
-  return `Matched ${ruleLabel}`;
+
+  return routeExplanationSummary(detail, targetName || undefined);
 });
 
 const statusLabel = computed(() => {
@@ -88,7 +78,7 @@ function focusRouteSelect() {
             v-for="candidate in explanation.skipped_candidates"
             :key="`${candidate.rule_key}-${candidate.reason}`"
           >
-            {{ candidate.rule_key }}: {{ candidate.reason }}
+            {{ formatRuleLabel(candidate.rule_key) }}: {{ candidate.reason }}
           </li>
         </ul>
       </div>

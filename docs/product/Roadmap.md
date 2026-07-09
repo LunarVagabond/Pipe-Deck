@@ -110,16 +110,14 @@ Delivered:
 - Matchers: `app_name`, `executable`, `media_name`, `direction`, `category`, `regex`, `window_class` (best-effort from PipeWire metadata)
 - Session manual-override tracking (cleared when user picks the same target the rule would apply)
 - Dry-run `simulate_rules` command and UI
+- Rule **edit** flow in Rules view (modal reuse for rename, conditions, and target)
 
 Explicit carry-over (not Phase 3 blockers):
 
 - Visual drag/connect routing graph editor
 - Tray / system quick controls
-- In-app rule **edit** flow (create, delete, enable/disable exist today)
 - `safeguards.fallback_policy` enforcement in evaluation
 - Dedicated conflict-resolution UI beyond skipped-candidate explanations
-
-**Phase 4 is ready to start.**
 
 ## Phase 4: Persistence and Background Management
 
@@ -142,25 +140,66 @@ Explicit carry-over (not Phase 3 blockers):
 - Background behavior is observable and failure-tolerant.
 - Packaging/install paths produce consistent startup behavior across distributions.
 
+### Phase 4 Status (2026-07-09)
+
+**Complete for milestone purposes.** Acceptance criteria above are met in the current codebase.
+
+Delivered:
+
+- `virtual_devices[]` in `config.yaml` with persist-on-create/remove and startup reconciliation
+- `restore.rs` shared restore core (GUI + daemon): idempotent device recreate, orphan cleanup, route re-apply
+- Profile `device_assumptions` captured on save; ordered virtual-device restore on profile swap
+- `pipe-deck-daemon` binary, systemd user unit, Settings UI for background restore management
+- Daemon status file at `~/.local/state/pipe-deck/daemon.json`
+- Packaging: runtime deps, AppStream/desktop files, `make flatpak`, CI smoke + bundle jobs
+
+Explicit carry-over (not Phase 4 blockers):
+
+- apt/rpm repository publishing
+- Flatpak user-systemd background restore (documented limitation)
+- Native PipeWire event subscription (Phase 2 carry-over)
+
+**Phase 5 is ready to start.**
+
 ## Phase 5: Ecosystem and Integrations
 
 ### Scope
 
 - Plugin ecosystem and extension capabilities.
 - External API/CLI surfaces for automation.
-- Integration work (for example OBS/EasyEffects) based on clear user demand.
+- First-party audio features (effects, multi-output routing).
 
 ### Deliverables
 
 - Isolated plugin runtime model with explicit capability controls.
 - Stable extension and integration contracts.
 - Contributor documentation for extension lifecycle and compatibility.
+- `pipe-deck` CLI for scripting.
+- Bundled first-party Effects plugin.
 
 ### Acceptance Criteria
 
 - Third-party extensions cannot compromise core routing stability.
 - Extension behavior is transparent and permission-scoped.
-- Integration features map to verified user workflows.
+- Multi-output routing works for playback streams (undo + profile restore).
+
+### Phase 5 Status (2026-07-09)
+
+**Complete for milestone purposes.**
+
+Delivered:
+
+- Plugin host: manifest discovery, JSON-RPC stdio, capability gate, audit log, crash isolation
+- `plugins:` config block with enablement and granted capabilities
+- Settings UI for plugin management
+- `pipe-deck` CLI binary with JSON output
+- Bundled `pipe-deck-effects` first-party plugin
+- Core multi-output routing via `pipe-deck-split-*` fan-out sinks
+- `plugins/template`, `docs/project/Plugins.md`, `Plugin_Review_Checklist.md`
+
+Explicit out of scope (PD-016):
+
+- OBS / EasyEffects external integrations
 
 ## Strategic Direction
 
@@ -171,7 +210,7 @@ Explicit carry-over (not Phase 3 blockers):
 
 - Phase 2 follows scaffold → enumeration → profiles → routing/mixer → packaging baseline.
 - Persistence is file-first YAML (no SQLite in Phase 2); SQLite remains a future option if indexing or daemon needs justify it.
-- Daemon remains deferred until Phase 4 persistence requirements.
+- Optional `pipe-deck-daemon` ships in Phase 4 for login-time restore; GUI-only restore remains the default path.
 - Earliest implementation milestone focuses on device enumeration, routing, mixer, and profile save/load/swap.
 - Rule engine and advanced automation are post-initial milestone work.
 - Automatic mapping rollout is gated by explainability, safety checks, and rollback readiness.
