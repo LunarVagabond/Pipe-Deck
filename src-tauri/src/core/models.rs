@@ -80,6 +80,25 @@ pub struct Link {
     pub target_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RecentStreamIdentity {
+    pub app_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub executable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub window_class: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_name: Option<String>,
+    pub direction: StreamDirection,
+    #[serde(default)]
+    pub is_system: bool,
+    pub last_seen_secs: u64,
+    #[serde(default)]
+    pub is_live: bool,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct RuntimeGraph {
     pub devices: Vec<Device>,
@@ -89,6 +108,8 @@ pub struct RuntimeGraph {
     pub data_source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notice: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub recent_stream_identities: Vec<RecentStreamIdentity>,
 }
 
 fn default_data_source() -> String {
@@ -241,6 +262,8 @@ pub enum RuleCondition {
     MediaName { value: String },
     Direction { value: StreamDirection },
     Category { value: String },
+    /// Matches when app name, executable, or PipeWire node name equals `value` (case-insensitive).
+    Identity { value: String },
     Regex { field: String, pattern: String },
 }
 
@@ -274,6 +297,9 @@ pub struct RuleSafeguards {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SimulationResult {
     pub stream_id: String,
+    pub stream_label: String,
+    #[serde(default)]
+    pub is_recent: bool,
     pub explanation: RouteExplanation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub would_target_device_id: Option<String>,

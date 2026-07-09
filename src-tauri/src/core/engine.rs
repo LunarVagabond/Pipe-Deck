@@ -7,6 +7,7 @@ use crate::core::models::{
 use crate::core::profile::{capture_profile_from_graph, update_profile_timestamp};
 use crate::core::profile_drift::compare_profile_to_graph;
 use crate::core::restore::{self, spec_from_create_result};
+use crate::core::recent_streams::RecentStreamCache;
 use crate::core::rule_engine::{self, ApplyRulesContext};
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::core::routing::{
@@ -46,6 +47,7 @@ pub struct CoreEngine {
     manual_overrides: HashSet<StreamIdentityKey>,
     device_manual_overrides: HashSet<String>,
     plugin_manager: Mutex<PluginManager>,
+    recent_streams: RecentStreamCache,
 }
 
 impl CoreEngine {
@@ -60,6 +62,7 @@ impl CoreEngine {
             manual_overrides: HashSet::new(),
             device_manual_overrides: HashSet::new(),
             plugin_manager: Mutex::new(PluginManager::new()),
+            recent_streams: RecentStreamCache::default(),
         }
     }
 
@@ -143,6 +146,7 @@ impl CoreEngine {
             &mut self.device_id_remap,
         );
         self.sync_live_graph();
+        self.finalize_graph_snapshot();
         if let Ok(mut plugins) = self.plugin_manager.lock() {
             plugins.push_graph(&self.graph);
         }
@@ -158,9 +162,15 @@ impl CoreEngine {
             &mut self.device_id_remap,
         );
         self.sync_live_graph();
+        self.finalize_graph_snapshot();
         if let Ok(mut plugins) = self.plugin_manager.lock() {
             plugins.push_graph(&self.graph);
         }
+    }
+
+    fn finalize_graph_snapshot(&mut self) {
+        self.recent_streams.record_streams(&self.graph.streams);
+        self.graph.recent_stream_identities = self.recent_streams.list(&self.graph.streams);
     }
 
     fn sync_live_graph(&mut self) {
@@ -877,7 +887,7 @@ impl CoreEngine {
     }
 
     pub fn simulate_rules(&self) -> Vec<SimulationResult> {
-        rule_engine::simulate_rules(&self.graph)
+        rule_engine::simulate_rules(&self.graph, &self.recent_streams)
     }
 
     fn apply_restore_notice(&mut self, result: &crate::core::models::RestoreResult) {

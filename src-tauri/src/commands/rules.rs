@@ -1,4 +1,4 @@
-use crate::core::models::{Rule, SimulationResult};
+use crate::core::models::{ApplyResult, Rule, SimulationResult};
 use crate::AppState;
 use tauri::State;
 
@@ -56,4 +56,21 @@ pub async fn toggle_rule(
 pub async fn simulate_rules(state: State<'_, AppState>) -> Result<Vec<SimulationResult>, String> {
     let engine = state.engine.read().await;
     Ok(engine.simulate_rules())
+}
+
+#[tauri::command]
+pub async fn apply_rules(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    engine
+        .apply_desired_routing()
+        .map_err(|error| error.to_string())?;
+    engine.refresh_graph().map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(ApplyResult {
+        success: true,
+        message: None,
+    })
 }

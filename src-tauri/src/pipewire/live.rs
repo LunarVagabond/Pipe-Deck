@@ -3,7 +3,9 @@ use crate::core::models::{
     Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
 };
 use crate::core::rule_engine::ApplyRulesContext;
-use crate::core::stream_identity::{parse_stream_identity, parse_window_class};
+use crate::core::stream_identity::{
+    is_internal_audio_client, parse_stream_identity, parse_window_class,
+};
 use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
 use crate::pipewire::pactl;
 use crate::pipewire::pw_link;
@@ -332,6 +334,7 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
         links,
         data_source: "pipewire".into(),
         notice: None,
+        ..Default::default()
     };
 
     finalize_graph(&mut graph);
@@ -476,10 +479,14 @@ fn is_system_stream(props: &serde_json::Map<String, Value>) -> bool {
     let process = prop_str(props, "application.process.binary");
     let node_name = prop_str(props, "node.name");
 
-    // Accessibility subsystem placeholder stream, not a user-facing app.
-    app_name.contains("speech-dispatcher")
-        || process.contains("speech-dispatcher")
-        || node_name.contains("speech-dispatcher")
+    is_internal_audio_client(&app_name)
+        || is_internal_audio_client(&process)
+        || is_internal_audio_client(&node_name)
+}
+
+fn is_system_stream_name(application_name: &str, node_name: &Option<String>) -> bool {
+    let node_name = node_name.as_deref().unwrap_or_default();
+    is_internal_audio_client(application_name) || is_internal_audio_client(node_name)
 }
 
 fn is_virtual_device(props: &serde_json::Map<String, Value>) -> bool {
@@ -929,12 +936,6 @@ fn stream_matches_pactl_input(stream: &Stream, input: &pactl::PactlSinkInput) ->
     }
 }
 
-fn is_system_stream_name(application_name: &str, node_name: &Option<String>) -> bool {
-    let node_name = node_name.as_deref().unwrap_or_default();
-    application_name.contains("speech-dispatcher")
-        || node_name.contains("speech-dispatcher")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1050,6 +1051,7 @@ mod tests {
             links: Vec::new(),
             data_source: "pipewire".into(),
             notice: None,
+            ..Default::default()
         };
 
         let target = resolve_playback_target_device_id(&graph, "pipe-deck-feed-test");

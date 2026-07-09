@@ -76,6 +76,7 @@ mod tests {
             links: Vec::new(),
             data_source: "mock".into(),
             notice: None,
+            ..Default::default()
         };
         let profile = capture_profile_from_graph(&graph, "gaming", "Gaming");
         assert_eq!(

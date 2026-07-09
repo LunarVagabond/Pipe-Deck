@@ -62,12 +62,25 @@ export interface Link {
   target_id: string;
 }
 
+export interface RecentStreamIdentity {
+  app_name: string;
+  executable?: string;
+  window_class?: string;
+  system_name?: string;
+  media_name?: string;
+  direction: StreamDirection;
+  is_system?: boolean;
+  last_seen_secs: number;
+  is_live?: boolean;
+}
+
 export interface RuntimeGraph {
   devices: Device[];
   streams: Stream[];
   links: Link[];
   data_source?: string;
   notice?: string;
+  recent_stream_identities?: RecentStreamIdentity[];
 }
 
 export interface DeviceAliasEntry {
@@ -112,6 +125,7 @@ export type RuleCondition =
   | { type: "media_name"; value: string }
   | { type: "direction"; value: StreamDirection }
   | { type: "category"; value: string }
+  | { type: "identity"; value: string }
   | { type: "regex"; field: string; pattern: string };
 
 export interface RuleAction {
@@ -135,6 +149,8 @@ export interface Rule {
 
 export interface SimulationResult {
   stream_id: string;
+  stream_label: string;
+  is_recent?: boolean;
   explanation: RouteExplanation;
   would_target_device_id?: string;
 }

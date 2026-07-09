@@ -117,6 +117,7 @@ mod tests {
             links: Vec::new(),
             data_source: "pipewire".into(),
             notice: None,
+            ..Default::default()
         };
 
         let drift = compare_profile_to_graph(&profile, &graph);

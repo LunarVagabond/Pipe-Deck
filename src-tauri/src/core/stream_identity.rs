@@ -7,6 +7,14 @@ pub struct StreamIdentityKey {
     pub media_name: Option<String>,
 }
 
+pub fn is_internal_audio_client(name: &str) -> bool {
+    let lower = name.to_lowercase();
+    lower == "pw-play"
+        || lower.contains("speech-dispatcher")
+        || lower.starts_with("pipewire.")
+        || lower == "pipewire"
+}
+
 pub fn stream_identity_key(stream: &Stream) -> StreamIdentityKey {
     StreamIdentityKey {
         app_name: stream.app_name.clone(),
@@ -100,6 +108,12 @@ fn prop_str(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pw_play_is_internal_client() {
+        assert!(is_internal_audio_client("pw-play"));
+        assert!(is_internal_audio_client("PW-PLAY"));
+    }
 
     #[test]
     fn parses_application_name_and_executable_separately() {

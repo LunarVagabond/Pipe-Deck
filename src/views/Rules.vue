@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
-import type { Device, Rule, RuleCondition, SimulationResult, Stream } from "../types/graph";
+import type { Device, RecentStreamIdentity, Rule, RuleCondition, SimulationResult, Stream } from "../types/graph";
 import {
   CATEGORY_OPTIONS,
   CONDITION_TYPE_OPTIONS,
@@ -51,7 +51,7 @@ function emptyRule(): Rule {
     name: "New rule",
     enabled: true,
     priority: 10,
-    conditions: [{ type: "executable", value: "" }],
+    conditions: [{ type: "identity", value: "" }],
     action: { target_system_name: targets[0]?.system_name ?? "" },
     safeguards: { fallback_policy: "keep_current" },
   };
@@ -99,7 +99,7 @@ function openEditModal(rule: Rule) {
       draft.value.safeguards = { fallback_policy: "keep_current" };
     }
     if (draft.value.conditions.length === 0) {
-      draft.value.conditions = [{ type: "executable", value: "" }];
+      draft.value.conditions = [{ type: "identity", value: "" }];
     }
     draftTargetKind.value = inferRuleTargetKind(
       deviceBySystemName(rule.action.target_system_name),
@@ -189,6 +189,18 @@ async function toggleRule(rule: Rule) {
   }
 }
 
+async function applyRules() {
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("apply_rules");
+    handleApplyResult(result, "Rules applied to PipeWire");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
 async function runSimulation() {
   try {
     simulation.value = await invoke<SimulationResult[]>("simulate_rules");
@@ -232,12 +244,44 @@ function applySuggestion(condition: RuleCondition, value: string) {
 }
 
 function suggestionsForCondition(condition: RuleCondition) {
-  return liveSuggestionsForType(visibleStreams.value, condition.type);
+  return liveSuggestionsForType(identityStreams.value, condition.type);
 }
 
 const visibleStreams = computed(() =>
   graph.value.streams.filter((stream) => !stream.is_system),
 );
+
+function recentIdentityToStream(entry: RecentStreamIdentity): Stream {
+  return {
+    id: `recent-${entry.app_name}-${entry.executable ?? "app"}`,
+    app_name: entry.app_name,
+    executable: entry.executable,
+    window_class: entry.window_class,
+    system_name: entry.system_name,
+    direction: entry.direction,
+    media_name: entry.media_name,
+    is_system: entry.is_system,
+  };
+}
+
+const recentIdentityStreams = computed(() =>
+  (graph.value.recent_stream_identities ?? [])
+    .filter((entry) => !entry.is_live && !entry.is_system)
+    .map(recentIdentityToStream),
+);
+
+const identityStreams = computed(() => [
+  ...visibleStreams.value,
+  ...recentIdentityStreams.value,
+]);
+
+const recentIdentityKeys = computed(
+  () => new Set(recentIdentityStreams.value.map((stream) => stream.id)),
+);
+
+function isRecentIdentityStream(stream: Stream) {
+  return recentIdentityKeys.value.has(stream.id);
+}
 
 const showIdentityReference = ref(true);
 const activeConditionIndex = ref(0);
@@ -278,6 +322,10 @@ function setConditionType(condition: RuleCondition, type: ConditionType) {
     Object.assign(condition, { type, value: "Game" });
     return;
   }
+  if (type === "identity") {
+    Object.assign(condition, { type, value: "" });
+    return;
+  }
   Object.assign(condition, { type, value: "" });
 }
 
@@ -294,6 +342,10 @@ function useIdentityValue(type: ConditionType, value: string) {
 
 function streamLabel(streamId: string) {
   return graph.value.streams.find((stream) => stream.id === streamId)?.app_name ?? streamId;
+}
+
+function simulationLabel(result: SimulationResult) {
+  return result.stream_label || streamLabel(result.stream_id);
 }
 
 function targetDisplay(systemName?: string) {
@@ -320,9 +372,10 @@ onMounted(loadRules);
       <div class="rules-header-copy">
         <span class="rules-eyebrow">Advanced Routing</span>
         <h2>Auto-routing rules</h2>
-        <p>Author deterministic rules, review priorities, and simulate outcomes before applying them.</p>
+        <p>Author deterministic rules, simulate outcomes, then apply them to PipeWire. The live dashboard does not auto-apply rules.</p>
       </div>
       <div class="rules-header-actions">
+        <button type="button" class="primary" @click="applyRules">Apply rules</button>
         <button type="button" class="rules-new-btn" @click="openCreateModal">+ New Rule</button>
         <button type="button" class="rules-simulate-btn" @click="runSimulation">Simulate</button>
       </div>
@@ -639,12 +692,15 @@ onMounted(loadRules);
 
                 <div v-if="showIdentityReference" class="identity-reference-body">
                   <p>
-                    Compare how PipeWire labels each active stream. Select a condition above, then
-                    click a value below to fill it in.
+                    Compare how PipeWire labels each stream. Live rows update in real time; recently
+                    seen rows stay for about an hour after a stream disappears (e.g. while you adjust
+                    volume). Rule the app that is actually playing — not internal clients like
+                    <code>pw-play</code>.
                   </p>
 
-                  <div v-if="visibleStreams.length === 0" class="identity-reference-empty">
-                    No active app streams right now. Start audio in an app to see live examples here.
+                  <div v-if="identityStreams.length === 0" class="identity-reference-empty">
+                    No streams seen yet. Start audio in an app, or change system volume once, then
+                    check back here.
                   </div>
 
                   <div v-else class="identity-reference-table-wrap">
@@ -660,8 +716,17 @@ onMounted(loadRules);
                         </tr>
                       </thead>
                       <tbody>
-                        <tr v-for="stream in visibleStreams" :key="stream.id">
-                          <td class="identity-app-cell">{{ stream.app_name }}</td>
+                        <tr
+                          v-for="stream in identityStreams"
+                          :key="stream.id"
+                          :class="{ recent: isRecentIdentityStream(stream) }"
+                        >
+                          <td class="identity-app-cell">
+                            {{ stream.app_name }}
+                            <span v-if="isRecentIdentityStream(stream)" class="identity-recent-badge">
+                              recent
+                            </span>
+                          </td>
                           <td v-for="column in identityColumns" :key="`${stream.id}-${column.type}`">
                             <button
                               type="button"
@@ -693,17 +758,29 @@ onMounted(loadRules);
 
     <section v-if="showSimulation" class="rules-simulation">
       <div class="rules-simulation-header">
-        <h3>Simulation preview</h3>
+        <div>
+          <h3>Simulation preview</h3>
+          <p class="rules-simulation-help">
+            Includes live streams and recently seen apps from the last hour. Internal clients like
+            <code>pw-play</code> are excluded.
+          </p>
+        </div>
         <button type="button" class="rules-simulation-close" @click="showSimulation = false">
           Close
         </button>
       </div>
+      <p v-if="simulation.length === 0" class="identity-reference-empty">
+        No matching streams in memory. Play audio in your app, wait a few seconds, then simulate again.
+      </p>
       <article
         v-for="result in simulation"
         :key="result.stream_id"
         class="simulation-card"
       >
-        <strong>{{ streamLabel(result.stream_id) }}</strong>
+        <strong>
+          {{ simulationLabel(result) }}
+          <span v-if="result.is_recent" class="identity-recent-badge">recent</span>
+        </strong>
         <p>{{ result.explanation.match_reasons.join(", ") || "No match" }}</p>
         <p>
           Would route to

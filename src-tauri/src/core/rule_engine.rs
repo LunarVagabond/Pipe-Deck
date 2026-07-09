@@ -5,7 +5,7 @@ use crate::core::models::{
     SimulationResult, Stream, StreamRouteRule,
 };
 use crate::core::routing_rules::find_device_by_system_name;
-use crate::core::stream_identity::{identity_matches, stream_identity_key};
+use crate::core::stream_identity::{identity_matches, stream_display_label, stream_identity_key};
 use crate::pipewire::adapter::AdapterError;
 use crate::pipewire::pw_link;
 use regex::Regex;
@@ -65,14 +65,18 @@ pub fn stream_matches_persisted_rule(stream: &Stream, rule: &StreamRouteRule) ->
     let mut reasons = Vec::new();
 
     if let Some(rule_app) = &rule.app_name {
-        if stream.app_name != *rule_app {
+        if !eq_ignore_ascii_case(&stream.app_name, rule_app) {
             return None;
         }
         reasons.push(format!("app_name == {rule_app}"));
     }
 
     if let Some(rule_exe) = &rule.executable {
-        if stream.executable.as_deref() != Some(rule_exe.as_str()) {
+        if stream
+            .executable
+            .as_deref()
+            .is_none_or(|executable| !eq_ignore_ascii_case(executable, rule_exe))
+        {
             return None;
         }
         reasons.push(format!("executable == {rule_exe}"));
@@ -107,13 +111,17 @@ pub fn stream_matches_authored_rule(stream: &Stream, rule: &Rule) -> Option<Vec<
     for condition in &rule.conditions {
         match condition {
             RuleCondition::AppName { value } => {
-                if stream.app_name != *value {
+                if !eq_ignore_ascii_case(&stream.app_name, value) {
                     return None;
                 }
                 reasons.push(format!("app_name == {value}"));
             }
             RuleCondition::Executable { value } => {
-                if stream.executable.as_deref() != Some(value.as_str()) {
+                if stream
+                    .executable
+                    .as_deref()
+                    .is_none_or(|executable| !eq_ignore_ascii_case(executable, value))
+                {
                     return None;
                 }
                 reasons.push(format!("executable == {value}"));
@@ -146,6 +154,12 @@ pub fn stream_matches_authored_rule(stream: &Stream, rule: &Rule) -> Option<Vec<
                 }
                 reasons.push(format!("category == {value}"));
             }
+            RuleCondition::Identity { value } => {
+                if !stream_matches_identity(stream, value) {
+                    return None;
+                }
+                reasons.push(format!("identity == {value}"));
+            }
             RuleCondition::Regex { field, pattern } => {
                 let haystack = regex_field_value(stream, field)?;
                 let regex = Regex::new(pattern).ok()?;
@@ -158,6 +172,31 @@ pub fn stream_matches_authored_rule(stream: &Stream, rule: &Rule) -> Option<Vec<
     }
 
     Some(reasons)
+}
+
+fn eq_ignore_ascii_case(left: &str, right: &str) -> bool {
+    left.eq_ignore_ascii_case(right)
+}
+
+fn stream_matches_identity(stream: &Stream, value: &str) -> bool {
+    if eq_ignore_ascii_case(&stream.app_name, value) {
+        return true;
+    }
+    if stream
+        .executable
+        .as_deref()
+        .is_some_and(|executable| eq_ignore_ascii_case(executable, value))
+    {
+        return true;
+    }
+    if stream
+        .system_name
+        .as_deref()
+        .is_some_and(|system_name| eq_ignore_ascii_case(system_name, value))
+    {
+        return true;
+    }
+    false
 }
 
 fn regex_field_value(stream: &Stream, field: &str) -> Option<String> {
@@ -613,17 +652,24 @@ fn apply_device_rules(
     Ok(())
 }
 
-pub fn simulate_rules(graph: &RuntimeGraph) -> Vec<SimulationResult> {
+pub fn simulate_rules(
+    graph: &RuntimeGraph,
+    recent_cache: &crate::core::recent_streams::RecentStreamCache,
+) -> Vec<SimulationResult> {
     let config = ConfigStore::new()
         .load_config()
         .unwrap_or_else(|_| ConfigStore::default_config());
 
-    graph
-        .streams
-        .iter()
+    let mut streams: Vec<Stream> = graph.streams.clone();
+    streams.extend(recent_cache.synthetic_streams(&graph.streams));
+
+    streams
+        .into_iter()
+        .filter(|stream| !stream.is_system)
         .map(|stream| {
+            let is_recent = stream.id.starts_with("recent-");
             let explanation = evaluate_stream_route(
-                stream,
+                &stream,
                 &config.rules,
                 &config.routing_rules.stream_rules,
                 &HashSet::new(),
@@ -635,6 +681,8 @@ pub fn simulate_rules(graph: &RuntimeGraph) -> Vec<SimulationResult> {
                 .map(|device| device.id.clone());
             SimulationResult {
                 stream_id: stream.id.clone(),
+                stream_label: stream_display_label(&stream),
+                is_recent,
                 would_target_device_id,
                 explanation,
             }
@@ -874,6 +922,7 @@ mod tests {
             links: Vec::new(),
             data_source: "pipewire".into(),
             notice: None,
+            ..Default::default()
         };
         let persisted = vec![StreamRouteRule {
             app_name: Some("Slack".into()),
@@ -908,5 +957,29 @@ mod tests {
         };
 
         assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn identity_matches_app_name_or_executable() {
+        let stream = sample_stream("pw-play", None, None);
+        let rule = Rule {
+            id: "pw-play".into(),
+            name: "Player".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::Identity {
+                value: "pw-play".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("hdmi".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        };
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+
+        let by_exe = sample_stream("Player", Some("pw-play"), None);
+        assert!(stream_matches_authored_rule(&by_exe, &rule).is_some());
     }
 }

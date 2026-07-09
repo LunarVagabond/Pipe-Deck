@@ -140,6 +140,7 @@ mod tests {
             links: Vec::new(),
             data_source: "mock".into(),
             notice: None,
+            ..Default::default()
         };
         let error = apply_sink_targets(&graph, "bus", &[])
             .expect_err("empty targets should fail");
@@ -165,6 +166,7 @@ mod tests {
             links: Vec::new(),
             data_source: "mock".into(),
             notice: None,
+            ..Default::default()
         };
         let error = apply_sink_targets(&graph, "hw", &["node-2".into()])
             .expect_err("physical device cannot fan out");

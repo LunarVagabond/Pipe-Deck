@@ -12,6 +12,14 @@ export interface ConditionTypeMeta {
 
 export const CONDITION_TYPE_OPTIONS: ConditionTypeMeta[] = [
   {
+    type: "identity",
+    label: "App identity",
+    description:
+      "Matches app name, executable, or PipeWire node name (case-insensitive). Use this for rules like “pw-play” or “firefox”.",
+    example: "pw-play",
+    placeholder: "e.g. pw-play",
+  },
+  {
     type: "executable",
     label: "Executable",
     description:
@@ -98,6 +106,8 @@ export function conditionTypeMeta(type: ConditionType): ConditionTypeMeta {
 
 export function streamFieldValue(stream: Stream, type: ConditionType): string | undefined {
   switch (type) {
+    case "identity":
+      return stream.executable ?? (stream.app_name || undefined);
     case "app_name":
       return stream.app_name || undefined;
     case "executable":
@@ -157,6 +167,9 @@ export function formatConditionSummary(condition: RuleCondition): string {
   }
   if (condition.type === "direction") {
     return condition.value === "capture" ? "Capture" : "Playback";
+  }
+  if (condition.type === "identity") {
+    return condition.value;
   }
   return condition.value;
 }

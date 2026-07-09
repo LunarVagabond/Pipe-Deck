@@ -2,6 +2,7 @@ pub mod engine;
 pub mod models;
 pub mod profile;
 pub mod profile_drift;
+pub mod recent_streams;
 pub mod restore;
 pub mod routing;
 pub mod routing_rules;

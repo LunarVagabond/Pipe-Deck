@@ -162,6 +162,7 @@ impl MockPipeWireAdapter {
             notice: Some(
                 "Sample data only. Unset PIPE_DECK_USE_MOCK to use live PipeWire.".into(),
             ),
+            ..Default::default()
         }
     }
 }

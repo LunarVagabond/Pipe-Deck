@@ -50,6 +50,7 @@ pub fn run() {
             commands::rules::delete_rule,
             commands::rules::toggle_rule,
             commands::rules::simulate_rules,
+            commands::rules::apply_rules,
             commands::mixer::set_device_volume,
             commands::mixer::set_device_mute,
             commands::virtual_device::create_virtual_output,
