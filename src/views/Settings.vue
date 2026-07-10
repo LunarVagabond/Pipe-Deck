@@ -1,16 +1,19 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
+import { checkForUpdates, updateStatusLabel } from "../composables/updates";
 import { useApplyResult } from "../stores/notices";
+import type { AppInfo, UpdateCheckResult, UpdateStatus } from "../types/app";
 import type { DaemonStatus, PluginStatus } from "../types/graph";
 
-type SettingsTab = "general" | "background" | "plugins";
+type SettingsTab = "general" | "background" | "plugins" | "about";
 
 const tabs: { id: SettingsTab; label: string }[] = [
   { id: "general", label: "General" },
   { id: "background", label: "Background" },
   { id: "plugins", label: "Plugins" },
+  { id: "about", label: "About" },
 ];
 
 const activeTab = ref<SettingsTab>("general");
@@ -19,8 +22,33 @@ const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
 const daemonStatus = ref<DaemonStatus | null>(null);
 const plugins = ref<PluginStatus[]>([]);
+const appInfo = ref<AppInfo | null>(null);
+const updateResult = ref<UpdateCheckResult | null>(null);
+const checkingUpdates = ref(false);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
+
+const updateStatus = computed<UpdateStatus>(() => {
+  if (checkingUpdates.value) return "checking";
+  return updateResult.value?.status ?? "unknown";
+});
+
+const updateStatusClass = computed(() => `update-status-dot--${updateStatus.value}`);
+
+const backgroundRestoreHint = computed(() => {
+  if (appInfo.value?.backgroundRestoreSupported) {
+    return "Installs a user systemd unit for restore at login.";
+  }
+  return `Not supported in the Flatpak build. Install via ${nativeInstallHint.value} for login restore.`;
+});
+
+const nativeInstallHint = computed(() => {
+  const kind = appInfo.value?.installKind;
+  if (kind === "deb") return ".deb";
+  if (kind === "rpm") return ".rpm";
+  if (kind === "app_image") return "AppImage";
+  return ".deb, .rpm, or AppImage";
+});
 
 async function loadSettings() {
   const config = await invoke<{
@@ -35,6 +63,40 @@ async function loadSettings() {
   autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
   daemonStatus.value = await invoke("get_daemon_status");
   plugins.value = await invoke("list_plugins");
+  appInfo.value = await invoke("get_app_info");
+}
+
+async function runUpdateCheck() {
+  if (!appInfo.value) return;
+  const version = appInfo.value.releaseVersion;
+  if (!version) {
+    updateResult.value = {
+      status: "unknown",
+      currentVersion: appInfo.value.buildRevision,
+      error: "Update check requires a tagged release build",
+    };
+    return;
+  }
+  checkingUpdates.value = true;
+  try {
+    updateResult.value = await checkForUpdates(version);
+  } finally {
+    checkingUpdates.value = false;
+  }
+}
+
+async function openUpdateRelease() {
+  const url =
+    updateResult.value?.releaseUrl ??
+    "https://github.com/LunarVagabond/Pipe-Deck/releases/latest";
+  try {
+    await invoke("open_url", { url });
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
 }
 
 async function setRestoreOnStartup(enabled: boolean) {
@@ -217,11 +279,11 @@ onMounted(() => {
         Run restore at login via a user systemd service, even when the app is closed.
       </p>
 
-      <div class="settings-row">
+      <div v-if="appInfo?.backgroundRestoreSupported" class="settings-row">
         <div>
           <p class="settings-row-label">Restore at login via background service</p>
           <p class="settings-row-hint">
-            Installs a user systemd unit. Flatpak installs may not support user systemd units.
+            {{ backgroundRestoreHint }}
           </p>
         </div>
         <ToggleSwitch
@@ -229,6 +291,16 @@ onMounted(() => {
           :disabled="busy"
           @update:model-value="setBackgroundRestore"
         />
+      </div>
+
+      <div v-else class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Restore at login via background service</p>
+          <p class="settings-row-hint">
+            {{ backgroundRestoreHint }}
+          </p>
+        </div>
+        <span class="settings-unsupported-pill">Not supported</span>
       </div>
 
       <div class="settings-status-section">
@@ -302,6 +374,65 @@ onMounted(() => {
       </div>
 
       <p class="settings-footnote">Audit log: ~/.local/state/pipe-deck/plugin-audit.jsonl</p>
+    </div>
+
+    <div
+      v-show="activeTab === 'about'"
+      class="settings-panel"
+      role="tabpanel"
+      aria-labelledby="settings-tab-about"
+    >
+      <p class="settings-panel-lead">
+        Version info and update checks. Pipe Deck will eventually check once at startup unless
+        dismissed.
+      </p>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Installed version</p>
+          <p class="settings-row-hint">
+            {{ appInfo?.buildRevision ?? "…" }}
+            <template v-if="appInfo?.installLabel"> · {{ appInfo.installLabel }}</template>
+          </p>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <div class="settings-update-copy">
+          <p class="settings-row-label settings-update-label">
+            <span class="update-status-dot" :class="updateStatusClass" aria-hidden="true" />
+            Check for updates
+          </p>
+          <p class="settings-row-hint">
+            <template v-if="updateStatus === 'checking'">Checking GitHub releases…</template>
+            <template v-else-if="updateResult?.latestVersion">
+              {{ updateStatusLabel[updateStatus] }} —
+              latest is v{{ updateResult.latestVersion }}
+            </template>
+            <template v-else>
+              {{ updateResult?.error ?? "Run a check to compare with the latest release." }}
+            </template>
+          </p>
+        </div>
+        <div class="settings-update-actions">
+          <button
+            type="button"
+            class="settings-action-btn"
+            :disabled="checkingUpdates || !appInfo"
+            @click="runUpdateCheck"
+          >
+            {{ checkingUpdates ? "Checking…" : "Check now" }}
+          </button>
+          <button
+            v-if="updateResult && updateStatus !== 'current' && updateStatus !== 'checking'"
+            type="button"
+            class="settings-action-btn settings-action-btn--primary"
+            @click="openUpdateRelease"
+          >
+            Get update
+          </button>
+        </div>
+      </div>
     </div>
   </section>
 </template>

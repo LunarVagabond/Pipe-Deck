@@ -98,3 +98,7 @@ If yes, see [Contributing](docs/project/Contributing.md) and open an issue or PR
 ## License
 
 [MIT](LICENSE)
+
+---
+
+Enjoying Pipe Deck? Consider [buying me a coffee](https://www.buymeacoffee.com/lunarvagabond) ☕

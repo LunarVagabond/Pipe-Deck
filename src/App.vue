@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import PromptDialog from "./components/PromptDialog.vue";
+import AppFooter from "./components/AppFooter.vue";
 import ToggleSwitch from "./components/ToggleSwitch.vue";
 import { navigateKey } from "./composables/navigation";
 import Dashboard from "./views/Dashboard.vue";
@@ -17,14 +18,16 @@ import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
 import type { AppView, DaemonStatus } from "./types/graph";
 
-const navItems = ref<{ id: AppView; label: string; enabled: boolean }[]>([
+const navItems = ref<
+  { id: AppView; label: string; enabled: boolean; comingSoon?: boolean }[]
+>([
   { id: "dashboard", label: "Dashboard", enabled: true },
   { id: "profiles", label: "Profiles", enabled: true },
   { id: "rules", label: "Rules", enabled: true },
   { id: "routing", label: "Routing", enabled: true },
   { id: "mixer", label: "Mixer", enabled: true },
   { id: "sources", label: "Sources", enabled: true },
-  { id: "effects", label: "Effects", enabled: false },
+  { id: "effects", label: "Effects", enabled: false, comingSoon: true },
   { id: "settings", label: "Settings", enabled: true },
 ]);
 
@@ -36,6 +39,19 @@ const newDeviceType = ref<"input" | "output">("output");
 const newDeviceMulti = ref(false);
 const canCreateVirtual = computed(() => newDeviceName.value.trim().length > 0);
 const { handleApplyResult } = useApplyResult();
+const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
+
+async function openExternal(event: MouseEvent, url: string) {
+  event.preventDefault();
+  try {
+    await invoke("open_url", { url });
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
 
 const topbarTitle = computed(() => {
   const item = navItems.value.find((entry) => entry.id === activeView.value);
@@ -115,15 +131,29 @@ async function createVirtual() {
         v-for="item in navItems"
         :key="item.id"
         class="nav-item"
-        :class="{ active: item.id === activeView, disabled: !item.enabled }"
+        :class="{
+          active: item.id === activeView,
+          disabled: !item.enabled,
+          'has-popover': item.comingSoon,
+        }"
         href="#"
         @click.prevent="selectView(item.id, item.enabled)"
       >
         {{ item.label }}
+        <span v-if="item.comingSoon" class="nav-popover" role="tooltip">Coming Soon</span>
       </a>
-      <div class="daemon-status">
-        <span class="dot" />
-        {{ daemonStatus }}
+      <div class="sidebar-footer">
+        <a
+          class="sidebar-contribute"
+          :href="GITHUB_REPO"
+          @click="openExternal($event, GITHUB_REPO)"
+        >
+          Contribute on GitHub
+        </a>
+        <div class="daemon-status">
+          <span class="dot" />
+          {{ daemonStatus }}
+        </div>
       </div>
     </nav>
 
@@ -144,6 +174,7 @@ async function createVirtual() {
         <Effects v-else-if="activeView === 'effects'" />
         <Settings v-else-if="activeView === 'settings'" />
       </main>
+      <AppFooter />
     </div>
 
     <NoticeStack />
