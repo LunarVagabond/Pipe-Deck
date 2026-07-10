@@ -1,3 +1,5 @@
+SHELL := /usr/bin/env bash
+
 .PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test clean preview flatpak smoke release
 
 NPM ?= npm
@@ -79,8 +81,10 @@ smoke: ## Run install and compile smoke checks
 ##
 ## Usage:
 ##   make release VER=0.2.0 TITLE="Some release title"
-## - VER prompts if missing. TITLE is optional.
-## - Tag format: v<VER> or v<VER>-<TITLE_SLUG>
+## - VER prompts if missing (shows current version). TITLE is optional.
+## - Tag format:
+##   - If TITLE is provided: v<VER>-<TITLE_SLUG>
+##   - If TITLE is empty:    v<VER>
 ## - Bumps package.json, Cargo.toml, tauri.conf.json, and AppStream metainfo.
 release:
 	@set -euo pipefail; \
