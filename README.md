@@ -72,7 +72,7 @@ Product and technical docs live in [`docs/`](docs/). That folder is structured f
 | [Product](docs/product/) | Requirements, roadmap, decisions |
 | [Architecture](docs/architecture/) | System and PipeWire design |
 | [Specifications](docs/specs/) | UI, config, plugins, rule engine |
-| [Project](docs/project/) | Contributing, packaging, plugins |
+| [Project](docs/project/) | Contributing, packaging, plugins, [Releasing](docs/project/Release.md) |
 
 Implementation backlog: [`Backlog.md`](Backlog.md).
 

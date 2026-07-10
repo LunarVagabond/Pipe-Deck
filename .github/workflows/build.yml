@@ -2,11 +2,24 @@ name: Build
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main]
+    tags: ["v*"]
   pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+env:
+  CARGO_TERM_COLOR: always
 
 jobs:
   check:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +43,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: Validate Flatpak packaging metadata
+        run: |
+          test -f flatpak/com.pipedeck.PipeDeck.yml
+          test -f packaging/com.pipedeck.PipeDeck.desktop
+          test -f packaging/com.pipedeck.PipeDeck.metainfo.xml
+          test -f src-tauri/packaging/pipe-deck-daemon.service
+
       - name: Check frontend and Rust
         run: make check
 
@@ -37,6 +57,7 @@ jobs:
         run: make test
 
   smoke:
+    if: github.event_name == 'pull_request' || (github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/'))
     runs-on: ubuntu-latest
     needs: check
     steps:
@@ -64,90 +85,76 @@ jobs:
       - name: Run smoke checks
         run: make smoke
 
-  bundle-ubuntu:
-    runs-on: ubuntu-latest
-    needs: check
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+      - name: Parse release version from tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if [[ ! "${tag#v}" =~ ^([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+            echo "Could not derive semantic version from tag: ${tag}"
+            exit 1
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Verify version files match tag
+        run: bash scripts/verify-release-version.sh "${{ steps.version.outputs.tag }}"
 
-      - name: Install system dependencies
+      - name: Install Linux dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev \
+            build-essential \
             libayatana-appindicator3-dev \
             librsvg2-dev \
             patchelf
 
-      - name: Build desktop bundles
-        run: make build
+      - uses: dtolnay/rust-toolchain@stable
 
-      - name: Upload bundle artifacts
-        uses: actions/upload-artifact@v4
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
         with:
-          name: pipe-deck-linux-bundles
-          path: |
-            src-tauri/target/release/bundle/deb/*.deb
-            src-tauri/target/release/bundle/rpm/*.rpm
-            src-tauri/target/release/bundle/appimage/*.AppImage
-          if-no-files-found: warn
-
-  bundle-fedora:
-    runs-on: ubuntu-latest
-    needs: check
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+          workspaces: src-tauri
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
 
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Fedora packaging dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            rpm
-
       - name: Install frontend dependencies
         run: npm ci
 
-      - name: Build RPM bundle
+      - name: Build Linux bundles
         run: make build
 
-      - name: Upload RPM artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: pipe-deck-rpm
-          path: src-tauri/target/release/bundle/rpm/*.rpm
-          if-no-files-found: warn
-
-  flatpak-manifest:
-    runs-on: ubuntu-latest
-    needs: check
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Validate Flatpak manifest and packaging metadata
+      - name: Stage release assets and latest.json
         run: |
-          test -f flatpak/com.pipedeck.PipeDeck.yml
-          test -f packaging/com.pipedeck.PipeDeck.desktop
-          test -f packaging/com.pipedeck.PipeDeck.metainfo.xml
-          test -f src-tauri/packaging/pipe-deck-daemon.service
+          chmod +x scripts/stage-release.sh
+          bash scripts/stage-release.sh \
+            "${{ steps.version.outputs.tag }}" \
+            "${{ steps.version.outputs.version }}"
+
+      - name: Publish draft GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Pipe Deck ${{ steps.version.outputs.tag }}
+          draft: true
+          prerelease: false
+          generate_release_notes: true
+          files: release-files/*

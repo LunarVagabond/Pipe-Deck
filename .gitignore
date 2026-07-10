@@ -19,6 +19,8 @@ src-tauri/bin/
 .env.*
 !.env.example
 *.local
+.tauri/
+*.key
 
 # Logs
 logs/

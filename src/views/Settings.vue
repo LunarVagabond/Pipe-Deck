@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
-import { checkForUpdates, updateStatusLabel } from "../composables/updates";
+import { checkForUpdates, installUpdate, updateStatusLabel } from "../composables/updates";
 import { useApplyResult } from "../stores/notices";
 import type { AppInfo, UpdateCheckResult, UpdateStatus } from "../types/app";
 import type { DaemonStatus, PluginStatus } from "../types/graph";
@@ -68,29 +68,19 @@ async function loadSettings() {
 
 async function runUpdateCheck() {
   if (!appInfo.value) return;
-  const version = appInfo.value.releaseVersion;
-  if (!version) {
-    updateResult.value = {
-      status: "unknown",
-      currentVersion: appInfo.value.buildRevision,
-      error: "Update check requires a tagged release build",
-    };
-    return;
-  }
   checkingUpdates.value = true;
   try {
-    updateResult.value = await checkForUpdates(version);
+    updateResult.value = await checkForUpdates(appInfo.value);
   } finally {
     checkingUpdates.value = false;
   }
 }
 
-async function openUpdateRelease() {
-  const url =
-    updateResult.value?.releaseUrl ??
-    "https://github.com/LunarVagabond/Pipe-Deck/releases/latest";
+async function applyUpdate() {
+  if (!updateResult.value) return;
   try {
-    await invoke("open_url", { url });
+    await installUpdate(updateResult.value);
+    handleApplyResult({ success: true }, "Update started");
   } catch (error) {
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
@@ -427,9 +417,9 @@ onMounted(() => {
             v-if="updateResult && updateStatus !== 'current' && updateStatus !== 'checking'"
             type="button"
             class="settings-action-btn settings-action-btn--primary"
-            @click="openUpdateRelease"
+            @click="applyUpdate"
           >
-            Get update
+            {{ updateResult.canAutoInstall ? "Install update" : "Get update" }}
           </button>
         </div>
       </div>

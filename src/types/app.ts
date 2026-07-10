@@ -15,5 +15,7 @@ export interface UpdateCheckResult {
   currentVersion: string;
   latestVersion?: string;
   releaseUrl?: string;
+  downloadUrl?: string;
+  canAutoInstall?: boolean;
   error?: string;
 }

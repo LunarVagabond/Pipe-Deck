@@ -1,4 +1,4 @@
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test clean preview flatpak smoke
+.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test clean preview flatpak smoke release
 
 NPM ?= npm
 CARGO ?= cargo
@@ -73,3 +73,72 @@ flatpak: ## Build Flatpak package locally
 
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
+
+.PHONY: release
+## Update version files, commit, then create a release tag.
+##
+## Usage:
+##   make release VER=0.2.0 TITLE="Some release title"
+## - VER prompts if missing. TITLE is optional.
+## - Tag format: v<VER> or v<VER>-<TITLE_SLUG>
+## - Bumps package.json, Cargo.toml, tauri.conf.json, and AppStream metainfo.
+release:
+	@set -euo pipefail; \
+	ver="$(strip $(VER))"; \
+	current_ver="$$(node -p 'require("./package.json").version' 2>/dev/null || true)"; \
+	if [ -z "$$current_ver" ]; then \
+		current_ver="$$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/p' package.json | head -n 1)"; \
+	fi; \
+	if [ -z "$$ver" ]; then \
+		if [ -n "$$current_ver" ]; then \
+			read -r -p "Release version (current: $$current_ver): " ver; \
+			if [ -z "$$ver" ]; then ver="$$current_ver"; fi; \
+		else \
+			read -r -p "Release version (X.Y.Z): " ver; \
+		fi; \
+	fi; \
+	if ! [[ "$$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$$ ]]; then \
+		echo "release: invalid VER '$$ver' (expected X.Y.Z)"; \
+		exit 1; \
+	fi; \
+	title="$(strip $(TITLE))"; \
+	if [ -z "$$title" ]; then \
+		read -r -p "Release title (optional): " title; \
+	fi; \
+	title_slug="$$(printf '%s' "$$title" | sed -E 's/[[:space:]]+/-/g; s/[^A-Za-z0-9._-]//g; s/^-+//; s/-+$$//')"; \
+	tag_name="v$$ver"; \
+	if [ -n "$$title_slug" ]; then \
+		tag_name="$$tag_name-$$title_slug"; \
+	fi; \
+	echo "release: tag='$$tag_name' version='$$ver'"; \
+	if git rev-parse -q --verify "refs/tags/$$tag_name" >/dev/null; then \
+		echo "release: git tag '$$tag_name' already exists"; \
+		exit 1; \
+	fi; \
+	npm version --no-git-tag-version --allow-same-version "$$ver" >/dev/null; \
+	tmp_file="$$(mktemp)"; \
+	awk -v ver="$$ver" '\
+	BEGIN { in_package=0 } \
+	$$0 == "[package]" { in_package=1; print; next } \
+	in_package && $$0 ~ /^\[/ { in_package=0 } \
+	in_package && $$0 ~ /^version[[:space:]]*=/ { $$0 = "version = \"" ver "\"" } \
+	{ print }' src-tauri/Cargo.toml > "$$tmp_file"; \
+	mv "$$tmp_file" src-tauri/Cargo.toml; \
+	node -e 'const fs=require("fs"); const p="src-tauri/tauri.conf.json"; const j=JSON.parse(fs.readFileSync(p,"utf8")); j.version=process.argv[1]; fs.writeFileSync(p, JSON.stringify(j,null,2)+"\n");' "$$ver"; \
+	release_date="$$(date -u +%Y-%m-%d)"; \
+	metainfo="packaging/com.pipedeck.PipeDeck.metainfo.xml"; \
+	if grep -q '<release version=' "$$metainfo"; then \
+		sed -i "s|<release version=\"[^\"]*\" date=\"[^\"]*\" />|    <release version=\"$$ver\" date=\"$$release_date\" />|" "$$metainfo"; \
+	else \
+		sed -i "s|</releases>|    <release version=\"$$ver\" date=\"$$release_date\" />\n  </releases>|" "$$metainfo"; \
+	fi; \
+	version_files="package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json packaging/com.pipedeck.PipeDeck.metainfo.xml"; \
+	git add -- $$version_files; \
+	if git diff --cached --quiet -- $$version_files; then \
+		echo "release: no version changes to commit (continuing with tag)"; \
+	else \
+		git commit -m "Release $$tag_name"; \
+	fi; \
+	git tag -a "$$tag_name" -m "$$tag_name"; \
+	echo "release done: $$tag_name"; \
+	echo "Next: git push origin main --tags"

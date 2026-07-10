@@ -27,6 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "externalBin": [
       "bin/pipe-deck-daemon"
     ],
@@ -60,6 +61,14 @@
           "pipewire-pulse"
         ]
       }
+    }
+  },
+  "plugins": {
+    "updater": {
+      "endpoints": [
+        "https://github.com/LunarVagabond/Pipe-Deck/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDIyQzQ2RjM0MDQ0RjU1NEYKUldSUFZVOEVORy9FSXRwVHNOYVVwZytBaHgrVldtWDJHVE1mcHlzR2ZBMnJpZ3lkbjBvOXZGREUK"
     }
   }
 }
