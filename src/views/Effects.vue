@@ -13,11 +13,40 @@ const chains = ref<Record<string, EffectChainConfig>>({});
 const selectedDeviceId = ref<string | null>(null);
 const draft = ref<EffectChainConfig>(emptyChain());
 const chainsLoading = ref(true);
-const applyWarning = ref<string | null>(null);
+const saveState = ref<"idle" | "saving" | "saved" | "error">("idle");
 let debounceTimer: number | undefined;
+let savedIndicatorTimer: number | undefined;
+
+const eqBands = [
+  { key: "eq_sub" as const, label: "Sub", hint: "60 Hz" },
+  { key: "eq_bass" as const, label: "Bass", hint: "150 Hz" },
+  { key: "eq_mid" as const, label: "Mid", hint: "1 kHz" },
+  { key: "eq_treble" as const, label: "Treble", hint: "4 kHz" },
+  { key: "eq_air" as const, label: "Air", hint: "10 kHz" },
+];
 
 function emptyChain(): EffectChainConfig {
-  return { eq_low: 0, eq_mid: 0, eq_high: 0, compressor: false };
+  return {
+    eq_sub: 0,
+    eq_bass: 0,
+    eq_mid: 0,
+    eq_treble: 0,
+    eq_air: 0,
+    output_gain: 0,
+    compressor: false,
+  };
+}
+
+function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
+  return {
+    eq_sub: chain.eq_sub ?? 0,
+    eq_bass: chain.eq_bass ?? chain.eq_low ?? 0,
+    eq_mid: chain.eq_mid ?? 0,
+    eq_treble: chain.eq_treble ?? 0,
+    eq_air: chain.eq_air ?? chain.eq_high ?? 0,
+    output_gain: chain.output_gain ?? 0,
+    compressor: chain.compressor ?? false,
+  };
 }
 
 function isEffectsDevice(device: Device): boolean {
@@ -39,14 +68,36 @@ const selectedDevice = computed(() =>
 
 const isMockData = computed(() => graph.value.data_source === "mock");
 
-const isEmpty = computed(
-  () => !loading.value && !error.value && eligibleDevices.value.length === 0,
+const showBlockingLoader = computed(
+  () =>
+    chainsLoading.value ||
+    (loading.value && eligibleDevices.value.length === 0 && !error.value),
 );
+
+const isEmpty = computed(
+  () => !showBlockingLoader.value && !error.value && eligibleDevices.value.length === 0,
+);
+
+const isChainActive = computed(() => {
+  const chain = draft.value;
+  return (
+    chain.compressor ||
+    chain.eq_sub !== 0 ||
+    chain.eq_bass !== 0 ||
+    chain.eq_mid !== 0 ||
+    chain.eq_treble !== 0 ||
+    chain.eq_air !== 0 ||
+    chain.output_gain !== 0
+  );
+});
 
 async function loadChains() {
   chainsLoading.value = true;
   try {
-    chains.value = await invoke<Record<string, EffectChainConfig>>("get_effect_chains");
+    const loaded = await invoke<Record<string, EffectChainConfig>>("get_effect_chains");
+    chains.value = Object.fromEntries(
+      Object.entries(loaded).map(([id, chain]) => [id, normalizeChain(chain)]),
+    );
   } catch {
     chains.value = {};
   } finally {
@@ -55,13 +106,12 @@ async function loadChains() {
 }
 
 function loadDraftForDevice(deviceId: string) {
-  draft.value = { ...(chains.value[deviceId] ?? emptyChain()) };
+  draft.value = normalizeChain(chains.value[deviceId] ?? emptyChain());
 }
 
 function selectDevice(deviceId: string) {
   selectedDeviceId.value = deviceId;
   loadDraftForDevice(deviceId);
-  applyWarning.value = null;
 }
 
 async function applyDraft() {
@@ -70,25 +120,29 @@ async function applyDraft() {
   }
 
   const deviceId = selectedDeviceId.value;
-  const config = { ...draft.value };
+  const config = normalizeChain({ ...draft.value });
 
+  saveState.value = "saving";
   try {
-    const result = await invoke<{ success: boolean; message?: string }>("set_device_effects", {
+    await invoke("set_device_effects", {
       deviceId,
       config,
     });
-    if (config.eq_low === 0 && config.eq_mid === 0 && config.eq_high === 0 && !config.compressor) {
+    if (!isChainActive.value) {
       const { [deviceId]: _, ...rest } = chains.value;
       chains.value = rest;
     } else {
       chains.value = { ...chains.value, [deviceId]: config };
     }
-    applyWarning.value = result.message ?? null;
-    handleApplyResult(
-      result,
-      result.message ? "Effects saved (with warning)" : "Effects applied",
-    );
+    saveState.value = "saved";
+    window.clearTimeout(savedIndicatorTimer);
+    savedIndicatorTimer = window.setTimeout(() => {
+      if (saveState.value === "saved") {
+        saveState.value = "idle";
+      }
+    }, 1500);
   } catch (err) {
+    saveState.value = "error";
     handleApplyResult(
       { success: false, message: err instanceof Error ? err.message : String(err) },
       "",
@@ -100,7 +154,7 @@ function scheduleApply() {
   window.clearTimeout(debounceTimer);
   debounceTimer = window.setTimeout(() => {
     void applyDraft();
-  }, 250);
+  }, 200);
 }
 
 watch(
@@ -139,8 +193,9 @@ onMounted(() => {
     </header>
 
     <p class="effects-help">
-      Apply a 3-band EQ and compressor to Pipe Deck virtual devices. Changes persist in
-      <code>config.yaml</code> and are captured when you save a profile.
+      Five-band EQ and dynamics settings are saved for profiles. Live processing is temporarily
+      disabled while we rework the PipeWire integration — adjusting sliders will not touch your
+      system audio session.
     </p>
 
     <p v-if="isMockData" class="notice-banner mock">
@@ -150,7 +205,7 @@ onMounted(() => {
       {{ graph.notice }}
     </p>
 
-    <p v-if="loading || chainsLoading" class="status">Loading devices…</p>
+    <p v-if="showBlockingLoader" class="status">Loading devices…</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
     <p v-else-if="isEmpty" class="status">
       No Pipe Deck virtual devices available. Create a virtual output from + New first.
@@ -174,63 +229,78 @@ onMounted(() => {
         </section>
 
         <section v-if="selectedDevice" class="effects-panel">
-          <h2>{{ selectedDevice.label }}</h2>
-          <p class="effects-panel-subtitle">{{ selectedDevice.system_name }}</p>
-
-          <p v-if="applyWarning" class="notice-banner warn">{{ applyWarning }}</p>
-
-          <div class="effects-control">
-            <label>
-              <span>Low EQ</span>
-              <input
-                v-model.number="draft.eq_low"
-                type="range"
-                min="-12"
-                max="12"
-                step="1"
-                @input="scheduleApply"
-              />
-              <span class="value">{{ draft.eq_low }}</span>
-            </label>
+          <div class="effects-panel-header">
+            <div>
+              <h2>{{ selectedDevice.label }}</h2>
+              <p class="effects-panel-subtitle">{{ selectedDevice.system_name }}</p>
+            </div>
+            <p
+              v-if="saveState !== 'idle'"
+              class="effects-save-state"
+              :class="saveState"
+            >
+              {{ saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save failed" }}
+            </p>
           </div>
 
-          <div class="effects-control">
-            <label>
-              <span>Mid EQ</span>
-              <input
-                v-model.number="draft.eq_mid"
-                type="range"
-                min="-12"
-                max="12"
-                step="1"
-                @input="scheduleApply"
-              />
-              <span class="value">{{ draft.eq_mid }}</span>
-            </label>
+          <p class="notice-banner info effects-live-disabled">
+            Settings save to your profile, but sliders do not change audio yet. Live EQ is
+            paused while we rebuild a PipeWire-safe effects path.
+          </p>
+
+          <div class="effects-section">
+            <h3>Equalizer</h3>
+            <div
+              v-for="band in eqBands"
+              :key="band.key"
+              class="effects-control"
+            >
+              <label>
+                <span class="effects-band-label">
+                  {{ band.label }}
+                  <em>{{ band.hint }}</em>
+                </span>
+                <input
+                  v-model.number="draft[band.key]"
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="1"
+                  @input="scheduleApply"
+                />
+                <span class="value">{{ draft[band.key] }}</span>
+              </label>
+            </div>
           </div>
 
-          <div class="effects-control">
-            <label>
-              <span>High EQ</span>
-              <input
-                v-model.number="draft.eq_high"
-                type="range"
-                min="-12"
-                max="12"
-                step="1"
-                @input="scheduleApply"
-              />
-              <span class="value">{{ draft.eq_high }}</span>
-            </label>
-          </div>
+          <div class="effects-section">
+            <h3>Dynamics</h3>
+            <div class="effects-control">
+              <label>
+                <span class="effects-band-label">
+                  Output
+                  <em>trim</em>
+                </span>
+                <input
+                  v-model.number="draft.output_gain"
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="1"
+                  @input="scheduleApply"
+                />
+                <span class="value">{{ draft.output_gain }}</span>
+              </label>
+            </div>
 
-          <div class="effects-control effects-toggle-row">
-            <span>Compressor</span>
-            <ToggleSwitch
-              :model-value="draft.compressor"
-              :show-state-labels="false"
-              @update:model-value="(next) => { draft.compressor = next; scheduleApply(); }"
-            />
+            <div class="effects-control effects-toggle-row">
+              <span>Compressor</span>
+              <ToggleSwitch
+                :model-value="draft.compressor"
+                :show-state-labels="false"
+                @update:model-value="(next) => { draft.compressor = next; scheduleApply(); }"
+              />
+            </div>
           </div>
 
           <button type="button" class="effects-reset" @click="draft = emptyChain(); scheduleApply();">

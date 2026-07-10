@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="Pipe Deck dashboard placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1d24"/>
+      <stop offset="100%" stop-color="#12151a"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="0" y="0" width="960" height="40" fill="#0f1115"/>
+  <text x="16" y="26" fill="#8b9cb3" font-family="system-ui,sans-serif" font-size="13">Pipe Deck  Dashboard</text>
+  <rect x="0" y="40" width="180" height="500" fill="#161a22"/>
+  <rect x="16" y="64" width="148" height="28" rx="6" fill="#2a3140"/>
+  <rect x="16" y="104" width="148" height="28" rx="6" fill="#222833"/>
+  <rect x="16" y="144" width="148" height="28" rx="6" fill="#222833"/>
+  <rect x="200" y="56" width="744" height="468" rx="8" fill="#1e2430" stroke="#2f3848"/>
+  <text x="220" y="88" fill="#6b7a90" font-family="system-ui,sans-serif" font-size="12">Live audio graph</text>
+  <rect x="240" y="120" width="120" height="56" rx="8" fill="#2d3648" stroke="#4a90d9"/>
+  <rect x="420" y="100" width="100" height="40" rx="6" fill="#283040"/>
+  <rect x="580" y="140" width="100" height="40" rx="6" fill="#283040"/>
+  <rect x="360" y="200" width="140" height="64" rx="8" fill="#2d3648" stroke="#5cb85c"/>
+  <line x1="360" y1="148" x2="300" y2="176" stroke="#4a5568" stroke-width="2"/>
+  <line x1="470" y1="120" x2="430" y2="200" stroke="#4a5568" stroke-width="2"/>
+  <line x1="630" y1="160" x2="500" y2="232" stroke="#4a5568" stroke-width="2"/>
+  <text x="480" y="500" fill="#5a6a80" font-family="system-ui,sans-serif" font-size="14" text-anchor="middle">Screenshot placeholder  replace with real capture</text>
+</svg>

@@ -35,7 +35,7 @@ All roadmap items must improve Linux audio clarity, control, or reliability for 
 2. **Enumeration** — PipeWire discovery pipeline and normalized runtime graph; read-only dashboard UI.
 3. **Profiles** — YAML file-based desired state, profile swapper, save/load, export/import.
 4. **Routing and mixer** — Apply routing intents, basic mixer panel, undo/rollback.
-5. **Packaging baseline** — Installable dev/beta artifacts per target family. See [Packaging](../project/Packaging.md).
+5. **Packaging baseline** — Installable dev/beta artifacts per target family. See [Packaging](../project/Packaging).
 
 ### Deliverables
 

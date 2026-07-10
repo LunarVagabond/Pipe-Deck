@@ -209,10 +209,17 @@ export interface VolumeStateEntry {
 }
 
 export interface EffectChainConfig {
-  eq_low: number;
+  eq_sub: number;
+  eq_bass: number;
   eq_mid: number;
-  eq_high: number;
+  eq_treble: number;
+  eq_air: number;
+  output_gain: number;
   compressor: boolean;
+  /** @deprecated use eq_bass */
+  eq_low?: number;
+  /** @deprecated use eq_air */
+  eq_high?: number;
 }
 
 export interface Profile {

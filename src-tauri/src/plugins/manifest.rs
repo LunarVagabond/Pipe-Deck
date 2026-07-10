@@ -102,7 +102,6 @@ pub fn discover_in_dir(dir: &Path) -> Vec<DiscoveredPlugin> {
 mod tests {
     use super::*;
     use crate::core::models::PluginManifest;
-    use std::io::Write;
 
     #[test]
     fn rejects_unsupported_api_version() {

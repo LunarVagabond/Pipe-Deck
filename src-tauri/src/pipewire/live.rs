@@ -28,7 +28,12 @@ pub struct LivePipeWireAdapter {
 
 impl LivePipeWireAdapter {
     pub fn new() -> Result<Self, AdapterError> {
-        let graph = enumerate_pipewire()?;
+        let graph = enumerate_pipewire().unwrap_or_else(|error| RuntimeGraph {
+            notice: Some(format!(
+                "PipeWire snapshot unavailable ({error}). Dashboard will retry automatically."
+            )),
+            ..RuntimeGraph::default()
+        });
         let cached_graph = Arc::new(Mutex::new(graph));
         let listener = Arc::new(Mutex::new(None));
 
@@ -41,12 +46,28 @@ impl LivePipeWireAdapter {
 
 impl PipeWireAdapter for LivePipeWireAdapter {
     fn fetch_graph(&self) -> Result<RuntimeGraph, AdapterError> {
-        let graph = enumerate_pipewire()?;
-        let mut cached = self.cached_graph.lock().map_err(|_| {
-            AdapterError::Message("graph lock poisoned".into())
-        })?;
-        *cached = graph.clone();
-        Ok(graph)
+        match enumerate_pipewire() {
+            Ok(graph) => {
+                let mut cached = self.cached_graph.lock().map_err(|_| {
+                    AdapterError::Message("graph lock poisoned".into())
+                })?;
+                *cached = graph.clone();
+                Ok(graph)
+            }
+            Err(error) => {
+                let cached = self.cached_graph.lock().map_err(|_| {
+                    AdapterError::Message("graph lock poisoned".into())
+                })?;
+                if cached.devices.is_empty() && cached.streams.is_empty() {
+                    return Err(error);
+                }
+                let mut graph = cached.clone();
+                graph.notice = Some(format!(
+                    "PipeWire snapshot unavailable ({error}). Showing last known graph."
+                ));
+                Ok(graph)
+            }
+        }
     }
 
     fn subscribe(&self, listener: GraphListener) -> Result<(), AdapterError> {
@@ -149,25 +170,35 @@ struct PwDumpObject {
 }
 
 fn enumerate_pipewire() -> Result<RuntimeGraph, AdapterError> {
-    let output = Command::new("pw-dump")
-        .arg("-N")
-        .output()
-        .map_err(|error| AdapterError::Message(format!("failed to run pw-dump: {error}")))?;
-
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AdapterError::Message(format!(
-            "pw-dump failed: {stderr}"
-        )));
+    let stdout = run_pw_dump_snapshot()?;
+    if stdout.is_empty() {
+        return Err(AdapterError::Message(
+            "pw-dump returned no data — is PipeWire running?".into(),
+        ));
     }
 
-    let objects: Vec<PwDumpObject> = serde_json::from_slice(&output.stdout).map_err(|error| {
+    let objects: Vec<PwDumpObject> = serde_json::from_slice(&stdout).map_err(|error| {
         AdapterError::Message(format!("failed to parse pw-dump output: {error}"))
     })?;
 
     let mut graph = normalize_pw_dump(&objects);
     enrich_graph_from_pactl(&mut graph);
     Ok(graph)
+}
+
+fn run_pw_dump_snapshot() -> Result<Vec<u8>, AdapterError> {
+    let output = Command::new("timeout")
+        .args(["5", "pw-dump", "-N"])
+        .output()
+        .or_else(|_| Command::new("pw-dump").arg("-N").output())
+        .map_err(|error| AdapterError::Message(format!("failed to run pw-dump: {error}")))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AdapterError::Message(format!("pw-dump failed: {stderr}")));
+    }
+
+    Ok(output.stdout)
 }
 
 pub fn enrich_graph_from_pactl(graph: &mut RuntimeGraph) {

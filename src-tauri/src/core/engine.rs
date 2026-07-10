@@ -104,6 +104,7 @@ impl CoreEngine {
             let restore_result = restore::restore_session(&self.virtual_registry)
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
             self.apply_restore_notice(&restore_result);
+            let _ = filter_chain::cleanup_effects_conf_files();
         }
 
         self.refresh_graph()?;
@@ -837,54 +838,63 @@ impl CoreEngine {
             });
         }
 
-        match filter_chain::apply_effect_chain(&device.system_name, &config) {
-            Ok(None) => Ok(ApplyResult {
-                success: true,
-                message: None,
-            }),
-            Ok(Some(warning)) => Ok(ApplyResult {
-                success: true,
-                message: Some(warning),
-            }),
-            Err(error) => Err(EngineError::Adapter(error.to_string())),
-        }
+        let chains = store
+            .effect_chains()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+        let active = self.active_effect_chains(&chains);
+        let deactivated = if config.is_active() {
+            Vec::new()
+        } else {
+            vec![device.system_name.clone()]
+        };
+
+        filter_chain::sync_all_effects(&active, &deactivated)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     pub fn restore_effect_chains(&mut self) -> Result<(), EngineError> {
+        if self.graph.data_source == "mock" {
+            return Ok(());
+        }
+
         let store = ConfigStore::new();
         let chains = store
             .effect_chains()
             .map_err(|error| EngineError::Config(error.to_string()))?;
-
-        for (device_id, config) in chains {
-            let system_name = self
-                .graph
-                .devices
-                .iter()
-                .find(|device| device.id == device_id)
-                .map(|device| device.system_name.clone())
-                .or_else(|| {
-                    store.virtual_devices().into_iter().find_map(|spec| {
-                        if spec.id == device_id {
-                            Some(format!("pipe-deck-{}", spec.slug))
-                        } else {
-                            None
-                        }
-                    })
-                });
-
-            let Some(system_name) = system_name else {
-                continue;
-            };
-
-            if !filter_chain::is_pipe_deck_device(&system_name) {
-                continue;
-            }
-
-            let _ = filter_chain::apply_effect_chain(&system_name, &config);
-        }
+        let active = self.active_effect_chains(&chains);
+        let _ = filter_chain::sync_all_effects(&active, &[])
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         Ok(())
+    }
+
+    fn active_effect_chains(
+        &self,
+        chains: &std::collections::HashMap<String, EffectChainConfig>,
+    ) -> Vec<(String, EffectChainConfig)> {
+        chains
+            .iter()
+            .filter_map(|(device_id, config)| {
+                if !config.is_active() {
+                    return None;
+                }
+                let system_name = self
+                    .graph
+                    .devices
+                    .iter()
+                    .find(|device| device.id == *device_id)
+                    .map(|device| device.system_name.clone())?;
+                if !filter_chain::is_pipe_deck_device(&system_name) {
+                    return None;
+                }
+                Some((system_name, config.clone()))
+            })
+            .collect()
     }
 
     pub fn create_virtual_output(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {

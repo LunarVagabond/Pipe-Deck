@@ -7,14 +7,12 @@ use tauri::State;
 pub async fn set_device_effects(
     device_id: String,
     config: EffectChainConfig,
-    app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
     let result = engine
         .set_device_effects(&device_id, config)
         .map_err(|error| error.to_string())?;
-    engine.emit_graph_update(&app);
     Ok(result)
 }
 

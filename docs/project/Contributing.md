@@ -26,6 +26,41 @@ If no, refine or drop the proposal.
 - `develop`
 - `feature/<name>`
 
+## Commits and pull requests
+
+Open an issue first when the work is non-trivial. The issue carries context (feature, bug, scope) — commits and PRs reference it by number.
+
+### Commit messages
+
+```
+[#<issue>] - <short description>
+```
+
+For small maintainer fixes with no issue (typo, comment, trivial cleanup):
+
+```
+[noissue] - <short description>
+```
+
+Examples:
+
+- `[#123] - Add bass slider to mixer panel`
+- `[#123] - Wire bass slider to channel gain`
+- `[noissue] - Fix typo in Contributing commit examples`
+
+Keep descriptions focused on **what changed** in that commit. Use the issue number from GitHub (`#123`) when one exists. One logical change per commit when practical.
+
+### Pull request titles
+
+Use the same pattern as commits:
+
+```
+[#123] - Add bass slider to mixer panel
+[noissue] - Fix typo in README quick start
+```
+
+Reserve `[noissue]` for quick maintainer fixes that do not need a ticket. The PR body can go deeper on approach and testing; the title should tie back to the issue when there is one.
+
 ## Documentation-First Workflow
 
 For major work:
@@ -94,6 +129,8 @@ When adding a new view or component with custom styling, create or extend the ma
 - Architecture: `docs/architecture/`
 - Specifications: `docs/specs/`
 - Contributor process: `docs/project/`
+
+Documentation is migrating to the GitHub Wiki. When editing docs, keep [Home](../Home.md), [`_Sidebar.md`](../_Sidebar.md), and [`_Footer.md`](../_Footer.md) in sync and follow link conventions in [Wiki publishing](./Wiki.md).
 
 ## OSS Onboarding Expectations
 

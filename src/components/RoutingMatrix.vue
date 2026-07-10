@@ -10,6 +10,7 @@ import type { Device, RuntimeGraph, Stream } from "../types/graph";
 import {
   deviceColumn,
   deviceSubtitle,
+  deviceTargetIds,
   isMultiSink,
   linkColor,
   streamAccent,
@@ -32,6 +33,13 @@ interface LinePath {
   d: string;
   color: string;
   markerId: string;
+}
+
+interface RoutingConnection {
+  id: string;
+  fromId: string;
+  toId: string;
+  colorSourceId: string;
 }
 
 function markerIdForColor(color: string): string {
@@ -111,6 +119,46 @@ function buildPath(
 }
 
 const lines = ref<LinePath[]>([]);
+
+function routingConnections(): RoutingConnection[] {
+  const connections: RoutingConnection[] = [];
+  const seen = new Set<string>();
+
+  function add(connection: RoutingConnection) {
+    const key = `${connection.fromId}->${connection.toId}`;
+    if (seen.has(key)) {
+      return;
+    }
+    seen.add(key);
+    connections.push(connection);
+  }
+
+  for (const link of graph.links) {
+    const { fromId, toId } = linkAudioFlow(link);
+    add({
+      id: link.id,
+      fromId,
+      toId,
+      colorSourceId: link.source_id,
+    });
+  }
+
+  for (const device of graph.devices) {
+    if (!isMultiSink(device)) {
+      continue;
+    }
+    for (const targetId of deviceTargetIds(device)) {
+      add({
+        id: `route-device-${device.id}-${targetId}`,
+        fromId: device.id,
+        toId: targetId,
+        colorSourceId: device.id,
+      });
+    }
+  }
+
+  return connections;
+}
 
 const columns = computed(() => {
   const apps: MatrixNode[] = graph.streams.map((stream) => ({
@@ -199,8 +247,8 @@ async function updateLines() {
   await nextTick();
 
   const nextLines: LinePath[] = [];
-  for (const link of graph.links) {
-    const { fromId, toId } = linkAudioFlow(link);
+  for (const connection of routingConnections()) {
+    const { fromId, toId } = connection;
     const sides = connectionSides(fromId, toId);
     if (!sides) continue;
 
@@ -211,9 +259,9 @@ async function updateLines() {
     const from = nodeAnchor(fromEl, sides.fromSide, 3);
     const to = nodeAnchor(toEl, sides.toSide, 3);
 
-    const color = linkColor(link.source_id, link.target_id);
+    const color = linkColor(connection.colorSourceId, toId);
     nextLines.push({
-      id: link.id,
+      id: connection.id,
       d: buildPath(from, to, sides.fromSide, sides.toSide),
       color,
       markerId: markerIdForColor(color),

@@ -99,12 +99,18 @@ pub fn disconnect_sink_monitor_route(
     source_system_name: &str,
     target_system_name: &str,
 ) -> Result<(), AdapterError> {
-    for (monitor_suffix, input_suffix) in STEREO_MONITOR_SUFFIXES
-        .iter()
-        .chain(STEREO_INPUT_SUFFIXES.iter())
-    {
-        let output_port = format!("{source_system_name}{monitor_suffix}");
-        let input_port = format!("{target_system_name}{input_suffix}");
+    disconnect_stereo_route(source_system_name, target_system_name, &STEREO_MONITOR_SUFFIXES)?;
+    disconnect_stereo_route(source_system_name, target_system_name, &STEREO_INPUT_SUFFIXES)
+}
+
+fn disconnect_stereo_route(
+    source_system_name: &str,
+    target_system_name: &str,
+    suffix_pairs: &[(&str, &str)],
+) -> Result<(), AdapterError> {
+    for (source_suffix, target_suffix) in suffix_pairs {
+        let output_port = format!("{source_system_name}{source_suffix}");
+        let input_port = format!("{target_system_name}{target_suffix}");
         let _ = run_pw_link(&["-d", &output_port, &input_port]);
     }
     Ok(())
@@ -150,12 +156,18 @@ pub fn list_monitor_routes() -> HashMap<String, String> {
 }
 
 fn parse_stereo_route_pair(source_port: &str, target_port: &str) -> Option<(String, String)> {
-    for (monitor_suffix, target_suffix) in STEREO_MONITOR_SUFFIXES
-        .iter()
-        .chain(STEREO_INPUT_SUFFIXES.iter())
-    {
-        if source_port.ends_with(monitor_suffix) && target_port.ends_with(target_suffix) {
-            let source_name = source_port.strip_suffix(monitor_suffix)?;
+    parse_route_pair(source_port, target_port, &STEREO_MONITOR_SUFFIXES)
+        .or_else(|| parse_route_pair(source_port, target_port, &STEREO_INPUT_SUFFIXES))
+}
+
+fn parse_route_pair(
+    source_port: &str,
+    target_port: &str,
+    suffix_pairs: &[(&str, &str)],
+) -> Option<(String, String)> {
+    for (source_suffix, target_suffix) in suffix_pairs {
+        if source_port.ends_with(source_suffix) && target_port.ends_with(target_suffix) {
+            let source_name = source_port.strip_suffix(source_suffix)?;
             let target_name = target_port.strip_suffix(target_suffix)?;
             return Some((source_name.to_string(), target_name.to_string()));
         }

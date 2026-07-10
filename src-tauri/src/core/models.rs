@@ -420,19 +420,36 @@ pub struct VolumeStateEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct EffectChainConfig {
+    /// Sub bass (~60 Hz).
     #[serde(default)]
-    pub eq_low: i32,
+    pub eq_sub: i32,
+    /// Bass (~150 Hz). Legacy configs may use `eq_low`.
+    #[serde(default, alias = "eq_low")]
+    pub eq_bass: i32,
     #[serde(default)]
     pub eq_mid: i32,
+    /// Treble (~4 kHz).
     #[serde(default)]
-    pub eq_high: i32,
+    pub eq_treble: i32,
+    /// Air / presence (~10 kHz). Legacy configs may use `eq_high`.
+    #[serde(default, alias = "eq_high")]
+    pub eq_air: i32,
+    /// Master trim in dB (-12..+12).
+    #[serde(default)]
+    pub output_gain: i32,
     #[serde(default)]
     pub compressor: bool,
 }
 
 impl EffectChainConfig {
     pub fn is_active(&self) -> bool {
-        self.compressor || self.eq_low != 0 || self.eq_mid != 0 || self.eq_high != 0
+        self.compressor
+            || self.eq_sub != 0
+            || self.eq_bass != 0
+            || self.eq_mid != 0
+            || self.eq_treble != 0
+            || self.eq_air != 0
+            || self.output_gain != 0
     }
 }
 

@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="Pipe Deck routing placeholder">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1a1d24"/>
+      <stop offset="100%" stop-color="#12151a"/>
+    </linearGradient>
+  </defs>
+  <rect width="960" height="540" fill="url(#bg)"/>
+  <rect x="0" y="0" width="960" height="40" fill="#0f1115"/>
+  <text x="16" y="26" fill="#8b9cb3" font-family="system-ui,sans-serif" font-size="13">Pipe Deck  Routing</text>
+  <rect x="40" y="72" width="880" height="420" rx="8" fill="#1e2430" stroke="#2f3848"/>
+  <text x="60" y="108" fill="#6b7a90" font-family="system-ui,sans-serif" font-size="12">Application ’ Output</text>
+  <rect x="60" y="130" width="360" height="36" rx="6" fill="#283040"/>
+  <rect x="440" y="130" width="360" height="36" rx="6" fill="#2d3648" stroke="#4a90d9"/>
+  <rect x="60" y="190" width="360" height="36" rx="6" fill="#283040"/>
+  <rect x="440" y="190" width="360" height="36" rx="6" fill="#2d3648" stroke="#4a90d9"/>
+  <rect x="60" y="250" width="360" height="36" rx="6" fill="#283040"/>
+  <rect x="440" y="250" width="360" height="36" rx="6" fill="#2d3648" stroke="#4a90d9"/>
+  <text x="76" y="153" fill="#aab4c4" font-family="system-ui,sans-serif" font-size="13">Spotify</text>
+  <text x="456" y="153" fill="#aab4c4" font-family="system-ui,sans-serif" font-size="13">Headphones</text>
+  <text x="76" y="213" fill="#aab4c4" font-family="system-ui,sans-serif" font-size="13">OBS</text>
+  <text x="456" y="213" fill="#aab4c4" font-family="system-ui,sans-serif" font-size="13">Virtual Sink</text>
+  <text x="76" y="273" fill="#aab4c4" font-family="system-ui,sans-serif" font-size="13">Terminal</text>
+  <text x="456" y="273" fill="#aab4c4" font-family="system-ui,sans-serif" font-size="13">Built-in Audio</text>
+  <rect x="60" y="320" width="120" height="32" rx="6" fill="#2a4a3a" stroke="#5cb85c"/>
+  <text x="120" y="341" fill="#8fd4a8" font-family="system-ui,sans-serif" font-size="12" text-anchor="middle">Apply</text>
+  <text x="480" y="520" fill="#5a6a80" font-family="system-ui,sans-serif" font-size="14" text-anchor="middle">Screenshot placeholder  replace with real capture</text>
+</svg>

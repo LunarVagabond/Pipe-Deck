@@ -100,6 +100,13 @@ export function isMultiSink(device: Device): boolean {
   return device.sink_mode === "multi";
 }
 
+export function deviceTargetIds(device: Device): string[] {
+  if (device.current_targets?.length) {
+    return device.current_targets;
+  }
+  return device.current_target ? [device.current_target] : [];
+}
+
 export function deviceSubtitle(device: Device): string {
   if (device.system_name.startsWith("pipe-deck-split-")) {
     return "Split fan-out sink";

@@ -112,6 +112,7 @@ onMounted(() => {
   <section class="settings-view">
     <header class="settings-header">
       <div>
+        <p class="eyebrow">Preferences</p>
         <h1>Settings</h1>
         <p class="settings-lead">
           Control restore behavior, plugins, and background services.
@@ -159,20 +160,21 @@ onMounted(() => {
             @update:model-value="(enabled) => togglePlugin(plugin, enabled)"
           />
         </div>
-        <div class="plugin-capabilities">
-          <label
+        <div v-if="plugin.requested_capabilities.length > 0" class="plugin-capabilities">
+          <p class="plugin-capabilities-label">Capabilities</p>
+          <div
             v-for="capability in plugin.requested_capabilities"
             :key="capability"
-            class="plugin-capability"
+            class="settings-row plugin-capability-row"
           >
-            <input
-              type="checkbox"
-              :checked="plugin.granted_capabilities.includes(capability)"
+            <p class="settings-row-label">{{ capability }}</p>
+            <ToggleSwitch
+              :model-value="plugin.granted_capabilities.includes(capability)"
               :disabled="busy || !plugin.enabled"
-              @change="toggleCapability(plugin, capability, ($event.target as HTMLInputElement).checked)"
+              :show-state-labels="false"
+              @update:model-value="(granted) => toggleCapability(plugin, capability, granted)"
             />
-            {{ capability }}
-          </label>
+          </div>
         </div>
         <p v-if="plugin.last_error" class="settings-error">{{ plugin.last_error }}</p>
       </div>

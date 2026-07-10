@@ -87,7 +87,7 @@ diagnostics:
 
 ### Plugins (`plugins`, Phase 5)
 
-Map of plugin ID → runtime state. See [Plugin API](./Plugin_API.md).
+Map of plugin ID → runtime state. See [Plugin API](./Plugin_API).
 
 ```yaml
 plugins:
@@ -189,7 +189,7 @@ Pipe Deck uses two complementary persistence layers for automatic routing.
 
 ### Authored rules (`rules[]`, Phase 3+)
 
-User-defined policies with priority, conditions, enable/disable, and simulation. Evaluated by the rule engine in `src-tauri/src/core/rule_engine.rs`. See [Rule Engine Spec](./Rule_Engine_Spec.md).
+User-defined policies with priority, conditions, enable/disable, and simulation. Evaluated by the rule engine in `src-tauri/src/core/rule_engine.rs`. See [Rule Engine Spec](./Rule_Engine_Spec).
 
 ```yaml
 rules:

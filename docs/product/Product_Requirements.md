@@ -2,7 +2,7 @@
 
 ## Product Identity
 
-Pipe Deck is the Linux Audio Control Center.
+Pipe Deck is the **Linux audio mixer and control center** for PipeWire — the open-source desktop app for routing, mixing, profiles, virtual devices, and automation on Linux.
 
 Pipe Deck exists to make Linux audio easier to understand and manage for everyday users and power users alike.
 

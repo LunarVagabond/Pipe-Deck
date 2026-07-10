@@ -1,0 +1,53 @@
+name: Bug report
+description: Something isn't working as expected
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. A few details help us reproduce it quickly.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      placeholder: e.g. Routing change fails silently when switching profiles
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+      placeholder: e.g. Error message and rollback to previous profile
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Mixer
+        2. ...
+      value: |
+        1.
+        2.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Pipe Deck version
+      placeholder: e.g. 0.1.0 or main @ abc1234
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      placeholder: |
+        Distro:
+        Desktop:
+        PipeWire version (pw-cli --version):

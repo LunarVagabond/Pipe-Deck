@@ -84,8 +84,8 @@ async function createVirtual(kind: "output" | "input" | "multi") {
   <div class="app-shell">
     <nav class="sidebar">
       <div class="brand">
-        <span class="brand-icon">♪</span>
-        Pipe Deck
+        <img class="brand-logo" src="/pipe-deck.svg" alt="" width="56" height="56" />
+        <span class="brand-name">Pipe Deck</span>
       </div>
       <a
         v-for="item in navItems"

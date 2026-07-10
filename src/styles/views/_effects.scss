@@ -76,6 +76,12 @@
     border: 1px solid rgba(255, 176, 32, 0.25);
     color: var(--accent-amber);
   }
+
+  &.info {
+    background: rgba(56, 189, 248, 0.1);
+    border: 1px solid rgba(56, 189, 248, 0.22);
+    color: var(--text-muted);
+  }
 }
 
 .effects-view .status {
@@ -140,10 +146,73 @@
   }
 }
 
+.effects-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
 .effects-panel-subtitle {
-  margin: -0.35rem 0 1rem;
+  margin: 0.2rem 0 0;
   font-size: 0.8rem;
   color: var(--text-muted);
+}
+
+.effects-save-state {
+  margin: 0;
+  font-size: 0.8rem;
+  white-space: nowrap;
+
+  &.saving {
+    color: var(--text-muted);
+  }
+
+  &.saved {
+    color: var(--accent-teal);
+  }
+
+  &.error {
+    color: var(--accent-amber);
+  }
+}
+
+.effects-live-disabled {
+  margin: 0 0 1.25rem;
+  line-height: 1.45;
+}
+
+.effects-section {
+  margin-bottom: 1.25rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid var(--border);
+
+  &:last-of-type {
+    border-bottom: none;
+  }
+
+  h3 {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+  }
+}
+
+.effects-band-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 4.5rem;
+
+  em {
+    font-style: normal;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    opacity: 0.85;
+  }
 }
 
 .effects-control {

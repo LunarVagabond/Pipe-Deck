@@ -4,7 +4,7 @@ Contributor guide for Pipe Deck extension development.
 
 ## Overview
 
-Plugins run in isolated subprocesses and communicate via JSON-RPC 2.0 over stdin/stdout. See [Plugin API](../specs/Plugin_API.md) for the full contract.
+Plugins run in isolated subprocesses and communicate via JSON-RPC 2.0 over stdin/stdout. See [Plugin API](../specs/Plugin_API) for the full contract.
 
 ## Quick start
 
@@ -46,4 +46,4 @@ pipe-deck plugins list
 
 ## Review
 
-Before distributing a plugin, complete [Plugin Review Checklist](./Plugin_Review_Checklist.md).
+Before distributing a plugin, complete [Plugin Review Checklist](./Plugin_Review_Checklist).

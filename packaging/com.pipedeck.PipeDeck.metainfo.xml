@@ -2,13 +2,27 @@
 <component type="desktop-application">
   <id>com.pipedeck.PipeDeck</id>
   <name>Pipe Deck</name>
-  <summary>Linux Audio Control Center</summary>
+  <summary>Linux audio mixer and PipeWire routing control center</summary>
   <description>
     <p>
-      Pipe Deck helps you understand and manage Linux audio routing, virtual devices,
-      profiles, and automation rules on PipeWire systems.
+      Pipe Deck is an open-source Linux audio mixer for PipeWire. Route application
+      audio to any output, adjust levels from one mixer panel, save setups as profiles,
+      manage virtual devices, and automate routing with rules — without learning
+      low-level PipeWire commands.
     </p>
+    <p>Keywords: Linux audio mixer, PipeWire mixer, audio routing, virtual devices, profiles.</p>
   </description>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+  <keywords>
+    <keyword>audio</keyword>
+    <keyword>mixer</keyword>
+    <keyword>pipewire</keyword>
+    <keyword>routing</keyword>
+    <keyword>linux</keyword>
+  </keywords>
   <launchable type="desktop-id">com.pipedeck.PipeDeck.desktop</launchable>
   <url type="homepage">https://github.com/pipedeck/pipe-deck</url>
   <developer_name>Pipe Deck Contributors</developer_name>

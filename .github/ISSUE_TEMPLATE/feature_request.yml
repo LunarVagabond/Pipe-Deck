@@ -1,0 +1,31 @@
+name: Feature request
+description: Suggest an improvement or new capability
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every feature should make Linux audio easier to understand and manage. A short description is enough to start.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      placeholder: e.g. I switch between headset and speakers several times a day and want one-click profiles
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed approach (optional)
+      placeholder: How might Pipe Deck solve this? Rough ideas welcome.
+
+  - type: checkboxes
+    id: acceptance
+    attributes:
+      label: Feature filter
+      options:
+        - label: This would make Linux audio easier to understand or manage
+          required: true

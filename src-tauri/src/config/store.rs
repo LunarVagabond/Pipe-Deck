@@ -391,9 +391,12 @@ mod tests {
         with_temp_config(|store| {
             store.ensure_layout().unwrap();
             let chain = EffectChainConfig {
-                eq_low: 2,
+                eq_sub: 0,
+                eq_bass: 2,
                 eq_mid: -1,
-                eq_high: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
                 compressor: true,
             };
             store
