@@ -372,7 +372,11 @@ onMounted(loadRules);
       <div class="rules-header-copy">
         <span class="rules-eyebrow">Advanced Routing</span>
         <h2>Auto-routing rules</h2>
-        <p>Author deterministic rules, simulate outcomes, then apply them to PipeWire. The live dashboard does not auto-apply rules.</p>
+        <p>
+          Author deterministic rules and simulate outcomes. New apps are auto-routed when a rule
+          matches (disable in Settings). Manual routing in Dashboard or Routing overrides rules for
+          that session until you click Apply rules.
+        </p>
       </div>
       <div class="rules-header-actions">
         <button type="button" class="primary" @click="applyRules">Apply rules</button>

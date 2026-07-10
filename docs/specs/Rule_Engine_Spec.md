@@ -25,6 +25,7 @@ Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`)
 - Dashboard dropdown changes still append to `routing_rules.stream_rules` at implicit priority `-1000` (minus index), so authored rules win when both match.
 - On first upgrade, existing `routing_rules.stream_rules` migrate once into `rules[]` when `rules` is empty.
 - Session manual overrides block auto-apply until cleared (including when the user re-selects the rule's target).
+- When `preferences.auto_apply_rules` is true (default), newly seen stream identities are routed on graph refresh without clearing session overrides.
 
 See `docs/specs/Config_Spec.md` for serialization and precedence details.
 

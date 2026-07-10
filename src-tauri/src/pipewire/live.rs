@@ -213,7 +213,7 @@ pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
     apply_pactl_playback_targets(graph);
     apply_pactl_capture_targets(graph);
     apply_pw_link_device_routes(graph);
-    apply_routing_visual_links(graph);
+    normalize_stream_routing_links(graph);
 
     for stream in &mut graph.streams {
         stream.route_explanation = None;
@@ -224,7 +224,7 @@ pub fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>
     sync_live_routing_graph(graph);
     let _ = crate::core::routing_rules::apply_persisted_routing_rules(graph, ctx);
     apply_pactl_playback_targets(graph);
-    apply_routing_visual_links(graph);
+    normalize_stream_routing_links(graph);
 }
 
 fn gc_feed_sinks(graph: &RuntimeGraph) {
@@ -824,11 +824,23 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
     let source_names = pactl::load_source_index_names();
 
     for output in pactl::list_source_outputs() {
-        if graph
-            .streams
-            .iter()
-            .any(|stream| stream_matches_pactl_source_output(stream, &output))
-        {
+        let target_id = output
+            .source_index
+            .and_then(|index| source_names.get(&index).cloned())
+            .and_then(|source_name| resolve_capture_target_device_id(graph, &source_name));
+
+        if let Some(index) = graph.streams.iter().position(|stream| {
+            stream_matches_pactl_source_output(stream, &output)
+                || stream_matches_pactl_capture_identity(stream, &output)
+        }) {
+            let stream = &mut graph.streams[index];
+            if stream.direction != StreamDirection::Capture {
+                stream.direction = StreamDirection::Capture;
+            }
+            if let Some(target_id) = target_id {
+                stream.current_target = Some(target_id);
+                stream.current_targets.clear();
+            }
             continue;
         }
 
@@ -839,10 +851,7 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
             window_class: None,
             system_name: output.node_name.clone(),
             direction: StreamDirection::Capture,
-            current_target: output
-                .source_index
-                .and_then(|index| source_names.get(&index).cloned())
-                .and_then(|source_name| resolve_capture_target_device_id(graph, &source_name)),
+            current_target: target_id,
             current_targets: Vec::new(),
             media_name: output.media_name.clone(),
             is_system: is_system_stream_name(&output.application_name, &output.node_name),
@@ -921,25 +930,57 @@ fn resolve_playback_target_device_id(
         .map(|device| device.id.clone())
 }
 
-fn apply_routing_visual_links(graph: &mut RuntimeGraph) {
-    graph.links.retain(|link| !link.id.starts_with("route-stream-"));
+fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {
+    use std::collections::HashSet;
+
+    let playback_stream_ids: HashSet<String> = graph
+        .streams
+        .iter()
+        .filter(|stream| stream.direction == StreamDirection::Playback)
+        .map(|stream| stream.id.clone())
+        .collect();
+
+    let capture_stream_ids: HashSet<String> = graph
+        .streams
+        .iter()
+        .filter(|stream| stream.direction == StreamDirection::Capture)
+        .map(|stream| stream.id.clone())
+        .collect();
+
+    graph.links.retain(|link| {
+        if link.id.starts_with("route-stream-") || link.id.starts_with("route-capture-") {
+            return false;
+        }
+        if playback_stream_ids.contains(&link.source_id) {
+            return false;
+        }
+        if capture_stream_ids.contains(&link.target_id) {
+            return false;
+        }
+        true
+    });
 
     for stream in &graph.streams {
         let Some(target_id) = &stream.current_target else {
             continue;
         };
 
-        if graph.links.iter().any(|link| {
-            link.source_id == stream.id && link.target_id == *target_id
-        }) {
-            continue;
+        match stream.direction {
+            StreamDirection::Playback => {
+                graph.links.push(Link {
+                    id: format!("route-stream-{}", stream.id),
+                    source_id: stream.id.clone(),
+                    target_id: target_id.clone(),
+                });
+            }
+            StreamDirection::Capture => {
+                graph.links.push(Link {
+                    id: format!("route-capture-{}", stream.id),
+                    source_id: target_id.clone(),
+                    target_id: stream.id.clone(),
+                });
+            }
         }
-
-        graph.links.push(Link {
-            id: format!("route-stream-{}", stream.id),
-            source_id: stream.id.clone(),
-            target_id: target_id.clone(),
-        });
     }
 }
 
@@ -1023,6 +1064,13 @@ fn stream_matches_pactl_source_output(stream: &Stream, output: &pactl::PactlSour
         return false;
     }
 
+    stream_matches_pactl_capture_identity(stream, output)
+}
+
+fn stream_matches_pactl_capture_identity(
+    stream: &Stream,
+    output: &pactl::PactlSourceOutput,
+) -> bool {
     if let Some(system_name) = &stream.system_name {
         if output
             .node_name
@@ -1207,7 +1255,6 @@ mod tests {
         let target = resolve_playback_target_device_id(&graph, "pipe-deck-feed-test");
         assert_eq!(target.as_deref(), Some("virtual-test"));
 
-        apply_routing_visual_links(&mut graph);
         graph.streams.push(Stream {
             id: "node-42".into(),
             app_name: "Firefox".into(),
@@ -1223,11 +1270,73 @@ mod tests {
             muted: None,
             route_explanation: None,
         });
-        apply_routing_visual_links(&mut graph);
+        normalize_stream_routing_links(&mut graph);
 
         assert_eq!(graph.links.len(), 1);
         assert_eq!(graph.links[0].source_id, "node-42");
         assert_eq!(graph.links[0].target_id, "virtual-test");
+    }
+
+    #[test]
+    fn normalize_stream_routing_links_removes_stale_pw_dump_edges() {
+        let mut graph = RuntimeGraph {
+            devices: vec![
+                Device {
+                    id: "hdmi".into(),
+                    system_name: "alsa_output.hdmi".into(),
+                    label: "HDMI".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+                Device {
+                    id: "headset".into(),
+                    system_name: "alsa_output.headset".into(),
+                    label: "Headset".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+            ],
+            streams: vec![Stream {
+                id: "firefox".into(),
+                app_name: "Firefox".into(),
+                executable: Some("firefox".into()),
+                window_class: None,
+                system_name: Some("Firefox".into()),
+                direction: StreamDirection::Playback,
+                current_target: Some("headset".into()),
+                current_targets: Vec::new(),
+                media_name: None,
+                is_system: false,
+                volume_percent: None,
+                muted: None,
+                route_explanation: None,
+            }],
+            links: vec![Link {
+                id: "link-stale".into(),
+                source_id: "firefox".into(),
+                target_id: "hdmi".into(),
+            }],
+            data_source: "pipewire".into(),
+            notice: None,
+            ..Default::default()
+        };
+
+        normalize_stream_routing_links(&mut graph);
+
+        assert_eq!(graph.links.len(), 1);
+        assert_eq!(graph.links[0].source_id, "firefox");
+        assert_eq!(graph.links[0].target_id, "headset");
+        assert!(graph.links[0].id.starts_with("route-stream-"));
     }
 
     #[test]

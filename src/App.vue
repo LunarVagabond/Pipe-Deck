@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, provide, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import ToggleSwitch from "./components/ToggleSwitch.vue";
+import { navigateKey } from "./composables/navigation";
 import Dashboard from "./views/Dashboard.vue";
 import Effects from "./views/Effects.vue";
 import Mixer from "./views/Mixer.vue";
@@ -44,6 +45,13 @@ function selectView(view: AppView, enabled: boolean) {
   if (!enabled) return;
   activeView.value = view;
 }
+
+provide(navigateKey, (view: AppView) => {
+  const item = navItems.value.find((entry) => entry.id === view);
+  if (item?.enabled) {
+    activeView.value = view;
+  }
+});
 
 function resetNewDeviceForm() {
   newDeviceName.value = "";

@@ -11,10 +11,14 @@ import {
   targetLabel,
 } from "../utils/routingLayout";
 
-const props = defineProps<{
-  stream: Stream;
-  devices: Device[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    stream: Stream;
+    devices: Device[];
+    compact?: boolean;
+  }>(),
+  { compact: false },
+);
 
 const { handleApplyResult } = useApplyResult();
 
@@ -40,6 +44,23 @@ async function onTargetChange(event: Event) {
 
 <template>
   <div
+    v-if="compact"
+    class="stream-target-picker stream-target-picker--compact"
+    :class="stream.direction === 'capture' ? 'capture' : 'playback'"
+  >
+    <select
+      class="routing-select"
+      :value="stream.current_target ?? ''"
+      @change="onTargetChange"
+    >
+      <option value="" disabled>Select target</option>
+      <option v-for="target in targets" :key="target.id" :value="target.id">
+        {{ targetLabel(target) }}
+      </option>
+    </select>
+  </div>
+  <div
+    v-else
     class="stream-target-picker"
     :class="stream.direction === 'capture' ? 'capture' : 'playback'"
   >

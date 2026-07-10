@@ -139,6 +139,12 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_auto_apply_rules(&self, enabled: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.auto_apply_rules = enabled;
+        self.save_config(&config)
+    }
+
     pub fn virtual_devices(&self) -> Vec<VirtualDeviceSpec> {
         self.load_config()
             .map(|config| config.virtual_devices)

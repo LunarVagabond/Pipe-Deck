@@ -11,7 +11,7 @@ use crate::core::profile_drift::compare_profile_to_graph;
 use crate::core::restore::{self, spec_from_create_result};
 use crate::core::recent_streams::RecentStreamCache;
 use crate::core::rule_engine::{self, ApplyRulesContext};
-use crate::core::stream_identity::StreamIdentityKey;
+use crate::core::stream_identity::{stream_identity_key, StreamIdentityKey};
 use crate::core::routing::{
     apply_device_route_intent, apply_profile_routing, apply_profile_volumes, apply_routing_intent,
     capture_routing_snapshot, restore_routing_snapshot, RoutingSnapshot,
@@ -51,6 +51,7 @@ pub struct CoreEngine {
     device_manual_overrides: HashSet<String>,
     plugin_manager: Mutex<PluginManager>,
     recent_streams: RecentStreamCache,
+    seen_stream_identities: HashSet<StreamIdentityKey>,
 }
 
 impl CoreEngine {
@@ -66,6 +67,7 @@ impl CoreEngine {
             device_manual_overrides: HashSet::new(),
             plugin_manager: Mutex::new(PluginManager::new()),
             recent_streams: RecentStreamCache::default(),
+            seen_stream_identities: HashSet::new(),
         }
     }
 
@@ -158,6 +160,7 @@ impl CoreEngine {
         );
         self.sync_live_graph();
         self.finalize_graph_snapshot();
+        self.apply_rules_for_new_streams();
         if let Ok(mut plugins) = self.plugin_manager.lock() {
             plugins.push_graph(&self.graph);
         }
@@ -174,6 +177,7 @@ impl CoreEngine {
         );
         self.sync_live_graph();
         self.finalize_graph_snapshot();
+        self.apply_rules_for_new_streams();
         if let Ok(mut plugins) = self.plugin_manager.lock() {
             plugins.push_graph(&self.graph);
         }
@@ -265,8 +269,59 @@ impl CoreEngine {
             device_manual_overrides: &self.device_manual_overrides,
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
+            limit_to_identities: None,
         };
         crate::pipewire::live::apply_graph_routing(&mut self.graph, &ctx);
+    }
+
+    fn apply_rules_for_new_streams(&mut self) {
+        let config = ConfigStore::new()
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
+        if !config.preferences.auto_apply_rules {
+            return;
+        }
+
+        let mut new_identities = HashSet::new();
+        for stream in &self.graph.streams {
+            if stream.is_system {
+                continue;
+            }
+            let key = stream_identity_key(stream);
+            if !self.seen_stream_identities.contains(&key) {
+                new_identities.insert(key);
+            }
+        }
+
+        if new_identities.is_empty() {
+            return;
+        }
+
+        rule_engine::reconcile_manual_overrides(
+            &self.graph,
+            &mut self.manual_overrides,
+            &config.rules,
+            &config.routing_rules.stream_rules,
+        );
+        rule_engine::detect_external_manual_overrides(
+            &self.graph,
+            &mut self.manual_overrides,
+            &config.rules,
+            &config.routing_rules.stream_rules,
+        );
+
+        let ctx = ApplyRulesContext {
+            manual_overrides: &self.manual_overrides,
+            device_manual_overrides: &self.device_manual_overrides,
+            dry_run: false,
+            mock_graph_only: self.graph.data_source == "mock",
+            limit_to_identities: Some(&new_identities),
+        };
+        let _ = rule_engine::apply_routing_rules_with_explanations(&mut self.graph, &ctx);
+
+        for key in new_identities {
+            self.seen_stream_identities.insert(key);
+        }
     }
 
     fn sync_manual_override_for_ids(&mut self, stream_id: &str, target_device_id: &str) {

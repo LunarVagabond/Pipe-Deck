@@ -27,6 +27,30 @@
   font-size: 1.75rem;
 }
 
+.sources-playback-hint {
+  margin: 0;
+
+  p {
+    margin: 0;
+    line-height: 1.5;
+  }
+
+  .inline-link {
+    border: none;
+    background: none;
+    padding: 0;
+    color: var(--accent-teal);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+
+    &:hover {
+      color: color-mix(in srgb, var(--accent-teal) 85%, white);
+    }
+  }
+}
+
 .sources-actions button {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -197,8 +221,26 @@
   }
 }
 
-@media (max-width: 900px) {
-  .sources-header {
-    flex-direction: column;
+.sources-recent {
+  margin-top: 0.75rem;
+  padding: 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+
+  h3 {
+    margin: 0 0 0.35rem;
+    font-size: 0.9rem;
+  }
+}
+
+.sources-recent-list {
+  margin: 0.5rem 0 0;
+  padding-left: 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+
+  li {
+    list-style: disc;
   }
 }

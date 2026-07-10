@@ -99,6 +99,7 @@ export interface Preferences {
   show_system_streams?: boolean;
   restore_on_startup?: boolean;
   background_restore?: boolean;
+  auto_apply_rules?: boolean;
 }
 
 export interface StreamRouteRule {

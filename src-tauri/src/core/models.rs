@@ -140,6 +140,8 @@ pub struct Preferences {
     pub restore_on_startup: bool,
     #[serde(default)]
     pub background_restore: bool,
+    #[serde(default = "default_true")]
+    pub auto_apply_rules: bool,
 }
 
 impl Default for Preferences {
@@ -148,6 +150,7 @@ impl Default for Preferences {
             show_system_streams: false,
             restore_on_startup: true,
             background_restore: false,
+            auto_apply_rules: true,
         }
     }
 }

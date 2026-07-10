@@ -13,6 +13,27 @@ pub fn apply_persisted_routing_rules(
     crate::core::rule_engine::apply_routing_rules_with_explanations(graph, ctx)
 }
 
+pub fn clear_stream_route_rule(stream: &Stream) -> Result<(), AdapterError> {
+    let mut rules = ConfigStore::new().routing_rules();
+    let identity = stream_identity_key(stream);
+    rules
+        .stream_rules
+        .retain(|rule| rule_identity_key(rule) != identity);
+    ConfigStore::new()
+        .save_routing_rules(&rules)
+        .map_err(|error| AdapterError::Message(error.to_string()))
+}
+
+pub fn clear_device_route_rule(source: &Device) -> Result<(), AdapterError> {
+    let mut rules = ConfigStore::new().routing_rules();
+    rules
+        .device_rules
+        .retain(|rule| rule.source_system_name != source.system_name);
+    ConfigStore::new()
+        .save_routing_rules(&rules)
+        .map_err(|error| AdapterError::Message(error.to_string()))
+}
+
 pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), AdapterError> {
     let mut rules = ConfigStore::new().routing_rules();
     let identity = stream_identity_key(stream);

@@ -1,4 +1,5 @@
 @use "variables";
+@use "view-shared";
 @use "base";
 @use "app";
 @use "views/dashboard";
@@ -9,6 +10,8 @@
 @use "views/profiles";
 @use "views/device-modal";
 @use "components/routing-matrix";
+@use "components/routing-controls";
+@use "components/routing-graph";
 @use "components/stream-route-picker";
 @use "components/mixer-strip";
 @use "components/node-card-header";

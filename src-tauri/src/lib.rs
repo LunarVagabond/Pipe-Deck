@@ -30,6 +30,7 @@ pub fn run() {
             commands::config::list_profiles,
             commands::config::set_device_alias,
             commands::config::set_show_system_streams,
+            commands::config::set_auto_apply_rules,
             commands::profile::get_profile,
             commands::profile::save_profile,
             commands::profile::save_profile_as,

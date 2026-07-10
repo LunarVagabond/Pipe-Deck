@@ -17,6 +17,8 @@ pub struct ApplyRulesContext<'a> {
     pub device_manual_overrides: &'a HashSet<String>,
     pub dry_run: bool,
     pub mock_graph_only: bool,
+    /// When set, only streams with these identity keys are eligible for apply.
+    pub limit_to_identities: Option<&'a HashSet<crate::core::stream_identity::StreamIdentityKey>>,
 }
 
 #[derive(Debug, Clone)]
@@ -554,6 +556,13 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         };
 
+        if let Some(limit) = ctx.limit_to_identities {
+            let key = stream_identity_key(&stream);
+            if !limit.contains(&key) {
+                continue;
+            }
+        }
+
         let mut explanation =
             evaluate_stream_route(&stream, &authored_rules, &persisted_rules, ctx.manual_overrides);
 
@@ -812,6 +821,7 @@ pub fn ensure_rules_migrated() -> Result<(), AdapterError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::stream_identity::stream_identity_key;
     use crate::core::models::{
         Device, DeviceDirection, DeviceKind, DeviceRouteRule, RuntimeGraph, Stream, StreamDirection,
     };
@@ -1255,6 +1265,45 @@ mod tests {
             explanation.target_system_name.as_deref(),
             Some("virtual-mic")
         );
+    }
+
+    #[test]
+    fn limit_to_identities_skips_other_streams() {
+        let mut graph = graph_with_outputs();
+        graph.streams.push(sample_stream("Discord", Some("discord"), None));
+        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
+        let authored = vec![Rule {
+            id: "discord".into(),
+            name: "Discord".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::AppName {
+                value: "Discord".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("hdmi-out".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        }];
+        let discord_key = stream_identity_key(&graph.streams[0]);
+        let mut limit = HashSet::new();
+        limit.insert(discord_key);
+        let ctx = ApplyRulesContext {
+            manual_overrides: &HashSet::new(),
+            device_manual_overrides: &HashSet::new(),
+            dry_run: true,
+            mock_graph_only: true,
+            limit_to_identities: Some(&limit),
+        };
+        apply_routing_rules_with_explanations(&mut graph, &ctx).expect("simulate");
+        let discord = graph.streams.iter().find(|s| s.app_name == "Discord").unwrap();
+        assert_eq!(
+            discord.route_explanation.as_ref().and_then(|e| e.matched_rule_key.as_deref()),
+            Some("Discord"),
+        );
+        let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
+        assert!(firefox.route_explanation.is_none());
     }
 
     #[test]

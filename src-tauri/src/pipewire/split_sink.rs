@@ -17,10 +17,6 @@ pub fn apply_sink_targets(
     sink_device_id: &str,
     target_device_ids: &[String],
 ) -> Result<(), AdapterError> {
-    if target_device_ids.is_empty() {
-        return Err(AdapterError::Message("at least one sink target is required".into()));
-    }
-
     let sink = graph
         .devices
         .iter()
@@ -31,6 +27,10 @@ pub fn apply_sink_targets(
         return Err(AdapterError::Message(
             "only virtual output sinks can fan out to targets".into(),
         ));
+    }
+
+    if target_device_ids.is_empty() {
+        return prune_stale_fan_out_links(&sink.system_name, &HashSet::new());
     }
 
     if target_device_ids.len() == 1 && !sink.is_multi_sink() {

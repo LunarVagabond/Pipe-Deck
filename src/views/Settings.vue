@@ -7,6 +7,7 @@ import type { DaemonStatus, PluginStatus } from "../types/graph";
 
 const restoreOnStartup = ref(true);
 const backgroundRestore = ref(false);
+const autoApplyRules = ref(true);
 const daemonStatus = ref<DaemonStatus | null>(null);
 const plugins = ref<PluginStatus[]>([]);
 const busy = ref(false);
@@ -14,10 +15,15 @@ const { handleApplyResult } = useApplyResult();
 
 async function loadSettings() {
   const config = await invoke<{
-    preferences?: { restore_on_startup?: boolean; background_restore?: boolean };
+    preferences?: {
+      restore_on_startup?: boolean;
+      background_restore?: boolean;
+      auto_apply_rules?: boolean;
+    };
   }>("get_config");
   restoreOnStartup.value = config.preferences?.restore_on_startup ?? true;
   backgroundRestore.value = config.preferences?.background_restore ?? false;
+  autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
   daemonStatus.value = await invoke("get_daemon_status");
   plugins.value = await invoke("list_plugins");
 }
@@ -30,6 +36,23 @@ async function setRestoreOnStartup(enabled: boolean) {
     handleApplyResult({ success: true }, "Startup restore preference saved");
   } catch (error) {
     restoreOnStartup.value = !enabled;
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function setAutoApplyRules(enabled: boolean) {
+  autoApplyRules.value = enabled;
+  busy.value = true;
+  try {
+    await invoke("set_auto_apply_rules", { enabled });
+    handleApplyResult({ success: true }, "Auto-apply rules preference saved");
+  } catch (error) {
+    autoApplyRules.value = !enabled;
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
       "",
@@ -141,6 +164,22 @@ onMounted(() => {
       <p class="settings-hint">
         Background restore installs a user systemd service. Flatpak installs may not support
         user systemd units.
+      </p>
+    </div>
+
+    <div class="settings-card">
+      <h2>Rules</h2>
+      <div class="settings-row">
+        <p class="settings-row-label">Auto-apply rules when new apps appear</p>
+        <ToggleSwitch
+          :model-value="autoApplyRules"
+          :disabled="busy"
+          @update:model-value="setAutoApplyRules"
+        />
+      </div>
+      <p class="settings-hint">
+        Matching rules route new streams automatically. Manual changes in Routing or the
+        dashboard override rules for that session until you click Apply rules.
       </p>
     </div>
 

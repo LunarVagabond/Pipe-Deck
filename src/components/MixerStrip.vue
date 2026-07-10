@@ -96,6 +96,19 @@ const hasChannels = computed(
     applicationChannels.value.length > 0,
 );
 
+function channelAccentClass(channel: MixerChannel): string {
+  if (channel.channelType === "stream") {
+    return channel.direction === "capture" ? "channel-capture" : "channel-playback";
+  }
+  if (channel.kind === "virtual") {
+    return "channel-virtual";
+  }
+  if (channel.direction === "input") {
+    return "channel-input";
+  }
+  return "channel-output";
+}
+
 const mixerSections = computed(() =>
   [
     { title: "Applications", channels: applicationChannels.value },
@@ -223,15 +236,25 @@ async function removeVirtual(channel: MixerChannel) {
 <template>
   <footer class="mixer-strip">
     <template v-if="hasChannels">
-      <section v-for="section in mixerSections" :key="section.title" class="mixer-group">
-        <h3>{{ section.title }}</h3>
-        <div class="channel-grid">
-          <article
-            v-for="channel in section.channels"
-            :key="channel.id"
-            class="channel"
-          >
-            <div class="channel-slider">
+      <div class="mixer-groups">
+        <section
+          v-for="section in mixerSections"
+          :key="section.title"
+          class="mixer-group"
+          :class="`mixer-group--${section.title.toLowerCase()}`"
+        >
+          <h3>{{ section.title }}</h3>
+          <div class="channel-grid">
+            <article
+              v-for="channel in section.channels"
+              :key="channel.id"
+              class="channel"
+              :class="channelAccentClass(channel)"
+            >
+              <div class="channel-meter" aria-hidden="true">
+                <span class="channel-meter-fill" :style="{ width: `${channel.level}%` }" />
+              </div>
+              <div class="channel-slider">
               <div class="level-wrap">
                 <input
                   v-if="editingVolumeId === channel.id"
@@ -313,6 +336,7 @@ async function removeVirtual(channel: MixerChannel) {
           </article>
         </div>
       </section>
+      </div>
     </template>
 
     <p v-else class="empty">No mixer channels detected.</p>

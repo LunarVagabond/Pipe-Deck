@@ -105,6 +105,35 @@ pub fn move_stream_to_sink_name(
     Ok(())
 }
 
+pub fn clear_stream_target(graph: &RuntimeGraph, stream_id: &str) -> Result<(), AdapterError> {
+    let stream = graph
+        .streams
+        .iter()
+        .find(|stream| stream.id == stream_id)
+        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+
+    match stream.direction {
+        StreamDirection::Playback => {
+            let input_index = find_sink_input_index(graph, stream)?;
+            run_pactl(&[
+                "move-sink-input",
+                &input_index.to_string(),
+                "@DEFAULT_AUDIO_SINK@",
+            ])?;
+        }
+        StreamDirection::Capture => {
+            let output_index = find_source_output_index(graph, stream)?;
+            run_pactl(&[
+                "move-source-output",
+                &output_index.to_string(),
+                "@DEFAULT_AUDIO_SOURCE@",
+            ])?;
+        }
+    }
+
+    Ok(())
+}
+
 fn move_stream_to_resolved_target(
     graph: &RuntimeGraph,
     stream_id: &str,

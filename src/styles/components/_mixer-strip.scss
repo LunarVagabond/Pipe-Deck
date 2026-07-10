@@ -16,25 +16,89 @@
   color: var(--text-muted);
 }
 
+.mixer-strip .mixer-group--applications h3 {
+  color: rgba(167, 146, 255, 0.95);
+}
+
+.mixer-strip .mixer-group--outputs h3 {
+  color: rgba(255, 176, 32, 0.95);
+}
+
+.mixer-strip .mixer-group--inputs h3 {
+  color: rgba(72, 214, 181, 0.95);
+}
+
+.mixer-strip .mixer-groups {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+
+.mixer-strip .mixer-group {
+  min-width: 0;
+}
+
 .mixer-strip .channel-grid {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
   gap: 0.75rem;
   align-items: stretch;
+  width: 100%;
 }
 
 .mixer-strip .channel {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   gap: 0.75rem;
   align-items: stretch;
-  width: 9.75rem;
-  min-width: 9.75rem;
-  height: 16.5rem;
+  width: 100%;
+  min-width: 0;
+  height: 18rem;
   padding: 0.75rem 0.75rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: rgba(11, 15, 20, 0.55);
+}
+
+.mixer-strip .channel.channel-playback {
+  border-color: rgba(124, 92, 255, 0.38);
+  background: rgba(124, 92, 255, 0.06);
+}
+
+.mixer-strip .channel.channel-capture {
+  border-color: rgba(38, 195, 163, 0.38);
+  background: rgba(38, 195, 163, 0.06);
+}
+
+.mixer-strip .channel.channel-output {
+  border-color: rgba(255, 176, 32, 0.35);
+  background: rgba(255, 176, 32, 0.05);
+}
+
+.mixer-strip .channel.channel-input {
+  border-color: rgba(38, 195, 163, 0.35);
+  background: rgba(38, 195, 163, 0.05);
+}
+
+.mixer-strip .channel.channel-virtual {
+  border-color: rgba(124, 92, 255, 0.55);
+  background: rgba(124, 92, 255, 0.08);
+  box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.12);
+}
+
+.mixer-strip .channel-meter {
+  height: 0.35rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.mixer-strip .channel-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-teal), var(--accent-purple));
 }
 
 .mixer-strip .channel-slider {

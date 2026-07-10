@@ -220,6 +220,7 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
         device_manual_overrides: &device_overrides,
         dry_run: false,
         mock_graph_only: false,
+        limit_to_identities: None,
     };
     crate::pipewire::live::apply_graph_routing(&mut graph, &ctx);
     Ok(())

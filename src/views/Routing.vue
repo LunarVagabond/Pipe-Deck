@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import RoutingMatrix from "../components/RoutingMatrix.vue";
+import RoutingGraph from "../components/RoutingGraph.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
@@ -89,12 +89,15 @@ async function undoRouting() {
 
 <template>
   <div class="routing-view">
-    <header class="routing-header">
+    <header class="routing-header view-header">
       <div>
         <p class="eyebrow">Topology and connections</p>
         <h1>Routing</h1>
+        <p class="routing-lead">
+          Connect output ports (right) to input ports (left). Double-click wires for reroute knots.
+        </p>
       </div>
-      <div class="routing-actions">
+      <div class="routing-actions view-actions">
         <div class="header-toggle">
           <span class="toggle-row-label">Show system streams</span>
           <ToggleSwitch
@@ -121,6 +124,6 @@ async function undoRouting() {
       No PipeWire audio devices or application streams detected.
     </p>
 
-    <RoutingMatrix v-else :graph="displayGraph" />
+    <RoutingGraph v-else :graph="displayGraph" />
   </div>
 </template>
