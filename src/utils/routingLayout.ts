@@ -1,4 +1,4 @@
-import type { Device } from "../types/graph";
+import type { Device, Stream } from "../types/graph";
 
 export type NodeColumn = "applications" | "routing" | "outputs" | "inputs";
 
@@ -142,4 +142,47 @@ export function streamSubtitle(stream: {
 
 export function linkColor(sourceId: string, _targetId: string): string {
   return accentForId(sourceId);
+}
+
+export function sinksForStream(devices: Device[], stream: Stream): Device[] {
+  return devices.filter((device) => {
+    if (device.system_name.startsWith("pipe-deck-feed-")) return false;
+    if (stream.direction === "playback") {
+      if (device.kind === "virtual" && device.direction === "output") {
+        return true;
+      }
+      return (
+        device.direction === "output" ||
+        device.direction === "duplex" ||
+        (device.kind === "virtual" && device.direction === "input")
+      );
+    }
+    return device.direction === "input" || device.direction === "duplex";
+  });
+}
+
+export function targetsForVirtualSink(devices: Device[], device: Device): Device[] {
+  return devices.filter((candidate) => {
+    if (candidate.id === device.id) return false;
+    if (candidate.kind === "physical" && candidate.direction === "output") {
+      return true;
+    }
+    return candidate.kind === "virtual" && candidate.direction === "input";
+  });
+}
+
+export function isVirtualMicDevice(device: Device): boolean {
+  return device.kind === "virtual" && device.direction === "input";
+}
+
+export function virtualMicFeedSinks(
+  devices: Device[],
+  virtualMic: Device,
+): Device[] {
+  return devices.filter(
+    (device) =>
+      device.kind === "virtual" &&
+      device.direction === "output" &&
+      device.current_target === virtualMic.id,
+  );
 }

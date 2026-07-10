@@ -41,7 +41,7 @@ fn run() -> Result<(), String> {
         }
         "route" => handle_route(&mut engine, &args[1..])?,
         "profile" => handle_profile(&mut engine, &args[1..])?,
-        "rules" => handle_rules(&engine, &args[1..])?,
+        "rules" => handle_rules(&mut engine, &args[1..])?,
         "plugins" => handle_plugins(&engine, &args[1..])?,
         other => return Err(format!("unknown command: {other}")),
     }
@@ -116,9 +116,9 @@ fn handle_profile(engine: &mut CoreEngine, args: &[String]) -> Result<(), String
     Ok(())
 }
 
-fn handle_rules(engine: &CoreEngine, args: &[String]) -> Result<(), String> {
+fn handle_rules(engine: &mut CoreEngine, args: &[String]) -> Result<(), String> {
     if args.is_empty() {
-        return Err("usage: pipe-deck rules list|simulate".into());
+        return Err("usage: pipe-deck rules list|simulate|apply".into());
     }
     match args[0].as_str() {
         "list" => {
@@ -129,6 +129,12 @@ fn handle_rules(engine: &CoreEngine, args: &[String]) -> Result<(), String> {
         "simulate" => {
             let results = engine.simulate_rules();
             print_json(&results)?;
+        }
+        "apply" => {
+            engine
+                .apply_desired_routing()
+                .map_err(|error| error.to_string())?;
+            println!("Rules applied.");
         }
         other => return Err(format!("unknown rules subcommand: {other}")),
     }
@@ -162,7 +168,7 @@ Commands:\n  \
 graph                 Print runtime graph as JSON\n  \
 route set --stream ID --targets a,b\n  \
 profile list|swap <id>|save [--name NAME]\n  \
-rules list|simulate\n  \
+rules list|simulate|apply\n  \
 plugins list|status\n"
     );
 }

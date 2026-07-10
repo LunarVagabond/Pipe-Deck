@@ -3,8 +3,11 @@
 @use "app";
 @use "views/dashboard";
 @use "views/mixer";
+@use "views/routing";
+@use "views/sources";
 @use "views/effects";
 @use "views/profiles";
+@use "views/device-modal";
 @use "components/routing-matrix";
 @use "components/stream-route-picker";
 @use "components/mixer-strip";
