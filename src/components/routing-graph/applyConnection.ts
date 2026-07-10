@@ -34,6 +34,7 @@ export async function applyRoutingConnection(
     } else if (result.action.type === "clear_stream_target") {
       const response = await invoke<{ success: boolean; message?: string }>("clear_stream_target", {
         streamId: result.action.streamId,
+        previousTargetDeviceId: result.action.previousTargetDeviceId,
       });
       onResult(response, "Routing cleared");
     } else if (result.action.type === "device_targets") {

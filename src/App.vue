@@ -3,6 +3,7 @@ import { computed, onMounted, provide, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import PromptDialog from "./components/PromptDialog.vue";
 import ToggleSwitch from "./components/ToggleSwitch.vue";
 import { navigateKey } from "./composables/navigation";
 import Dashboard from "./views/Dashboard.vue";
@@ -147,6 +148,7 @@ async function createVirtual() {
 
     <NoticeStack />
     <ConfirmDialog />
+    <PromptDialog />
 
     <div v-if="showNewModal" class="new-device-modal" @click.self="closeNewModal">
       <div class="new-device-dialog">

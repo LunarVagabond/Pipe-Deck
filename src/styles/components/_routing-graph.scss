@@ -50,21 +50,6 @@
   color: var(--text-muted);
 }
 
-.routing-graph-clear-reroutes {
-  font-size: 0.72rem;
-  padding: 0.25rem 0.55rem;
-  border-radius: 6px;
-  border: 1px solid var(--border);
-  background: var(--surface-2, rgba(255, 255, 255, 0.04));
-  color: var(--text-muted);
-  cursor: pointer;
-
-  &:hover {
-    color: var(--text);
-    border-color: rgba(255, 255, 255, 0.2);
-  }
-}
-
 .routing-graph-context-menu {
   position: fixed;
   z-index: 1000;
@@ -101,13 +86,6 @@
   }
 }
 
-.routing-graph-context-empty {
-  margin: 0;
-  padding: 0.45rem 0.65rem;
-  font-size: 0.75rem;
-  color: var(--text-muted);
-}
-
 .routing-graph-canvas {
   height: min(72vh, 820px);
   min-height: 480px;
@@ -115,6 +93,10 @@
   border-radius: 14px;
   background: var(--surface-1);
   overflow: hidden;
+
+  .vue-flow__node {
+    overflow: visible;
+  }
 }
 
 .routing-graph-node {
@@ -125,10 +107,11 @@
   border: 1px solid var(--border);
   background: rgba(11, 15, 20, 0.92);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 0.5rem;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   position: relative;
+  overflow: visible;
 
   &.playback {
     border-color: rgba(124, 92, 255, 0.55);
@@ -172,11 +155,35 @@
   min-width: 0;
   flex: 1;
 
+  .routing-graph-node-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .node-card-header {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .node-card-title {
+    min-width: 0;
+    flex: 1;
+  }
+
   strong {
     display: block;
     font-size: 0.85rem;
     line-height: 1.35;
     white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .node-card-title strong {
+    font-size: 0.82rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
     overflow-wrap: anywhere;
     word-break: break-word;
   }
@@ -190,10 +197,6 @@
       width: 0.62rem;
       height: 0.62rem;
     }
-  }
-
-  .node-card-title strong {
-    font-size: 0.82rem;
   }
 }
 
@@ -280,41 +283,5 @@
 }
 
 .routing-graph-canvas .vue-flow__edgeupdater:active {
-  cursor: grabbing;
-}
-
-.routing-graph-edge-hit {
-  cursor: pointer;
-  pointer-events: stroke;
-}
-
-.routing-reroute-knot-wrap {
-  cursor: grab;
-  touch-action: none;
-
-  &:active {
-    cursor: grabbing;
-  }
-}
-
-.routing-reroute-knot-hit {
-  pointer-events: all;
-}
-
-.routing-reroute-knot {
-  cursor: grab;
-  fill: rgba(255, 255, 255, 0.55);
-  stroke: rgba(255, 255, 255, 0.85);
-  stroke-width: 1.5px;
-  pointer-events: none;
-
-  &.selected {
-    fill: rgba(255, 255, 255, 0.85);
-    stroke-width: 2px;
-    filter: drop-shadow(0 0 6px rgba(255, 255, 255, 0.35));
-  }
-}
-
-.routing-reroute-knot-wrap:active .routing-reroute-knot {
   cursor: grabbing;
 }

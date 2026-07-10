@@ -54,7 +54,6 @@ function makeEdge(
     animated: true,
     updatable: true,
     interactionWidth: 22,
-    type: "routingEdge",
     class: `routing-edge ${edgeClassForPort(sourceHandle)}`,
     style: { stroke: edgeColorForPorts(sourceHandle), strokeWidth: "2.5" },
   };

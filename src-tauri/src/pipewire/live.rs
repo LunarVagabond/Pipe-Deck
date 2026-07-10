@@ -4,7 +4,8 @@ use crate::core::models::{
 };
 use crate::core::rule_engine::ApplyRulesContext;
 use crate::core::stream_identity::{
-    is_internal_audio_client, parse_stream_identity, parse_window_class,
+    is_internal_audio_client, parse_stream_identity, parse_window_class, stream_identity_key,
+    StreamIdentityKey,
 };
 use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
 use crate::pipewire::pactl;
@@ -218,6 +219,42 @@ pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
     for stream in &mut graph.streams {
         stream.route_explanation = None;
     }
+}
+
+/// Keep user-cleared routes off the graph even when PipeWire still has an active link.
+pub fn apply_user_cleared_routes(
+    graph: &mut RuntimeGraph,
+    cleared_streams: &HashSet<StreamIdentityKey>,
+    cleared_devices: &HashSet<String>,
+) {
+    if cleared_streams.is_empty() && cleared_devices.is_empty() {
+        return;
+    }
+
+    for stream in &mut graph.streams {
+        if cleared_streams.contains(&stream_identity_key(stream)) {
+            stream.current_target = None;
+            stream.current_targets.clear();
+        }
+    }
+
+    for device in &mut graph.devices {
+        if cleared_devices.contains(&device.id) {
+            device.current_target = None;
+            device.current_targets.clear();
+        }
+    }
+
+    graph.links.retain(|link| {
+        if cleared_devices.contains(&link.source_id)
+            && (link.id.starts_with("pwlink-") || link.id.starts_with("route-device-"))
+        {
+            return false;
+        }
+        true
+    });
+
+    normalize_stream_routing_links(graph);
 }
 
 pub fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>) {

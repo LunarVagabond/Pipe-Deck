@@ -16,8 +16,8 @@
         "title": "Pipe Deck",
         "width": 1100,
         "height": 720,
-        "minWidth": 800,
-        "minHeight": 600
+        "minWidth": 1000,
+        "minHeight": 700
       }
     ],
     "security": {

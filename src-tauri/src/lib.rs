@@ -44,6 +44,7 @@ pub fn run() {
             commands::routing::set_stream_targets,
             commands::routing::set_device_route,
             commands::routing::set_device_targets,
+            commands::routing::clear_stream_target,
             commands::routing::undo_last_routing,
             commands::routing::can_undo_routing,
             commands::routing::get_last_error,

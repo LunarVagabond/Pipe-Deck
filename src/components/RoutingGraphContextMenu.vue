@@ -8,7 +8,6 @@ defineProps<{
 const emit = defineEmits<{
   rename: [];
   delete: [];
-  clearEdgeReroutes: [];
   close: [];
 }>();
 </script>
@@ -22,32 +21,20 @@ const emit = defineEmits<{
     @pointerdown.stop
     @contextmenu.prevent
   >
-    <template v-if="target.kind === 'node'">
-      <button
-        v-if="target.editable"
-        type="button"
-        @click="emit('rename')"
-      >
-        Rename
-      </button>
-      <button
-        v-if="target.deletable"
-        type="button"
-        class="danger"
-        @click="emit('delete')"
-      >
-        Delete
-      </button>
-    </template>
-    <template v-else>
-      <button
-        v-if="target.hasReroutes"
-        type="button"
-        @click="emit('clearEdgeReroutes')"
-      >
-        Clear reroute knots
-      </button>
-      <p v-else class="routing-graph-context-empty">No reroute knots on this wire</p>
-    </template>
+    <button
+      v-if="target.editable"
+      type="button"
+      @click="emit('rename')"
+    >
+      Rename
+    </button>
+    <button
+      v-if="target.deletable"
+      type="button"
+      class="danger"
+      @click="emit('delete')"
+    >
+      Delete
+    </button>
   </div>
 </template>

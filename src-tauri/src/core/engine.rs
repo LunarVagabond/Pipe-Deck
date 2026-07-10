@@ -49,6 +49,8 @@ pub struct CoreEngine {
     last_error: Option<String>,
     manual_overrides: HashSet<StreamIdentityKey>,
     device_manual_overrides: HashSet<String>,
+    cleared_stream_routes: HashSet<StreamIdentityKey>,
+    cleared_device_routes: HashSet<String>,
     plugin_manager: Mutex<PluginManager>,
     recent_streams: RecentStreamCache,
     seen_stream_identities: HashSet<StreamIdentityKey>,
@@ -65,6 +67,8 @@ impl CoreEngine {
             last_error: None,
             manual_overrides: HashSet::new(),
             device_manual_overrides: HashSet::new(),
+            cleared_stream_routes: HashSet::new(),
+            cleared_device_routes: HashSet::new(),
             plugin_manager: Mutex::new(PluginManager::new()),
             recent_streams: RecentStreamCache::default(),
             seen_stream_identities: HashSet::new(),
@@ -190,11 +194,18 @@ impl CoreEngine {
 
     fn sync_live_graph(&mut self) {
         crate::pipewire::live::sync_live_routing_graph(&mut self.graph);
+        crate::pipewire::live::apply_user_cleared_routes(
+            &mut self.graph,
+            &self.cleared_stream_routes,
+            &self.cleared_device_routes,
+        );
     }
 
     pub fn apply_desired_routing(&mut self) -> Result<(), EngineError> {
         self.manual_overrides.clear();
         self.device_manual_overrides.clear();
+        self.cleared_stream_routes.clear();
+        self.cleared_device_routes.clear();
         self.apply_routing_rules();
         Ok(())
     }
@@ -496,6 +507,10 @@ impl CoreEngine {
         target_device_id: &str,
     ) -> Result<ApplyResult, EngineError> {
         self.clear_last_error();
+        if let Some(stream) = self.graph.streams.iter().find(|stream| stream.id == stream_id) {
+            self.cleared_stream_routes
+                .remove(&crate::core::stream_identity::stream_identity_key(stream));
+        }
         let snapshot = capture_routing_snapshot(&self.graph);
         let resolved_target = self.resolve_device_id(target_device_id);
         let intent = RoutingIntent {
@@ -646,14 +661,109 @@ impl CoreEngine {
                 .iter()
                 .filter_map(|id| self.graph.devices.iter().find(|d| d.id == *id).cloned())
                 .collect();
-            if !targets.is_empty() {
+            if targets.is_empty() {
+                let _ = crate::core::routing_rules::clear_device_route_rule(source);
+                self.cleared_device_routes
+                    .insert(intent.source_device_id.clone());
+            } else {
                 let _ = crate::core::routing_rules::save_device_route_rule(source, &targets);
+                self.cleared_device_routes
+                    .remove(&intent.source_device_id);
+            }
+        }
+
+        if resolved_targets.is_empty() {
+            if let Some(device) = self
+                .graph
+                .devices
+                .iter_mut()
+                .find(|device| device.id == intent.source_device_id)
+            {
+                device.current_target = None;
+                device.current_targets.clear();
             }
         }
 
         self.rollback_stack.push(snapshot);
         if self.graph.data_source != "mock" {
             self.refresh_graph()?;
+        }
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
+    }
+
+    pub fn clear_stream_target(
+        &mut self,
+        stream_id: &str,
+        previous_target_device_id: Option<&str>,
+    ) -> Result<ApplyResult, EngineError> {
+        self.clear_last_error();
+        let snapshot = capture_routing_snapshot(&self.graph);
+
+        let stream_identity = self
+            .graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == stream_id)
+            .map(crate::core::stream_identity::stream_identity_key);
+        let Some(stream_identity) = stream_identity else {
+            return Err(EngineError::Routing(format!("stream not found: {stream_id}")));
+        };
+
+        let apply_result: Result<(), EngineError> = if self.graph.data_source == "mock" {
+            let Some(stream) = self
+                .graph
+                .streams
+                .iter_mut()
+                .find(|stream| stream.id == stream_id)
+            else {
+                return Err(EngineError::Routing(format!("stream not found: {stream_id}")));
+            };
+            stream.current_target = None;
+            stream.current_targets.clear();
+            Ok(())
+        } else {
+            crate::pipewire::pactl::clear_stream_target(
+                &self.graph,
+                stream_id,
+                previous_target_device_id,
+            )
+            .map_err(|error| EngineError::Routing(error.to_string()))
+        };
+
+        if let Err(error) = apply_result {
+            let message = error.to_string();
+            self.last_error = Some(message.clone());
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(message),
+            });
+        }
+
+        self.cleared_stream_routes.insert(stream_identity);
+
+        if let Some(stream) = self.graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
+            stream.current_target = None;
+            stream.current_targets.clear();
+        }
+
+        if let Some(stream) = self.graph.streams.iter().find(|stream| stream.id == stream_id) {
+            let _ = crate::core::routing_rules::clear_stream_route_rule(stream);
+            self.manual_overrides
+                .remove(&crate::core::stream_identity::stream_identity_key(stream));
+        }
+
+        self.rollback_stack.push(snapshot);
+        if self.graph.data_source != "mock" {
+            self.refresh_graph()?;
+        } else {
+            crate::pipewire::live::apply_user_cleared_routes(
+                &mut self.graph,
+                &self.cleared_stream_routes,
+                &self.cleared_device_routes,
+            );
         }
         Ok(ApplyResult {
             success: true,

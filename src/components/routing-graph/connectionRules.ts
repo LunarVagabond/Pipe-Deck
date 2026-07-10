@@ -10,7 +10,7 @@ import { canConnectPorts } from "./portTypes";
 
 export type RoutingConnectionAction =
   | { type: "stream_target"; streamId: string; targetDeviceId: string }
-  | { type: "clear_stream_target"; streamId: string }
+  | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
   | { type: "device_route"; sourceDeviceId: string; targetDeviceId: string }
   | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] };
 
@@ -189,6 +189,7 @@ function resolveEdgeDisconnect(
       action: {
         type: "clear_stream_target",
         streamId: source.id,
+        previousTargetDeviceId: target.id,
       },
     };
   }
@@ -202,6 +203,7 @@ function resolveEdgeDisconnect(
       action: {
         type: "clear_stream_target",
         streamId: target.id,
+        previousTargetDeviceId: source.id,
       },
     };
   }

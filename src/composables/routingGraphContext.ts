@@ -10,23 +10,13 @@ export interface RoutingGraphNodeMenuTarget {
   deletable: boolean;
 }
 
-export interface RoutingGraphEdgeMenuTarget {
-  kind: "edge";
-  x: number;
-  y: number;
-  edgeId: string;
-  hasReroutes: boolean;
-}
-
-export type RoutingGraphMenuTarget = RoutingGraphNodeMenuTarget | RoutingGraphEdgeMenuTarget;
+export type RoutingGraphMenuTarget = RoutingGraphNodeMenuTarget;
 
 export interface RoutingGraphActions {
   openMenu: (target: RoutingGraphMenuTarget) => void;
   closeMenu: () => void;
-  renameDevice: (systemName: string, currentLabel: string, alias?: string) => void;
+  renameDevice: (systemName: string, currentLabel: string, alias?: string) => void | Promise<void>;
   deleteDevice: (systemName: string, label: string) => void;
-  clearEdgeReroutes: (edgeId: string) => void;
-  clearAllReroutes: () => void;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

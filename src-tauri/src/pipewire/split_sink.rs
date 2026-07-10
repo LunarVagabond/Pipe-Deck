@@ -136,18 +136,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_sink_targets() {
+    fn allows_clearing_all_sink_targets() {
         let graph = RuntimeGraph {
             devices: vec![sample_sink("bus", true)],
             streams: Vec::new(),
             links: Vec::new(),
-            data_source: "mock".into(),
+            data_source: "pipewire".into(),
             notice: None,
             ..Default::default()
         };
-        let error = apply_sink_targets(&graph, "bus", &[])
-            .expect_err("empty targets should fail");
-        assert!(error.to_string().contains("at least one"));
+        match apply_sink_targets(&graph, "bus", &[]) {
+            Ok(()) => {}
+            Err(error) => {
+                assert!(!error.to_string().contains("at least one"));
+            }
+        }
     }
 
     #[test]

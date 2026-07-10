@@ -14,20 +14,12 @@ import {
 import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import RoutingGraphContextMenu from "./RoutingGraphContextMenu.vue";
-import RoutingGraphEdge from "./RoutingGraphEdge.vue";
 import RoutingGraphNode from "./RoutingGraphNode.vue";
 import {
   applyEdgeDisconnect,
   applyRoutingConnection,
 } from "./routing-graph/applyConnection";
 import { buildRoutingGraph, saveNodePosition } from "./routing-graph/buildGraph";
-import {
-  clearAllReroutes,
-  countAllReroutes,
-  removeReroute,
-  removeReroutesForEdge,
-  rerouteRevision,
-} from "./routing-graph/rerouteLayout";
 import { LEGEND_ENTRIES } from "./routing-graph/portTypes";
 import { canConnectPorts } from "./routing-graph/portTypes";
 import {
@@ -36,6 +28,7 @@ import {
 } from "../composables/routingGraphContext";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
+import { usePrompt } from "../stores/prompt";
 import type { RuntimeGraph } from "../types/graph";
 
 const props = defineProps<{
@@ -44,17 +37,10 @@ const props = defineProps<{
 
 const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
+const { prompt } = usePrompt();
 
-const selectedReroute = ref<{ edgeKey: string; knotId: string } | null>(null);
 const edgeUpdatePending = ref<Edge | null>(null);
 const contextMenu = ref<RoutingGraphMenuTarget | null>(null);
-
-provide("routing-selected-reroute", selectedReroute);
-
-const rerouteCount = computed(() => {
-  rerouteRevision.value;
-  return countAllReroutes();
-});
 
 const graphActions = {
   openMenu(target: RoutingGraphMenuTarget) {
@@ -63,9 +49,15 @@ const graphActions = {
   closeMenu() {
     contextMenu.value = null;
   },
-  renameDevice(systemName: string, currentLabel: string, alias?: string) {
+  async renameDevice(systemName: string, currentLabel: string, alias?: string) {
     contextMenu.value = null;
-    const next = alias ?? window.prompt("Rename device", currentLabel);
+    const next =
+      alias ??
+      (await prompt({
+        title: "Rename device",
+        defaultValue: currentLabel,
+        confirmLabel: "Save",
+      }));
     if (!next) {
       return;
     }
@@ -78,18 +70,6 @@ const graphActions = {
   deleteDevice(systemName: string, label: string) {
     contextMenu.value = null;
     void removeVirtualDevice(systemName, label);
-  },
-  clearEdgeReroutes(edgeKey: string) {
-    contextMenu.value = null;
-    removeReroutesForEdge(edgeKey);
-    if (selectedReroute.value?.edgeKey === edgeKey) {
-      selectedReroute.value = null;
-    }
-  },
-  clearAllReroutes() {
-    contextMenu.value = null;
-    clearAllReroutes();
-    selectedReroute.value = null;
   },
 };
 
@@ -128,33 +108,16 @@ async function removeVirtualDevice(systemName: string, label: string) {
   }
 }
 
-function onContextMenuAction(action: "rename" | "delete" | "clearEdgeReroutes") {
+function onContextMenuAction(action: "rename" | "delete") {
   const target = contextMenu.value;
   if (!target) {
     return;
   }
-  if (action === "rename" && target.kind === "node") {
-    graphActions.renameDevice(target.systemName, target.label);
-  } else if (action === "delete" && target.kind === "node") {
+  if (action === "rename") {
+    void graphActions.renameDevice(target.systemName, target.label);
+  } else if (action === "delete") {
     graphActions.deleteDevice(target.systemName, target.label);
-  } else if (action === "clearEdgeReroutes" && target.kind === "edge") {
-    graphActions.clearEdgeReroutes(target.edgeId);
   }
-}
-
-async function onClearAllReroutes() {
-  if (rerouteCount.value === 0) {
-    return;
-  }
-  const confirmed = await confirm(`Clear all ${rerouteCount.value} reroute knots?`, {
-    title: "Clear reroute knots",
-    confirmLabel: "Clear all",
-    cancelLabel: "Cancel",
-  });
-  if (!confirmed) {
-    return;
-  }
-  graphActions.clearAllReroutes();
 }
 
 const nodeTypes = {
@@ -162,13 +125,7 @@ const nodeTypes = {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
-const edgeTypes = {
-  routingEdge: markRaw(RoutingGraphEdge),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any;
-
 const defaultEdgeOptions = {
-  type: "routingEdge",
   updatable: true,
   interactionWidth: 22,
 } as const;
@@ -178,7 +135,6 @@ const nodes = computed<Node[]>(() => built.value.nodes as Node[]);
 const edges = computed<Edge[]>(() =>
   built.value.edges.map((edge) => ({
     ...edge,
-    type: "routingEdge",
     markerEnd: {
       type: MarkerType.ArrowClosed,
       color: edge.style?.stroke ?? "#7c5cff",
@@ -193,7 +149,7 @@ const legend = LEGEND_ENTRIES;
 watch(
   () => props.graph,
   () => {
-    selectedReroute.value = null;
+    contextMenu.value = null;
   },
   { deep: true },
 );
@@ -218,13 +174,11 @@ async function commitConnection(
 }
 
 async function onConnect(connection: Connection) {
-  selectedReroute.value = null;
   await commitConnection(connection, "connect");
 }
 
 async function onEdgeUpdate(event: EdgeUpdateEvent) {
   edgeUpdatePending.value = null;
-  selectedReroute.value = null;
   await commitConnection(event.connection, "edge_update", event.edge);
 }
 
@@ -251,7 +205,6 @@ async function onEdgeUpdateEnd() {
 }
 
 function onPaneClick() {
-  selectedReroute.value = null;
   contextMenu.value = null;
 }
 
@@ -263,29 +216,16 @@ function onDocumentPointerDown(event: PointerEvent) {
   contextMenu.value = null;
 }
 
-function onKeyDown(event: KeyboardEvent) {
-  if (event.key !== "Delete" && event.key !== "Backspace") {
-    return;
-  }
-  if (!selectedReroute.value) {
-    return;
-  }
-  event.preventDefault();
-  removeReroute(selectedReroute.value.edgeKey, selectedReroute.value.knotId);
-  selectedReroute.value = null;
-}
-
 function onNodeDragStop(event: NodeDragEvent) {
   saveNodePosition(event.node.id, event.node.position.x, event.node.position.y);
 }
 
 onMounted(() => {
-  window.addEventListener("keydown", onKeyDown);
+  localStorage.removeItem("pipe-deck-routing-reroutes");
   window.addEventListener("pointerdown", onDocumentPointerDown);
 });
 
 onUnmounted(() => {
-  window.removeEventListener("keydown", onKeyDown);
   window.removeEventListener("pointerdown", onDocumentPointerDown);
 });
 </script>
@@ -300,23 +240,14 @@ onUnmounted(() => {
           {{ entry.label }}
         </span>
         <span class="routing-graph-legend-hint">
-          Double-click wire to add knot · drag knots to bend · Alt+click or Delete to remove
+          Drag wire ends off a port to disconnect
         </span>
-        <button
-          v-if="rerouteCount > 0"
-          type="button"
-          class="routing-graph-clear-reroutes"
-          @click="onClearAllReroutes"
-        >
-          Clear all reroutes ({{ rerouteCount }})
-        </button>
       </div>
     </div>
     <RoutingGraphContextMenu
       :target="contextMenu"
       @rename="onContextMenuAction('rename')"
       @delete="onContextMenuAction('delete')"
-      @clear-edge-reroutes="onContextMenuAction('clearEdgeReroutes')"
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas">
@@ -324,7 +255,6 @@ onUnmounted(() => {
         :nodes="nodes"
         :edges="edges"
         :node-types="nodeTypes"
-        :edge-types="edgeTypes"
         :default-edge-options="defaultEdgeOptions"
         :edges-updatable="true"
         :edge-updater-radius="12"

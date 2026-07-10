@@ -94,7 +94,7 @@ async function undoRouting() {
         <p class="eyebrow">Topology and connections</p>
         <h1>Routing</h1>
         <p class="routing-lead">
-          Connect output ports (right) to input ports (left). Double-click wires for reroute knots.
+          Connect output ports (right) to input ports (left). Drag wire ends off a port to disconnect.
         </p>
       </div>
       <div class="routing-actions view-actions">
