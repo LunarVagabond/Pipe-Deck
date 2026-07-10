@@ -1,0 +1,287 @@
+.routing-graph-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.routing-graph-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.65rem 1.25rem;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+}
+
+.routing-graph-legend-title {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.routing-graph-legend-items {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.55rem 1rem;
+}
+
+.routing-graph-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text);
+}
+
+.routing-graph-legend-swatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.routing-graph-legend-hint {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.routing-graph-context-menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 10rem;
+  padding: 0.35rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-1);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+
+  button {
+    display: block;
+    width: 100%;
+    padding: 0.45rem 0.65rem;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font-size: 0.8rem;
+    text-align: left;
+    cursor: pointer;
+
+    &:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    &.danger {
+      color: #ff6b6b;
+
+      &:hover {
+        background: rgba(255, 107, 107, 0.12);
+      }
+    }
+  }
+}
+
+.routing-graph-canvas {
+  height: min(72vh, 820px);
+  min-height: 480px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-1);
+  overflow: hidden;
+
+  .vue-flow__node {
+    overflow: visible;
+  }
+}
+
+.routing-graph-node {
+  min-width: 180px;
+  max-width: 220px;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: rgba(11, 15, 20, 0.92);
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  position: relative;
+  overflow: visible;
+
+  &.playback {
+    border-color: rgba(124, 92, 255, 0.55);
+    background: rgba(124, 92, 255, 0.08);
+  }
+
+  &.capture {
+    border-color: rgba(38, 195, 163, 0.55);
+    background: rgba(38, 195, 163, 0.08);
+  }
+
+  &.virtual-sink {
+    border-color: rgba(255, 176, 32, 0.55);
+    background: rgba(255, 176, 32, 0.07);
+  }
+
+  &.output {
+    border-color: rgba(124, 92, 255, 0.4);
+    background: rgba(124, 92, 255, 0.05);
+  }
+
+  &.input {
+    border-color: rgba(38, 195, 163, 0.45);
+    background: rgba(38, 195, 163, 0.06);
+  }
+
+  &.virtual-input {
+    border-color: rgba(255, 176, 32, 0.45);
+    background: linear-gradient(
+      135deg,
+      rgba(255, 176, 32, 0.08) 0%,
+      rgba(38, 195, 163, 0.08) 100%
+    );
+  }
+}
+
+.routing-graph-node-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  min-width: 0;
+  flex: 1;
+
+  .routing-graph-node-copy {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .node-card-header {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .node-card-title {
+    min-width: 0;
+    flex: 1;
+  }
+
+  strong {
+    display: block;
+    font-size: 0.85rem;
+    line-height: 1.35;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .node-card-title strong {
+    font-size: 0.82rem;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: unset;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  .node-card-actions .icon-btn {
+    width: 1.15rem;
+    height: 1.15rem;
+    border-radius: 4px;
+
+    svg {
+      width: 0.62rem;
+      height: 0.62rem;
+    }
+  }
+}
+
+.routing-graph-node-sub {
+  display: block;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.routing-graph-node-swatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 999px;
+  flex-shrink: 0;
+  margin-top: 0.2rem;
+}
+
+.routing-graph-handle {
+  width: 0.8rem;
+  height: 0.8rem;
+  background: var(--handle-color, var(--accent-purple));
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+  transition: box-shadow 0.12s ease;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: -0.35rem;
+  }
+
+  &:hover {
+    box-shadow:
+      0 0 0 2px rgba(0, 0, 0, 0.35),
+      0 0 14px var(--handle-color);
+  }
+}
+
+.routing-graph-handle--audio-in {
+  --handle-color: #7c5cff;
+  background: #7c5cff;
+}
+
+.routing-graph-handle--audio-out {
+  --handle-color: #26c3a3;
+  background: #26c3a3;
+}
+
+.routing-view .routing-lead {
+  margin: 0.35rem 0 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.vue-flow__edge-path {
+  stroke-linecap: round;
+  cursor: pointer;
+}
+
+.vue-flow__edge.animated path {
+  stroke-dasharray: 6 4;
+}
+
+// Draggable arrow / cable endpoints (visible on hover).
+.routing-graph-canvas .vue-flow__edgeupdater {
+  cursor: grab;
+  opacity: 0;
+  transition: opacity 0.12s ease, fill 0.12s ease;
+}
+
+.routing-graph-canvas .vue-flow__edge:hover .vue-flow__edgeupdater,
+.routing-graph-canvas.is-edge-update .vue-flow__edgeupdater {
+  opacity: 1;
+}
+
+.routing-graph-canvas .routing-edge--audio .vue-flow__edgeupdater {
+  fill: #26c3a3;
+  stroke: #fff;
+  stroke-width: 2px;
+}
+
+.routing-graph-canvas .vue-flow__edgeupdater:active {
+  cursor: grabbing;
+}

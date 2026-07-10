@@ -68,11 +68,6 @@ pub fn apply_device_route_intent(
     intent: &DeviceRouteIntent,
 ) -> Result<(), RoutingError> {
     let targets = intent.target_ids();
-    if targets.is_empty() {
-        return Err(RoutingError::Message(
-            "device route intent has no targets".into(),
-        ));
-    }
     split_sink::apply_sink_targets(graph, &intent.source_device_id, &targets)?;
     Ok(())
 }

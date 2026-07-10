@@ -3,6 +3,7 @@ use crate::config::store::ConfigStore;
 use crate::pipewire::adapter::AdapterError;
 use crate::pipewire::pw_link;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::process::Command;
 
 #[derive(Debug, Clone)]
@@ -103,6 +104,261 @@ pub fn move_stream_to_sink_name(
         sink_system_name,
     ])?;
     Ok(())
+}
+
+const UNROUTED_PLAYBACK_SINK: &str = "pipe-deck-unrouted";
+const UNROUTED_CAPTURE_SOURCE: &str = "pipe-deck-unrouted-capture";
+
+pub fn clear_stream_target(
+    graph: &RuntimeGraph,
+    stream_id: &str,
+    avoid_target_device_id: Option<&str>,
+) -> Result<(), AdapterError> {
+    let stream = graph
+        .streams
+        .iter()
+        .find(|stream| stream.id == stream_id)
+        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+
+    match stream.direction {
+        StreamDirection::Playback => {
+            let index = match find_sink_input_index(graph, stream) {
+                Ok(index) => index,
+                Err(_) => return Ok(()),
+            };
+            let avoid = avoid_sink_system_names(graph, avoid_target_device_id);
+            let fallback = resolve_clear_playback_sink(graph, &avoid)?;
+            move_sink_input_with_fallback(index, &fallback)?;
+        }
+        StreamDirection::Capture => {
+            let index = match find_source_output_index(graph, stream) {
+                Ok(index) => index,
+                Err(_) => return Ok(()),
+            };
+            let avoid = avoid_source_system_names(graph, avoid_target_device_id);
+            let fallback = resolve_clear_capture_source(graph, &avoid)?;
+            move_source_output_with_fallback(index, &fallback)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn move_sink_input_with_fallback(index: u32, sink_name: &str) -> Result<(), AdapterError> {
+    if run_pactl(&["move-sink-input", &index.to_string(), sink_name]).is_ok() {
+        return Ok(());
+    }
+    ensure_unrouted_playback_sink()?;
+    run_pactl(&[
+        "move-sink-input",
+        &index.to_string(),
+        UNROUTED_PLAYBACK_SINK,
+    ])?;
+    Ok(())
+}
+
+fn move_source_output_with_fallback(index: u32, source_name: &str) -> Result<(), AdapterError> {
+    if run_pactl(&["move-source-output", &index.to_string(), source_name]).is_ok() {
+        return Ok(());
+    }
+    ensure_unrouted_capture_source()?;
+    run_pactl(&[
+        "move-source-output",
+        &index.to_string(),
+        UNROUTED_CAPTURE_SOURCE,
+    ])?;
+    Ok(())
+}
+
+fn ensure_unrouted_playback_sink() -> Result<(), AdapterError> {
+    if sink_exists(UNROUTED_PLAYBACK_SINK)? {
+        return Ok(());
+    }
+    create_null_sink(UNROUTED_PLAYBACK_SINK, "Unrouted")?;
+    Ok(())
+}
+
+fn ensure_unrouted_capture_source() -> Result<(), AdapterError> {
+    if sink_exists(UNROUTED_CAPTURE_SOURCE)? {
+        return Ok(());
+    }
+    create_virtual_source(UNROUTED_CAPTURE_SOURCE, "Unrouted Capture")?;
+    Ok(())
+}
+
+fn avoid_sink_system_names(graph: &RuntimeGraph, avoid_device_id: Option<&str>) -> HashSet<String> {
+    let mut names = HashSet::new();
+    let Some(device_id) = avoid_device_id else {
+        return names;
+    };
+    let Some(device) = graph.devices.iter().find(|device| device.id == device_id) else {
+        return names;
+    };
+    names.insert(device.system_name.clone());
+    if device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input {
+        names.insert(feed_sink_name_for_virtual_input(&device.system_name));
+    }
+    names
+}
+
+fn avoid_source_system_names(
+    graph: &RuntimeGraph,
+    avoid_device_id: Option<&str>,
+) -> HashSet<String> {
+    avoid_sink_system_names(graph, avoid_device_id)
+}
+
+fn resolve_clear_playback_sink(
+    graph: &RuntimeGraph,
+    avoid: &HashSet<String>,
+) -> Result<String, AdapterError> {
+    if let Some(default_sink) = get_default_sink_name() {
+        if !avoid.contains(&default_sink) {
+            return Ok(default_sink);
+        }
+    }
+
+    for device in &graph.devices {
+        if device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input {
+            continue;
+        }
+        if !matches!(
+            device.direction,
+            DeviceDirection::Output | DeviceDirection::Duplex
+        ) {
+            continue;
+        }
+        if avoid.contains(&device.system_name) {
+            continue;
+        }
+        return Ok(device.system_name.clone());
+    }
+
+    ensure_unrouted_playback_sink()?;
+    Ok(UNROUTED_PLAYBACK_SINK.to_string())
+}
+
+fn resolve_clear_capture_source(
+    graph: &RuntimeGraph,
+    avoid: &HashSet<String>,
+) -> Result<String, AdapterError> {
+    if let Some(default_source) = get_default_source_name() {
+        if !avoid.contains(&default_source) {
+            return Ok(default_source);
+        }
+    }
+
+    for device in &graph.devices {
+        if !matches!(
+            device.direction,
+            DeviceDirection::Input | DeviceDirection::Duplex
+        ) {
+            continue;
+        }
+        if avoid.contains(&device.system_name) {
+            continue;
+        }
+        return Ok(device.system_name.clone());
+    }
+
+    ensure_unrouted_capture_source()?;
+    Ok(UNROUTED_CAPTURE_SOURCE.to_string())
+}
+
+pub fn stream_matches_sink_input(stream: &crate::core::models::Stream, input: &PactlSinkInput) -> bool {
+    if stream.id == format!("pactl-sink-input-{}", input.index) {
+        return true;
+    }
+
+    if stream.direction != StreamDirection::Playback {
+        return false;
+    }
+
+    if let Some(system_name) = &stream.system_name {
+        if input
+            .node_name
+            .as_deref()
+            .is_some_and(|node_name| node_name == system_name)
+        {
+            return true;
+        }
+    }
+
+    if stream.app_name != input.application_name {
+        if stream
+            .executable
+            .as_deref()
+            .is_none_or(|executable| executable != input.application_name)
+        {
+            return false;
+        }
+    }
+
+    match (&stream.media_name, &input.media_name) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+pub fn stream_matches_source_output(
+    stream: &crate::core::models::Stream,
+    output: &PactlSourceOutput,
+) -> bool {
+    if stream.id == format!("pactl-source-output-{}", output.index) {
+        return true;
+    }
+
+    if stream.direction != StreamDirection::Capture {
+        return false;
+    }
+
+    if let Some(system_name) = &stream.system_name {
+        if output
+            .node_name
+            .as_deref()
+            .is_some_and(|node_name| node_name == system_name)
+        {
+            return true;
+        }
+    }
+
+    if stream.app_name != output.application_name {
+        if stream
+            .executable
+            .as_deref()
+            .is_none_or(|executable| executable != output.application_name)
+        {
+            return false;
+        }
+    }
+
+    match (&stream.media_name, &output.media_name) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+fn get_default_sink_name() -> Option<String> {
+    read_pactl_default_name(&["get-default-sink"])
+}
+
+fn get_default_source_name() -> Option<String> {
+    read_pactl_default_name(&["get-default-source"])
+}
+
+fn read_pactl_default_name(args: &[&str]) -> Option<String> {
+    let output = Command::new("pactl").args(args).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 fn move_stream_to_resolved_target(
@@ -630,125 +886,31 @@ fn run_pactl(args: &[&str]) -> Result<String, AdapterError> {
     )))
 }
 
-fn find_sink_input_index(graph: &RuntimeGraph, stream: &crate::core::models::Stream) -> Result<u32, AdapterError> {
-    let entries = parse_pactl_clients("sink-inputs");
-    find_client_index(&entries, graph, stream)
-}
-
-fn find_source_output_index(
-    graph: &RuntimeGraph,
-    stream: &crate::core::models::Stream,
-) -> Result<u32, AdapterError> {
-    let entries = parse_pactl_clients("source-outputs");
-    find_client_index(&entries, graph, stream)
-}
-
-struct PactlClientEntry {
-    index: u32,
-    application_name: Option<String>,
-    node_name: Option<String>,
-}
-
-fn parse_pactl_clients(kind: &str) -> Vec<PactlClientEntry> {
-    let output = match Command::new("pactl").args(["list", kind]).output() {
-        Ok(output) if output.status.success() => output,
-        _ => return Vec::new(),
-    };
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut entries = Vec::new();
-    let mut current_index = None;
-    let mut current_app = None;
-    let mut current_node = None;
-
-    for line in text.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("Sink Input #") {
-            if let Some(index) = current_index.take() {
-                entries.push(PactlClientEntry {
-                    index,
-                    application_name: current_app.take(),
-                    node_name: current_node.take(),
-                });
-            }
-            current_index = rest.parse().ok();
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("Source Output #") {
-            if let Some(index) = current_index.take() {
-                entries.push(PactlClientEntry {
-                    index,
-                    application_name: current_app.take(),
-                    node_name: current_node.take(),
-                });
-            }
-            current_index = rest.parse().ok();
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("application.name = ") {
-            current_app = Some(rest.trim_matches('"').to_string());
-            continue;
-        }
-        if let Some(rest) = line.strip_prefix("node.name = ") {
-            current_node = Some(rest.trim_matches('"').to_string());
-        }
-    }
-
-    if let Some(index) = current_index {
-        entries.push(PactlClientEntry {
-            index,
-            application_name: current_app,
-            node_name: current_node,
-        });
-    }
-
-    entries
-}
-
-fn find_client_index(
-    entries: &[PactlClientEntry],
-    _graph: &RuntimeGraph,
-    stream: &crate::core::models::Stream,
-) -> Result<u32, AdapterError> {
-    if let Some(rest) = stream.id.strip_prefix("pactl-sink-input-") {
-        if let Ok(index) = rest.parse::<u32>() {
-            if entries.iter().any(|entry| entry.index == index) {
-                return Ok(index);
-            }
-        }
-    }
-
-    if let Some(rest) = stream.id.strip_prefix("pactl-source-output-") {
-        if let Ok(index) = rest.parse::<u32>() {
-            if entries.iter().any(|entry| entry.index == index) {
-                return Ok(index);
-            }
-        }
-    }
-
-    if let Some(system_name) = &stream.system_name {
-        if let Some(entry) = entries.iter().find(|entry| entry.node_name.as_deref() == Some(system_name.as_str())) {
-            return Ok(entry.index);
-        }
-    }
-
-    if let Some(entry) = entries
-        .iter()
-        .find(|entry| entry.application_name.as_deref() == Some(stream.app_name.as_str()))
-    {
-        return Ok(entry.index);
-    }
-
-    if let Some(executable) = &stream.executable {
-        if let Some(entry) = entries.iter().find(|entry| {
-            entry.application_name.as_deref() == Some(executable.as_str())
-        }) {
-            return Ok(entry.index);
+fn find_sink_input_index(_graph: &RuntimeGraph, stream: &crate::core::models::Stream) -> Result<u32, AdapterError> {
+    for input in list_sink_inputs() {
+        if stream_matches_sink_input(stream, &input) {
+            return Ok(input.index);
         }
     }
 
     Err(AdapterError::Message(format!(
-        "could not find pactl client for stream {}",
+        "could not find pactl sink-input for stream {}",
+        stream.app_name
+    )))
+}
+
+fn find_source_output_index(
+    _graph: &RuntimeGraph,
+    stream: &crate::core::models::Stream,
+) -> Result<u32, AdapterError> {
+    for output in list_source_outputs() {
+        if stream_matches_source_output(stream, &output) {
+            return Ok(output.index);
+        }
+    }
+
+    Err(AdapterError::Message(format!(
+        "could not find pactl source-output for stream {}",
         stream.app_name
     )))
 }

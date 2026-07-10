@@ -1,21 +1,16 @@
 .dashboard {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
+  gap: var(--section-gap);
   width: 100%;
   max-width: 100%;
   min-width: 0;
-  overflow: hidden;
 }
 
-.dashboard .header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
-}
-
-.dashboard .eyebrow {
+.dashboard .eyebrow,
+.routing-view .eyebrow,
+.sources-view .eyebrow,
+.mixer-view .eyebrow {
   margin: 0;
   color: var(--accent-teal);
   font-size: 0.85rem;
@@ -23,45 +18,25 @@
   letter-spacing: 0.08em;
 }
 
-.dashboard h1 {
+.dashboard h1,
+.routing-view h1,
+.sources-view h1,
+.mixer-view h1 {
   margin: 0.25rem 0 0;
   font-size: 1.75rem;
 }
 
-.dashboard .header-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-
-  button {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface-2);
-    color: var(--text);
-    padding: 0.5rem 0.9rem;
-    cursor: pointer;
-
-    &:hover:not(:disabled) {
-      border-color: var(--accent-purple);
-    }
-
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-      color: var(--text-muted);
-    }
-  }
-}
-
-.dashboard .header-toggle {
+.dashboard .header-toggle,
+.routing-view .header-toggle,
+.sources-view .header-toggle {
   display: inline-flex;
   align-items: center;
   gap: 0.65rem;
 }
 
-.dashboard .toggle-row-label {
+.dashboard .toggle-row-label,
+.routing-view .toggle-row-label,
+.sources-view .toggle-row-label {
   font-size: 0.8rem;
   color: var(--text-muted);
 }
@@ -75,7 +50,114 @@
   font-weight: 600;
 }
 
-.dashboard .notice-banner {
+.dashboard-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--card-gap);
+}
+
+.dashboard-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.dashboard-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+
+  h2 {
+    margin: 0;
+    font-size: 1rem;
+  }
+}
+
+.dashboard-stream-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-1);
+  padding: 0.5rem;
+}
+
+.dashboard-stream-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.3fr) minmax(100px, 1fr) minmax(160px, 1.2fr);
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.55rem 0.65rem;
+  border-radius: 8px;
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.03);
+  }
+}
+
+.stream-row-app {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  min-width: 0;
+
+  strong {
+    overflow-wrap: anywhere;
+  }
+}
+
+.direction-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.15rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+
+  &.playback {
+    background: rgba(124, 92, 255, 0.15);
+    color: #c4b5fd;
+  }
+
+  &.capture {
+    background: rgba(38, 195, 163, 0.15);
+    color: #6ee7c7;
+  }
+}
+
+.target-cell {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.compact-route-cell .stream-target-picker--compact {
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.stream-target-picker--compact .routing-select {
+  width: 100%;
+}
+
+.dashboard-device-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--card-gap);
+}
+
+.device-summary-card .node-sub {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.dashboard .notice-banner,
+.routing-view .notice-banner,
+.sources-view .notice-banner,
+.mixer-view .notice-banner {
   margin: 0;
   padding: 0.6rem 0.85rem;
   border-radius: 8px;
@@ -94,7 +176,10 @@
   }
 }
 
-.dashboard .status {
+.dashboard .status,
+.routing-view .status,
+.sources-view .status,
+.mixer-view .status {
   color: var(--text-muted);
 
   &.error {
@@ -102,12 +187,20 @@
   }
 }
 
-@media (max-width: 900px) {
-  .dashboard .header {
-    flex-direction: column;
+.dashboard .empty,
+.sources-view .empty {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+@media (max-width: 1100px) {
+  .dashboard-stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .dashboard .header-actions {
-    justify-content: flex-start;
+  .dashboard-stream-row {
+    grid-template-columns: 1fr;
+    gap: 0.35rem;
   }
 }

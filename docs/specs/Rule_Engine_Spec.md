@@ -25,6 +25,7 @@ Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`)
 - Dashboard dropdown changes still append to `routing_rules.stream_rules` at implicit priority `-1000` (minus index), so authored rules win when both match.
 - On first upgrade, existing `routing_rules.stream_rules` migrate once into `rules[]` when `rules` is empty.
 - Session manual overrides block auto-apply until cleared (including when the user re-selects the rule's target).
+- When `preferences.auto_apply_rules` is true (default), newly seen stream identities are routed on graph refresh without clearing session overrides.
 
 See `docs/specs/Config_Spec.md` for serialization and precedence details.
 
@@ -97,6 +98,30 @@ Internal candidate keys are not shown in the dashboard summary.
 - Deterministic rules -> predictable behavior.
 - Clear explanations -> easier troubleshooting and trust.
 - Safe fallbacks -> fewer broken audio sessions.
+
+## Test Scenario Matrix
+
+Deterministic unit tests in `src-tauri/src/core/rule_engine.rs` (`mod tests`):
+
+| Scenario | Test name |
+|----------|-----------|
+| Persisted rule matches executable | `persisted_rule_matches_executable_only` |
+| Persisted rule requires all specified fields | `persisted_rule_requires_all_specified_fields` |
+| Category rule matches games | `authored_category_rule_matches_games` |
+| Matching rule target is not manual override | `matching_rule_target_is_not_manual_override` |
+| Manual override blocks auto-apply | `manual_override_blocks_auto_apply_explanation` |
+| External manual override detected | `detect_external_manual_override_when_system_differs_from_rule` |
+| Regex condition matches app name | `regex_condition_matches_app_name` |
+| Identity matches app name or executable | `identity_matches_app_name_or_executable` |
+| `keep_current` skips when target missing | `keep_current_skips_when_rule_target_missing` |
+| `safe_default` falls back to physical output | `safe_default_falls_back_to_physical_output` |
+| Authored rule beats persisted rule on priority | `authored_rule_beats_persisted_rule_on_priority` |
+| Disabled authored rule skipped | `disabled_authored_rule_is_skipped` |
+| Multiple authored rules — highest priority wins | `multiple_authored_rules_highest_priority_wins` |
+| Capture stream matches direction rule | `capture_stream_matches_direction_rule` |
+| Device rule mismatch tracks manual override | `device_rule_mismatch_tracks_manual_override` |
+
+Run via `make test`.
 
 ## Legacy Examples (Absorbed)
 

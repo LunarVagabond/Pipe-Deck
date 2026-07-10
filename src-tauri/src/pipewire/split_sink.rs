@@ -17,10 +17,6 @@ pub fn apply_sink_targets(
     sink_device_id: &str,
     target_device_ids: &[String],
 ) -> Result<(), AdapterError> {
-    if target_device_ids.is_empty() {
-        return Err(AdapterError::Message("at least one sink target is required".into()));
-    }
-
     let sink = graph
         .devices
         .iter()
@@ -31,6 +27,10 @@ pub fn apply_sink_targets(
         return Err(AdapterError::Message(
             "only virtual output sinks can fan out to targets".into(),
         ));
+    }
+
+    if target_device_ids.is_empty() {
+        return prune_stale_fan_out_links(&sink.system_name, &HashSet::new());
     }
 
     if target_device_ids.len() == 1 && !sink.is_multi_sink() {
@@ -136,18 +136,21 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_sink_targets() {
+    fn allows_clearing_all_sink_targets() {
         let graph = RuntimeGraph {
             devices: vec![sample_sink("bus", true)],
             streams: Vec::new(),
             links: Vec::new(),
-            data_source: "mock".into(),
+            data_source: "pipewire".into(),
             notice: None,
             ..Default::default()
         };
-        let error = apply_sink_targets(&graph, "bus", &[])
-            .expect_err("empty targets should fail");
-        assert!(error.to_string().contains("at least one"));
+        match apply_sink_targets(&graph, "bus", &[]) {
+            Ok(()) => {}
+            Err(error) => {
+                assert!(!error.to_string().contains("at least one"));
+            }
+        }
     }
 
     #[test]

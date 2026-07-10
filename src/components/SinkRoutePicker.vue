@@ -74,8 +74,6 @@ onUnmounted(() => {
 });
 
 async function applyTargets(targetDeviceIds: string[]) {
-  if (targetDeviceIds.length === 0) return;
-
   try {
     const result = await invoke<{ success: boolean; message?: string }>("set_device_targets", {
       sourceDeviceId: sink.id,
@@ -101,7 +99,8 @@ async function onCheckboxChange(targetId: string, event: Event) {
     : pendingIds.value.filter((id) => id !== targetId);
 
   if (next.length === 0) {
-    (event.target as HTMLInputElement).checked = true;
+    pendingIds.value = next;
+    await applyTargets(next);
     return;
   }
 

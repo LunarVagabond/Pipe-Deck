@@ -13,9 +13,11 @@ import {
   deviceTargetIds,
   isMultiSink,
   linkColor,
+  sinksForStream,
   streamAccent,
   streamSubtitle,
   targetLabel,
+  targetsForVirtualSink,
   type MatrixNode,
 } from "../utils/routingLayout";
 
@@ -193,31 +195,12 @@ const columns = computed(() => {
   return { apps, routing, outputs, inputs };
 });
 
-function sinksForStream(stream: Stream) {
-  return graph.devices.filter((device) => {
-    if (device.system_name.startsWith("pipe-deck-feed-")) return false;
-    if (stream.direction === "playback") {
-      if (device.kind === "virtual" && device.direction === "output") {
-        return true;
-      }
-      return (
-        device.direction === "output" ||
-        device.direction === "duplex" ||
-        (device.kind === "virtual" && device.direction === "input")
-      );
-    }
-    return device.direction === "input" || device.direction === "duplex";
-  });
+function sinksForStreamLocal(stream: Stream) {
+  return sinksForStream(graph.devices, stream);
 }
 
-function targetsForVirtualSink(device: Device) {
-  return graph.devices.filter((candidate) => {
-    if (candidate.id === device.id) return false;
-    if (candidate.kind === "physical" && candidate.direction === "output") {
-      return true;
-    }
-    return candidate.kind === "virtual" && candidate.direction === "input";
-  });
+function targetsForVirtualSinkLocal(device: Device) {
+  return targetsForVirtualSink(graph.devices, device);
 }
 
 function deviceById(id: string) {
@@ -433,7 +416,7 @@ function accentForDevice(device: Device): string | undefined {
               >
                 <option value="" disabled>Select target</option>
                 <option
-                  v-for="target in sinksForStream(stream)"
+                  v-for="target in sinksForStreamLocal(stream)"
                   :key="target.id"
                   :value="target.id"
                 >
@@ -479,7 +462,7 @@ function accentForDevice(device: Device): string | undefined {
               <SinkRoutePicker
                 v-if="isMultiSink(deviceById(node.id)!)"
                 :sink="deviceById(node.id)!"
-                :targets="targetsForVirtualSink(deviceById(node.id)!)"
+                :targets="targetsForVirtualSinkLocal(deviceById(node.id)!)"
               />
               <select
                 v-else
@@ -489,7 +472,7 @@ function accentForDevice(device: Device): string | undefined {
               >
                 <option value="" disabled>Select output</option>
                 <option
-                  v-for="target in targetsForVirtualSink(deviceById(node.id)!)"
+                  v-for="target in targetsForVirtualSinkLocal(deviceById(node.id)!)"
                   :key="target.id"
                   :value="target.id"
                 >

@@ -17,6 +17,8 @@ pub struct ApplyRulesContext<'a> {
     pub device_manual_overrides: &'a HashSet<String>,
     pub dry_run: bool,
     pub mock_graph_only: bool,
+    /// When set, only streams with these identity keys are eligible for apply.
+    pub limit_to_identities: Option<&'a HashSet<crate::core::stream_identity::StreamIdentityKey>>,
 }
 
 #[derive(Debug, Clone)]
@@ -554,6 +556,13 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         };
 
+        if let Some(limit) = ctx.limit_to_identities {
+            let key = stream_identity_key(&stream);
+            if !limit.contains(&key) {
+                continue;
+            }
+        }
+
         let mut explanation =
             evaluate_stream_route(&stream, &authored_rules, &persisted_rules, ctx.manual_overrides);
 
@@ -812,8 +821,9 @@ pub fn ensure_rules_migrated() -> Result<(), AdapterError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::stream_identity::stream_identity_key;
     use crate::core::models::{
-        Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection,
+        Device, DeviceDirection, DeviceKind, DeviceRouteRule, RuntimeGraph, Stream, StreamDirection,
     };
 
     fn sample_stream(app_name: &str, executable: Option<&str>, media_name: Option<&str>) -> Stream {
@@ -1115,5 +1125,229 @@ mod tests {
         let (device, note) = resolve_target_device(&graph, &stream, &winner).expect("fallback");
         assert_eq!(device.id, "hdmi");
         assert!(note.is_some());
+    }
+
+    #[test]
+    fn authored_rule_beats_persisted_rule_on_priority() {
+        let stream = sample_stream("Discord", Some("discord"), None);
+        let authored = vec![Rule {
+            id: "authored".into(),
+            name: "Chat rule".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::AppName {
+                value: "Discord".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("chat-sink".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        }];
+        let persisted = vec![StreamRouteRule {
+            app_name: Some("Discord".into()),
+            executable: None,
+            media_name: None,
+            target_system_name: Some("headphones".into()),
+            target_system_names: Vec::new(),
+        }];
+
+        let explanation = evaluate_stream_route(&stream, &authored, &persisted, &HashSet::new());
+        assert_eq!(explanation.source, RouteSource::AuthoredRule);
+        assert_eq!(
+            explanation.target_system_name.as_deref(),
+            Some("chat-sink")
+        );
+    }
+
+    #[test]
+    fn disabled_authored_rule_is_skipped() {
+        let stream = sample_stream("Discord", Some("discord"), None);
+        let authored = vec![Rule {
+            id: "disabled".into(),
+            name: "Disabled".into(),
+            enabled: false,
+            priority: 100,
+            conditions: vec![RuleCondition::AppName {
+                value: "Discord".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("chat-sink".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        }];
+
+        let explanation = evaluate_stream_route(&stream, &authored, &[], &HashSet::new());
+        assert_eq!(explanation.source, RouteSource::NoRule);
+    }
+
+    #[test]
+    fn multiple_authored_rules_highest_priority_wins() {
+        let stream = sample_stream("Firefox", Some("firefox"), None);
+        let authored = vec![
+            Rule {
+                id: "low".into(),
+                name: "Low".into(),
+                enabled: true,
+                priority: 5,
+                conditions: vec![RuleCondition::AppName {
+                    value: "Firefox".into(),
+                }],
+                action: crate::core::models::RuleAction {
+                    target_system_name: Some("speakers".into()),
+                    target_system_names: Vec::new(),
+                },
+                safeguards: Default::default(),
+            },
+            Rule {
+                id: "high".into(),
+                name: "High".into(),
+                enabled: true,
+                priority: 50,
+                conditions: vec![RuleCondition::AppName {
+                    value: "Firefox".into(),
+                }],
+                action: crate::core::models::RuleAction {
+                    target_system_name: Some("hdmi".into()),
+                    target_system_names: Vec::new(),
+                },
+                safeguards: Default::default(),
+            },
+        ];
+
+        let explanation = evaluate_stream_route(&stream, &authored, &[], &HashSet::new());
+        assert_eq!(explanation.matched_rule_key.as_deref(), Some("High"));
+        assert_eq!(explanation.target_system_name.as_deref(), Some("hdmi"));
+        assert_eq!(explanation.skipped_candidates.len(), 1);
+    }
+
+    #[test]
+    fn capture_stream_matches_direction_rule() {
+        let stream = Stream {
+            id: "capture-1".into(),
+            app_name: "OBS".into(),
+            executable: Some("obs".into()),
+            window_class: None,
+            system_name: Some("obs-capture".into()),
+            direction: StreamDirection::Capture,
+            current_target: None,
+            current_targets: Vec::new(),
+            media_name: None,
+            is_system: false,
+            volume_percent: None,
+            muted: None,
+            route_explanation: None,
+        };
+        let authored = vec![Rule {
+            id: "capture".into(),
+            name: "Capture mic".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![
+                RuleCondition::AppName {
+                    value: "OBS".into(),
+                },
+                RuleCondition::Direction {
+                    value: StreamDirection::Capture,
+                },
+            ],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("virtual-mic".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        }];
+
+        let explanation = evaluate_stream_route(&stream, &authored, &[], &HashSet::new());
+        assert_eq!(explanation.source, RouteSource::AuthoredRule);
+        assert_eq!(
+            explanation.target_system_name.as_deref(),
+            Some("virtual-mic")
+        );
+    }
+
+    #[test]
+    fn limit_to_identities_skips_other_streams() {
+        let mut graph = graph_with_outputs();
+        graph.streams.push(sample_stream("Discord", Some("discord"), None));
+        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
+        let authored = vec![Rule {
+            id: "discord".into(),
+            name: "Discord".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::AppName {
+                value: "Discord".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("hdmi-out".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        }];
+        let discord_key = stream_identity_key(&graph.streams[0]);
+        let mut limit = HashSet::new();
+        limit.insert(discord_key);
+        let ctx = ApplyRulesContext {
+            manual_overrides: &HashSet::new(),
+            device_manual_overrides: &HashSet::new(),
+            dry_run: true,
+            mock_graph_only: true,
+            limit_to_identities: Some(&limit),
+        };
+        apply_routing_rules_with_explanations(&mut graph, &ctx).expect("simulate");
+        let discord = graph.streams.iter().find(|s| s.app_name == "Discord").unwrap();
+        assert_eq!(
+            discord.route_explanation.as_ref().and_then(|e| e.matched_rule_key.as_deref()),
+            Some("Discord"),
+        );
+        let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
+        assert!(firefox.route_explanation.is_none());
+    }
+
+    #[test]
+    fn device_rule_mismatch_tracks_manual_override() {
+        let graph = RuntimeGraph {
+            devices: vec![
+                Device {
+                    id: "virtual-chat".into(),
+                    system_name: "pipe-deck-chat".into(),
+                    label: "Chat".into(),
+                    kind: DeviceKind::Virtual,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: Some("headphones".into()),
+                    current_targets: Vec::new(),
+                },
+                Device {
+                    id: "headphones".into(),
+                    system_name: "alsa-headphones".into(),
+                    label: "Headphones".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+            ],
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "test".into(),
+            notice: None,
+            ..Default::default()
+        };
+        let device_rules = vec![DeviceRouteRule {
+            source_system_name: "pipe-deck-chat".into(),
+            target_system_name: Some("alsa-speakers".into()),
+            target_system_names: Vec::new(),
+        }];
+        let mut overrides = HashSet::new();
+        detect_external_device_manual_overrides(&graph, &mut overrides, &device_rules);
+        assert!(overrides.contains("virtual-chat"));
     }
 }

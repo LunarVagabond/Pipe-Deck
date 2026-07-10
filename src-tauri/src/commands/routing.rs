@@ -63,6 +63,21 @@ pub async fn set_device_targets(
 }
 
 #[tauri::command]
+pub async fn clear_stream_target(
+    stream_id: String,
+    previous_target_device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .clear_stream_target(&stream_id, Some(&previous_target_device_id))
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn undo_last_routing(
     app: tauri::AppHandle,
     state: State<'_, AppState>,

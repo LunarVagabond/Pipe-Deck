@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, provide, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
+import PromptDialog from "./components/PromptDialog.vue";
+import ToggleSwitch from "./components/ToggleSwitch.vue";
+import { navigateKey } from "./composables/navigation";
 import Dashboard from "./views/Dashboard.vue";
 import Effects from "./views/Effects.vue";
 import Mixer from "./views/Mixer.vue";
 import Profiles from "./views/Profiles.vue";
+import Routing from "./views/Routing.vue";
 import Rules from "./views/Rules.vue";
 import Settings from "./views/Settings.vue";
+import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
 import type { AppView, DaemonStatus } from "./types/graph";
 
@@ -16,10 +21,10 @@ const navItems = ref<{ id: AppView; label: string; enabled: boolean }[]>([
   { id: "dashboard", label: "Dashboard", enabled: true },
   { id: "profiles", label: "Profiles", enabled: true },
   { id: "rules", label: "Rules", enabled: true },
-  { id: "routing", label: "Routing", enabled: false },
+  { id: "routing", label: "Routing", enabled: true },
   { id: "mixer", label: "Mixer", enabled: true },
-  { id: "sources", label: "Sources", enabled: false },
-  { id: "effects", label: "Effects", enabled: true },
+  { id: "sources", label: "Sources", enabled: true },
+  { id: "effects", label: "Effects", enabled: false },
   { id: "settings", label: "Settings", enabled: true },
 ]);
 
@@ -27,6 +32,8 @@ const activeView = ref<AppView>("dashboard");
 const daemonStatus = ref("Checking…");
 const showNewModal = ref(false);
 const newDeviceName = ref("");
+const newDeviceType = ref<"input" | "output">("output");
+const newDeviceMulti = ref(false);
 const canCreateVirtual = computed(() => newDeviceName.value.trim().length > 0);
 const { handleApplyResult } = useApplyResult();
 
@@ -38,6 +45,24 @@ const topbarTitle = computed(() => {
 function selectView(view: AppView, enabled: boolean) {
   if (!enabled) return;
   activeView.value = view;
+}
+
+provide(navigateKey, (view: AppView) => {
+  const item = navItems.value.find((entry) => entry.id === view);
+  if (item?.enabled) {
+    activeView.value = view;
+  }
+});
+
+function resetNewDeviceForm() {
+  newDeviceName.value = "";
+  newDeviceType.value = "output";
+  newDeviceMulti.value = false;
+}
+
+function closeNewModal() {
+  showNewModal.value = false;
+  resetNewDeviceForm();
 }
 
 async function refreshDaemonStatus() {
@@ -57,20 +82,19 @@ onMounted(() => {
   void refreshDaemonStatus();
 });
 
-async function createVirtual(kind: "output" | "input" | "multi") {
+async function createVirtual() {
   const name = newDeviceName.value.trim();
   if (!name) return;
   const command =
-    kind === "input"
+    newDeviceType.value === "input"
       ? "create_virtual_input"
-      : kind === "multi"
+      : newDeviceMulti.value
         ? "create_virtual_multi_output"
         : "create_virtual_output";
   try {
     await invoke(command, { name });
     handleApplyResult({ success: true }, `${name} created`);
-    showNewModal.value = false;
-    newDeviceName.value = "";
+    closeNewModal();
   } catch (error) {
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
@@ -114,7 +138,9 @@ async function createVirtual(kind: "output" | "input" | "multi") {
         <Dashboard v-if="activeView === 'dashboard'" />
         <Profiles v-else-if="activeView === 'profiles'" />
         <Rules v-else-if="activeView === 'rules'" />
+        <Routing v-else-if="activeView === 'routing'" />
         <Mixer v-else-if="activeView === 'mixer'" />
+        <Sources v-else-if="activeView === 'sources'" />
         <Effects v-else-if="activeView === 'effects'" />
         <Settings v-else-if="activeView === 'settings'" />
       </main>
@@ -122,17 +148,44 @@ async function createVirtual(kind: "output" | "input" | "multi") {
 
     <NoticeStack />
     <ConfirmDialog />
+    <PromptDialog />
 
-    <div v-if="showNewModal" class="new-device-modal" @click.self="showNewModal = false">
+    <div v-if="showNewModal" class="new-device-modal" @click.self="closeNewModal">
       <div class="new-device-dialog">
-        <h2>Create virtual device</h2>
-        <input v-model="newDeviceName" type="text" placeholder="e.g. Game Mix" />
-        <p class="new-device-hint">Display name can include spaces. The system id uses dashes (Game Mix → pipe-deck-game-mix).</p>
+        <h2>Create Virtual Device</h2>
+        <div class="new-device-field">
+          <label class="new-device-field-label" for="new-device-name">Name</label>
+          <input
+            id="new-device-name"
+            v-model="newDeviceName"
+            type="text"
+            placeholder="e.g. Game Mix"
+          />
+        </div>
+        <div class="new-device-field">
+          <label class="new-device-field-label" for="new-device-type">Type</label>
+          <select id="new-device-type" v-model="newDeviceType">
+            <option value="input">Input</option>
+            <option value="output">Output</option>
+          </select>
+        </div>
+        <div v-if="newDeviceType === 'output'" class="new-device-toggle-row">
+          <span class="new-device-field-label">Multi-output</span>
+          <ToggleSwitch v-model="newDeviceMulti" :show-state-labels="false" />
+        </div>
+        <p class="new-device-hint">
+          Display name can include spaces. The system id uses dashes (Game Mix → pipe-deck-game-mix).
+        </p>
         <div class="dialog-actions">
-          <button type="button" @click="showNewModal = false">Cancel</button>
-          <button type="button" class="primary" :disabled="!canCreateVirtual" @click="createVirtual('input')">Virtual input</button>
-          <button type="button" class="primary" :disabled="!canCreateVirtual" @click="createVirtual('output')">Virtual output</button>
-          <button type="button" class="primary" :disabled="!canCreateVirtual" @click="createVirtual('multi')">Multi output</button>
+          <button type="button" @click="closeNewModal">Cancel</button>
+          <button
+            type="button"
+            class="primary"
+            :disabled="!canCreateVirtual"
+            @click="createVirtual"
+          >
+            Create
+          </button>
         </div>
       </div>
     </div>

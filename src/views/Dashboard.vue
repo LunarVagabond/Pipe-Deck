@@ -1,30 +1,20 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, inject, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import RoutingMatrix from "../components/RoutingMatrix.vue";
+import StreamTargetPicker from "../components/StreamTargetPicker.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
-import { useApplyResult } from "../stores/notices";
+import { navigateKey } from "../composables/navigation";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { filterRuntimeGraph } from "../utils/filterGraph";
+import { deviceColumn, targetLabel } from "../utils/routingLayout";
+import type { Device, Stream } from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { config } = useAppConfig();
-const { handleApplyResult } = useApplyResult();
+const navigate = inject(navigateKey);
 
 const showSystemStreams = ref(false);
 const canUndo = ref(false);
-
-async function refreshCanUndo() {
-  try {
-    canUndo.value = await invoke<boolean>("can_undo_routing");
-  } catch {
-    canUndo.value = false;
-  }
-}
-
-watch(graph, () => {
-  void refreshCanUndo();
-}, { immediate: true });
 
 watch(
   config,
@@ -34,29 +24,75 @@ watch(
   { immediate: true },
 );
 
+watch(
+  graph,
+  () => {
+    void refreshCanUndo();
+  },
+  { immediate: true },
+);
+
+const displayGraph = computed(() =>
+  filterRuntimeGraph(graph.value, showSystemStreams.value),
+);
+
 const profileName = computed(() => {
   const active = config.value?.active_profile;
   const entry = config.value?.profile_index.find((p) => p.id === active);
   return entry?.name ?? active ?? "Default";
 });
 
-const displayGraph = computed(() =>
-  filterRuntimeGraph(graph.value, showSystemStreams.value),
+const isMockData = computed(() => graph.value.data_source === "mock");
+
+const playbackStreams = computed(() =>
+  displayGraph.value.streams.filter((stream) => stream.direction === "playback"),
 );
 
-const isMockData = computed(() => graph.value.data_source === "mock");
-const isEmpty = computed(
-  () =>
-    !loading.value &&
-    !error.value &&
-    displayGraph.value.devices.length === 0 &&
-    displayGraph.value.streams.length === 0,
+const captureStreams = computed(() =>
+  displayGraph.value.streams.filter((stream) => stream.direction === "capture"),
 );
+
+const routableStreams = computed(() => [...playbackStreams.value, ...captureStreams.value]);
+
+const virtualDeviceCount = computed(
+  () => displayGraph.value.devices.filter((device) => device.kind === "virtual").length,
+);
+
+const outputsInUse = computed(() => {
+  const ids = new Set<string>();
+  for (const stream of displayGraph.value.streams) {
+    if (stream.current_target) ids.add(stream.current_target);
+  }
+  for (const device of displayGraph.value.devices) {
+    if (device.current_target) ids.add(device.current_target);
+    for (const target of device.current_targets ?? []) {
+      ids.add(target);
+    }
+  }
+  return ids.size;
+});
+
+function deviceById(id?: string): Device | undefined {
+  if (!id) return undefined;
+  return displayGraph.value.devices.find((device) => device.id === id);
+}
+
+function streamTargetLabel(stream: Stream): string {
+  const device = deviceById(stream.current_target);
+  return device ? targetLabel(device) : "Not routed";
+}
+
+async function refreshCanUndo() {
+  try {
+    canUndo.value = await invoke<boolean>("can_undo_routing");
+  } catch {
+    canUndo.value = false;
+  }
+}
 
 async function onToggleSystemStreams(next: boolean) {
   const previous = showSystemStreams.value;
   showSystemStreams.value = next;
-
   try {
     await invoke("set_show_system_streams", { show: next });
     if (config.value) {
@@ -75,28 +111,27 @@ async function onToggleSystemStreams(next: boolean) {
 
 async function undoRouting() {
   if (!canUndo.value) return;
-
   try {
-    const result = await invoke<{ success: boolean; message?: string }>("undo_last_routing");
-    handleApplyResult(result, "Routing change undone");
+    await invoke("undo_last_routing");
     await refreshCanUndo();
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
+  } catch {
+    // notices handled by matrix/graph views
   }
+}
+
+function openRoutingGraph() {
+  navigate?.("routing");
 }
 </script>
 
 <template>
   <div class="dashboard">
-    <header class="header">
+    <header class="dashboard-header view-header">
       <div>
-        <p class="eyebrow">Live PipeWire routing</p>
+        <p class="eyebrow">Live PipeWire overview</p>
         <h1>Dashboard</h1>
       </div>
-      <div class="header-actions">
+      <div class="dashboard-actions view-actions">
         <div class="header-toggle">
           <span class="toggle-row-label">Show system streams</span>
           <ToggleSwitch
@@ -120,10 +155,77 @@ async function undoRouting() {
 
     <p v-if="loading" class="status">Loading runtime graph…</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
-    <p v-else-if="isEmpty" class="status">
-      No PipeWire audio devices or application streams detected.
-    </p>
 
-    <RoutingMatrix v-else :graph="displayGraph" />
+    <template v-else>
+      <div class="dashboard-stats">
+        <article class="stat-card">
+          <span class="stat-label">Playback apps</span>
+          <strong class="stat-value">{{ playbackStreams.length }}</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Capture apps</span>
+          <strong class="stat-value">{{ captureStreams.length }}</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Outputs in use</span>
+          <strong class="stat-value">{{ outputsInUse }}</strong>
+        </article>
+        <article class="stat-card">
+          <span class="stat-label">Virtual devices</span>
+          <strong class="stat-value">{{ virtualDeviceCount }}</strong>
+        </article>
+      </div>
+
+      <section class="dashboard-section">
+        <div class="dashboard-section-header">
+          <h2>Quick routing</h2>
+          <button type="button" class="link-btn" @click="openRoutingGraph">
+            Open full routing graph →
+          </button>
+        </div>
+        <p v-if="routableStreams.length === 0" class="empty">
+          No application streams detected. Launch an app that plays or records audio.
+        </p>
+        <div v-else class="dashboard-stream-table">
+          <div
+            v-for="stream in routableStreams"
+            :key="stream.id"
+            class="dashboard-stream-row"
+          >
+            <div class="stream-row-app">
+              <strong>{{ stream.app_name }}</strong>
+              <span
+                class="direction-badge"
+                :class="stream.direction === 'capture' ? 'capture' : 'playback'"
+              >
+                {{ stream.direction === "capture" ? "Capture" : "Playback" }}
+              </span>
+            </div>
+            <span class="target-cell">{{ streamTargetLabel(stream) }}</span>
+            <div class="compact-route-cell">
+              <StreamTargetPicker
+                :stream="stream"
+                :devices="displayGraph.devices"
+                compact
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="dashboard-section">
+        <h2>Devices</h2>
+        <div class="dashboard-device-summary">
+          <article
+            v-for="device in displayGraph.devices.filter((d) => deviceColumn(d))"
+            :key="device.id"
+            class="stat-card device-summary-card"
+          >
+            <span class="stat-label">{{ device.label }}</span>
+            <span class="node-sub">{{ device.kind }} · {{ device.direction }}</span>
+          </article>
+        </div>
+      </section>
+    </template>
   </div>
 </template>
