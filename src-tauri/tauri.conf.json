@@ -50,8 +50,8 @@
         ],
         "files": {
           "/usr/lib/systemd/user/pipe-deck-daemon.service": "packaging/pipe-deck-daemon.service",
-          "/usr/share/applications/com.pipedeck.PipeDeck.desktop": "../../packaging/com.pipedeck.PipeDeck.desktop",
-          "/usr/share/metainfo/com.pipedeck.PipeDeck.metainfo.xml": "../../packaging/com.pipedeck.PipeDeck.metainfo.xml"
+          "/usr/share/applications/com.pipedeck.PipeDeck.desktop": "../packaging/com.pipedeck.PipeDeck.desktop",
+          "/usr/share/metainfo/com.pipedeck.PipeDeck.metainfo.xml": "../packaging/com.pipedeck.PipeDeck.metainfo.xml"
         }
       },
       "rpm": {

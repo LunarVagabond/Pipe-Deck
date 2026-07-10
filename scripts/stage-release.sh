@@ -6,7 +6,27 @@ TAG="${1:?usage: stage-release.sh <tag> <version>}"
 VERSION="${2:?usage: stage-release.sh <tag> <version>}"
 REPO="${GITHUB_REPOSITORY:-LunarVagabond/Pipe-Deck}"
 OUT_DIR="${3:-release-files}"
-BUNDLE="src-tauri/target/release/bundle"
+OUT_DIR="${3:-release-files}"
+
+resolve_target_dir() {
+  if [ -n "${CARGO_TARGET_DIR:-}" ] && [ -d "${CARGO_TARGET_DIR}/release/bundle" ]; then
+    printf '%s/release' "${CARGO_TARGET_DIR}"
+    return
+  fi
+  for candidate in \
+    "src-tauri/target/release" \
+    "src-tauri/src-tauri/target/release"; do
+    if [ -d "${candidate}/bundle" ]; then
+      printf '%s' "$candidate"
+      return
+    fi
+  done
+  echo "Could not locate Tauri release bundle directory" >&2
+  exit 1
+}
+
+TARGET_RELEASE="$(resolve_target_dir)"
+BUNDLE="${TARGET_RELEASE}/bundle"
 RELEASE_BASE="https://github.com/${REPO}/releases/download/${TAG}"
 
 mkdir -p "$OUT_DIR"
@@ -50,14 +70,14 @@ fi
 cp -f "$app_sig_src" "$OUT_DIR/${app_out}.sig"
 signature="$(tr -d '\r\n' < "$OUT_DIR/${app_out}.sig")"
 
-gui_bin="src-tauri/target/release/pipe-deck"
-daemon_bin="src-tauri/target/release/pipe-deck-daemon"
+gui_bin="${TARGET_RELEASE}/pipe-deck"
+daemon_bin="${TARGET_RELEASE}/pipe-deck-daemon"
 if [ ! -f "$gui_bin" ] || [ ! -f "$daemon_bin" ]; then
   echo "Missing release binaries: $gui_bin or $daemon_bin"
   exit 1
 fi
 
-tar -czf "$OUT_DIR/$binary_out" -C "src-tauri/target/release" pipe-deck pipe-deck-daemon
+tar -czf "$OUT_DIR/$binary_out" -C "${TARGET_RELEASE}" pipe-deck pipe-deck-daemon
 
 pub_date="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
