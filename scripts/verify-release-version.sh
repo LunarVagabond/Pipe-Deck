@@ -20,7 +20,20 @@ check_file() {
 
 pkg_ver="$(node -p "require('./package.json').version")"
 tauri_ver="$(node -p "JSON.parse(require('fs').readFileSync('src-tauri/tauri.conf.json','utf8')).version")"
-cargo_ver="$(awk '/^\[package\]/{f=1;next} /^\[/{f=0} f && /^version/{gsub(/[\" ]/,\"\",\$3); print \$3; exit}' src-tauri/Cargo.toml)"
+cargo_ver="$(node -e '
+const fs = require("fs");
+const lines = fs.readFileSync("src-tauri/Cargo.toml", "utf8").split("\n");
+let inPackage = false;
+for (const line of lines) {
+  if (line.trim() === "[package]") { inPackage = true; continue; }
+  if (inPackage && /^\[/.test(line.trim())) break;
+  if (inPackage && line.startsWith("version")) {
+    const match = line.match(/version\s*=\s*"([^"]+)"/);
+    if (match) { console.log(match[1]); process.exit(0); }
+  }
+}
+process.exit(1);
+')"
 
 check_file package.json "$pkg_ver"
 check_file src-tauri/tauri.conf.json "$tauri_ver"
