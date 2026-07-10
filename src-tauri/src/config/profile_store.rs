@@ -57,6 +57,7 @@ impl ProfileStore {
             routing_intents: vec![],
             volume_state: Default::default(),
             device_assumptions: Default::default(),
+            effect_state: Default::default(),
         };
         self.save_profile_at(&default_path, &profile)
     }
@@ -305,6 +306,7 @@ mod tests {
             .into_iter()
             .collect(),
             device_assumptions: Default::default(),
+            effect_state: Default::default(),
         };
 
         validate_profile(&profile).expect("valid profile");
@@ -329,6 +331,7 @@ mod tests {
             .into_iter()
             .collect(),
             device_assumptions: Default::default(),
+            effect_state: Default::default(),
         };
 
         assert!(validate_profile(&profile).is_err());

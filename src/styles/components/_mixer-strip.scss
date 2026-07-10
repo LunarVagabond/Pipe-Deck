@@ -98,9 +98,51 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  position: relative;
   width: 2rem;
   height: 8.25rem;
   flex-shrink: 0;
+}
+
+.mixer-strip .meter-fill {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0.4rem;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: linear-gradient(
+    180deg,
+    rgba(124, 92, 255, 0.15) 0%,
+    rgba(124, 92, 255, 0.55) 100%
+  );
+  pointer-events: none;
+  max-height: 100%;
+}
+
+.mixer-strip .stream-channel-footer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  min-height: 4.35rem;
+  justify-content: flex-end;
+}
+
+.mixer-strip .stream-channel-label {
+  margin: 0;
+  width: 100%;
+  min-height: 2.05rem;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1.35;
+  text-align: center;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .mixer-strip .volume-vertical {

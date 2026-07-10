@@ -53,6 +53,8 @@ export interface Stream {
   current_targets?: string[];
   media_name?: string;
   is_system?: boolean;
+  volume_percent?: number;
+  muted?: boolean;
   route_explanation?: RouteExplanation;
 }
 
@@ -144,7 +146,7 @@ export interface Rule {
   priority: number;
   conditions: RuleCondition[];
   action: RuleAction;
-  safeguards?: RuleSafeguards;
+  safeguards: RuleSafeguards;
 }
 
 export interface SimulationResult {
@@ -206,6 +208,13 @@ export interface VolumeStateEntry {
   muted?: boolean;
 }
 
+export interface EffectChainConfig {
+  eq_low: number;
+  eq_mid: number;
+  eq_high: number;
+  compressor: boolean;
+}
+
 export interface Profile {
   version: number;
   id: string;
@@ -215,6 +224,7 @@ export interface Profile {
   routing_intents: RoutingIntent[];
   volume_state?: Record<string, VolumeStateEntry>;
   device_assumptions?: Record<string, string>;
+  effect_state?: Record<string, EffectChainConfig>;
 }
 
 export interface RoutingDriftItem {

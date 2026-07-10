@@ -1,8 +1,8 @@
 use crate::config::store::ConfigStore;
 use crate::core::models::{
-    ActionStatus, DeviceDirection, DeviceKind, DeviceRouteRule, RouteExplanation,
-    RouteSource, Rule, RuleCondition, RoutingRulesConfig, RuntimeGraph, SkippedCandidate,
-    SimulationResult, Stream, StreamRouteRule,
+    ActionStatus, Device, DeviceDirection, DeviceKind, DeviceRouteRule, FallbackPolicy,
+    RouteExplanation, RouteSource, Rule, RuleCondition, RoutingRulesConfig, RuntimeGraph,
+    SkippedCandidate, SimulationResult, Stream, StreamDirection, StreamRouteRule,
 };
 use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::stream_identity::{identity_matches, stream_display_label, stream_identity_key};
@@ -27,6 +27,7 @@ struct CandidateRule {
     match_reasons: Vec<String>,
     priority: i32,
     source: RouteSource,
+    fallback_policy: FallbackPolicy,
 }
 
 pub fn default_category(stream: &Stream) -> Option<&'static str> {
@@ -225,6 +226,7 @@ fn collect_stream_candidates(
                 match_reasons: reasons,
                 priority: rule.priority,
                 source: RouteSource::AuthoredRule,
+                fallback_policy: rule.safeguards.fallback_policy.clone(),
             });
         }
     }
@@ -238,12 +240,58 @@ fn collect_stream_candidates(
                 match_reasons: reasons,
                 priority: -1_000 - index as i32,
                 source: RouteSource::PersistedRule,
+                fallback_policy: FallbackPolicy::KeepCurrent,
             });
         }
     }
 
     candidates.sort_by(|left, right| right.priority.cmp(&left.priority));
     candidates
+}
+
+fn find_safe_default_device(graph: &RuntimeGraph, direction: StreamDirection) -> Option<Device> {
+    let device_direction = match direction {
+        StreamDirection::Playback => DeviceDirection::Output,
+        StreamDirection::Capture => DeviceDirection::Input,
+    };
+
+    let mut physical = graph
+        .devices
+        .iter()
+        .filter(|device| {
+            device.kind == DeviceKind::Physical
+                && device.direction == device_direction
+                && !device.system_name.starts_with("pipe-deck-feed-")
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    physical.sort_by(|left, right| left.label.cmp(&right.label));
+    physical.into_iter().next()
+}
+
+fn resolve_target_device(
+    graph: &RuntimeGraph,
+    stream: &Stream,
+    winner: &CandidateRule,
+) -> Option<(Device, Option<String>)> {
+    for system_name in &winner.target_system_names {
+        if let Some(device) = find_device_by_system_name(graph, system_name) {
+            return Some((device.clone(), None));
+        }
+    }
+
+    match winner.fallback_policy {
+        FallbackPolicy::KeepCurrent => None,
+        FallbackPolicy::SafeDefault => find_safe_default_device(graph, stream.direction.clone()).map(|device| {
+            (
+                device.clone(),
+                Some(format!(
+                    "Target unavailable; fell back to safe default ({})",
+                    device.label
+                )),
+            )
+        }),
+    }
 }
 
 fn persisted_rule_display_name() -> String {
@@ -516,11 +564,8 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         }
 
-        let target_system_name = explanation
-            .target_system_name
-            .clone()
-            .or_else(|| explanation.target_system_names.first().cloned());
-        let Some(target_system_name) = target_system_name else {
+        let candidates = collect_stream_candidates(&stream, &authored_rules, &persisted_rules);
+        let Some(winner) = candidates.first() else {
             explanation.action_status = ActionStatus::NoAction;
             if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
                 stream_mut.route_explanation = Some(explanation);
@@ -528,15 +573,19 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         };
 
-        let Some(target_device) =
-            find_device_by_system_name(graph, &target_system_name).cloned()
-        else {
+        let Some((target_device, fallback_note)) = resolve_target_device(graph, &stream, winner) else {
             explanation.action_status = ActionStatus::TargetUnavailable;
             if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
                 stream_mut.route_explanation = Some(explanation);
             }
             continue;
         };
+
+        if let Some(note) = fallback_note {
+            explanation.match_reasons.push(note);
+            explanation.target_system_name = Some(target_device.system_name.clone());
+            explanation.target_system_names = vec![target_device.system_name.clone()];
+        }
 
         if stream.current_target.as_deref() == Some(target_device.id.as_str()) {
             explanation.action_status = ActionStatus::Applied;
@@ -668,17 +717,26 @@ pub fn simulate_rules(
         .filter(|stream| !stream.is_system)
         .map(|stream| {
             let is_recent = stream.id.starts_with("recent-");
-            let explanation = evaluate_stream_route(
+            let mut explanation = evaluate_stream_route(
                 &stream,
                 &config.rules,
                 &config.routing_rules.stream_rules,
                 &HashSet::new(),
             );
-            let would_target_device_id = explanation
-                .target_system_name
-                .as_ref()
-                .and_then(|system_name| find_device_by_system_name(graph, system_name))
-                .map(|device| device.id.clone());
+            let candidates =
+                collect_stream_candidates(&stream, &config.rules, &config.routing_rules.stream_rules);
+            let resolved = candidates
+                .first()
+                .and_then(|winner| resolve_target_device(graph, &stream, winner));
+            let would_target_device_id = resolved.as_ref().map(|(device, _)| device.id.clone());
+            if let Some((device, fallback_note)) = resolved {
+                if let Some(note) = fallback_note {
+                    explanation.match_reasons.push(note);
+                    explanation.target_system_name = Some(device.system_name.clone());
+                    explanation.target_system_names = vec![device.system_name.clone()];
+                    explanation.action_status = ActionStatus::Simulated;
+                }
+            }
             SimulationResult {
                 stream_id: stream.id.clone(),
                 stream_label: stream_display_label(&stream),
@@ -770,6 +828,8 @@ mod tests {
             current_targets: Vec::new(),
             media_name: media_name.map(str::to_string),
             is_system: false,
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         }
     }
@@ -889,6 +949,8 @@ mod tests {
             current_targets: Vec::new(),
             media_name: None,
             is_system: false,
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         };
         let graph = RuntimeGraph {
@@ -981,5 +1043,77 @@ mod tests {
 
         let by_exe = sample_stream("Player", Some("pw-play"), None);
         assert!(stream_matches_authored_rule(&by_exe, &rule).is_some());
+    }
+
+    fn graph_with_outputs() -> RuntimeGraph {
+        RuntimeGraph {
+            devices: vec![
+                Device {
+                    id: "speakers".into(),
+                    system_name: "alsa-speakers".into(),
+                    label: "Speakers".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+                Device {
+                    id: "hdmi".into(),
+                    system_name: "hdmi-out".into(),
+                    label: "HDMI".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: None,
+                    muted: None,
+                    current_target: None,
+                    current_targets: Vec::new(),
+                },
+            ],
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "pipewire".into(),
+            notice: None,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn keep_current_skips_when_rule_target_missing() {
+        let graph = graph_with_outputs();
+        let stream = sample_stream("Firefox", Some("firefox"), None);
+        let winner = CandidateRule {
+            key: "Firefox".into(),
+            rule_id: Some("rule-1".into()),
+            target_system_names: vec!["missing-sink".into()],
+            match_reasons: vec!["app_name == Firefox".into()],
+            priority: 10,
+            source: RouteSource::AuthoredRule,
+            fallback_policy: FallbackPolicy::KeepCurrent,
+        };
+
+        assert!(resolve_target_device(&graph, &stream, &winner).is_none());
+    }
+
+    #[test]
+    fn safe_default_falls_back_to_physical_output() {
+        let graph = graph_with_outputs();
+        let stream = sample_stream("Firefox", Some("firefox"), None);
+        let winner = CandidateRule {
+            key: "Firefox".into(),
+            rule_id: Some("rule-1".into()),
+            target_system_names: vec!["missing-sink".into()],
+            match_reasons: vec!["app_name == Firefox".into()],
+            priority: 10,
+            source: RouteSource::AuthoredRule,
+            fallback_policy: FallbackPolicy::SafeDefault,
+        };
+
+        let (device, note) = resolve_target_device(&graph, &stream, &winner).expect("fallback");
+        assert_eq!(device.id, "hdmi");
+        assert!(note.is_some());
     }
 }

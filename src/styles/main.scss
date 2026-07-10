@@ -2,6 +2,8 @@
 @use "base";
 @use "app";
 @use "views/dashboard";
+@use "views/mixer";
+@use "views/effects";
 @use "views/profiles";
 @use "components/routing-matrix";
 @use "components/stream-route-picker";

@@ -108,26 +108,3 @@
   font-size: 0.85rem;
   color: var(--text-muted);
 }
-
-.effects-view {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.effects-panel {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface-1);
-  padding: 1rem 1.1rem;
-}
-
-.effects-panel h2 {
-  margin: 0 0 0.5rem;
-  font-size: 1.1rem;
-}
-
-.effects-panel p {
-  margin: 0;
-  color: var(--text-muted);
-}

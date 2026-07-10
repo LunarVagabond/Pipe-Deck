@@ -1,18 +1,6 @@
+use crate::core::models::EffectChainConfig;
 use crate::pipewire::adapter::AdapterError;
-use serde::{Deserialize, Serialize};
 use std::process::Command;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct EffectChainConfig {
-    #[serde(default)]
-    pub eq_low: i32,
-    #[serde(default)]
-    pub eq_mid: i32,
-    #[serde(default)]
-    pub eq_high: i32,
-    #[serde(default)]
-    pub compressor: bool,
-}
 
 pub fn is_pipe_deck_device(system_name: &str) -> bool {
     system_name.starts_with("pipe-deck-")
@@ -20,30 +8,38 @@ pub fn is_pipe_deck_device(system_name: &str) -> bool {
         && !system_name.starts_with("pipe-deck-split-")
 }
 
+/// Apply or unload an effect chain. Returns `Ok(None)` on success, `Ok(Some(warning))` when
+/// config is persisted but PipeWire could not load the filter chain (graceful degradation).
 pub fn apply_effect_chain(
     device_system_name: &str,
     config: &EffectChainConfig,
-) -> Result<(), AdapterError> {
+) -> Result<Option<String>, AdapterError> {
     if !is_pipe_deck_device(device_system_name) {
         return Err(AdapterError::Message(
             "effects may only be applied to pipe-deck-owned devices".into(),
         ));
     }
 
-    // MVP: store config in plugin state; PipeWire filter-chain integration is best-effort
-    // when module-filter-chain and LADSPA plugins are available on the host.
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
-        return Ok(());
+        return Ok(None);
+    }
+
+    if !config.is_active() {
+        unload_filter_chain(device_system_name)?;
+        return Ok(None);
     }
 
     let graph = build_filter_graph(device_system_name, config);
     let _ = unload_filter_chain(device_system_name);
-    run_pactl_load_module(&[
+    match run_pactl_load_module(&[
         "load-module",
         "module-filter-chain",
         &format!("sink_name={device_system_name}-fx"),
         &format!("filter.graph={graph}"),
-    ])
+    ]) {
+        Ok(()) => Ok(None),
+        Err(error) => Ok(Some(error.to_string())),
+    }
 }
 
 pub fn unload_filter_chain(device_system_name: &str) -> Result<(), AdapterError> {
@@ -102,8 +98,15 @@ fn run_pactl_load_module(args: &[&str]) -> Result<(), AdapterError> {
     if output.status.success() {
         return Ok(());
     }
-    // Filter chain may be unavailable without LADSPA — non-fatal for MVP.
-    Ok(())
+    let detail = String::from_utf8_lossy(&output.stderr)
+        .trim()
+        .to_string();
+    let message = if detail.is_empty() {
+        "module-filter-chain or LADSPA plugins unavailable on this host".into()
+    } else {
+        format!("filter-chain unavailable: {detail}")
+    };
+    Err(AdapterError::Message(message))
 }
 
 #[cfg(test)]
@@ -130,5 +133,11 @@ mod tests {
         );
         assert!(graph.contains("pipe-deck-test-capture"));
         assert!(graph.contains("control.0=1"));
+    }
+
+    #[test]
+    fn inactive_chain_is_not_active() {
+        let config = EffectChainConfig::default();
+        assert!(!config.is_active());
     }
 }

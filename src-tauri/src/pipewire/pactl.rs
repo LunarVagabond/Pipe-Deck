@@ -13,6 +13,8 @@ pub struct PactlSinkInput {
     pub node_name: Option<String>,
     pub media_name: Option<String>,
     pub sink_index: Option<u32>,
+    pub volume_percent: Option<u8>,
+    pub muted: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -23,6 +25,8 @@ pub struct PactlSourceOutput {
     pub node_name: Option<String>,
     pub media_name: Option<String>,
     pub source_index: Option<u32>,
+    pub volume_percent: Option<u8>,
+    pub muted: Option<bool>,
 }
 
 pub fn list_sink_inputs() -> Vec<PactlSinkInput> {
@@ -344,6 +348,60 @@ pub fn set_device_mute(device_id: &str, graph: &RuntimeGraph, muted: bool) -> Re
         }
         DeviceDirection::Input => {
             run_pactl(&["set-source-mute", &device.system_name, flag])?;
+        }
+    }
+    Ok(())
+}
+
+pub fn set_stream_volume(
+    graph: &RuntimeGraph,
+    stream_id: &str,
+    percent: u8,
+) -> Result<(), AdapterError> {
+    let stream = graph
+        .streams
+        .iter()
+        .find(|stream| stream.id == stream_id)
+        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+
+    let volume_arg = format!("{}%", percent.min(100));
+    match stream.direction {
+        StreamDirection::Playback => {
+            let index = find_sink_input_index(graph, stream)?;
+            run_pactl(&["set-sink-input-volume", &index.to_string(), &volume_arg])?;
+        }
+        StreamDirection::Capture => {
+            let index = find_source_output_index(graph, stream)?;
+            run_pactl(&[
+                "set-source-output-volume",
+                &index.to_string(),
+                &volume_arg,
+            ])?;
+        }
+    }
+    Ok(())
+}
+
+pub fn set_stream_mute(
+    graph: &RuntimeGraph,
+    stream_id: &str,
+    muted: bool,
+) -> Result<(), AdapterError> {
+    let stream = graph
+        .streams
+        .iter()
+        .find(|stream| stream.id == stream_id)
+        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+
+    let flag = if muted { "1" } else { "0" };
+    match stream.direction {
+        StreamDirection::Playback => {
+            let index = find_sink_input_index(graph, stream)?;
+            run_pactl(&["set-sink-input-mute", &index.to_string(), flag])?;
+        }
+        StreamDirection::Capture => {
+            let index = find_source_output_index(graph, stream)?;
+            run_pactl(&["set-source-output-mute", &index.to_string(), flag])?;
         }
     }
     Ok(())
@@ -709,6 +767,8 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
     let mut current_node = None;
     let mut current_media = None;
     let mut current_sink = None;
+    let mut current_volume = None;
+    let mut current_muted = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -722,11 +782,15 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
                         node_name: current_node.take(),
                         media_name: current_media.take(),
                         sink_index: current_sink.take(),
+                        volume_percent: current_volume.take(),
+                        muted: current_muted.take(),
                     });
                 }
             }
             current_index = rest.parse().ok();
             current_executable = None;
+            current_volume = None;
+            current_muted = None;
             continue;
         }
         if let Some(rest) = line.strip_prefix("application.name = ") {
@@ -747,6 +811,14 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
         }
         if let Some(rest) = line.strip_prefix("Sink: ") {
             current_sink = rest.trim().parse().ok();
+            continue;
+        }
+        if line.starts_with("Volume:") {
+            current_volume = extract_volume_percent(line);
+            continue;
+        }
+        if line.starts_with("Mute:") {
+            current_muted = Some(line.contains("yes"));
         }
     }
 
@@ -759,6 +831,8 @@ fn parse_sink_inputs() -> Vec<PactlSinkInput> {
                 node_name: current_node,
                 media_name: current_media,
                 sink_index: current_sink,
+                volume_percent: current_volume,
+                muted: current_muted,
             });
         }
     }
@@ -780,6 +854,8 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
     let mut current_node = None;
     let mut current_media = None;
     let mut current_source = None;
+    let mut current_volume = None;
+    let mut current_muted = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -793,11 +869,15 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
                         node_name: current_node.take(),
                         media_name: current_media.take(),
                         source_index: current_source.take(),
+                        volume_percent: current_volume.take(),
+                        muted: current_muted.take(),
                     });
                 }
             }
             current_index = rest.parse().ok();
             current_executable = None;
+            current_volume = None;
+            current_muted = None;
             continue;
         }
         if let Some(rest) = line.strip_prefix("application.name = ") {
@@ -818,6 +898,14 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
         }
         if let Some(rest) = line.strip_prefix("Source: ") {
             current_source = rest.trim().parse().ok();
+            continue;
+        }
+        if line.starts_with("Volume:") {
+            current_volume = extract_volume_percent(line);
+            continue;
+        }
+        if line.starts_with("Mute:") {
+            current_muted = Some(line.contains("yes"));
         }
     }
 
@@ -830,11 +918,20 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
                 node_name: current_node,
                 media_name: current_media,
                 source_index: current_source,
+                volume_percent: current_volume,
+                muted: current_muted,
             });
         }
     }
 
     outputs
+}
+
+fn extract_volume_percent(line: &str) -> Option<u8> {
+    line.split('/')
+        .nth(1)
+        .and_then(|part| part.trim().strip_suffix('%'))
+        .and_then(|value| value.trim().parse().ok())
 }
 
 #[cfg(test)]

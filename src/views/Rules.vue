@@ -544,6 +544,14 @@ onMounted(loadRules);
                   </option>
                 </select>
               </label>
+
+              <label>
+                <span class="field-label">If target unavailable</span>
+                <select v-model="draft.safeguards.fallback_policy">
+                  <option value="keep_current">Keep current route</option>
+                  <option value="safe_default">Route to safe default device</option>
+                </select>
+              </label>
             </div>
 
             <div class="rule-conditions-editor">

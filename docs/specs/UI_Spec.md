@@ -125,6 +125,7 @@ Connection lines draw between linked nodes. Authored policies are managed in the
 - Reference asset: `docs/assets/mockups/InitialMockup.png`
 - Visual language is dark-first with high-contrast accents and compact control density.
 - Primary navigation model: Dashboard, Routing, Mixer, Sources, Effects, Profiles, Settings.
+- **North-star navigation:** Routing, Mixer, and Sources appear in the sidebar before their dedicated views ship. They stay visible but disabled so the product direction is obvious; enable each item when its view reaches acceptance criteria (see `docs/product/Roadmap.md` Phase 6–8).
 
 ### Candidate Color Schemes
 

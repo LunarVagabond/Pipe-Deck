@@ -1,9 +1,11 @@
 use crate::config::profile_store::{import_profile_archive, ProfileStore};
 use crate::config::ConfigStore;
 use crate::core::models::{
-    ApplyResult, DeviceDirection, DeviceRouteIntent, PluginStatus, Profile, ProfileIndexEntry,
-    RoutingDrift, RoutingIntent, RuntimeGraph, Rule, SimulationResult, VirtualDeviceResult,
+    ApplyResult, DeviceDirection, DeviceRouteIntent, EffectChainConfig, PluginStatus, Profile,
+    ProfileIndexEntry, RoutingDrift, RoutingIntent, RuntimeGraph, Rule, SimulationResult,
+    VirtualDeviceResult,
 };
+use crate::core::effects::apply_profile_effects;
 use crate::core::profile::{capture_profile_from_graph, update_profile_timestamp};
 use crate::core::profile_drift::compare_profile_to_graph;
 use crate::core::restore::{self, spec_from_create_result};
@@ -16,6 +18,7 @@ use crate::core::routing::{
 };
 use crate::plugins::PluginManager;
 use crate::pipewire::adapter::PipeWireAdapter;
+use crate::pipewire::filter_chain;
 use crate::pipewire::pactl;
 use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
 use std::collections::{HashMap, HashSet};
@@ -109,6 +112,9 @@ impl CoreEngine {
             .map_err(|error| EngineError::Config(error.to_string()))?;
         if config.preferences.restore_on_startup {
             let _ = self.apply_desired_routing();
+        }
+        if self.graph.data_source != "mock" {
+            let _ = self.restore_effect_chains();
         }
         self.emit_graph_update(app);
 
@@ -340,6 +346,9 @@ impl CoreEngine {
 
         let display_name = name.unwrap_or_else(|| entry.name.clone());
         let mut profile = capture_profile_from_graph(&self.graph, profile_id, &display_name);
+        profile.effect_state = store
+            .effect_chains()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
 
         if let Ok(existing) = profile_store.load_profile(&entry) {
             profile.created = existing.created;
@@ -372,7 +381,10 @@ impl CoreEngine {
     ) -> Result<Profile, EngineError> {
         let store = ConfigStore::new();
         let profile_store = ProfileStore::new(store.config_dir().clone());
-        let profile = capture_profile_from_graph(&self.graph, profile_id, name);
+        let mut profile = capture_profile_from_graph(&self.graph, profile_id, name);
+        profile.effect_state = store
+            .effect_chains()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
         let entry = profile_store
             .save_profile_as(profile_id, name, &profile)
             .map_err(|error| EngineError::Profile(error.to_string()))?;
@@ -699,6 +711,17 @@ impl CoreEngine {
             apply_mock_profile_volumes(&mut self.graph, &profile);
         }
 
+        if self.graph.data_source != "mock" {
+            if let Ok(warnings) = apply_profile_effects(&self.graph, &profile) {
+                if let Err(error) = store.replace_effect_chains(profile.effect_state.clone()) {
+                    self.last_error = Some(error.to_string());
+                }
+                if let Some(warning) = warnings.into_iter().next() {
+                    self.last_error = Some(warning);
+                }
+            }
+        }
+
         store
             .set_active_profile(profile_id)
             .map_err(|error| EngineError::Config(error.to_string()))?;
@@ -739,6 +762,128 @@ impl CoreEngine {
         pactl::set_device_mute(device_id, &self.graph, muted)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         self.refresh_graph()?;
+        Ok(())
+    }
+
+    pub fn set_stream_volume(&mut self, stream_id: &str, percent: u8) -> Result<(), EngineError> {
+        if self.graph.data_source == "mock" {
+            if let Some(stream) = self.graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
+                stream.volume_percent = Some(percent.min(100));
+                return Ok(());
+            }
+            return Err(EngineError::Adapter(format!("stream not found: {stream_id}")));
+        }
+
+        pactl::set_stream_volume(&self.graph, stream_id, percent)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        self.refresh_graph()?;
+        Ok(())
+    }
+
+    pub fn set_stream_mute(&mut self, stream_id: &str, muted: bool) -> Result<(), EngineError> {
+        if self.graph.data_source == "mock" {
+            if let Some(stream) = self.graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
+                stream.muted = Some(muted);
+                return Ok(());
+            }
+            return Err(EngineError::Adapter(format!("stream not found: {stream_id}")));
+        }
+
+        pactl::set_stream_mute(&self.graph, stream_id, muted)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        self.refresh_graph()?;
+        Ok(())
+    }
+
+    pub fn get_effect_chains(&self) -> Result<HashMap<String, EffectChainConfig>, EngineError> {
+        ConfigStore::new()
+            .effect_chains()
+            .map_err(|error| EngineError::Config(error.to_string()))
+    }
+
+    pub fn set_device_effects(
+        &mut self,
+        device_id: &str,
+        config: EffectChainConfig,
+    ) -> Result<ApplyResult, EngineError> {
+        let device = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == device_id)
+            .ok_or_else(|| EngineError::Adapter(format!("device not found: {device_id}")))?;
+
+        if !filter_chain::is_pipe_deck_device(&device.system_name) {
+            return Err(EngineError::Adapter(
+                "effects may only be applied to pipe-deck virtual devices".into(),
+            ));
+        }
+
+        let store = ConfigStore::new();
+        if config.is_active() {
+            store
+                .set_effect_chain(device_id, &config)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        } else {
+            store
+                .remove_effect_chain(device_id)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        if self.graph.data_source == "mock" {
+            return Ok(ApplyResult {
+                success: true,
+                message: None,
+            });
+        }
+
+        match filter_chain::apply_effect_chain(&device.system_name, &config) {
+            Ok(None) => Ok(ApplyResult {
+                success: true,
+                message: None,
+            }),
+            Ok(Some(warning)) => Ok(ApplyResult {
+                success: true,
+                message: Some(warning),
+            }),
+            Err(error) => Err(EngineError::Adapter(error.to_string())),
+        }
+    }
+
+    pub fn restore_effect_chains(&mut self) -> Result<(), EngineError> {
+        let store = ConfigStore::new();
+        let chains = store
+            .effect_chains()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        for (device_id, config) in chains {
+            let system_name = self
+                .graph
+                .devices
+                .iter()
+                .find(|device| device.id == device_id)
+                .map(|device| device.system_name.clone())
+                .or_else(|| {
+                    store.virtual_devices().into_iter().find_map(|spec| {
+                        if spec.id == device_id {
+                            Some(format!("pipe-deck-{}", spec.slug))
+                        } else {
+                            None
+                        }
+                    })
+                });
+
+            let Some(system_name) = system_name else {
+                continue;
+            };
+
+            if !filter_chain::is_pipe_deck_device(&system_name) {
+                continue;
+            }
+
+            let _ = filter_chain::apply_effect_chain(&system_name, &config);
+        }
+
         Ok(())
     }
 

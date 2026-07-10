@@ -70,6 +70,10 @@ pub struct Stream {
     #[serde(default)]
     pub is_system: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub volume_percent: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub muted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub route_explanation: Option<RouteExplanation>,
 }
 
@@ -414,6 +418,24 @@ pub struct VolumeStateEntry {
     pub muted: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct EffectChainConfig {
+    #[serde(default)]
+    pub eq_low: i32,
+    #[serde(default)]
+    pub eq_mid: i32,
+    #[serde(default)]
+    pub eq_high: i32,
+    #[serde(default)]
+    pub compressor: bool,
+}
+
+impl EffectChainConfig {
+    pub fn is_active(&self) -> bool {
+        self.compressor || self.eq_low != 0 || self.eq_mid != 0 || self.eq_high != 0
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Profile {
     pub version: u32,
@@ -426,6 +448,8 @@ pub struct Profile {
     pub volume_state: std::collections::HashMap<String, VolumeStateEntry>,
     #[serde(default)]
     pub device_assumptions: std::collections::HashMap<String, String>,
+    #[serde(default)]
+    pub effect_state: std::collections::HashMap<String, EffectChainConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

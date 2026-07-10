@@ -12,12 +12,14 @@ use crate::pipewire::pw_link;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
+const MONITOR_DEBOUNCE: Duration = Duration::from_millis(200);
 
 pub struct LivePipeWireAdapter {
     cached_graph: Arc<Mutex<RuntimeGraph>>,
@@ -59,31 +61,82 @@ impl PipeWireAdapter for LivePipeWireAdapter {
         let cached_graph = self.cached_graph.clone();
         let listener_slot = self.listener.clone();
         thread::spawn(move || {
-            loop {
-                thread::sleep(POLL_INTERVAL);
-                let Ok(next_graph) = enumerate_pipewire() else {
-                    continue;
-                };
-                let changed = {
-                    let mut current = cached_graph.lock().expect("graph lock poisoned");
-                    if *current != next_graph {
-                        *current = next_graph.clone();
-                        true
-                    } else {
-                        false
-                    }
-                };
-                if changed {
-                    if let Some(callback) =
-                        listener_slot.lock().expect("listener lock poisoned").as_ref()
-                    {
-                        callback(next_graph);
-                    }
-                }
+            if !run_pw_dump_monitor(&cached_graph, &listener_slot) {
+                run_poll_loop(&cached_graph, &listener_slot);
             }
         });
 
         Ok(())
+    }
+}
+
+fn notify_graph_listeners(
+    cached_graph: &Arc<Mutex<RuntimeGraph>>,
+    listener_slot: &Arc<Mutex<Option<GraphListener>>>,
+) {
+    let Ok(next_graph) = enumerate_pipewire() else {
+        return;
+    };
+    let changed = {
+        let mut current = cached_graph.lock().expect("graph lock poisoned");
+        if *current != next_graph {
+            *current = next_graph.clone();
+            true
+        } else {
+            false
+        }
+    };
+    if changed {
+        if let Some(callback) = listener_slot.lock().expect("listener lock poisoned").as_ref() {
+            callback(next_graph);
+        }
+    }
+}
+
+fn run_pw_dump_monitor(
+    cached_graph: &Arc<Mutex<RuntimeGraph>>,
+    listener_slot: &Arc<Mutex<Option<GraphListener>>>,
+) -> bool {
+    let mut child = match Command::new("pw-dump")
+        .args(["-m"])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => return false,
+    };
+
+    let Some(stdout) = child.stdout.take() else {
+        return false;
+    };
+
+    let reader = BufReader::new(stdout);
+    let mut last_refresh = Instant::now() - MONITOR_DEBOUNCE;
+
+    for line in reader.lines() {
+        if line.is_err() {
+            break;
+        }
+        let elapsed = last_refresh.elapsed();
+        if elapsed < MONITOR_DEBOUNCE {
+            thread::sleep(MONITOR_DEBOUNCE - elapsed);
+        }
+        last_refresh = Instant::now();
+        notify_graph_listeners(cached_graph, listener_slot);
+    }
+
+    let _ = child.kill();
+    false
+}
+
+fn run_poll_loop(
+    cached_graph: &Arc<Mutex<RuntimeGraph>>,
+    listener_slot: &Arc<Mutex<Option<GraphListener>>>,
+) {
+    loop {
+        thread::sleep(POLL_INTERVAL);
+        notify_graph_listeners(cached_graph, listener_slot);
     }
 }
 
@@ -202,6 +255,8 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     current_targets: Vec::new(),
                     media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
+                    volume_percent: None,
+                    muted: None,
                     route_explanation: None,
                 });
                 continue;
@@ -225,6 +280,8 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
                     current_targets: Vec::new(),
                     media_name: stream_media_name(&props),
                     is_system: is_system_stream(&props),
+                    volume_percent: None,
+                    muted: None,
                     route_explanation: None,
                 });
                 continue;
@@ -344,6 +401,39 @@ fn normalize_pw_dump(objects: &[PwDumpObject]) -> RuntimeGraph {
 fn finalize_graph(graph: &mut RuntimeGraph) {
     apply_device_aliases(&mut graph.devices);
     apply_device_levels(&mut graph.devices);
+    apply_pactl_stream_levels(graph);
+}
+
+fn apply_pactl_stream_levels(graph: &mut RuntimeGraph) {
+    let sink_inputs: std::collections::HashMap<u32, pactl::PactlSinkInput> = pactl::list_sink_inputs()
+        .into_iter()
+        .map(|input| (input.index, input))
+        .collect();
+    let source_outputs: std::collections::HashMap<u32, pactl::PactlSourceOutput> =
+        pactl::list_source_outputs()
+            .into_iter()
+            .map(|output| (output.index, output))
+            .collect();
+
+    for stream in &mut graph.streams {
+        if let Some(rest) = stream.id.strip_prefix("pactl-sink-input-") {
+            if let Ok(index) = rest.parse::<u32>() {
+                if let Some(input) = sink_inputs.get(&index) {
+                    stream.volume_percent = input.volume_percent;
+                    stream.muted = input.muted;
+                }
+            }
+            continue;
+        }
+        if let Some(rest) = stream.id.strip_prefix("pactl-source-output-") {
+            if let Ok(index) = rest.parse::<u32>() {
+                if let Some(output) = source_outputs.get(&index) {
+                    stream.volume_percent = output.volume_percent;
+                    stream.muted = output.muted;
+                }
+            }
+        }
+    }
 }
 
 /// Refresh volume/mute from pactl. Virtual pipe-deck devices are merged after pw-dump
@@ -658,6 +748,8 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
             current_targets: Vec::new(),
             media_name: input.media_name.clone(),
             is_system: is_system_stream_name(&input.application_name, &input.node_name),
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         });
     }
@@ -723,6 +815,8 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
             current_targets: Vec::new(),
             media_name: output.media_name.clone(),
             is_system: is_system_stream_name(&output.application_name, &output.node_name),
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         });
     }
@@ -1094,6 +1188,8 @@ mod tests {
             current_targets: target.clone().into_iter().collect(),
             media_name: None,
             is_system: false,
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         });
         apply_routing_visual_links(&mut graph);

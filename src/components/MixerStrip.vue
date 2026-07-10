@@ -4,11 +4,17 @@ import { invoke } from "@tauri-apps/api/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
-import type { Device } from "../types/graph";
+import type { Device, Stream } from "../types/graph";
 
-const props = defineProps<{
-  devices: Device[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    devices: Device[];
+    streams?: Stream[];
+  }>(),
+  {
+    streams: () => [],
+  },
+);
 
 const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
@@ -21,14 +27,15 @@ let debounceTimers: Record<string, number> = {};
 interface MixerChannel {
   id: string;
   label: string;
-  systemName: string;
-  direction: Device["direction"];
-  kind: Device["kind"];
+  systemName?: string;
+  direction: Device["direction"] | Stream["direction"];
+  kind?: Device["kind"];
+  channelType: "device" | "stream";
   level: number;
   muted: boolean;
 }
 
-function toChannel(device: Device): MixerChannel | null {
+function toDeviceChannel(device: Device): MixerChannel | null {
   if (device.volume_percent === undefined) {
     return null;
   }
@@ -39,31 +46,59 @@ function toChannel(device: Device): MixerChannel | null {
     systemName: device.system_name,
     direction: device.direction,
     kind: device.kind,
+    channelType: "device",
     level: pendingVolumes.value[device.id] ?? device.volume_percent,
     muted: device.muted ?? false,
+  };
+}
+
+function toStreamChannel(stream: Stream): MixerChannel | null {
+  if (stream.volume_percent === undefined || stream.is_system) {
+    return null;
+  }
+
+  return {
+    id: stream.id,
+    label: stream.media_name
+      ? `${stream.app_name} (${stream.media_name})`
+      : stream.app_name,
+    direction: stream.direction,
+    channelType: "stream",
+    level: pendingVolumes.value[stream.id] ?? stream.volume_percent,
+    muted: stream.muted ?? false,
   };
 }
 
 const outputChannels = computed(() =>
   props.devices
     .filter((device) => device.direction === "output")
-    .map(toChannel)
+    .map(toDeviceChannel)
     .filter((channel): channel is MixerChannel => channel !== null),
 );
 
 const inputChannels = computed(() =>
   props.devices
     .filter((device) => device.direction === "input")
-    .map(toChannel)
+    .map(toDeviceChannel)
+    .filter((channel): channel is MixerChannel => channel !== null),
+);
+
+const applicationChannels = computed(() =>
+  props.streams
+    .map(toStreamChannel)
     .filter((channel): channel is MixerChannel => channel !== null),
 );
 
 const hasChannels = computed(
-  () => outputChannels.value.length > 0 || inputChannels.value.length > 0,
+  () =>
+    outputChannels.value.length > 0 ||
+    inputChannels.value.length > 0 ||
+    applicationChannels.value.length > 0,
 );
 
 const mixerSections = computed(() =>
   [
+    { title: "Applications", channels: applicationChannels.value },
     { title: "Outputs", channels: outputChannels.value },
     { title: "Inputs", channels: inputChannels.value },
   ].filter((section) => section.channels.length > 0),
@@ -73,11 +108,18 @@ function clampVolume(value: number) {
   return Math.min(100, Math.max(0, Math.round(value)));
 }
 
-async function applyVolume(deviceId: string, percent: number) {
+async function applyVolume(channel: MixerChannel, percent: number) {
   const next = clampVolume(percent);
-  pendingVolumes.value[deviceId] = next;
+  pendingVolumes.value[channel.id] = next;
+  const command =
+    channel.channelType === "stream" ? "set_stream_volume" : "set_device_volume";
+  const payload =
+    channel.channelType === "stream"
+      ? { streamId: channel.id, percent: next }
+      : { deviceId: channel.id, percent: next };
+
   try {
-    await invoke("set_device_volume", { deviceId, percent: next });
+    await invoke(command, payload);
   } catch (error) {
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
@@ -86,11 +128,11 @@ async function applyVolume(deviceId: string, percent: number) {
   }
 }
 
-function scheduleVolume(deviceId: string, percent: number) {
-  pendingVolumes.value[deviceId] = clampVolume(percent);
-  window.clearTimeout(debounceTimers[deviceId]);
-  debounceTimers[deviceId] = window.setTimeout(() => {
-    void applyVolume(deviceId, pendingVolumes.value[deviceId]);
+function scheduleVolume(channel: MixerChannel, percent: number) {
+  pendingVolumes.value[channel.id] = clampVolume(percent);
+  window.clearTimeout(debounceTimers[channel.id]);
+  debounceTimers[channel.id] = window.setTimeout(() => {
+    void applyVolume(channel, pendingVolumes.value[channel.id]);
   }, 120);
 }
 
@@ -116,12 +158,19 @@ async function commitVolumeEdit(channel: MixerChannel) {
   const parsed = Number(volumeDraft.value);
   const percent = Number.isFinite(parsed) ? clampVolume(parsed) : channel.level;
   editingVolumeId.value = null;
-  await applyVolume(channel.id, percent);
+  await applyVolume(channel, percent);
 }
 
 async function toggleMute(channel: MixerChannel) {
+  const command =
+    channel.channelType === "stream" ? "set_stream_mute" : "set_device_mute";
+  const payload =
+    channel.channelType === "stream"
+      ? { streamId: channel.id, muted: !channel.muted }
+      : { deviceId: channel.id, muted: !channel.muted };
+
   try {
-    await invoke("set_device_mute", { deviceId: channel.id, muted: !channel.muted });
+    await invoke(command, payload);
     handleApplyResult({ success: true }, channel.muted ? "Unmuted" : "Muted");
   } catch (error) {
     handleApplyResult(
@@ -132,6 +181,9 @@ async function toggleMute(channel: MixerChannel) {
 }
 
 async function saveRename(channel: MixerChannel, alias: string) {
+  if (!channel.systemName) {
+    return;
+  }
   try {
     await invoke("set_device_alias", { systemName: channel.systemName, alias });
     handleApplyResult({ success: true }, "Device renamed");
@@ -144,6 +196,9 @@ async function saveRename(channel: MixerChannel, alias: string) {
 }
 
 async function removeVirtual(channel: MixerChannel) {
+  if (!channel.systemName) {
+    return;
+  }
   const confirmed = await confirm(`Delete virtual device "${channel.label}"?`, {
     title: "Delete virtual device",
     confirmLabel: "Delete",
@@ -203,6 +258,11 @@ async function removeVirtual(channel: MixerChannel) {
                 </button>
               </div>
               <div class="volume-vertical-wrap">
+                <div
+                  class="meter-fill"
+                  :style="{ height: `${channel.level}%` }"
+                  aria-hidden="true"
+                />
                 <input
                   type="range"
                   class="volume-vertical"
@@ -210,12 +270,13 @@ async function removeVirtual(channel: MixerChannel) {
                   max="100"
                   :value="channel.level"
                   :aria-label="`${channel.label} volume`"
-                  @input="scheduleVolume(channel.id, Number(($event.target as HTMLInputElement).value))"
+                  @input="scheduleVolume(channel, Number(($event.target as HTMLInputElement).value))"
                 />
               </div>
             </div>
             <div class="channel-footer">
               <NodeCardHeader
+                v-if="channel.channelType === 'device'"
                 layout="stacked"
                 show-label-tooltip
                 :label="channel.label"
@@ -236,6 +297,18 @@ async function removeVirtual(channel: MixerChannel) {
                   </button>
                 </template>
               </NodeCardHeader>
+              <div v-else class="stream-channel-footer">
+                <p class="stream-channel-label" :title="channel.label">{{ channel.label }}</p>
+                <button
+                  type="button"
+                  class="mute"
+                  :class="{ active: channel.muted }"
+                  :aria-label="channel.muted ? 'Muted' : 'Unmuted'"
+                  @click="toggleMute(channel)"
+                >
+                  {{ channel.muted ? "🔇" : "🔊" }}
+                </button>
+              </div>
             </div>
           </article>
         </div>

@@ -73,6 +73,7 @@ mod tests {
             }],
             volume_state: Default::default(),
             device_assumptions: Default::default(),
+            effect_state: Default::default(),
         };
         let graph = RuntimeGraph {
             devices: vec![
@@ -112,6 +113,8 @@ mod tests {
                 current_targets: Vec::new(),
                 media_name: None,
                 is_system: false,
+                volume_percent: None,
+                muted: None,
                 route_explanation: None,
             }],
             links: Vec::new(),

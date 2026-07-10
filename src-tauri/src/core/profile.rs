@@ -45,6 +45,7 @@ pub fn capture_profile_from_graph(graph: &RuntimeGraph, id: &str, name: &str) ->
         routing_intents,
         volume_state,
         device_assumptions,
+        effect_state: HashMap::new(),
     }
 }
 

@@ -74,6 +74,8 @@ impl RecentStreamCache {
                 current_targets: Vec::new(),
                 media_name: entry.media_name.clone(),
                 is_system: entry.is_system,
+                volume_percent: None,
+                muted: None,
                 route_explanation: None,
             })
             .collect()
@@ -158,6 +160,8 @@ mod tests {
             current_targets: Vec::new(),
             media_name: None,
             is_system: false,
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         }
     }

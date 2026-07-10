@@ -4,6 +4,7 @@ pub mod core;
 pub mod daemon;
 pub mod pipewire;
 pub mod plugins;
+pub mod tray;
 
 use core::engine::CoreEngine;
 use std::sync::Arc;
@@ -53,6 +54,10 @@ pub fn run() {
             commands::rules::apply_rules,
             commands::mixer::set_device_volume,
             commands::mixer::set_device_mute,
+            commands::mixer::set_stream_volume,
+            commands::mixer::set_stream_mute,
+            commands::effects::set_device_effects,
+            commands::effects::get_effect_chains,
             commands::virtual_device::create_virtual_output,
             commands::virtual_device::create_virtual_multi_output,
             commands::virtual_device::create_virtual_input,
@@ -67,6 +72,9 @@ pub fn run() {
             commands::plugins::list_plugin_ui_panels,
         ])
         .setup(|app| {
+            tray::setup_tray(app)?;
+            tray::attach_close_to_tray(&app.handle());
+
             let handle = app.handle().clone();
             let engine_arc = app.state::<AppState>().engine.clone();
 

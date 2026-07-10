@@ -1,5 +1,6 @@
 pub mod config;
 pub mod daemon;
+pub mod effects;
 pub mod graph;
 pub mod mixer;
 pub mod plugins;

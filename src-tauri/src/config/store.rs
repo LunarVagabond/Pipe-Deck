@@ -1,6 +1,6 @@
 use crate::core::models::{
-    AppConfig, DeviceAliasEntry, Preferences, ProfileIndexEntry, Rule, RoutingRulesConfig,
-    VirtualDeviceSpec,
+    AppConfig, DeviceAliasEntry, EffectChainConfig, PluginEntry, Preferences, ProfileIndexEntry,
+    Rule, RoutingRulesConfig, VirtualDeviceSpec,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -18,6 +18,8 @@ pub enum ConfigError {
 pub struct ConfigStore {
     config_dir: PathBuf,
 }
+
+const EFFECTS_PLUGIN_ID: &str = "pipe-deck-effects";
 
 impl ConfigStore {
     pub fn new() -> Self {
@@ -264,12 +266,72 @@ impl ConfigStore {
         rule.enabled = enabled;
         self.save_config(&config)
     }
+
+    pub fn effect_chains(&self) -> Result<HashMap<String, EffectChainConfig>, ConfigError> {
+        let config = self.load_config()?;
+        Ok(Self::parse_effect_chains(&config))
+    }
+
+    pub fn set_effect_chain(
+        &self,
+        device_id: &str,
+        chain: &EffectChainConfig,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let mut chains = Self::parse_effect_chains(&config);
+        chains.insert(device_id.to_string(), chain.clone());
+        Self::write_effect_chains(&mut config, chains);
+        self.save_config(&config)
+    }
+
+    pub fn remove_effect_chain(&self, device_id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let mut chains = Self::parse_effect_chains(&config);
+        chains.remove(device_id);
+        Self::write_effect_chains(&mut config, chains);
+        self.save_config(&config)
+    }
+
+    pub fn replace_effect_chains(
+        &self,
+        chains: HashMap<String, EffectChainConfig>,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        Self::write_effect_chains(&mut config, chains);
+        self.save_config(&config)
+    }
+
+    fn parse_effect_chains(config: &AppConfig) -> HashMap<String, EffectChainConfig> {
+        config
+            .plugins
+            .get(EFFECTS_PLUGIN_ID)
+            .and_then(|entry| entry.config.get("chains"))
+            .and_then(|value| serde_json::from_value(value.clone()).ok())
+            .unwrap_or_default()
+    }
+
+    fn write_effect_chains(config: &mut AppConfig, chains: HashMap<String, EffectChainConfig>) {
+        let plugin = config
+            .plugins
+            .entry(EFFECTS_PLUGIN_ID.to_string())
+            .or_insert_with(PluginEntry::default);
+        let mut plugin_config = if plugin.config.is_object() {
+            plugin.config.as_object().cloned().unwrap_or_default()
+        } else {
+            serde_json::Map::new()
+        };
+        plugin_config.insert(
+            "chains".into(),
+            serde_json::to_value(chains).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+        );
+        plugin.config = serde_json::Value::Object(plugin_config);
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::VirtualDeviceSpec;
+    use crate::core::models::{EffectChainConfig, VirtualDeviceSpec};
     use std::fs;
     use std::sync::{Mutex, OnceLock};
 
@@ -321,6 +383,28 @@ mod tests {
             assert_eq!(loaded[0], spec);
             store.remove_virtual_device("virtual-test").unwrap();
             assert!(store.virtual_devices().is_empty());
+        });
+    }
+
+    #[test]
+    fn effect_chain_round_trip_persists() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            let chain = EffectChainConfig {
+                eq_low: 2,
+                eq_mid: -1,
+                eq_high: 0,
+                compressor: true,
+            };
+            store
+                .set_effect_chain("virtual-game", &chain)
+                .expect("save chain");
+            let loaded = store.effect_chains().expect("load chains");
+            assert_eq!(loaded.get("virtual-game"), Some(&chain));
+            store
+                .remove_effect_chain("virtual-game")
+                .expect("remove chain");
+            assert!(store.effect_chains().unwrap().is_empty());
         });
     }
 }

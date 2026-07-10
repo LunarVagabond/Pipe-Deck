@@ -70,10 +70,12 @@ Delivered beyond the original minimum:
 
 Explicit carry-over to later phases (not Phase 2 blockers):
 
-- Native PipeWire event subscription (still polling `pw-dump` at 1s)
-- Multi-output routing, monitor paths, first-run wizard, search
-- Full visual drag/connect routing editor (lines + dropdowns exist today)
-- Rule engine UI, explainability, simulation (see Phase 3)
+- Native PipeWire event subscription (still polling `pw-dump` at 1s) → **Phase 6**
+- Multi-output routing → **delivered Phase 5**
+- Monitor paths (visualization and dedicated Sources workflows) → **Phase 8**
+- First-run wizard, search → **Phase 6**
+- Full visual drag/connect routing editor (lines + dropdowns exist today) → **Phase 8**
+- Rule engine UI, explainability, simulation → **delivered Phase 3**
 
 ## Phase 3: Rules and Advanced Routing UX
 
@@ -114,10 +116,10 @@ Delivered:
 
 Explicit carry-over (not Phase 3 blockers):
 
-- Visual drag/connect routing graph editor
-- Tray / system quick controls
-- `safeguards.fallback_policy` enforcement in evaluation
-- Dedicated conflict-resolution UI beyond skipped-candidate explanations
+- Visual drag/connect routing graph editor → **Phase 8**
+- Tray / system quick controls → **Phase 6**
+- `safeguards.fallback_policy` enforcement in evaluation → **Phase 6**
+- Dedicated conflict-resolution UI beyond skipped-candidate explanations → **Phase 8**
 
 ## Phase 4: Persistence and Background Management
 
@@ -157,9 +159,9 @@ Explicit carry-over (not Phase 4 blockers):
 
 - apt/rpm repository publishing
 - Flatpak user-systemd background restore (documented limitation)
-- Native PipeWire event subscription (Phase 2 carry-over)
+- Native PipeWire event subscription (Phase 2 carry-over) → **Phase 6**
 
-**Phase 5 is ready to start.**
+**Phases 1–5 milestone gates passed. Phase 6 is active.**
 
 ## Phase 5: Ecosystem and Integrations
 
@@ -185,7 +187,7 @@ Explicit carry-over (not Phase 4 blockers):
 
 ### Phase 5 Status (2026-07-09)
 
-**Complete for milestone purposes.**
+**Scaffold complete for milestone purposes.** Plugin host, CLI, and multi-output routing are production-usable. First-party effects are **not** product-complete yet.
 
 Delivered:
 
@@ -193,24 +195,126 @@ Delivered:
 - `plugins:` config block with enablement and granted capabilities
 - Settings UI for plugin management
 - `pipe-deck` CLI binary with JSON output
-- Bundled `pipe-deck-effects` first-party plugin
-- Core multi-output routing via `pipe-deck-split-*` fan-out sinks
+- Bundled `pipe-deck-effects` plugin (**scaffold**: registers Effects nav panel; no live chain UI yet)
+- Core multi-output routing via virtual sink fan-out + `pw-link` monitor paths
+- `filter_chain.rs` backend hook (3-band EQ + compressor via PipeWire `module-filter-chain`, `pipe-deck-*` only)
 - `plugins/template`, `docs/project/Plugins.md`, `Plugin_Review_Checklist.md`
 
 Explicit out of scope (PD-016):
 
 - OBS / EasyEffects external integrations
 
+Explicit carry-over (see Phase 6–7):
+
+- Wire Effects UI to `filter_chain.rs` (Effects v0)
+- Full first-party processing suite (EQ, balance, dynamics, per-device chains on sinks and inputs)
+
+**Phase 6 is the active delivery phase.**
+
+## Phase 6: Consolidation and Core Polish
+
+### Scope
+
+- Make the current product trustworthy for daily use before large new subsystems.
+- Incremental Dashboard and mixer improvements without over-scoping a graph rewrite.
+- One bounded effects vertical slice on virtual devices.
+- Keep disabled sidebar destinations visible as a north-star map (Routing, Mixer, Sources, Effects); do not remove them until each view ships.
+
+### Implementation sequence
+
+1. **Stabilize** — routing, multi-sink fan-out, virtual device naming, mute/volume sync, profile save vs apply clarity.
+2. **Dashboard polish** — matrix grouping, wire clarity, collapsible sections; defer force-directed / Obsidian-style graph to Phase 8.
+3. **Mixer expansion** — dedicated **Mixer** view (extract dashboard strip, more room for channels); per-stream controls and meters later.
+4. **Effects v0** — per virtual device: 3-band EQ + compressor toggle via `filter_chain.rs`; minimal Effects panel UI.
+5. **Infrastructure** — replace 1s `pw-dump` polling with native PipeWire event subscription when ready.
+
+### Deliverables
+
+- Dashboard reliable enough for daily routing and level control.
+- Dedicated Mixer page (sidebar item enabled when shipped).
+- Effects v0 on `pipe-deck-*` virtual devices with profile-persisted chain config.
+- Native PipeWire subscription (or documented fallback if blocked).
+
+### Acceptance criteria
+
+- Multi-output virtual sinks route, mute, and unmute correctly end-to-end.
+- Virtual device display names with spaces work in UI and system audio lists.
+- User can set volume via slider or typed percent; mute state matches PipeWire.
+- Effects v0 applies and removes a filter chain on at least one virtual device without breaking routing.
+- Disabled nav items remain visible but inert until their view ships.
+
+### Carry-over from earlier phases (scheduled here)
+
+- Native PipeWire event subscription (Phase 2)
+- Device icons and categories (Phase 2)
+- Search and first-run wizard (Phase 2)
+- Tray / system quick controls (Phase 3)
+- `safeguards.fallback_policy` enforcement (Phase 3)
+- apt/rpm repository publishing (Phase 4)
+- Full Flatpak build in CI (Phase 4)
+
+## Phase 7: First-Party Processing
+
+### Scope
+
+- Full in-house effects stack (PD-015, PD-016): balancers, EQ, dynamics, faders, layered chains.
+- Attach processing to virtual devices first; expand to physical sinks and capture inputs.
+- No dependency on EasyEffects or other third-party audio control apps.
+- PipeWire `filter-chain` and/or bundled DSP; minimize reliance on ad-hoc host LADSPA where practical.
+
+### Deliverables
+
+- Per-device effect chain editor (order, bypass, reset).
+- Balance / pan and multi-band EQ beyond Effects v0.
+- Dynamics (compressor, limiter) with sensible defaults.
+- Profile persistence for device chains.
+- Effects sidebar view fully enabled with first-party UI (not plugin stub only).
+
+### Acceptance criteria
+
+- User can build a chain on a virtual output or input without leaving Pipe Deck.
+- Chains survive profile swap and virtual device restore.
+- Processing failures degrade gracefully; core routing keeps working.
+
+## Phase 8: Advanced Routing UX
+
+### Scope
+
+- Dedicated views for routing patterns that outgrow the Dashboard matrix.
+- Optional advanced graph layout (including force-directed / free-position node graph).
+- Capture-focused **Sources** workflow.
+
+### Deliverables
+
+- **Routing** view: drag/connect or advanced graph editor between apps, virtual sinks, and endpoints.
+- **Sources** view: capture devices, per-app mic routing, monitor paths.
+- Optional progressive disclosure: simplified Dashboard default, advanced graph mode on demand.
+- Rule conflict UI beyond skipped-candidate explanations.
+
+### Acceptance criteria
+
+- User can complete common routing tasks from Dashboard; power users can use Routing view for complex topologies.
+- Graph interactions are reversible and explainable (undo + route explanation).
+
 ## Strategic Direction
 
 - Automatic mapping should progressively reduce manual sink/source setup.
 - Automation must remain safe, explainable, and reversible.
+- Dashboard remains the default hub; dedicated views add depth without replacing it.
+
+## Navigation model
+
+- **Enabled today:** Dashboard, Profiles, Rules, Settings; Effects when a plugin registers a panel.
+- **Visible, disabled (north star):** Routing, Mixer, Sources — intentional placeholders showing where the product is headed; enable each when its view ships (Phase 6–8).
+- See `docs/specs/UI_Spec.md` for per-view intent.
 
 ## Decisions
 
 - Phase 2 follows scaffold → enumeration → profiles → routing/mixer → packaging baseline.
-- Persistence is file-first YAML (no SQLite in Phase 2); SQLite remains a future option if indexing or daemon needs justify it.
+- Persistence is file-first YAML (no SQLite in Phase 2); SQLite remains a future option if indexing or daemon needs justify it (PD-009).
 - Optional `pipe-deck-daemon` ships in Phase 4 for login-time restore; GUI-only restore remains the default path.
 - Earliest implementation milestone focuses on device enumeration, routing, mixer, and profile save/load/swap.
 - Rule engine and advanced automation are post-initial milestone work.
-- Automatic mapping rollout is gated by explainability, safety checks, and rollback readiness.
+- Automatic mapping rollout is gated by explainability, safety checks, and rollback readiness (PD-007).
+- Incremental Dashboard matrix polish precedes a full Obsidian-style graph (Phase 8 optional).
+- First-party effects expand in Phase 7 after Effects v0 proves the `filter-chain` path in Phase 6.

@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import MixerStrip from "../components/MixerStrip.vue";
 import RoutingMatrix from "../components/RoutingMatrix.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
@@ -125,9 +124,6 @@ async function undoRouting() {
       No PipeWire audio devices or application streams detected.
     </p>
 
-    <template v-else>
-      <RoutingMatrix :graph="displayGraph" />
-      <MixerStrip :devices="displayGraph.devices" />
-    </template>
+    <RoutingMatrix v-else :graph="displayGraph" />
   </div>
 </template>

@@ -98,6 +98,8 @@ mod tests {
             current_targets: Vec::new(),
             media_name: media_name.map(str::to_string),
             is_system: false,
+            volume_percent: None,
+            muted: None,
             route_explanation: None,
         }
     }

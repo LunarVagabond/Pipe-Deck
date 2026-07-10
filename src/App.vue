@@ -4,24 +4,24 @@ import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import Dashboard from "./views/Dashboard.vue";
+import Effects from "./views/Effects.vue";
+import Mixer from "./views/Mixer.vue";
 import Profiles from "./views/Profiles.vue";
 import Rules from "./views/Rules.vue";
 import Settings from "./views/Settings.vue";
 import { useApplyResult } from "./stores/notices";
-import type { AppView, DaemonStatus, PluginUiPanel } from "./types/graph";
+import type { AppView, DaemonStatus } from "./types/graph";
 
 const navItems = ref<{ id: AppView; label: string; enabled: boolean }[]>([
   { id: "dashboard", label: "Dashboard", enabled: true },
   { id: "profiles", label: "Profiles", enabled: true },
   { id: "rules", label: "Rules", enabled: true },
   { id: "routing", label: "Routing", enabled: false },
-  { id: "mixer", label: "Mixer", enabled: false },
+  { id: "mixer", label: "Mixer", enabled: true },
   { id: "sources", label: "Sources", enabled: false },
-  { id: "effects", label: "Effects", enabled: false },
+  { id: "effects", label: "Effects", enabled: true },
   { id: "settings", label: "Settings", enabled: true },
 ]);
-
-const effectPanels = ref<PluginUiPanel[]>([]);
 
 const activeView = ref<AppView>("dashboard");
 const daemonStatus = ref("Checking…");
@@ -55,20 +55,7 @@ async function refreshDaemonStatus() {
 
 onMounted(() => {
   void refreshDaemonStatus();
-  void refreshPluginPanels();
 });
-
-async function refreshPluginPanels() {
-  try {
-    effectPanels.value = await invoke<PluginUiPanel[]>("list_plugin_ui_panels");
-    const effects = navItems.value.find((item) => item.id === "effects");
-    if (effects) {
-      effects.enabled = effectPanels.value.length > 0;
-    }
-  } catch {
-    effectPanels.value = [];
-  }
-}
 
 async function createVirtual(kind: "output" | "input" | "multi") {
   const name = newDeviceName.value.trim();
@@ -127,13 +114,8 @@ async function createVirtual(kind: "output" | "input" | "multi") {
         <Dashboard v-if="activeView === 'dashboard'" />
         <Profiles v-else-if="activeView === 'profiles'" />
         <Rules v-else-if="activeView === 'rules'" />
-        <section v-else-if="activeView === 'effects'" class="effects-view">
-          <h1>Effects</h1>
-          <article v-for="panel in effectPanels" :key="panel.id" class="effects-panel">
-            <h2>{{ panel.title }}</h2>
-            <p>{{ panel.summary }}</p>
-          </article>
-        </section>
+        <Mixer v-else-if="activeView === 'mixer'" />
+        <Effects v-else-if="activeView === 'effects'" />
         <Settings v-else-if="activeView === 'settings'" />
       </main>
     </div>
