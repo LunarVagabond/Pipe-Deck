@@ -56,10 +56,13 @@ Then creates commit `Release <tag>` (if needed) and annotated tag `<tag>`.
 
 Workflow: [`.github/workflows/build.yml`](../.github/workflows/build.yml)
 
-| Event | Jobs |
-|-------|------|
-| PR or push to `main` | `check` + `smoke` |
+Runs **only** when a tag matching `v*` is pushed (e.g. after `make release` and `git push origin main --tags`).
+
+| Event | Job |
+|-------|-----|
 | Push tag `v*` | `release` — build Linux bundles, stage assets, **draft GitHub Release** |
+
+Pushes to `main` and pull requests do **not** trigger CI.
 
 Release assets:
 
