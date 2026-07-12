@@ -171,18 +171,3 @@ export function targetsForVirtualSink(devices: Device[], device: Device): Device
   });
 }
 
-export function isVirtualMicDevice(device: Device): boolean {
-  return device.kind === "virtual" && device.direction === "input";
-}
-
-export function virtualMicFeedSinks(
-  devices: Device[],
-  virtualMic: Device,
-): Device[] {
-  return devices.filter(
-    (device) =>
-      device.kind === "virtual" &&
-      device.direction === "output" &&
-      device.current_target === virtualMic.id,
-  );
-}

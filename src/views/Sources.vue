@@ -10,13 +10,7 @@ import { useConfirm } from "../stores/confirm";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import type { Device, RecentStreamIdentity } from "../types/graph";
 import { filterRuntimeGraph } from "../utils/filterGraph";
-import {
-  deviceSubtitle,
-  isVirtualMicDevice,
-  targetLabel,
-  targetsForVirtualSink,
-  virtualMicFeedSinks,
-} from "../utils/routingLayout";
+import { deviceSubtitle } from "../utils/routingLayout";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { config } = useAppConfig();
@@ -55,8 +49,6 @@ const inputDevices = computed(() =>
       !device.system_name.startsWith("pipe-deck-feed-"),
   ),
 );
-
-const virtualMics = computed(() => inputDevices.value.filter(isVirtualMicDevice));
 
 const recentCaptureIdentities = computed(() =>
   (graph.value.recent_stream_identities ?? []).filter(
@@ -103,33 +95,6 @@ function recentLabel(entry: RecentStreamIdentity): string {
     return `${entry.app_name} (${entry.media_name})`;
   }
   return entry.app_name;
-}
-
-function feedSourcesForMic(virtualMic: Device): Device[] {
-  return displayGraph.value.devices.filter((device) => {
-    if (device.id === virtualMic.id) return false;
-    if (device.direction !== "input" && device.direction !== "duplex") return false;
-    return displayGraph.value.links.some(
-      (link) => link.source_id === device.id && link.target_id === virtualMic.id,
-    );
-  });
-}
-
-async function onDeviceRouteChange(sourceDeviceId: string, event: Event) {
-  const targetDeviceId = (event.target as HTMLSelectElement).value;
-  if (!targetDeviceId) return;
-  try {
-    const result = await invoke<{ success: boolean; message?: string }>("set_device_route", {
-      sourceDeviceId,
-      targetDeviceId,
-    });
-    handleApplyResult(result, "Virtual mic route updated");
-  } catch (err) {
-    handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
-      "",
-    );
-  }
 }
 
 async function saveRename(device: Device, alias: string) {
@@ -268,60 +233,6 @@ async function removeVirtual(device: Device) {
                 @delete="removeVirtual(device)"
               />
               <span class="node-sub">{{ deviceSubtitle(device) }}</span>
-              <p
-                v-for="source in feedSourcesForMic(device)"
-                :key="source.id"
-                class="sources-feed-note"
-              >
-                Fed by {{ source.label }}
-              </p>
-            </div>
-          </article>
-        </div>
-      </section>
-
-      <section v-if="virtualMics.length > 0" class="sources-section">
-        <h2>Virtual microphone routes</h2>
-        <p class="section-help">
-          Virtual sinks routed to a virtual input become shareable microphones for capture apps.
-        </p>
-        <div class="sources-device-grid">
-          <article
-            v-for="virtualMic in virtualMics"
-            :key="virtualMic.id"
-            class="sources-device-card sources-route-card"
-          >
-            <span class="node-icon input">🎙</span>
-            <div class="sources-device-body">
-              <strong>{{ targetLabel(virtualMic) }}</strong>
-              <span class="node-sub">{{ deviceSubtitle(virtualMic) }}</span>
-              <div
-                v-for="sink in virtualMicFeedSinks(displayGraph.devices, virtualMic)"
-                :key="sink.id"
-                class="routing-picker capture"
-              >
-                <span class="routing-label">{{ sink.label }} → route to</span>
-                <select
-                  class="routing-select"
-                  :value="sink.current_target ?? ''"
-                  @change="onDeviceRouteChange(sink.id, $event)"
-                >
-                  <option value="" disabled>Select target</option>
-                  <option
-                    v-for="target in targetsForVirtualSink(displayGraph.devices, sink)"
-                    :key="target.id"
-                    :value="target.id"
-                  >
-                    {{ targetLabel(target) }}
-                  </option>
-                </select>
-              </div>
-              <p
-                v-if="virtualMicFeedSinks(displayGraph.devices, virtualMic).length === 0"
-                class="sources-feed-note muted"
-              >
-                No virtual sink routes to this microphone yet.
-              </p>
             </div>
           </article>
         </div>

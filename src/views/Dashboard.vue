@@ -1,34 +1,22 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import StreamTargetPicker from "../components/StreamTargetPicker.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
-import { useRoutingActions } from "../composables/useRoutingActions";
 import { navigateKey } from "../composables/navigation";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { filterRuntimeGraph } from "../utils/filterGraph";
-import { deviceColumn, targetLabel } from "../utils/routingLayout";
-import type { Device, Stream } from "../types/graph";
+import { deviceColumn } from "../utils/routingLayout";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { config } = useAppConfig();
 const navigate = inject(navigateKey);
 
 const showSystemStreams = ref(false);
-const { canUndo, refreshCanUndo, undoLastRouting } = useRoutingActions();
 
 watch(
   config,
   (value) => {
     showSystemStreams.value = value?.preferences?.show_system_streams ?? false;
-  },
-  { immediate: true },
-);
-
-watch(
-  graph,
-  () => {
-    void refreshCanUndo();
   },
   { immediate: true },
 );
@@ -53,8 +41,6 @@ const captureStreams = computed(() =>
   displayGraph.value.streams.filter((stream) => stream.direction === "capture"),
 );
 
-const routableStreams = computed(() => [...playbackStreams.value, ...captureStreams.value]);
-
 const virtualDeviceCount = computed(
   () => displayGraph.value.devices.filter((device) => device.kind === "virtual").length,
 );
@@ -73,16 +59,6 @@ const outputsInUse = computed(() => {
   return ids.size;
 });
 
-function deviceById(id?: string): Device | undefined {
-  if (!id) return undefined;
-  return displayGraph.value.devices.find((device) => device.id === id);
-}
-
-function streamTargetLabel(stream: Stream): string {
-  const device = deviceById(stream.current_target);
-  return device ? targetLabel(device) : "Not routed";
-}
-
 async function onToggleSystemStreams(next: boolean) {
   const previous = showSystemStreams.value;
   showSystemStreams.value = next;
@@ -100,10 +76,6 @@ async function onToggleSystemStreams(next: boolean) {
   } catch {
     showSystemStreams.value = previous;
   }
-}
-
-async function undoRouting() {
-  await undoLastRouting();
 }
 
 function openRoutingGraph() {
@@ -128,7 +100,6 @@ function openRoutingGraph() {
           />
         </div>
         <span class="profile-pill">{{ profileName }}</span>
-        <button type="button" :disabled="!canUndo" @click="undoRouting">Undo</button>
         <button type="button" @click="refresh">Refresh</button>
       </div>
     </header>
@@ -165,43 +136,11 @@ function openRoutingGraph() {
 
       <section class="dashboard-section">
         <div class="dashboard-section-header">
-          <h2>Quick routing</h2>
+          <h2>Devices</h2>
           <button type="button" class="link-btn" @click="openRoutingGraph">
             Open full routing graph →
           </button>
         </div>
-        <p v-if="routableStreams.length === 0" class="empty">
-          No application streams detected. Launch an app that plays or records audio.
-        </p>
-        <div v-else class="dashboard-stream-table">
-          <div
-            v-for="stream in routableStreams"
-            :key="stream.id"
-            class="dashboard-stream-row"
-          >
-            <div class="stream-row-app">
-              <strong>{{ stream.app_name }}</strong>
-              <span
-                class="direction-badge"
-                :class="stream.direction === 'capture' ? 'capture' : 'playback'"
-              >
-                {{ stream.direction === "capture" ? "Capture" : "Playback" }}
-              </span>
-            </div>
-            <span class="target-cell">{{ streamTargetLabel(stream) }}</span>
-            <div class="compact-route-cell">
-              <StreamTargetPicker
-                :stream="stream"
-                :devices="displayGraph.devices"
-                compact
-              />
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section class="dashboard-section">
-        <h2>Devices</h2>
         <div class="dashboard-device-summary">
           <article
             v-for="device in displayGraph.devices.filter((d) => deviceColumn(d))"
