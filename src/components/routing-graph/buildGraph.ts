@@ -10,6 +10,7 @@ import { handlesForDevice, handlesForStream } from "./nodePorts";
 import type { RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
 import { deviceNodeId, streamNodeId } from "./nodeIds";
+import type { GraphGroup } from "./groups";
 
 export type { RoutingGraphHandle };
 
@@ -28,13 +29,24 @@ export interface RoutingGraphNodeData {
   deletable?: boolean;
 }
 
+export interface RoutingGraphGroupData {
+  label: string;
+  groupId: string;
+}
+
+export interface BuiltRoutingGraphNode {
+  id: string;
+  type: string;
+  position: { x: number; y: number };
+  parentNode?: string;
+  dragHandle?: string;
+  style?: Record<string, string>;
+  selectable?: boolean;
+  data: RoutingGraphNodeData | RoutingGraphGroupData;
+}
+
 export interface BuiltRoutingGraph {
-  nodes: Array<{
-    id: string;
-    type: string;
-    position: { x: number; y: number };
-    data: RoutingGraphNodeData;
-  }>;
+  nodes: BuiltRoutingGraphNode[];
   edges: Array<{
     id: string;
     source: string;
@@ -158,7 +170,7 @@ function deviceNodeKind(device: Device): RoutingGraphNodeData | null {
   };
 }
 
-export function buildRoutingGraph(graph: RuntimeGraph): BuiltRoutingGraph {
+export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
   const laneCounts: Record<RoutingNodeKind, number> = {
     stream: 0,
     virtualSink: 0,
@@ -166,7 +178,38 @@ export function buildRoutingGraph(graph: RuntimeGraph): BuiltRoutingGraph {
     input: 0,
   };
 
-  const nodes: BuiltRoutingGraph["nodes"] = [];
+  const groupByMemberId = new Map<string, GraphGroup>();
+  for (const group of groups) {
+    for (const memberId of group.memberIds) {
+      groupByMemberId.set(memberId, group);
+    }
+  }
+
+  function withGroup(
+    id: string,
+    absolutePosition: { x: number; y: number },
+  ): { position: { x: number; y: number }; parentNode?: string } {
+    const group = groupByMemberId.get(id);
+    if (!group) return { position: absolutePosition };
+    return {
+      parentNode: group.id,
+      position: {
+        x: absolutePosition.x - group.position.x,
+        y: absolutePosition.y - group.position.y,
+      },
+    };
+  }
+
+  // Group container nodes must precede their members so vue-flow can resolve parentNode on first render.
+  const nodes: BuiltRoutingGraph["nodes"] = groups.map((group) => ({
+    id: group.id,
+    type: "groupNode",
+    position: group.position,
+    selectable: true,
+    dragHandle: ".group-drag-handle",
+    style: { width: `${group.size.width}px`, height: `${group.size.height}px` },
+    data: { label: group.label, groupId: group.id },
+  }));
 
   for (const stream of graph.streams) {
     const data = streamNodeKind(stream);
@@ -174,7 +217,7 @@ export function buildRoutingGraph(graph: RuntimeGraph): BuiltRoutingGraph {
     nodes.push({
       id,
       type: "routingNode",
-      position: positionFor(id, "stream", laneCounts),
+      ...withGroup(id, positionFor(id, "stream", laneCounts)),
       data,
     });
   }
@@ -186,7 +229,7 @@ export function buildRoutingGraph(graph: RuntimeGraph): BuiltRoutingGraph {
     nodes.push({
       id,
       type: "routingNode",
-      position: positionFor(id, data.nodeKind, laneCounts),
+      ...withGroup(id, positionFor(id, data.nodeKind, laneCounts)),
       data,
     });
   }

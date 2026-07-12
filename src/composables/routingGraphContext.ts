@@ -17,6 +17,8 @@ export interface RoutingGraphActions {
   closeMenu: () => void;
   renameDevice: (systemName: string, currentLabel: string, alias?: string) => void | Promise<void>;
   deleteDevice: (systemName: string, label: string) => void;
+  renameGroup: (groupId: string, label: string) => void;
+  ungroup: (groupId: string) => void;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

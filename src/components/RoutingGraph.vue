@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, markRaw, onMounted, onUnmounted, provide, ref, watch } from "vue";
+import { computed, markRaw, nextTick, onMounted, onUnmounted, provide, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import {
   VueFlow,
+  useVueFlow,
   MarkerType,
   type Connection,
   type Edge,
@@ -15,6 +16,7 @@ import { Background } from "@vue-flow/background";
 import { Controls } from "@vue-flow/controls";
 import RoutingGraphContextMenu from "./RoutingGraphContextMenu.vue";
 import RoutingGraphNode from "./RoutingGraphNode.vue";
+import RoutingGraphGroupNode from "./RoutingGraphGroupNode.vue";
 import {
   applyEdgeDisconnect,
   applyRoutingConnection,
@@ -22,6 +24,13 @@ import {
 import { buildRoutingGraph, saveNodePosition } from "./routing-graph/buildGraph";
 import { LEGEND_ENTRIES } from "./routing-graph/portTypes";
 import { canConnectPorts } from "./routing-graph/portTypes";
+import {
+  containmentRatio,
+  createGroup,
+  loadGroups,
+  saveGroups,
+  type GraphGroup,
+} from "./routing-graph/groups";
 import {
   routingGraphActionsKey,
   type RoutingGraphMenuTarget,
@@ -38,9 +47,15 @@ const props = defineProps<{
 const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
+const vueFlow = useVueFlow();
 
 const edgeUpdatePending = ref<Edge | null>(null);
 const contextMenu = ref<RoutingGraphMenuTarget | null>(null);
+const groups = ref<GraphGroup[]>(loadGroups());
+
+function persistGroups() {
+  saveGroups(groups.value);
+}
 
 const graphActions = {
   openMenu(target: RoutingGraphMenuTarget) {
@@ -70,6 +85,16 @@ const graphActions = {
   deleteDevice(systemName: string, label: string) {
     contextMenu.value = null;
     void removeVirtualDevice(systemName, label);
+  },
+  renameGroup(groupId: string, label: string) {
+    const group = groups.value.find((entry) => entry.id === groupId);
+    if (!group) return;
+    group.label = label;
+    persistGroups();
+  },
+  ungroup(groupId: string) {
+    groups.value = groups.value.filter((entry) => entry.id !== groupId);
+    persistGroups();
   },
 };
 
@@ -122,6 +147,7 @@ function onContextMenuAction(action: "rename" | "delete") {
 
 const nodeTypes = {
   routingNode: markRaw(RoutingGraphNode),
+  groupNode: markRaw(RoutingGraphGroupNode),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
@@ -130,7 +156,7 @@ const defaultEdgeOptions = {
   interactionWidth: 22,
 } as const;
 
-const built = computed(() => buildRoutingGraph(props.graph));
+const built = computed(() => buildRoutingGraph(props.graph, groups.value));
 const nodes = computed<Node[]>(() => built.value.nodes as Node[]);
 const edges = computed<Edge[]>(() =>
   built.value.edges.map((edge) => ({
@@ -216,17 +242,122 @@ function onDocumentPointerDown(event: PointerEvent) {
   contextMenu.value = null;
 }
 
+const DETACH_THRESHOLD = 0.4;
+
 function onNodeDragStop(event: NodeDragEvent) {
-  saveNodePosition(event.node.id, event.node.position.x, event.node.position.y);
+  const node = event.node;
+
+  if (node.type === "groupNode") {
+    const group = groups.value.find((entry) => entry.id === node.id);
+    if (group) {
+      group.position = { x: node.computedPosition.x, y: node.computedPosition.y };
+      // Vue Flow already moved member nodes along with the group during the drag (they
+      // track it live via parentNode). Persist each member's up-to-date absolute position
+      // now, otherwise the next rebuild recomputes their offset from stale saved
+      // coordinates and they visually snap back to their pre-drag spot.
+      for (const memberId of group.memberIds) {
+        const memberNode = vueFlow.findNode(memberId);
+        if (memberNode) {
+          saveNodePosition(memberId, memberNode.computedPosition.x, memberNode.computedPosition.y);
+        }
+      }
+      persistGroups();
+    }
+    return;
+  }
+
+  saveNodePosition(node.id, node.computedPosition.x, node.computedPosition.y);
+
+  const group = groups.value.find((entry) => entry.memberIds.includes(node.id));
+  if (!group) return;
+
+  const nodeRect = {
+    x: node.computedPosition.x,
+    y: node.computedPosition.y,
+    width: node.dimensions.width,
+    height: node.dimensions.height,
+  };
+  const groupRect = {
+    x: group.position.x,
+    y: group.position.y,
+    width: group.size.width,
+    height: group.size.height,
+  };
+
+  if (containmentRatio(nodeRect, groupRect) < DETACH_THRESHOLD) {
+    group.memberIds = group.memberIds.filter((id) => id !== node.id);
+    if (group.memberIds.length === 0) {
+      groups.value = groups.value.filter((entry) => entry.id !== group.id);
+    }
+    persistGroups();
+  }
 }
+
+const MIN_GROUP_SELECTION = 2;
+
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(target.tagName);
+}
+
+async function onWindowKeydown(event: KeyboardEvent) {
+  if (event.key.toLowerCase() !== "g" || event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+  if (isTypingTarget(event.target)) return;
+
+  const selected = vueFlow.getSelectedNodes.value.filter(
+    (candidate) => candidate.type !== "groupNode" && !candidate.parentNode,
+  );
+  if (selected.length < MIN_GROUP_SELECTION) return;
+
+  event.preventDefault();
+  const name = await prompt({
+    title: "Name this group",
+    defaultValue: "Group",
+    confirmLabel: "Create",
+  });
+  const trimmed = name?.trim();
+  if (!trimmed) return;
+
+  const group = createGroup(
+    trimmed,
+    selected.map((candidate) => ({
+      id: candidate.id,
+      position: candidate.computedPosition,
+      width: candidate.dimensions.width || 200,
+      height: candidate.dimensions.height || 80,
+    })),
+  );
+  groups.value = [...groups.value, group];
+  persistGroups();
+}
+
+const knownNodeIds = ref<Set<string> | null>(null);
+
+watch(nodes, async (current) => {
+  const currentIds = new Set(current.map((node) => node.id));
+  if (knownNodeIds.value === null) {
+    knownNodeIds.value = currentIds;
+    return;
+  }
+
+  const addedIds = [...currentIds].filter((id) => !knownNodeIds.value!.has(id));
+  knownNodeIds.value = currentIds;
+  if (addedIds.length === 0) return;
+
+  await nextTick();
+  await vueFlow.fitView({ nodes: addedIds, padding: 0.35, duration: 400, maxZoom: 1 });
+});
 
 onMounted(() => {
   localStorage.removeItem("pipe-deck-routing-reroutes");
   window.addEventListener("pointerdown", onDocumentPointerDown);
+  window.addEventListener("keydown", onWindowKeydown);
 });
 
 onUnmounted(() => {
   window.removeEventListener("pointerdown", onDocumentPointerDown);
+  window.removeEventListener("keydown", onWindowKeydown);
 });
 </script>
 
@@ -240,7 +371,7 @@ onUnmounted(() => {
           {{ entry.label }}
         </span>
         <span class="routing-graph-legend-hint">
-          Drag wire ends off a port to disconnect
+          Drag wire ends off a port to disconnect · Shift+drag to select multiple nodes · Press G to group
         </span>
       </div>
     </div>
