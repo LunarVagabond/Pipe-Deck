@@ -1,4 +1,4 @@
-use crate::core::models::VirtualDeviceResult;
+use crate::core::models::{ApplyResult, VirtualDeviceResult};
 use crate::AppState;
 use tauri::State;
 
@@ -56,4 +56,19 @@ pub async fn remove_virtual_device(
         .map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub async fn set_virtual_mic_mix(
+    virtual_mic_device_id: String,
+    mix_source_device_ids: Vec<String>,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .set_virtual_mic_mix(&virtual_mic_device_id, &mix_source_device_ids)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
 }

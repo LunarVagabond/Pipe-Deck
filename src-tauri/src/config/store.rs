@@ -171,6 +171,30 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_virtual_mic_mix_sources(
+        &self,
+        virtual_system_name: &str,
+        mix_sources: &[String],
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let slug = virtual_system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(virtual_system_name);
+        let Some(spec) = config
+            .virtual_devices
+            .iter_mut()
+            .find(|entry| {
+                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+            })
+        else {
+            return Err(ConfigError::Read(format!(
+                "virtual device not found: {virtual_system_name}"
+            )));
+        };
+        spec.mix_sources = mix_sources.to_vec();
+        self.save_config(&config)
+    }
+
     pub fn remove_virtual_device(&self, id_or_system_name: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let slug = id_or_system_name
@@ -382,6 +406,7 @@ mod tests {
                 direction: crate::core::models::DeviceDirection::Output,
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
+                mix_sources: Vec::new(),
             };
             store.add_virtual_device(spec.clone()).unwrap();
             let loaded = store.virtual_devices();

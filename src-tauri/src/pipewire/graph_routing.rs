@@ -13,6 +13,7 @@ pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
     apply_pactl_playback_targets(graph);
     apply_pactl_capture_targets(graph);
     apply_pw_link_device_routes(graph);
+    apply_virtual_mic_mix_routes(graph);
     normalize_stream_routing_links(graph);
 
     for stream in &mut graph.streams {
@@ -201,6 +202,44 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
     }
 }
 
+fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
+    let name_to_id: HashMap<String, String> = graph
+        .devices
+        .iter()
+        .map(|device| (device.system_name.clone(), device.id.clone()))
+        .collect();
+
+    graph.links.retain(|link| !link.id.starts_with("pwlink-mix-"));
+
+    for device in &mut graph.devices {
+        if device.kind != DeviceKind::Virtual
+            || device.direction == DeviceDirection::Duplex
+            || !device.system_name.starts_with("pipe-deck-")
+        {
+            continue;
+        }
+
+        let capture_sources =
+            pw_link::list_capture_sources_for_virtual_input(&device.system_name);
+        let mix_ids: Vec<String> = capture_sources
+            .iter()
+            .filter_map(|name| name_to_id.get(name).cloned())
+            .collect();
+        device.mix_source_ids = mix_ids;
+
+        for source_name in capture_sources {
+            let Some(source_id) = name_to_id.get(&source_name) else {
+                continue;
+            };
+            graph.links.push(Link {
+                id: format!("pwlink-mix-{source_name}-{}", device.system_name),
+                source_id: source_id.clone(),
+                target_id: device.id.clone(),
+            });
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +260,7 @@ mod tests {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
+                mix_source_ids: Vec::new(),
             }],
             streams: Vec::new(),
             links: Vec::new(),
@@ -269,6 +309,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
                 Device {
                     id: "headset".into(),
@@ -281,6 +322,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
             ],
             streams: vec![Stream {

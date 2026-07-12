@@ -219,6 +219,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
                 Device {
                     id: "speakers".into(),
@@ -231,6 +232,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
             ],
             streams: vec![stream],
@@ -267,6 +269,7 @@ mod tests {
                     muted: None,
                     current_target: Some("headphones".into()),
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
                 Device {
                     id: "headphones".into(),
@@ -279,6 +282,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
             ],
             streams: Vec::new(),

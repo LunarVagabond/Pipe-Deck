@@ -48,6 +48,8 @@ pub struct Device {
     pub current_target: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub current_targets: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mix_source_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -164,6 +166,9 @@ pub struct VirtualDeviceSpec {
     pub created_at: String,
     #[serde(default)]
     pub multi: bool,
+    /// Physical capture device system names mixed into this virtual input (e.g. headset mic).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub mix_sources: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

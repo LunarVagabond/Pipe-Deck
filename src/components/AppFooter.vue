@@ -51,7 +51,7 @@ onMounted(async () => {
     </div>
 
     <div class="app-footer-center">
-      <span class="app-footer-revision">Version: {{ buildRevision }}</span>
+      <span class="app-footer-revision">{{ buildRevision }}</span>
     </div>
 
     <div class="app-footer-support">

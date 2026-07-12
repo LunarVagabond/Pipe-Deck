@@ -67,6 +67,7 @@ pub fn run() {
             commands::virtual_device::create_virtual_multi_output,
             commands::virtual_device::create_virtual_input,
             commands::virtual_device::remove_virtual_device,
+            commands::virtual_device::set_virtual_mic_mix,
             commands::daemon::get_daemon_status,
             commands::daemon::enable_background_restore,
             commands::daemon::disable_background_restore,

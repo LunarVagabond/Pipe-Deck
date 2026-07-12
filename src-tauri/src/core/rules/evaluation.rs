@@ -363,6 +363,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
                 Device {
                     id: "hdmi".into(),
@@ -375,6 +376,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
+                    mix_source_ids: Vec::new(),
                 },
             ],
             streams: Vec::new(),

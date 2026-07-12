@@ -1,7 +1,8 @@
 use crate::config::ConfigStore;
-use crate::core::models::{DeviceDirection, RuntimeGraph, VirtualDeviceResult};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, RuntimeGraph, VirtualDeviceResult};
 use crate::core::restore::spec_from_create_result;
 use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
+use crate::pipewire::virtual_mic_mix;
 use std::collections::{HashMap, HashSet};
 
 use super::{CoreEngine, EngineError};
@@ -41,6 +42,7 @@ impl CoreEngine {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
+                mix_source_ids: Vec::new(),
             });
             return Ok(VirtualDeviceResult {
                 device_id: format!("virtual-{slug}"),
@@ -87,6 +89,7 @@ impl CoreEngine {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
+                mix_source_ids: Vec::new(),
             });
             return Ok(VirtualDeviceResult {
                 device_id: format!("virtual-{slug}"),
@@ -124,11 +127,76 @@ impl CoreEngine {
         self.virtual_registry
             .remove_device(system_name)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        let _ = virtual_mic_mix::disconnect_all_virtual_mic_mixes(system_name);
         ConfigStore::new()
             .remove_virtual_device(system_name)
             .map_err(|error| EngineError::Config(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())
+    }
+
+    pub fn set_virtual_mic_mix(
+        &mut self,
+        virtual_mic_device_id: &str,
+        mix_source_device_ids: &[String],
+    ) -> Result<ApplyResult, EngineError> {
+        let virtual_mic = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == virtual_mic_device_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound("virtual mic not found".to_string()))?;
+
+        if virtual_mic.kind != DeviceKind::Virtual || virtual_mic.direction == DeviceDirection::Duplex
+        {
+            return Err(EngineError::InvalidInput(
+                "target must be a virtual input or virtual output".to_string(),
+            ));
+        }
+
+        let mut mix_system_names = Vec::new();
+        for source_id in mix_source_device_ids {
+            let source = self
+                .graph
+                .devices
+                .iter()
+                .find(|device| device.id == *source_id)
+                .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_id}")))?;
+
+            if source.kind != DeviceKind::Physical || source.direction != DeviceDirection::Input {
+                return Err(EngineError::InvalidInput(format!(
+                    "{} is not a physical input",
+                    source.label
+                )));
+            }
+
+            mix_system_names.push(source.system_name.clone());
+        }
+
+        if self.graph.data_source == "mock" {
+            return Ok(ApplyResult {
+                success: true,
+                message: Some("virtual mic mix updated (mock)".to_string()),
+            });
+        }
+
+        virtual_mic_mix::apply_virtual_mic_mix(&virtual_mic, &mix_system_names)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        ConfigStore::new()
+            .set_virtual_mic_mix_sources(&virtual_mic.system_name, &mix_system_names)
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        self.refresh_graph()?;
+        Ok(ApplyResult {
+            success: true,
+            message: Some(format!(
+                "Mixed {} source(s) into {}",
+                mix_system_names.len(),
+                virtual_mic.label
+            )),
+        })
     }
 }
 

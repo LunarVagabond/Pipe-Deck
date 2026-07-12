@@ -123,6 +123,177 @@ pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), AdapterEr
     Ok(())
 }
 
+/// Mix a hardware capture source into a virtual microphone's sink inputs.
+///
+/// Ports are discovered rather than assumed to be a stereo FL/FR pair, since
+/// mono devices (e.g. a headset mic reported as "...mono-fallback") expose a
+/// single MONO port. The source's ports are cycled across every target port,
+/// which fans a mono source out to both channels of a stereo target and pairs
+/// a stereo source 1:1 with a stereo target.
+pub fn link_capture_source_to_virtual_input(
+    capture_source_system_name: &str,
+    virtual_input_system_name: &str,
+) -> Result<(), AdapterError> {
+    let source_ports = output_ports_for(capture_source_system_name);
+    if source_ports.is_empty() {
+        return Err(AdapterError::Message(format!(
+            "capture source {capture_source_system_name} has no output ports"
+        )));
+    }
+
+    let target_ports = virtual_input_ports_for(virtual_input_system_name);
+    if target_ports.is_empty() {
+        return Err(AdapterError::Message(format!(
+            "{virtual_input_system_name} has no input ports to mix into"
+        )));
+    }
+
+    let desired = pair_capture_ports(&source_ports, &target_ports);
+    let existing = list_capture_links_for_source(capture_source_system_name);
+
+    let already_linked = desired
+        .iter()
+        .all(|(output, input)| existing.iter().any(|(o, i)| o == output && i == input));
+    if already_linked {
+        return Ok(());
+    }
+
+    disconnect_capture_source_from_virtual_input(capture_source_system_name, virtual_input_system_name)?;
+
+    for (output_port, input_port) in &desired {
+        run_pw_link(&["-L", output_port, input_port])?;
+    }
+
+    Ok(())
+}
+
+pub fn disconnect_capture_source_from_virtual_input(
+    capture_source_system_name: &str,
+    virtual_input_system_name: &str,
+) -> Result<(), AdapterError> {
+    let target_prefix = format!("{virtual_input_system_name}:input_");
+    for (output_port, input_port) in list_capture_links_for_source(capture_source_system_name) {
+        if input_port.starts_with(&target_prefix) {
+            let _ = run_pw_link(&["-d", &output_port, &input_port]);
+        }
+    }
+    Ok(())
+}
+
+fn list_ports(flag: &str) -> Vec<String> {
+    let output = match Command::new("pw-link").arg(flag).output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(|line| line.trim().to_string())
+        .filter(|line| !line.is_empty())
+        .collect()
+}
+
+fn output_ports_for(system_name: &str) -> Vec<String> {
+    let prefix = format!("{system_name}:");
+    list_ports("-o")
+        .into_iter()
+        .filter(|port| port.starts_with(&prefix))
+        .collect()
+}
+
+fn virtual_input_ports_for(system_name: &str) -> Vec<String> {
+    let prefix = format!("{system_name}:input_");
+    list_ports("-i")
+        .into_iter()
+        .filter(|port| port.starts_with(&prefix))
+        .collect()
+}
+
+/// Pair source ports with target ports, cycling the (sorted) source list
+/// across every (sorted) target port so channel counts need not match.
+fn pair_capture_ports(source_ports: &[String], target_ports: &[String]) -> Vec<(String, String)> {
+    let mut sorted_sources = source_ports.to_vec();
+    sorted_sources.sort();
+    let mut sorted_targets = target_ports.to_vec();
+    sorted_targets.sort();
+
+    sorted_targets
+        .into_iter()
+        .enumerate()
+        .map(|(index, target)| (sorted_sources[index % sorted_sources.len()].clone(), target))
+        .collect()
+}
+
+pub fn list_capture_sources_for_virtual_input(virtual_input_system_name: &str) -> Vec<String> {
+    let output = match Command::new("pw-link").arg("-l").output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut sources = Vec::new();
+    let mut current_target_port: Option<String> = None;
+    let target_prefix = format!("{virtual_input_system_name}:input_");
+
+    for line in text.lines() {
+        if let Some(source_port) = line.strip_prefix("  |<- ") {
+            let source_port = source_port.trim();
+            if let Some(target_port) = current_target_port.as_deref() {
+                if target_port.starts_with(&target_prefix) {
+                    if let Some(source_name) = capture_source_name_from_port(source_port) {
+                        if !sources.contains(&source_name) {
+                            sources.push(source_name);
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && trimmed.contains(':') {
+            current_target_port = Some(trimmed.to_string());
+        }
+    }
+
+    sources
+}
+
+fn list_capture_links_for_source(capture_source_system_name: &str) -> Vec<(String, String)> {
+    let output = match Command::new("pw-link").arg("-l").output() {
+        Ok(output) if output.status.success() => output,
+        _ => return Vec::new(),
+    };
+
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut links = Vec::new();
+    let mut current_target_port: Option<String> = None;
+    let prefix = format!("{capture_source_system_name}:");
+
+    for line in text.lines() {
+        if let Some(source_port) = line.strip_prefix("  |<- ") {
+            let source_port = source_port.trim();
+            if source_port.starts_with(&prefix) {
+                if let Some(target_port) = current_target_port.as_deref() {
+                    links.push((source_port.to_string(), target_port.to_string()));
+                }
+            }
+            continue;
+        }
+
+        let trimmed = line.trim();
+        if !trimmed.is_empty() && trimmed.contains(':') {
+            current_target_port = Some(trimmed.to_string());
+        }
+    }
+
+    links
+}
+
+fn capture_source_name_from_port(port: &str) -> Option<String> {
+    port.rsplit_once(':').map(|(name, _port)| name.to_string())
+}
+
 pub fn list_monitor_routes() -> HashMap<String, String> {
     let output = match Command::new("pw-link").arg("-l").output() {
         Ok(output) if output.status.success() => output,

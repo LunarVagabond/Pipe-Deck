@@ -72,6 +72,7 @@ mod tests {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
+                mix_source_ids: Vec::new(),
             }],
             streams: Vec::new(),
             links: Vec::new(),

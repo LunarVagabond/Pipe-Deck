@@ -40,6 +40,7 @@ export interface Device {
   muted?: boolean;
   current_target?: string;
   current_targets?: string[];
+  mix_source_ids?: string[];
 }
 
 export interface Stream {
@@ -279,6 +280,7 @@ export interface VirtualDeviceSpec {
   direction: DeviceDirection;
   created_at: string;
   multi?: boolean;
+  mix_sources?: string[];
 }
 
 export type AppView =

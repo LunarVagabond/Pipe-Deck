@@ -12,7 +12,8 @@ export type RoutingConnectionAction =
   | { type: "stream_target"; streamId: string; targetDeviceId: string }
   | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
   | { type: "device_route"; sourceDeviceId: string; targetDeviceId: string }
-  | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] };
+  | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] }
+  | { type: "mic_mix"; virtualMicDeviceId: string; mixSourceDeviceIds: string[] };
 
 export interface PreviousEdge {
   source: string;
@@ -104,6 +105,15 @@ function existingDeviceTargets(device: Device): string[] {
   return device.current_target ? [device.current_target] : [];
 }
 
+function isMicMixCandidate(source: Device, target: Device): boolean {
+  return (
+    source.kind === "physical" &&
+    source.direction === "input" &&
+    target.kind === "virtual" &&
+    target.direction !== "duplex"
+  );
+}
+
 function resolveDeviceToDevice(
   graph: RuntimeGraph,
   sourceDeviceId: string,
@@ -114,6 +124,20 @@ function resolveDeviceToDevice(
   const target = findDevice(graph, targetDeviceId);
   if (!source || !target) {
     return { error: "Device not found." };
+  }
+
+  if (isMicMixCandidate(source, target)) {
+    const existingMix = target.mix_source_ids ?? [];
+    if (existingMix.includes(source.id)) {
+      return { error: "This microphone is already mixed into this device." };
+    }
+    return {
+      action: {
+        type: "mic_mix",
+        virtualMicDeviceId: target.id,
+        mixSourceDeviceIds: [...existingMix, source.id],
+      },
+    };
   }
 
   const allowed = targetsForVirtualSink(graph.devices, source);
@@ -213,8 +237,23 @@ function resolveEdgeDisconnect(
   }
 
   const device = findDevice(graph, source.id);
-  if (!device) {
+  const targetDevice = findDevice(graph, target.id);
+  if (!device || !targetDevice) {
     return { error: "Device not found." };
+  }
+
+  if (isMicMixCandidate(device, targetDevice)) {
+    const existingMix = targetDevice.mix_source_ids ?? [];
+    if (!existingMix.includes(device.id)) {
+      return { error: "Connection not found." };
+    }
+    return {
+      action: {
+        type: "mic_mix",
+        virtualMicDeviceId: targetDevice.id,
+        mixSourceDeviceIds: existingMix.filter((id) => id !== device.id),
+      },
+    };
   }
 
   if (device.kind !== "virtual" || device.direction !== "output") {

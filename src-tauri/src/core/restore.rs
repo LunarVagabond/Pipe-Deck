@@ -75,6 +75,7 @@ pub fn restore_session(registry: &Arc<VirtualDeviceRegistry>) -> Result<RestoreR
                 direction: module.direction.clone(),
                 created_at: now.clone(),
                 multi: false,
+                mix_sources: Vec::new(),
             })
             .collect();
         result.warnings.push(
@@ -286,6 +287,7 @@ pub fn spec_from_create_result(
         direction,
         created_at: Utc::now().to_rfc3339(),
         multi,
+        mix_sources: Vec::new(),
     }
 }
 
@@ -300,7 +302,27 @@ fn create_virtual_from_spec(spec: &VirtualDeviceSpec) -> Result<(), String> {
                 .map(|_| ())
                 .map_err(|error| error.to_string())
         }
+    }?;
+
+    if spec.direction != DeviceDirection::Duplex && !spec.mix_sources.is_empty() {
+        let virtual_input = crate::core::models::Device {
+            id: spec.id.clone(),
+            system_name: system_name.clone(),
+            label: spec.label.clone(),
+            kind: crate::core::models::DeviceKind::Virtual,
+            direction: spec.direction.clone(),
+            sink_mode: None,
+            volume_percent: None,
+            muted: None,
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_source_ids: Vec::new(),
+        };
+        crate::pipewire::virtual_mic_mix::apply_virtual_mic_mix(&virtual_input, &spec.mix_sources)
+            .map_err(|error| error.to_string())?;
     }
+
+    Ok(())
 }
 
 #[cfg(test)]

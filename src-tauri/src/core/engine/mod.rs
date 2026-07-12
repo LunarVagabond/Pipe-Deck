@@ -34,6 +34,10 @@ pub enum EngineError {
     Profile(String),
     #[error("routing error: {0}")]
     Routing(String),
+    #[error("not found: {0}")]
+    NotFound(String),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
 }
 
 pub struct CoreEngine {
