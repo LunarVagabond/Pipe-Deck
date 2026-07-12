@@ -56,7 +56,7 @@
 
   &.disabled {
     opacity: 0.45;
-    cursor: default;
+    cursor: not-allowed;
   }
 
   &.has-popover {
@@ -66,20 +66,24 @@
 
 .nav-popover {
   position: absolute;
-  left: calc(100% + 0.45rem);
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 0.3rem 0.55rem;
+  left: 0.75rem;
+  right: 0.75rem;
+  top: calc(100% + 0.2rem);
+  padding: 0.25rem 0.45rem;
   border-radius: 6px;
   background: var(--surface-2);
   border: 1px solid var(--border);
-  color: var(--text);
-  font-size: 0.75rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
   font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  text-transform: uppercase;
   white-space: nowrap;
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
   z-index: 5;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
@@ -87,6 +91,7 @@
 .nav-item.has-popover:hover .nav-popover,
 .nav-item.has-popover:focus-visible .nav-popover {
   opacity: 1;
+  visibility: visible;
 }
 
 .sidebar-footer {

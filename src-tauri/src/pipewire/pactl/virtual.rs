@@ -1,0 +1,394 @@
+use crate::config::store::ConfigStore;
+use crate::core::models::DeviceDirection;
+use crate::pipewire::adapter::AdapterError;
+use crate::pipewire::pactl::parse::{list_sink_inputs, load_sink_index_names};
+use crate::pipewire::pactl::run_pactl;
+use crate::pipewire::pw_link;
+use std::collections::HashMap;
+
+pub fn feed_sink_description(virtual_mic_label: &str) -> String {
+    format!("{virtual_mic_label} (Pipe Deck route)")
+}
+
+pub fn sync_feed_sink_for_virtual_input(
+    virtual_input_system_name: &str,
+    label: &str,
+) -> Result<(), AdapterError> {
+    let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
+    if !sink_exists(&feed_name)? {
+        return Ok(());
+    }
+
+    sync_feed_sink_description(
+        &feed_name,
+        virtual_input_system_name,
+        &feed_sink_description(label),
+    )
+}
+
+pub fn feed_sink_name_for_virtual_input(virtual_input_system_name: &str) -> String {
+    let slug = virtual_input_system_name
+        .strip_prefix("pipe-deck-")
+        .unwrap_or(virtual_input_system_name);
+    format!("pipe-deck-feed-{slug}")
+}
+
+pub fn remove_feed_sink_for_virtual_input(virtual_input_system_name: &str) -> Result<(), AdapterError> {
+    let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
+    let _ = pw_link::disconnect_sink_monitor(&feed_name);
+    if let Some(module_id) = find_module_id_by_sink_name(&feed_name)? {
+        unload_module(&module_id)?;
+    }
+    Ok(())
+}
+
+pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -> Result<(), AdapterError> {
+    let sink_names = load_sink_index_names();
+    let sinks_with_inputs: std::collections::HashSet<String> = list_sink_inputs()
+        .iter()
+        .filter_map(|input| {
+            input
+                .sink_index
+                .and_then(|index| sink_names.get(&index).cloned())
+        })
+        .collect();
+
+    for (module_id, feed_name) in list_modules_for_sink_prefix("pipe-deck-feed-")? {
+        let Some(slug) = feed_name.strip_prefix("pipe-deck-feed-") else {
+            continue;
+        };
+        let virtual_input = format!("pipe-deck-{slug}");
+        let virtual_exists = known_virtual_inputs.contains(&virtual_input);
+        let in_use = sinks_with_inputs.contains(&feed_name);
+
+        if virtual_exists && in_use {
+            continue;
+        }
+
+        let _ = pw_link::disconnect_sink_monitor(&feed_name);
+        unload_module(&module_id)?;
+    }
+
+    Ok(())
+}
+
+pub fn sink_exists(name: &str) -> Result<bool, AdapterError> {
+    let output = run_pactl(&["list", "sinks", "short"])?;
+    Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
+}
+
+pub fn create_null_sink(name: &str, description: &str) -> Result<String, AdapterError> {
+    let props = description_module_args(description);
+    let output = run_pactl(&[
+        "load-module",
+        "module-null-sink",
+        &format!("sink_name={name}"),
+        &props[0],
+        &props[1],
+        &props[2],
+    ])?;
+    Ok(output.trim().to_string())
+}
+
+/// PipeWire does not provide `module-null-source`. Create a virtual capture
+/// endpoint using a null sink configured as an Audio/Source node.
+pub fn create_virtual_source(name: &str, description: &str) -> Result<String, AdapterError> {
+    let props = description_module_args(description);
+    let output = run_pactl(&[
+        "load-module",
+        "module-null-sink",
+        "media.class=Audio/Source/Virtual",
+        &format!("sink_name={name}"),
+        &props[0],
+        &props[1],
+        &props[2],
+        "channel_map=front-left,front-right",
+    ])?;
+    Ok(output.trim().to_string())
+}
+
+pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, AdapterError> {
+    let output = run_pactl(&["list", "modules", "short"])?;
+    for line in output.lines() {
+        let Some((module_id, args)) = parse_module_short_line(line) else {
+            continue;
+        };
+        if args.contains(&format!("sink_name={sink_name}")) {
+            return Ok(Some(module_id));
+        }
+    }
+    Ok(None)
+}
+
+pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, AdapterError> {
+    let output = run_pactl(&["list", "modules", "short"])?;
+    let mut entries = Vec::new();
+    let config_labels = configured_virtual_labels();
+
+    for line in output.lines() {
+        let Some((module_id, args)) = parse_module_short_line(line) else {
+            continue;
+        };
+        let Some(system_name) = extract_arg_value(&args, "sink_name=") else {
+            continue;
+        };
+        if !system_name.starts_with("pipe-deck-") || system_name.starts_with("pipe-deck-feed-") {
+            continue;
+        }
+        let slug = system_name.strip_prefix("pipe-deck-").unwrap_or(&system_name);
+        let multi = system_name.starts_with("pipe-deck-split-");
+        let direction = if args.contains("media.class=Audio/Source/Virtual") {
+            DeviceDirection::Input
+        } else {
+            DeviceDirection::Output
+        };
+        let label = configured_label_for_system_name(&system_name, &config_labels)
+            .or_else(|| extract_description(&args))
+            .unwrap_or_else(|| system_name.clone());
+
+        entries.push(PactlVirtualModule {
+            module_id,
+            device_id: format!("virtual-{slug}"),
+            system_name,
+            label,
+            direction,
+            multi,
+        });
+    }
+
+    Ok(entries)
+}
+
+#[derive(Debug, Clone)]
+pub struct PactlVirtualModule {
+    pub module_id: String,
+    pub device_id: String,
+    pub system_name: String,
+    pub label: String,
+    pub direction: DeviceDirection,
+    pub multi: bool,
+}
+
+pub fn unload_module(module_id: &str) -> Result<(), AdapterError> {
+    run_pactl(&["unload-module", module_id]).map(|_| ())
+}
+
+pub(crate) fn ensure_feed_sink_for_virtual_input(
+    virtual_input_system_name: &str,
+    label: &str,
+) -> Result<String, AdapterError> {
+    let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
+    let description = feed_sink_description(label);
+
+    if sink_exists(&feed_name)? {
+        sync_feed_sink_description(&feed_name, virtual_input_system_name, &description)?;
+        return Ok(feed_name);
+    }
+
+    create_null_sink(&feed_name, &description)?;
+    Ok(feed_name)
+}
+
+fn sync_feed_sink_description(
+    feed_name: &str,
+    virtual_input_system_name: &str,
+    description: &str,
+) -> Result<(), AdapterError> {
+    if sink_description(feed_name)?.as_deref() == Some(description) {
+        return Ok(());
+    }
+
+    if feed_sink_in_use(feed_name)? {
+        return Ok(());
+    }
+
+    remove_feed_sink_for_virtual_input(virtual_input_system_name)?;
+    create_null_sink(feed_name, description)?;
+    Ok(())
+}
+
+fn feed_sink_in_use(feed_name: &str) -> Result<bool, AdapterError> {
+    let sink_names = load_sink_index_names();
+    Ok(list_sink_inputs().iter().any(|input| {
+        input
+            .sink_index
+            .and_then(|index| sink_names.get(&index))
+            .is_some_and(|name| name == feed_name)
+    }))
+}
+
+fn sink_description(name: &str) -> Result<Option<String>, AdapterError> {
+    let output = run_pactl(&["list", "sinks"])?;
+    let mut current_name = None;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Name: ") {
+            current_name = Some(rest.trim().to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("Description: ") {
+            if current_name.as_deref() == Some(name) {
+                return Ok(Some(rest.trim().to_string()));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn list_modules_for_sink_prefix(prefix: &str) -> Result<Vec<(String, String)>, AdapterError> {
+    let output = run_pactl(&["list", "modules", "short"])?;
+    let mut entries = Vec::new();
+
+    for line in output.lines() {
+        let Some((module_id, args)) = parse_module_short_line(line) else {
+            continue;
+        };
+        let Some(sink_name) = extract_arg_value(&args, "sink_name=") else {
+            continue;
+        };
+        if sink_name.starts_with(prefix) {
+            entries.push((module_id, sink_name));
+        }
+    }
+
+    Ok(entries)
+}
+
+/// `pactl list modules short` is tab-separated: index, module name, arguments.
+/// Arguments may contain spaces inside quoted property values.
+fn parse_module_short_line(line: &str) -> Option<(String, String)> {
+    let line = line.trim();
+    if line.is_empty() {
+        return None;
+    }
+
+    if line.contains('\t') {
+        let mut parts = line.splitn(3, '\t');
+        let module_id = parts.next()?.trim().to_string();
+        let _module_name = parts.next()?;
+        let args = parts.next().unwrap_or("").trim().to_string();
+        return Some((module_id, args));
+    }
+
+    let mut parts = line.splitn(3, char::is_whitespace);
+    let module_id = parts.next()?.to_string();
+    let _module_name = parts.next()?;
+    let args = parts.next().unwrap_or("").to_string();
+    Some((module_id, args))
+}
+
+fn description_module_args(description: &str) -> [String; 3] {
+    let description = escape_sink_property(description);
+    [
+        format!("device.description=\"{description}\""),
+        format!("node.description=\"{description}\""),
+        format!("node.nick=\"{description}\""),
+    ]
+}
+
+fn escape_sink_property(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+fn configured_virtual_labels() -> HashMap<String, String> {
+    let mut labels = ConfigStore::new().device_aliases();
+    for spec in ConfigStore::new().virtual_devices() {
+        labels
+            .entry(format!("pipe-deck-{}", spec.slug))
+            .or_insert(spec.label);
+    }
+    labels
+}
+
+fn configured_label_for_system_name(
+    system_name: &str,
+    labels: &HashMap<String, String>,
+) -> Option<String> {
+    labels.get(system_name).cloned()
+}
+
+fn extract_arg_value(args: &str, prefix: &str) -> Option<String> {
+    let start = args.find(prefix)? + prefix.len();
+    let rest = &args[start..];
+    if rest.starts_with('"') {
+        let end = rest[1..].find('"')? + 1;
+        return Some(rest[1..end].to_string());
+    }
+    let end = rest.find(' ').unwrap_or(rest.len());
+    Some(rest[..end].to_string())
+}
+
+fn extract_description(args: &str) -> Option<String> {
+    // node.nick survives legacy sink_properties bundles that truncated device.description.
+    extract_quoted_property(args, "node.nick=\"")
+        .or_else(|| extract_quoted_property(args, "node.description=\""))
+        .or_else(|| extract_quoted_property(args, "device.description=\""))
+}
+
+fn extract_quoted_property(args: &str, marker: &str) -> Option<String> {
+    let start = args.find(marker)? + marker.len();
+    let rest = &args[start..];
+    let end = rest.find('"')?;
+    let value = rest[..end].trim();
+    if value.is_empty() {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feed_sink_name_derives_from_virtual_input() {
+        assert_eq!(
+            feed_sink_name_for_virtual_input("pipe-deck-test"),
+            "pipe-deck-feed-test"
+        );
+        assert_eq!(
+            feed_sink_name_for_virtual_input("pipe-deck-virtual-input"),
+            "pipe-deck-feed-virtual-input"
+        );
+    }
+
+    #[test]
+    fn feed_sink_description_uses_virtual_mic_label() {
+        assert_eq!(
+            feed_sink_description("YouTube to Discord"),
+            "YouTube to Discord (Pipe Deck route)"
+        );
+    }
+
+    #[test]
+    fn parse_module_short_line_preserves_quoted_spaces() {
+        let line = "42\tmodule-null-sink\tsink_name=pipe-deck-the-run node.description=\"The Run\" node.nick=\"The Run\" device.description=\"The Run\"";
+        let (id, args) = parse_module_short_line(line).unwrap();
+        assert_eq!(id, "42");
+        assert_eq!(
+            extract_arg_value(&args, "sink_name="),
+            Some("pipe-deck-the-run".into())
+        );
+        assert_eq!(extract_description(&args), Some("The Run".into()));
+    }
+
+    #[test]
+    fn parse_module_short_line_space_separated_args() {
+        let line = r#"12 module-null-sink sink_name=pipe-deck-game-mix node.description="Game Mix" node.nick="Game Mix" device.description="Game Mix""#;
+        let (id, args) = parse_module_short_line(line).unwrap();
+        assert_eq!(id, "12");
+        assert_eq!(extract_description(&args), Some("Game Mix".into()));
+    }
+
+    #[test]
+    fn extract_description_prefers_node_nick_for_legacy_modules() {
+        let args = r#"sink_name=pipe-deck-old sink_properties=device.description="Test" node.description="Test" node.nick="Test With Name Spaces""#;
+        assert_eq!(
+            extract_description(args),
+            Some("Test With Name Spaces".into())
+        );
+    }
+}

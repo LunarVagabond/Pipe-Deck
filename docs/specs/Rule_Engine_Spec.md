@@ -101,7 +101,7 @@ Internal candidate keys are not shown in the dashboard summary.
 
 ## Test Scenario Matrix
 
-Deterministic unit tests in `src-tauri/src/core/rule_engine.rs` (`mod tests`):
+Deterministic unit tests in `src-tauri/src/core/rules/` (`mod tests`):
 
 | Scenario | Test name |
 |----------|-----------|

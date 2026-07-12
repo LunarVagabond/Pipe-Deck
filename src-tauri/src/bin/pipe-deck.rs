@@ -30,7 +30,7 @@ fn run() -> Result<(), String> {
     ConfigStore::new()
         .ensure_layout()
         .map_err(|error| error.to_string())?;
-    let _ = pipe_deck_lib::core::rule_engine::ensure_rules_migrated();
+    let _ = pipe_deck_lib::core::rules::ensure_rules_migrated();
     engine.initialize_plugins();
     engine.refresh_graph().map_err(|error| error.to_string())?;
 

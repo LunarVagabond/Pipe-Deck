@@ -8,9 +8,9 @@ use crate::pipewire::split_sink;
 
 pub fn apply_persisted_routing_rules(
     graph: &mut RuntimeGraph,
-    ctx: &crate::core::rule_engine::ApplyRulesContext<'_>,
+    ctx: &crate::core::rules::ApplyRulesContext<'_>,
 ) -> Result<(), AdapterError> {
-    crate::core::rule_engine::apply_routing_rules_with_explanations(graph, ctx)
+    crate::core::rules::apply_routing_rules_with_explanations(graph, ctx)
 }
 
 pub fn clear_stream_route_rule(stream: &Stream) -> Result<(), AdapterError> {
@@ -136,7 +136,7 @@ mod tests {
             target_system_names: Vec::new(),
         };
 
-        assert!(crate::core::rule_engine::stream_matches_persisted_rule(&stream, &rule).is_some());
+        assert!(crate::core::rules::stream_matches_persisted_rule(&stream, &rule).is_some());
     }
 
     #[test]

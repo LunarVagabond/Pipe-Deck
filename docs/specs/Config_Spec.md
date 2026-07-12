@@ -189,7 +189,7 @@ Pipe Deck uses two complementary persistence layers for automatic routing.
 
 ### Authored rules (`rules[]`, Phase 3+)
 
-User-defined policies with priority, conditions, enable/disable, and simulation. Evaluated by the rule engine in `src-tauri/src/core/rule_engine.rs`. See [Rule Engine Spec](./Rule_Engine_Spec).
+User-defined policies with priority, conditions, enable/disable, and simulation. Evaluated by the rule engine in `src-tauri/src/core/rules/`. See [Rule Engine Spec](./Rule_Engine_Spec).
 
 ```yaml
 rules:

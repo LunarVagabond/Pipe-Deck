@@ -136,11 +136,13 @@ async function createVirtual() {
           disabled: !item.enabled,
           'has-popover': item.comingSoon,
         }"
+        :aria-disabled="!item.enabled || undefined"
+        :title="item.comingSoon ? 'Coming soon' : undefined"
         href="#"
         @click.prevent="selectView(item.id, item.enabled)"
       >
         {{ item.label }}
-        <span v-if="item.comingSoon" class="nav-popover" role="tooltip">Coming Soon</span>
+        <span v-if="item.comingSoon" class="nav-popover" role="tooltip">Coming soon</span>
       </a>
       <div class="sidebar-footer">
         <a

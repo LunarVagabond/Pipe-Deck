@@ -74,7 +74,7 @@ Product and technical docs live in [`docs/`](docs/). That folder is structured f
 | [Specifications](docs/specs/) | UI, config, plugins, rule engine |
 | [Project](docs/project/) | Contributing, packaging, plugins, [Releasing](docs/project/Release.md) |
 
-Implementation backlog: [`Backlog.md`](Backlog.md).
+Open work is tracked in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues). List locally with `gh issue list`.
 
 ## Related projects
 

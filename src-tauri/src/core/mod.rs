@@ -7,5 +7,5 @@ pub mod recent_streams;
 pub mod restore;
 pub mod routing;
 pub mod routing_rules;
-pub mod rule_engine;
+pub mod rules;
 pub mod stream_identity;

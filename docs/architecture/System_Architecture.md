@@ -182,7 +182,7 @@ Boundary tests focus on restore and config contracts without requiring live Pipe
 | Config compatibility | `src-tauri/src/config/store.rs` | Legacy YAML without `virtual_devices`; round-trip persistence |
 | Profile capture | `src-tauri/src/core/profile.rs` | `device_assumptions` for virtual devices |
 | Restore helpers | `src-tauri/src/core/restore.rs` | Slug naming, spec mapping |
-| Rule engine | `src-tauri/src/core/rule_engine.rs` | Matchers, manual override, explainability |
+| Rule engine | `src-tauri/src/core/rules/` | Matchers, manual override, explainability |
 | Mock PipeWire | `PIPE_DECK_USE_MOCK=1` + `src-tauri/src/pipewire/mock.rs` | UI and engine flows without audio stack |
 | CI smoke | `make smoke` | Unit tests, frontend check, daemon binary compile |
 

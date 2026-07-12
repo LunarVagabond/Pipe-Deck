@@ -22,9 +22,18 @@ If no, refine or drop the proposal.
 
 ## Branching
 
-- `main`
-- `develop`
-- `feature/<name>`
+- `main` — integration branch
+- `feature/<name>` — topic branches off `main`
+
+## Work tracking
+
+Open work lives in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues). Browse in the UI or list locally:
+
+```bash
+gh issue list
+```
+
+Product direction and acceptance criteria remain in `docs/product/Roadmap.md`. Completed history is in git; do not maintain a separate backlog file in the repo.
 
 ## Commits and pull requests
 

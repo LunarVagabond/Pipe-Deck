@@ -77,4 +77,4 @@ src-tauri/src/
 - `docs/architecture/PipeWire_Design.md`
 - `docs/specs/Config_Spec.md`
 - `docs/specs/UI_Spec.md`
-- `Backlog.md`
+- [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues) (open work tracker)

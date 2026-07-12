@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import RouteExplanationPanel from "./RouteExplanationPanel.vue";
-import { useApplyResult } from "../stores/notices";
+import { useRoutingActions } from "../composables/useRoutingActions";
 import type { Device, Stream } from "../types/graph";
 import {
   sinksForStream,
@@ -20,25 +19,14 @@ const props = withDefaults(
   { compact: false },
 );
 
-const { handleApplyResult } = useApplyResult();
+const { setStreamTarget } = useRoutingActions();
 
 const targets = computed(() => sinksForStream(props.devices, props.stream));
 
 async function onTargetChange(event: Event) {
   const targetDeviceId = (event.target as HTMLSelectElement).value;
   if (!targetDeviceId) return;
-  try {
-    const result = await invoke<{ success: boolean; message?: string }>("set_stream_target", {
-      streamId: props.stream.id,
-      targetDeviceId,
-    });
-    handleApplyResult(result, "Routing updated");
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
-  }
+  await setStreamTarget(props.stream.id, targetDeviceId);
 }
 </script>
 

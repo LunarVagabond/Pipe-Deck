@@ -215,7 +215,7 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
 
     let overrides = HashSet::new();
     let device_overrides = HashSet::new();
-    let ctx = crate::core::rule_engine::ApplyRulesContext {
+    let ctx = crate::core::rules::ApplyRulesContext {
         manual_overrides: &overrides,
         device_manual_overrides: &device_overrides,
         dry_run: false,

@@ -38,7 +38,7 @@ If the answer is no, the feature should be refined or dropped.
 - [Plugins](project/Plugins.md)
 - [Plugin Review Checklist](project/Plugin_Review_Checklist.md)
 - [Wiki publishing](project/Wiki.md)
-- [Backlog](../Backlog.md) (repository root)
+- [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues) (open work tracker)
 
 ## Wiki chrome
 

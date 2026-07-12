@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
+import { useMixerControls } from "../composables/useMixerControls";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
 import type { Device, Stream } from "../types/graph";
@@ -17,6 +18,7 @@ const props = withDefaults(
 );
 
 const { handleApplyResult } = useApplyResult();
+const { applyChannelVolume, toggleChannelMute } = useMixerControls();
 const { confirm } = useConfirm();
 const pendingVolumes = ref<Record<string, number>>({});
 const editingVolumeId = ref<string | null>(null);
@@ -124,21 +126,7 @@ function clampVolume(value: number) {
 async function applyVolume(channel: MixerChannel, percent: number) {
   const next = clampVolume(percent);
   pendingVolumes.value[channel.id] = next;
-  const command =
-    channel.channelType === "stream" ? "set_stream_volume" : "set_device_volume";
-  const payload =
-    channel.channelType === "stream"
-      ? { streamId: channel.id, percent: next }
-      : { deviceId: channel.id, percent: next };
-
-  try {
-    await invoke(command, payload);
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
-  }
+  await applyChannelVolume(channel.channelType, channel.id, next);
 }
 
 function scheduleVolume(channel: MixerChannel, percent: number) {
@@ -175,22 +163,7 @@ async function commitVolumeEdit(channel: MixerChannel) {
 }
 
 async function toggleMute(channel: MixerChannel) {
-  const command =
-    channel.channelType === "stream" ? "set_stream_mute" : "set_device_mute";
-  const payload =
-    channel.channelType === "stream"
-      ? { streamId: channel.id, muted: !channel.muted }
-      : { deviceId: channel.id, muted: !channel.muted };
-
-  try {
-    await invoke(command, payload);
-    handleApplyResult({ success: true }, channel.muted ? "Unmuted" : "Muted");
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
-  }
+  await toggleChannelMute(channel.channelType, channel.id, channel.muted);
 }
 
 async function saveRename(channel: MixerChannel, alias: string) {

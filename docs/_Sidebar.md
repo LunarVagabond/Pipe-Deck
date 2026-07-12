@@ -27,4 +27,4 @@
 
 ---
 
-**[Repository](https://github.com/pipedeck/pipe-deck)** · **[Issues](https://github.com/pipedeck/pipe-deck/issues)** · **[Backlog](https://github.com/pipedeck/pipe-deck/blob/main/Backlog.md)**
+**[Repository](https://github.com/LunarVagabond/Pipe-Deck)** · **[Issues](https://github.com/LunarVagabond/Pipe-Deck/issues)**

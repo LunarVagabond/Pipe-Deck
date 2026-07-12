@@ -3,6 +3,7 @@ import { computed, inject, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import StreamTargetPicker from "../components/StreamTargetPicker.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
+import { useRoutingActions } from "../composables/useRoutingActions";
 import { navigateKey } from "../composables/navigation";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { filterRuntimeGraph } from "../utils/filterGraph";
@@ -14,7 +15,7 @@ const { config } = useAppConfig();
 const navigate = inject(navigateKey);
 
 const showSystemStreams = ref(false);
-const canUndo = ref(false);
+const { canUndo, refreshCanUndo, undoLastRouting } = useRoutingActions();
 
 watch(
   config,
@@ -82,14 +83,6 @@ function streamTargetLabel(stream: Stream): string {
   return device ? targetLabel(device) : "Not routed";
 }
 
-async function refreshCanUndo() {
-  try {
-    canUndo.value = await invoke<boolean>("can_undo_routing");
-  } catch {
-    canUndo.value = false;
-  }
-}
-
 async function onToggleSystemStreams(next: boolean) {
   const previous = showSystemStreams.value;
   showSystemStreams.value = next;
@@ -110,13 +103,7 @@ async function onToggleSystemStreams(next: boolean) {
 }
 
 async function undoRouting() {
-  if (!canUndo.value) return;
-  try {
-    await invoke("undo_last_routing");
-    await refreshCanUndo();
-  } catch {
-    // notices handled by matrix/graph views
-  }
+  await undoLastRouting();
 }
 
 function openRoutingGraph() {

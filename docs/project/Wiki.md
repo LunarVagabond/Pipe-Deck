@@ -15,7 +15,7 @@ When `docs/` becomes the wiki repository (`pipe-deck.wiki`), pages map one-to-on
 | `_Footer.md` | Custom footer on every page |
 | `product/`, `architecture/`, `specs/`, `project/` | Folder-organized pages |
 
-`Backlog.md` stays in the main repository root. The sidebar links to it on GitHub.
+Open work is tracked in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues) on the main repository. The wiki sidebar links to Issues instead of a local backlog file.
 
 ## Publishing steps
 
