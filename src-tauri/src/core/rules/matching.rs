@@ -153,6 +153,50 @@ pub fn stream_matches_authored_rule(stream: &Stream, rule: &Rule) -> Option<Vec<
     Some(reasons)
 }
 
+/// Detects when an authored rule's condition needs metadata the stream never
+/// reported (e.g. `window_class` on Wayland compositors that don't expose
+/// `window.x11.class`/`application.id`/`application.icon-name`), so callers
+/// can distinguish "no rule matched" from "a rule would have matched but the
+/// compositor didn't give us enough information to check."
+fn authored_rule_missing_metadata(stream: &Stream, rule: &Rule) -> Option<String> {
+    if !rule.enabled || rule.conditions.is_empty() {
+        return None;
+    }
+
+    for condition in &rule.conditions {
+        let requires_window_class = matches!(condition, RuleCondition::WindowClass { .. })
+            || matches!(condition, RuleCondition::Regex { field, .. } if field == "window_class");
+        if requires_window_class && stream.window_class.is_none() {
+            return Some(
+                "requires window_class, but this stream's compositor did not report it".into(),
+            );
+        }
+    }
+
+    None
+}
+
+/// Rules that failed to match specifically because of missing `window_class`
+/// metadata, surfaced so explainability can show why they were skipped
+/// instead of leaving no trace at all.
+pub(crate) fn collect_missing_metadata_skips(
+    stream: &Stream,
+    authored_rules: &[Rule],
+) -> Vec<crate::core::models::SkippedCandidate> {
+    authored_rules
+        .iter()
+        .filter(|rule| stream_matches_authored_rule(stream, rule).is_none())
+        .filter_map(|rule| {
+            authored_rule_missing_metadata(stream, rule).map(|reason| {
+                crate::core::models::SkippedCandidate {
+                    rule_key: rule.name.clone(),
+                    reason,
+                }
+            })
+        })
+        .collect()
+}
+
 fn eq_ignore_ascii_case(left: &str, right: &str) -> bool {
     left.eq_ignore_ascii_case(right)
 }
@@ -436,5 +480,93 @@ mod tests {
 
         let by_exe = sample_stream("Player", Some("pw-play"), None);
         assert!(stream_matches_authored_rule(&by_exe, &rule).is_some());
+    }
+
+    fn window_class_rule(value: &str) -> Rule {
+        Rule {
+            id: "window-class-rule".into(),
+            name: "Window class rule".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::WindowClass {
+                value: value.into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("sink".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        }
+    }
+
+    #[test]
+    fn window_class_condition_matches_when_present_and_equal() {
+        let mut stream = sample_stream("Firefox", None, None);
+        stream.window_class = Some("firefox".into());
+        let rule = window_class_rule("firefox");
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn window_class_condition_no_match_when_present_but_different() {
+        let mut stream = sample_stream("Chromium", None, None);
+        stream.window_class = Some("chromium".into());
+        let rule = window_class_rule("firefox");
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_none());
+        assert!(authored_rule_missing_metadata(&stream, &rule).is_none());
+    }
+
+    #[test]
+    fn window_class_condition_missing_metadata_when_absent() {
+        let stream = sample_stream("Firefox", None, None);
+        let rule = window_class_rule("firefox");
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_none());
+        assert!(authored_rule_missing_metadata(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn regex_window_class_condition_missing_metadata_when_absent() {
+        let stream = sample_stream("Firefox", None, None);
+        let rule = Rule {
+            id: "regex-window-class".into(),
+            name: "Regex window class".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::Regex {
+                field: "window_class".into(),
+                pattern: "firefox.*".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("sink".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        };
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_none());
+        assert!(authored_rule_missing_metadata(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn collect_missing_metadata_skips_reports_rules_needing_window_class() {
+        let stream = sample_stream("Firefox", None, None);
+        let rules = vec![window_class_rule("firefox")];
+
+        let skips = collect_missing_metadata_skips(&stream, &rules);
+        assert_eq!(skips.len(), 1);
+        assert_eq!(skips[0].rule_key, "Window class rule");
+        assert!(skips[0].reason.contains("window_class"));
+    }
+
+    #[test]
+    fn collect_missing_metadata_skips_empty_when_window_class_present() {
+        let mut stream = sample_stream("Firefox", None, None);
+        stream.window_class = Some("chromium".into());
+        let rules = vec![window_class_rule("firefox")];
+
+        assert!(collect_missing_metadata_skips(&stream, &rules).is_empty());
     }
 }

@@ -6,6 +6,49 @@ use crate::pipewire::pactl::run_pactl;
 use crate::pipewire::pw_link;
 use std::collections::HashMap;
 
+/// Renames the live PipeWire/PulseAudio node backing a primary virtual
+/// device (not a feed sink). Neither `pactl` (this stack's PipeWire-Pulse
+/// compat shim has no `update-sink-proplist`/`update-source-proplist`) nor
+/// `pw-cli`/`pw-metadata` can mutate a node's description in place, so — same
+/// as `sync_feed_sink_description` already does for feed sinks — the only way
+/// to change it is to unload the module and recreate it with the same
+/// `system_name` and the new description. Skips (returns `Ok(None)`) when the
+/// description is already current or the device is actively carrying audio,
+/// so a rename never disrupts a live stream.
+pub fn sync_virtual_device_description(
+    system_name: &str,
+    direction: DeviceDirection,
+    module_id: &str,
+    description: &str,
+) -> Result<Option<String>, AdapterError> {
+    if sink_description(system_name)?.as_deref() == Some(description) {
+        return Ok(None);
+    }
+
+    if virtual_device_in_use(system_name)? {
+        return Ok(None);
+    }
+
+    unload_module(module_id)?;
+    let new_module_id = match direction {
+        DeviceDirection::Input => create_virtual_source(system_name, description)?,
+        DeviceDirection::Output | DeviceDirection::Duplex => {
+            create_null_sink(system_name, description)?
+        }
+    };
+    Ok(Some(new_module_id))
+}
+
+fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
+    let sink_names = load_sink_index_names();
+    Ok(list_sink_inputs().iter().any(|input| {
+        input
+            .sink_index
+            .and_then(|index| sink_names.get(&index))
+            .is_some_and(|name| name == system_name)
+    }))
+}
+
 pub fn feed_sink_description(virtual_mic_label: &str) -> String {
     format!("{virtual_mic_label} (Pipe Deck route)")
 }

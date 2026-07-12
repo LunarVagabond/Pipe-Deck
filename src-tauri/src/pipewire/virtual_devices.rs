@@ -71,6 +71,29 @@ impl VirtualDeviceRegistry {
         Ok(())
     }
 
+    pub fn get(&self, system_name: &str) -> Option<VirtualDeviceEntry> {
+        self.devices
+            .lock()
+            .ok()
+            .and_then(|devices| devices.get(system_name).cloned())
+    }
+
+    /// Updates the tracked module id after a virtual device's live node was
+    /// unloaded and recreated (e.g. to change its description) — `remove_device`
+    /// unloads by module id, so this must stay in sync with whatever module is
+    /// currently backing `system_name`.
+    pub fn set_module_id(&self, system_name: &str, module_id: &str) -> Result<(), AdapterError> {
+        let mut devices = self
+            .devices
+            .lock()
+            .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?;
+        let Some(entry) = devices.get_mut(system_name) else {
+            return Ok(());
+        };
+        entry.module_id = module_id.to_string();
+        Ok(())
+    }
+
     pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
         self.create_output_with_mode(name, false)
     }
@@ -213,5 +236,50 @@ pub fn slugify(name: &str) -> String {
         "device".into()
     } else {
         slug
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_entry() -> VirtualDeviceEntry {
+        VirtualDeviceEntry {
+            module_id: "42".into(),
+            device_id: "virtual-mic".into(),
+            system_name: "pipe-deck-mic".into(),
+            label: "Mic".into(),
+            direction: DeviceDirection::Input,
+            multi: false,
+        }
+    }
+
+    #[test]
+    fn set_module_id_updates_tracked_entry() {
+        let registry = VirtualDeviceRegistry::new();
+        registry.insert_entry(sample_entry()).unwrap();
+
+        registry.set_module_id("pipe-deck-mic", "99").unwrap();
+
+        let entry = registry.get("pipe-deck-mic").expect("entry should exist");
+        assert_eq!(entry.module_id, "99");
+    }
+
+    #[test]
+    fn set_module_id_on_unknown_device_is_a_no_op() {
+        let registry = VirtualDeviceRegistry::new();
+
+        assert!(registry.set_module_id("unknown", "99").is_ok());
+        assert!(registry.get("unknown").is_none());
+    }
+
+    #[test]
+    fn get_returns_cloned_entry() {
+        let registry = VirtualDeviceRegistry::new();
+        registry.insert_entry(sample_entry()).unwrap();
+
+        let entry = registry.get("pipe-deck-mic").expect("entry should exist");
+        assert_eq!(entry.label, "Mic");
+        assert_eq!(entry.direction, DeviceDirection::Input);
     }
 }

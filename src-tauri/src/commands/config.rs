@@ -30,7 +30,19 @@ pub async fn set_device_alias(
     {
         let engine = state.engine.read().await;
         if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
-            let _ = engine.virtual_registry().set_label(&system_name, &alias);
+            let registry = engine.virtual_registry();
+            let _ = registry.set_label(&system_name, &alias);
+
+            if let Some(entry) = registry.get(&system_name) {
+                if let Ok(Some(new_module_id)) = crate::pipewire::pactl::sync_virtual_device_description(
+                    &system_name,
+                    entry.direction,
+                    &entry.module_id,
+                    &alias,
+                ) {
+                    let _ = registry.set_module_id(&system_name, &new_module_id);
+                }
+            }
         }
     }
 
