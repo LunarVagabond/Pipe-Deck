@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test clean preview flatpak smoke release
+.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-e2e clean preview flatpak smoke release
 
 NPM ?= npm
 CARGO ?= cargo
@@ -62,6 +62,9 @@ check: build-daemon-dev build-cli ## Run frontend and Rust checks without produc
 
 test: build-daemon-dev build-cli ## Run Rust tests
 	$(CARGO) test --manifest-path $(TAURI_DIR)/Cargo.toml
+
+test-e2e: ## Run frontend Playwright component tests (e2e/, needs `npx playwright install chromium` once)
+	$(NPM) run test:e2e
 
 preview: ## Preview the built frontend assets
 	$(NPM) run preview

@@ -35,6 +35,10 @@ lerna-debug.log*
 coverage/
 .nyc_output/
 *.lcov
+test-results/
+playwright-report/
+blob-report/
+e2e/.cache/
 
 # Caches and incremental build metadata
 .cache/
