@@ -96,6 +96,16 @@ const graphActions = {
     groups.value = groups.value.filter((entry) => entry.id !== groupId);
     persistGroups();
   },
+  labelForEntity(entityId: string) {
+    const stream = props.graph.streams.find((entry) => entry.id === entityId);
+    if (stream) {
+      return stream.media_name && stream.media_name !== stream.app_name
+        ? `${stream.app_name} (${stream.media_name})`
+        : stream.app_name;
+    }
+    const device = props.graph.devices.find((entry) => entry.id === entityId);
+    return device?.label ?? entityId;
+  },
 };
 
 provide(routingGraphActionsKey, graphActions);
@@ -181,7 +191,12 @@ watch(
 );
 
 function isValidConnection(connection: Connection) {
-  return canConnectPorts(connection.sourceHandle, connection.targetHandle);
+  // Vue Flow reuses this callback both for a live user drag (a bare Connection,
+  // no `id`) and to re-validate every already-persisted edge on each resync
+  // (which carries its own `id`). Only the former should require the target to
+  // be the open trailing slot.
+  const isExistingEdge = Boolean((connection as unknown as { id?: string }).id);
+  return canConnectPorts(connection.sourceHandle, connection.targetHandle, !isExistingEdge);
 }
 
 async function commitConnection(
@@ -334,20 +349,30 @@ async function onWindowKeydown(event: KeyboardEvent) {
 
 const knownNodeIds = ref<Set<string> | null>(null);
 
-watch(nodes, async (current) => {
-  const currentIds = new Set(current.map((node) => node.id));
-  if (knownNodeIds.value === null) {
+// Nodes carry a variable number of handles (one per live connection, plus a
+// trailing empty slot) that changes as routing changes. Vue Flow caches each
+// handle's rendered position and only recomputes it on an explicit nudge, so
+// without this, edges/arrows draw at stale coordinates until something else
+// (e.g. a window resize) forces a recalculation.
+watch(
+  nodes,
+  async (current) => {
+    await nextTick();
+    vueFlow.updateNodeInternals(current.map((node) => node.id));
+
+    const currentIds = new Set(current.map((node) => node.id));
+    if (knownNodeIds.value === null) {
+      knownNodeIds.value = currentIds;
+      return;
+    }
+
+    const addedIds = [...currentIds].filter((id) => !knownNodeIds.value!.has(id));
     knownNodeIds.value = currentIds;
-    return;
-  }
+    if (addedIds.length === 0) return;
 
-  const addedIds = [...currentIds].filter((id) => !knownNodeIds.value!.has(id));
-  knownNodeIds.value = currentIds;
-  if (addedIds.length === 0) return;
-
-  await nextTick();
-  await vueFlow.fitView({ nodes: addedIds, padding: 0.35, duration: 400, maxZoom: 1 });
-});
+    await vueFlow.fitView({ nodes: addedIds, padding: 0.35, duration: 400, maxZoom: 1 });
+  },
+);
 
 onMounted(() => {
   localStorage.removeItem("pipe-deck-routing-reroutes");

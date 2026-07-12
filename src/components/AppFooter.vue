@@ -7,8 +7,6 @@ const appInfo = ref<AppInfo | null>(null);
 const buildRevision = ref("…");
 
 const GITHUB_PROFILE = "https://github.com/LunarVagabond";
-const BMC_URL = "https://www.buymeacoffee.com/lunarvagabond";
-const BMC_BUTTON_SRC = "https://cdn.buymeacoffee.com/buttons/v2/default-violet.png";
 const MIT_LICENSE_URL = "https://opensource.org/licenses/MIT";
 
 async function openExternal(event: MouseEvent, url: string) {
@@ -50,20 +48,8 @@ onMounted(async () => {
       </a>
     </div>
 
-    <div class="app-footer-center">
+    <div class="app-footer-right">
       <span class="app-footer-revision">{{ buildRevision }}</span>
-    </div>
-
-    <div class="app-footer-support">
-      <span class="app-footer-support-text">Enjoying Pipe Deck? Consider</span>
-      <a
-        class="app-footer-bmc"
-        :href="BMC_URL"
-        aria-label="Buy me a coffee"
-        @click="openExternal($event, BMC_URL)"
-      >
-        <img :src="BMC_BUTTON_SRC" alt="Buy me a coffee" width="162" height="45" />
-      </a>
     </div>
   </footer>
 </template>

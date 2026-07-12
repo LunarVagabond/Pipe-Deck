@@ -1,10 +1,31 @@
 import { invoke } from "@tauri-apps/api/core";
+import { ref } from "vue";
 import { useApplyResult } from "../stores/notices";
 
 export type ApplyResultPayload = { success: boolean; message?: string };
 
 export function useMixerControls() {
   const { handleApplyResult } = useApplyResult();
+  const pendingVolumes = ref<Record<string, number>>({});
+  const debounceTimers: Record<string, number> = {};
+
+  function clampVolume(value: number): number {
+    return Math.min(100, Math.max(0, Math.round(value)));
+  }
+
+  /** Debounced volume apply: schedules the network call and tracks an optimistic display value. */
+  function scheduleChannelVolume(
+    channelType: "device" | "stream",
+    id: string,
+    percent: number,
+  ) {
+    const next = clampVolume(percent);
+    pendingVolumes.value[id] = next;
+    window.clearTimeout(debounceTimers[id]);
+    debounceTimers[id] = window.setTimeout(() => {
+      void applyChannelVolume(channelType, id, pendingVolumes.value[id]);
+    }, 120);
+  }
 
   async function setDeviceVolume(deviceId: string, percent: number) {
     await invoke("set_device_volume", { deviceId, percent });
@@ -72,5 +93,8 @@ export function useMixerControls() {
     setStreamMute,
     applyChannelVolume,
     toggleChannelMute,
+    pendingVolumes,
+    clampVolume,
+    scheduleChannelVolume,
   };
 }

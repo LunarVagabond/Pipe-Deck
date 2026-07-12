@@ -43,7 +43,12 @@ function makeEdge(
   const targetIsStream = graph.streams.some((stream) => stream.id === targetId);
   const source = sourceIsStream ? streamNodeId(sourceId) : deviceNodeId(sourceId);
   const target = targetIsStream ? streamNodeId(targetId) : deviceNodeId(targetId);
-  const { sourceHandle, targetHandle } = handlesForLink();
+  const { sourceHandle, targetHandle } = handlesForLink(
+    sourceIsStream,
+    targetIsStream,
+    sourceId,
+    targetId,
+  );
 
   return {
     id: linkId,
@@ -54,8 +59,8 @@ function makeEdge(
     animated: true,
     updatable: true,
     interactionWidth: 22,
-    class: `routing-edge ${edgeClassForPort(sourceHandle)}`,
-    style: { stroke: edgeColorForPorts(sourceHandle), strokeWidth: "2.5" },
+    class: `routing-edge ${edgeClassForPort()}`,
+    style: { stroke: edgeColorForPorts(), strokeWidth: "2.5" },
   };
 }
 

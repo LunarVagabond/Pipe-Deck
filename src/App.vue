@@ -5,7 +5,7 @@ import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import PromptDialog from "./components/PromptDialog.vue";
 import AppFooter from "./components/AppFooter.vue";
-import ToggleSwitch from "./components/ToggleSwitch.vue";
+import NewDeviceDialog from "./components/NewDeviceDialog.vue";
 import { navigateKey } from "./composables/navigation";
 import Dashboard from "./views/Dashboard.vue";
 import Effects from "./views/Effects.vue";
@@ -34,10 +34,6 @@ const navItems = ref<
 const activeView = ref<AppView>("dashboard");
 const daemonStatus = ref("Checking…");
 const showNewModal = ref(false);
-const newDeviceName = ref("");
-const newDeviceType = ref<"input" | "output">("output");
-const newDeviceMulti = ref(false);
-const canCreateVirtual = computed(() => newDeviceName.value.trim().length > 0);
 const { handleApplyResult } = useApplyResult();
 const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
 
@@ -70,17 +66,6 @@ provide(navigateKey, (view: AppView) => {
   }
 });
 
-function resetNewDeviceForm() {
-  newDeviceName.value = "";
-  newDeviceType.value = "output";
-  newDeviceMulti.value = false;
-}
-
-function closeNewModal() {
-  showNewModal.value = false;
-  resetNewDeviceForm();
-}
-
 async function refreshDaemonStatus() {
   try {
     const status = await invoke<DaemonStatus>("get_daemon_status");
@@ -97,27 +82,6 @@ async function refreshDaemonStatus() {
 onMounted(() => {
   void refreshDaemonStatus();
 });
-
-async function createVirtual() {
-  const name = newDeviceName.value.trim();
-  if (!name) return;
-  const command =
-    newDeviceType.value === "input"
-      ? "create_virtual_input"
-      : newDeviceMulti.value
-        ? "create_virtual_multi_output"
-        : "create_virtual_output";
-  try {
-    await invoke(command, { name });
-    handleApplyResult({ success: true }, `${name} created`);
-    closeNewModal();
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
-  }
-}
 </script>
 
 <template>
@@ -182,45 +146,6 @@ async function createVirtual() {
     <NoticeStack />
     <ConfirmDialog />
     <PromptDialog />
-
-    <div v-if="showNewModal" class="new-device-modal" @click.self="closeNewModal">
-      <div class="new-device-dialog">
-        <h2>Create Virtual Device</h2>
-        <div class="new-device-field">
-          <label class="new-device-field-label" for="new-device-name">Name</label>
-          <input
-            id="new-device-name"
-            v-model="newDeviceName"
-            type="text"
-            placeholder="e.g. Game Mix"
-          />
-        </div>
-        <div class="new-device-field">
-          <label class="new-device-field-label" for="new-device-type">Type</label>
-          <select id="new-device-type" v-model="newDeviceType">
-            <option value="input">Input</option>
-            <option value="output">Output</option>
-          </select>
-        </div>
-        <div v-if="newDeviceType === 'output'" class="new-device-toggle-row">
-          <span class="new-device-field-label">Multi-output</span>
-          <ToggleSwitch v-model="newDeviceMulti" :show-state-labels="false" />
-        </div>
-        <p class="new-device-hint">
-          Display name can include spaces. The system id uses dashes (Game Mix → pipe-deck-game-mix).
-        </p>
-        <div class="dialog-actions">
-          <button type="button" @click="closeNewModal">Cancel</button>
-          <button
-            type="button"
-            class="primary"
-            :disabled="!canCreateVirtual"
-            @click="createVirtual"
-          >
-            Create
-          </button>
-        </div>
-      </div>
-    </div>
+    <NewDeviceDialog v-model="showNewModal" />
   </div>
 </template>

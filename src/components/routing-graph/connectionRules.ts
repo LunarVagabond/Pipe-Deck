@@ -41,7 +41,7 @@ export function resolveConnectionAction(
   }
 
   if (!canConnectPorts(connection.sourceHandle, connection.targetHandle)) {
-    return { error: "Connect matching port colors only (see legend)." };
+    return { error: "Connect an output to an open input slot." };
   }
 
   const source = parseGraphNodeId(connection.source);

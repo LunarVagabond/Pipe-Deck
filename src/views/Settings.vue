@@ -28,6 +28,21 @@ const checkingUpdates = ref(false);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
 
+const BMC_URL = "https://www.buymeacoffee.com/lunarvagabond";
+const BMC_BUTTON_SRC = "https://cdn.buymeacoffee.com/buttons/v2/default-violet.png";
+
+async function openExternal(event: MouseEvent, url: string) {
+  event.preventDefault();
+  try {
+    await invoke("open_url", { url });
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
 const updateStatus = computed<UpdateStatus>(() => {
   if (checkingUpdates.value) return "checking";
   return updateResult.value?.status ?? "unknown";
@@ -385,6 +400,21 @@ onMounted(() => {
             <template v-if="appInfo?.installLabel"> · {{ appInfo.installLabel }}</template>
           </p>
         </div>
+      </div>
+
+      <div class="settings-row settings-support-row">
+        <div>
+          <p class="settings-row-label">Support Pipe Deck</p>
+          <p class="settings-row-hint">Enjoying the app? Consider chipping in.</p>
+        </div>
+        <a
+          class="settings-bmc"
+          :href="BMC_URL"
+          aria-label="Buy me a coffee"
+          @click="openExternal($event, BMC_URL)"
+        >
+          <img :src="BMC_BUTTON_SRC" alt="Buy me a coffee" width="162" height="45" />
+        </a>
       </div>
 
       <div class="settings-row">

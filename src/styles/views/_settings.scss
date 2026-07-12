@@ -110,6 +110,24 @@
   max-width: 36rem;
 }
 
+.settings-support-row {
+  align-items: center;
+}
+
+.settings-bmc {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  line-height: 0;
+  cursor: pointer;
+
+  img {
+    display: block;
+    height: 2.2rem;
+    width: auto;
+  }
+}
+
 .settings-hint,
 .settings-error,
 .settings-footnote {

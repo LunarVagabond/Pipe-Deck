@@ -6,8 +6,8 @@ import {
   streamAccent,
   streamSubtitle,
 } from "../../utils/routingLayout";
-import { handlesForDevice, handlesForStream } from "./nodePorts";
-import type { RoutingGraphHandle } from "./nodePorts";
+import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
+import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
 import { deviceNodeId, streamNodeId } from "./nodeIds";
 import type { GraphGroup } from "./groups";
@@ -27,6 +27,9 @@ export interface RoutingGraphNodeData {
   systemName?: string;
   editable?: boolean;
   deletable?: boolean;
+  channelType?: "device" | "stream";
+  volumePercent?: number;
+  muted?: boolean;
 }
 
 export interface RoutingGraphGroupData {
@@ -85,19 +88,39 @@ export function saveNodePosition(nodeId: string, x: number, y: number) {
   localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
 }
 
+const LANE_ROW_HEIGHT = 110;
+const LANE_Y_OFFSET = 40;
+
+/**
+ * Auto-placed nodes (never manually dragged) used to be assigned a lane slot
+ * purely from "how many same-lane nodes have we seen so far in this pass" —
+ * since that count depends on backend array ordering and which nodes currently
+ * exist, an undragged node could jump to a different slot (and collide with a
+ * dragged node's saved position) on almost any unrelated graph update. Instead,
+ * find the first slot not already occupied by a saved position in this lane,
+ * and persist it immediately so the node keeps that slot on every future build.
+ */
+function nextFreeSlot(kind: RoutingNodeKind, occupiedSlots: Record<RoutingNodeKind, Set<number>>): number {
+  let slot = 0;
+  while (occupiedSlots[kind].has(slot)) {
+    slot += 1;
+  }
+  occupiedSlots[kind].add(slot);
+  return slot;
+}
+
 function positionFor(
   nodeId: string,
   kind: RoutingNodeKind,
-  laneCounts: Record<RoutingNodeKind, number>,
+  layout: Record<string, { x: number; y: number }>,
+  occupiedSlots: Record<RoutingNodeKind, Set<number>>,
 ): { x: number; y: number } {
-  const saved = loadLayout()[nodeId];
+  const saved = layout[nodeId];
   if (saved) return saved;
-  const laneIndex = laneCounts[kind];
-  laneCounts[kind] += 1;
-  return {
-    x: LANE_X[kind],
-    y: 40 + laneIndex * 110,
-  };
+  const slot = nextFreeSlot(kind, occupiedSlots);
+  const position = { x: LANE_X[kind], y: LANE_Y_OFFSET + slot * LANE_ROW_HEIGHT };
+  layout[nodeId] = position;
+  return position;
 }
 
 export { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
@@ -112,6 +135,9 @@ function streamNodeKind(stream: Stream): RoutingGraphNodeData {
     accent: streamAccent(stream.id),
     handles: handlesForStream(stream),
     nodeClass: playback ? "playback" : "capture",
+    channelType: stream.volume_percent !== undefined && !stream.is_system ? "stream" : undefined,
+    volumePercent: stream.volume_percent,
+    muted: stream.muted,
   };
 }
 
@@ -119,11 +145,23 @@ function isManagedVirtualDevice(device: Device): boolean {
   return device.kind === "virtual" && device.system_name.startsWith("pipe-deck-");
 }
 
-function deviceNodeKind(device: Device): RoutingGraphNodeData | null {
+function deviceNodeKind(
+  device: Device,
+  connections: DeviceConnections,
+): RoutingGraphNodeData | null {
   const column = deviceColumn(device);
   if (!column) return null;
 
   const managed = isManagedVirtualDevice(device);
+  const shared = {
+    handles: handlesForDevice(device, connections),
+    systemName: device.system_name,
+    editable: true,
+    deletable: managed,
+    channelType: device.volume_percent !== undefined ? ("device" as const) : undefined,
+    volumePercent: device.volume_percent,
+    muted: device.muted,
+  };
 
   if (column === "routing") {
     const subtitle = isMultiSink(device)
@@ -134,11 +172,8 @@ function deviceNodeKind(device: Device): RoutingGraphNodeData | null {
       subtitle,
       nodeKind: "virtualSink",
       entityId: device.id,
-      handles: handlesForDevice(device),
       nodeClass: "virtual-sink",
-      systemName: device.system_name,
-      editable: true,
-      deletable: managed,
+      ...shared,
     };
   }
 
@@ -148,11 +183,8 @@ function deviceNodeKind(device: Device): RoutingGraphNodeData | null {
       subtitle: deviceSubtitle(device),
       nodeKind: "output",
       entityId: device.id,
-      handles: handlesForDevice(device),
       nodeClass: "output",
-      systemName: device.system_name,
-      editable: true,
-      deletable: managed,
+      ...shared,
     };
   }
 
@@ -162,21 +194,40 @@ function deviceNodeKind(device: Device): RoutingGraphNodeData | null {
     subtitle: deviceSubtitle(device),
     nodeKind: "input",
     entityId: device.id,
-    handles: handlesForDevice(device),
     nodeClass: isVirtualInput ? "virtual-input" : "input",
-    systemName: device.system_name,
-    editable: true,
-    deletable: managed,
+    ...shared,
   };
 }
 
+function slotIndexForY(y: number): number {
+  return Math.round((y - LANE_Y_OFFSET) / LANE_ROW_HEIGHT);
+}
+
 export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
-  const laneCounts: Record<RoutingNodeKind, number> = {
-    stream: 0,
-    virtualSink: 0,
-    output: 0,
-    input: 0,
+  const layout = loadLayout();
+  let layoutChanged = false;
+
+  const occupiedSlots: Record<RoutingNodeKind, Set<number>> = {
+    stream: new Set(),
+    virtualSink: new Set(),
+    output: new Set(),
+    input: new Set(),
   };
+  // Seed occupied slots from every already-saved position (dragged or previously
+  // auto-placed) so a brand new node can't be handed a slot that collides with one.
+  for (const position of Object.values(layout)) {
+    if (position.x === LANE_X.stream) occupiedSlots.stream.add(slotIndexForY(position.y));
+    else if (position.x === LANE_X.virtualSink) occupiedSlots.virtualSink.add(slotIndexForY(position.y));
+    else if (position.x === LANE_X.output) occupiedSlots.output.add(slotIndexForY(position.y));
+    else if (position.x === LANE_X.input) occupiedSlots.input.add(slotIndexForY(position.y));
+  }
+
+  function trackedPositionFor(id: string, kind: RoutingNodeKind): { x: number; y: number } {
+    const before = layout[id];
+    const position = positionFor(id, kind, layout, occupiedSlots);
+    if (!before) layoutChanged = true;
+    return position;
+  }
 
   const groupByMemberId = new Map<string, GraphGroup>();
   for (const group of groups) {
@@ -211,27 +262,39 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     data: { label: group.label, groupId: group.id },
   }));
 
-  for (const stream of graph.streams) {
+  // Stable, id-based order: which nodes claim a free auto-layout slot should
+  // depend only on the set of node ids present, not on backend array ordering
+  // (which can vary between polls and would otherwise reshuffle un-dragged nodes).
+  const sortedStreams = [...graph.streams].sort((a, b) => a.id.localeCompare(b.id));
+  const sortedDevices = [...graph.devices].sort((a, b) => a.id.localeCompare(b.id));
+
+  for (const stream of sortedStreams) {
     const data = streamNodeKind(stream);
     const id = streamNodeId(stream.id);
     nodes.push({
       id,
       type: "routingNode",
-      ...withGroup(id, positionFor(id, "stream", laneCounts)),
+      ...withGroup(id, trackedPositionFor(id, "stream")),
       data,
     });
   }
 
-  for (const device of graph.devices) {
-    const data = deviceNodeKind(device);
+  const deviceConnections = computeDeviceConnections(graph);
+
+  for (const device of sortedDevices) {
+    const data = deviceNodeKind(device, deviceConnections.get(device.id) ?? { in: [], out: [] });
     if (!data) continue;
     const id = deviceNodeId(device.id);
     nodes.push({
       id,
       type: "routingNode",
-      ...withGroup(id, positionFor(id, data.nodeKind, laneCounts)),
+      ...withGroup(id, trackedPositionFor(id, data.nodeKind)),
       data,
     });
+  }
+
+  if (layoutChanged) {
+    localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   }
 
   const edges = collectRoutingEdges(graph);

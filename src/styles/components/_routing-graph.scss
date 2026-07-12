@@ -172,15 +172,13 @@
 }
 
 .routing-graph-node {
-  min-width: 180px;
-  max-width: 220px;
-  padding: 0.65rem 0.75rem;
+  min-width: 210px;
+  max-width: 260px;
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(11, 15, 20, 0.92);
   display: flex;
-  align-items: flex-start;
-  gap: 0.5rem;
+  align-items: stretch;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
   position: relative;
   overflow: visible;
@@ -218,6 +216,23 @@
       rgba(38, 195, 163, 0.08) 100%
     );
   }
+}
+
+.routing-graph-node-main {
+  flex: 1;
+  min-width: 0;
+  padding: 0.65rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.routing-graph-node-icon {
+  width: 1rem;
+  height: 1rem;
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  color: var(--text-muted);
 }
 
 .routing-graph-node-body {
@@ -290,13 +305,47 @@
   margin-top: 0.2rem;
 }
 
+.routing-graph-node-ports {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.3rem;
+  flex-shrink: 0;
+}
+
+.routing-graph-node-ports--in {
+  align-items: flex-start;
+}
+
+.routing-graph-node-ports--out {
+  align-items: flex-end;
+}
+
+.routing-graph-port-row {
+  display: flex;
+  align-items: center;
+  height: 0.85rem;
+}
+
+// Handles render inline within their port row instead of vue-flow's absolute
+// per-side default, so multiple simultaneous connections stack as distinct rows.
+// `relative` (not `static`) keeps the handle itself as the containing block for
+// its `::after` hit-area pseudo-element below — with `static` that pseudo-element
+// escapes up to the whole node's bounding box and swallows every click on it.
 .routing-graph-handle {
-  width: 0.8rem;
-  height: 0.8rem;
-  background: var(--handle-color, var(--accent-purple));
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  width: 0.75rem;
+  height: 0.75rem;
+  background: var(--handle-color, #3fd0c9);
   border: 2px solid rgba(255, 255, 255, 0.92);
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
-  transition: box-shadow 0.12s ease;
+  transition: box-shadow 0.12s ease, opacity 0.12s ease;
 
   &::after {
     content: "";
@@ -307,18 +356,57 @@
   &:hover {
     box-shadow:
       0 0 0 2px rgba(0, 0, 0, 0.35),
-      0 0 14px var(--handle-color);
+      0 0 14px var(--handle-color, #3fd0c9);
+  }
+
+  &.is-empty {
+    background: transparent;
+    border-color: var(--handle-color, #3fd0c9);
   }
 }
 
-.routing-graph-handle--audio-in {
-  --handle-color: #7c5cff;
-  background: #7c5cff;
+.routing-graph-node-mixer {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
 }
 
-.routing-graph-handle--audio-out {
-  --handle-color: #26c3a3;
-  background: #26c3a3;
+.routing-graph-node-mute {
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: pointer;
+
+  &.active {
+    background: rgba(255, 107, 107, 0.15);
+  }
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+.routing-graph-node-volume {
+  flex: 1;
+  min-width: 0;
+  accent-color: #3fd0c9;
+  height: 0.9rem;
+}
+
+.routing-graph-node-volume-label {
+  flex-shrink: 0;
+  width: 2.2rem;
+  text-align: right;
+  font-size: 0.65rem;
+  color: var(--text-muted);
 }
 
 .routing-view .routing-lead {

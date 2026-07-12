@@ -57,7 +57,7 @@
 
   .new-device-toggle-row {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     justify-content: space-between;
     gap: 0.75rem;
     padding: 0.35rem 0;
@@ -95,5 +95,82 @@
     font-size: 0.82rem;
     color: var(--text-muted);
     line-height: 1.4;
+  }
+
+  .new-device-slug {
+    margin: 0;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  .new-device-slug-arrow {
+    color: var(--accent-purple);
+  }
+
+  .new-device-type-cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.6rem;
+  }
+
+  .new-device-type-card {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.35rem;
+    padding: 0.7rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--surface-2);
+    color: var(--text);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.12s ease, background 0.12s ease;
+
+    svg {
+      width: 1.15rem;
+      height: 1.15rem;
+      color: var(--text-muted);
+    }
+
+    &:hover {
+      border-color: var(--accent-purple);
+    }
+
+    &.selected {
+      border-color: var(--accent-purple);
+      background: rgba(124, 92, 255, 0.12);
+
+      svg {
+        color: var(--accent-purple);
+      }
+    }
+  }
+
+  .new-device-type-card-title {
+    font-size: 0.85rem;
+    font-weight: 600;
+  }
+
+  .new-device-type-card-sub {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    line-height: 1.35;
+  }
+
+  .new-device-toggle-copy {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+  }
+
+  .new-device-toggle-hint {
+    margin: 0;
+    font-size: 0.72rem;
+    color: var(--text-muted);
+    max-width: 240px;
   }
 }
