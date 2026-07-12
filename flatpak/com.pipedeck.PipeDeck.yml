@@ -18,6 +18,9 @@ finish-args:
 modules:
   - name: pipe-deck
     buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
     build-commands:
       - npm ci
       - npm run build

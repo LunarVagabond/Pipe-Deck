@@ -5,7 +5,8 @@ use crate::core::models::{
 };
 use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::matching::{
-    collect_stream_candidates, device_matches_rule, resolve_target_device,
+    collect_missing_metadata_skips, collect_stream_candidates, device_matches_rule,
+    resolve_target_device,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_display_label, stream_identity_key};
@@ -51,7 +52,7 @@ pub fn evaluate_stream_route(
             matched_rule_id: None,
             matched_rule_key: None,
             match_reasons: vec!["No matching routing rule".into()],
-            skipped_candidates: Vec::new(),
+            skipped_candidates: collect_missing_metadata_skips(stream, authored_rules),
             action_status: ActionStatus::NoAction,
             target_system_name: None,
             target_system_names: Vec::new(),
@@ -347,6 +348,44 @@ mod tests {
 
         assert_eq!(explanation.source, RouteSource::ManualOverride);
         assert_eq!(explanation.action_status, ActionStatus::SkippedManualOverride);
+    }
+
+    #[test]
+    fn no_match_surfaces_missing_window_class_metadata() {
+        let stream = sample_stream("Firefox", Some("firefox"), None);
+        let rule = Rule {
+            id: "window-class-rule".into(),
+            name: "Window class rule".into(),
+            enabled: true,
+            priority: 10,
+            conditions: vec![RuleCondition::WindowClass {
+                value: "firefox".into(),
+            }],
+            action: crate::core::models::RuleAction {
+                target_system_name: Some("sink".into()),
+                target_system_names: Vec::new(),
+            },
+            safeguards: Default::default(),
+        };
+
+        let explanation = evaluate_stream_route(&stream, &[rule], &[], &HashSet::new());
+
+        assert_eq!(explanation.source, RouteSource::NoRule);
+        assert_eq!(explanation.skipped_candidates.len(), 1);
+        assert_eq!(explanation.skipped_candidates[0].rule_key, "Window class rule");
+        assert!(explanation.skipped_candidates[0]
+            .reason
+            .contains("window_class"));
+    }
+
+    #[test]
+    fn no_matching_rules_leaves_skipped_candidates_empty() {
+        let stream = sample_stream("Firefox", Some("firefox"), None);
+
+        let explanation = evaluate_stream_route(&stream, &[], &[], &HashSet::new());
+
+        assert_eq!(explanation.source, RouteSource::NoRule);
+        assert!(explanation.skipped_candidates.is_empty());
     }
 
     fn graph_with_outputs() -> RuntimeGraph {

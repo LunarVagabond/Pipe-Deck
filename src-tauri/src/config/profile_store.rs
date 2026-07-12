@@ -336,4 +336,129 @@ mod tests {
 
         assert!(validate_profile(&profile).is_err());
     }
+
+    fn base_profile() -> Profile {
+        Profile {
+            version: 1,
+            id: "gaming".into(),
+            name: "Gaming".into(),
+            created: "2026-07-09T10:00:00Z".into(),
+            updated: "2026-07-09T10:00:00Z".into(),
+            routing_intents: vec![],
+            volume_state: Default::default(),
+            device_assumptions: Default::default(),
+            effect_state: Default::default(),
+        }
+    }
+
+    #[test]
+    fn rejects_version_zero() {
+        let mut profile = base_profile();
+        profile.version = 0;
+
+        let error = validate_profile(&profile).expect_err("version 0 should be rejected");
+        assert!(matches!(error, ProfileError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_empty_id() {
+        let mut profile = base_profile();
+        profile.id = "".into();
+
+        let error = validate_profile(&profile).expect_err("empty id should be rejected");
+        assert!(matches!(error, ProfileError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_empty_name() {
+        let mut profile = base_profile();
+        profile.name = "".into();
+
+        let error = validate_profile(&profile).expect_err("empty name should be rejected");
+        assert!(matches!(error, ProfileError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_routing_intent_with_empty_stream_id() {
+        let mut profile = base_profile();
+        profile.routing_intents = vec![RoutingIntent {
+            stream_id: "".into(),
+            target_device_id: Some("node-2".into()),
+            target_device_ids: vec!["node-2".into()],
+        }];
+
+        let error =
+            validate_profile(&profile).expect_err("empty stream_id should be rejected");
+        assert!(matches!(error, ProfileError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_routing_intent_with_no_targets() {
+        let mut profile = base_profile();
+        profile.routing_intents = vec![RoutingIntent {
+            stream_id: "node-1".into(),
+            target_device_id: None,
+            target_device_ids: vec![],
+        }];
+
+        let error = validate_profile(&profile).expect_err("missing targets should be rejected");
+        assert!(matches!(error, ProfileError::Validation(_)));
+    }
+
+    #[test]
+    fn rejects_volume_state_entry_with_empty_key() {
+        let mut profile = base_profile();
+        profile.volume_state = [(
+            "".into(),
+            VolumeStateEntry {
+                volume_percent: 50,
+                muted: false,
+            },
+        )]
+        .into_iter()
+        .collect();
+
+        let error =
+            validate_profile(&profile).expect_err("empty volume_state key should be rejected");
+        assert!(matches!(error, ProfileError::Validation(_)));
+    }
+
+    #[test]
+    fn round_trips_valid_yaml_through_serde_and_validates() {
+        let yaml = r#"
+version: 1
+id: gaming
+name: Gaming
+created: "2026-07-09T10:00:00Z"
+updated: "2026-07-09T10:00:00Z"
+routing_intents:
+  - stream_id: node-1
+    target_device_ids:
+      - node-2
+volume_state:
+  node-2:
+    volume_percent: 80
+    muted: false
+"#;
+
+        let profile: Profile = serde_yaml::from_str(yaml).expect("valid yaml should deserialize");
+        validate_profile(&profile).expect("deserialized profile should be valid");
+    }
+
+    #[test]
+    fn malformed_yaml_missing_required_field_fails_to_deserialize() {
+        let yaml = r#"
+version: 1
+name: Gaming
+created: "2026-07-09T10:00:00Z"
+updated: "2026-07-09T10:00:00Z"
+routing_intents: []
+"#;
+
+        let result: Result<Profile, _> = serde_yaml::from_str(yaml);
+        assert!(
+            result.is_err(),
+            "yaml missing required `id` field should fail to deserialize"
+        );
+    }
 }

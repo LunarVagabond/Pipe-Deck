@@ -81,6 +81,18 @@ The system must answer:
 
 Internal candidate keys are not shown in the dashboard summary.
 
+### Known metadata limitations
+
+`window_class` is best-effort: it's derived from whichever of `window.x11.class`,
+`application.id`, or `application.icon-name` PipeWire reports for a stream's node
+(see `parse_window_class` in `core/stream_identity.rs`). Some Wayland compositors
+never populate any of these properties, so a rule that conditions on
+`window_class` (directly or via a `Regex` condition on the `window_class` field)
+cannot be evaluated for those streams. When that happens and no other rule
+matches, the miss is surfaced in `skipped_candidates` with a reason explaining
+that the required metadata wasn't reported — this is distinct from the rule
+simply not matching the stream's actual window class.
+
 ## Safety Requirements
 
 - Never orphan critical streams without fallback.
