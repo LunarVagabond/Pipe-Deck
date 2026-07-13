@@ -8,7 +8,14 @@ export interface AppInfo {
   installLabel: string;
 }
 
-export type UpdateStatus = "current" | "outdated" | "severely_outdated" | "unknown" | "checking";
+export type UpdateStatus =
+  | "current"
+  | "outdated"
+  | "severely_outdated"
+  | "unknown"
+  | "checking"
+  | "error"
+  | "unsupported";
 
 export interface UpdateCheckResult {
   status: UpdateStatus;

@@ -93,7 +93,6 @@ async function onExport(profileId: string) {
     <header class="profiles-header">
       <div>
         <p class="eyebrow">Desired routing</p>
-        <h1>Profiles</h1>
       </div>
       <div class="profiles-actions">
         <button

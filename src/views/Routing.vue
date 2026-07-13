@@ -92,7 +92,6 @@ async function undoRouting() {
     <header class="routing-header view-header">
       <div>
         <p class="eyebrow">Topology and connections</p>
-        <h1>Routing</h1>
         <p class="routing-lead">
           Drag from an open output slot (right) to an open input slot (left) to connect — a new
           empty slot appears after each connection. Drag a wire off its slot to disconnect.

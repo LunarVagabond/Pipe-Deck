@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { AppInfo } from "../types/app";
 
@@ -9,6 +9,18 @@ const buildRevision = ref("…");
 const GITHUB_PROFILE = "https://github.com/LunarVagabond";
 const MIT_LICENSE_URL = "https://opensource.org/licenses/MIT";
 const GITHUB_ISSUES_URL = "https://github.com/LunarVagabond/Pipe-Deck/issues/new?template=bug_report.yml";
+const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
+
+// `buildRevision` is either the exact git tag a release was built from (e.g.
+// `v0.0.2-alpha`) or a short commit hash for dev/CI builds — `releaseVersion`
+// is only ever set when it's the former (see `release_version_from_revision`
+// in app_info.rs), so its presence is what distinguishes the two cases.
+const revisionUrl = computed(() => {
+  if (!appInfo.value || buildRevision.value === "unknown") return null;
+  return appInfo.value.releaseVersion
+    ? `${GITHUB_REPO}/releases/tag/${buildRevision.value}`
+    : `${GITHUB_REPO}/commit/${buildRevision.value}`;
+});
 
 async function openExternal(event: MouseEvent, url: string) {
   event.preventDefault();
@@ -60,7 +72,15 @@ onMounted(async () => {
     </div>
 
     <div class="app-footer-right">
-      <span class="app-footer-revision">{{ buildRevision }}</span>
+      <a
+        v-if="revisionUrl"
+        class="app-footer-revision"
+        :href="revisionUrl"
+        @click="openExternal($event, revisionUrl)"
+      >
+        {{ buildRevision }}
+      </a>
+      <span v-else class="app-footer-revision">{{ buildRevision }}</span>
     </div>
   </footer>
 </template>

@@ -2,9 +2,8 @@
 import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
-import { checkForUpdates, installUpdate, updateStatusLabel } from "../composables/updates";
 import { useApplyResult } from "../stores/notices";
-import type { AppInfo, UpdateCheckResult, UpdateStatus } from "../types/app";
+import { useUpdateStatus } from "../stores/updateStatus";
 import type { DaemonStatus, PluginStatus } from "../types/graph";
 
 type SettingsTab = "general" | "background" | "plugins" | "about";
@@ -22,14 +21,22 @@ const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
 const daemonStatus = ref<DaemonStatus | null>(null);
 const plugins = ref<PluginStatus[]>([]);
-const appInfo = ref<AppInfo | null>(null);
-const updateResult = ref<UpdateCheckResult | null>(null);
-const checkingUpdates = ref(false);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
+const {
+  appInfo,
+  updateResult,
+  checkingUpdates,
+  updateStatus,
+  updateStatusText,
+  ensureAppInfo,
+  checkForUpdatesNow,
+  installUpdateNow,
+} = useUpdateStatus();
 
 const BMC_URL = "https://www.buymeacoffee.com/lunarvagabond";
 const BMC_BUTTON_SRC = "https://cdn.buymeacoffee.com/buttons/v2/default-violet.png";
+const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
 
 async function openExternal(event: MouseEvent, url: string) {
   event.preventDefault();
@@ -42,11 +49,6 @@ async function openExternal(event: MouseEvent, url: string) {
     );
   }
 }
-
-const updateStatus = computed<UpdateStatus>(() => {
-  if (checkingUpdates.value) return "checking";
-  return updateResult.value?.status ?? "unknown";
-});
 
 const updateStatusClass = computed(() => `update-status-dot--${updateStatus.value}`);
 
@@ -78,23 +80,16 @@ async function loadSettings() {
   autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
   daemonStatus.value = await invoke("get_daemon_status");
   plugins.value = await invoke("list_plugins");
-  appInfo.value = await invoke("get_app_info");
+  await ensureAppInfo();
 }
 
 async function runUpdateCheck() {
-  if (!appInfo.value) return;
-  checkingUpdates.value = true;
-  try {
-    updateResult.value = await checkForUpdates(appInfo.value);
-  } finally {
-    checkingUpdates.value = false;
-  }
+  await checkForUpdatesNow();
 }
 
 async function applyUpdate() {
-  if (!updateResult.value) return;
   try {
-    await installUpdate(updateResult.value);
+    await installUpdateNow();
     handleApplyResult({ success: true }, "Update started");
   } catch (error) {
     handleApplyResult(
@@ -212,7 +207,6 @@ onMounted(() => {
     <header class="settings-header view-header">
       <div>
         <p class="eyebrow">Preferences</p>
-        <h1>Settings</h1>
         <p class="settings-lead">
           App behavior, background restore, and plugin permissions.
         </p>
@@ -402,6 +396,20 @@ onMounted(() => {
         </div>
       </div>
 
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Contribute</p>
+          <p class="settings-row-hint">Pipe Deck is open source — issues and PRs are welcome.</p>
+        </div>
+        <a
+          class="settings-action-btn"
+          :href="GITHUB_REPO"
+          @click="openExternal($event, GITHUB_REPO)"
+        >
+          Contribute on GitHub
+        </a>
+      </div>
+
       <div class="settings-row settings-support-row">
         <div>
           <p class="settings-row-label">Support Pipe Deck</p>
@@ -426,7 +434,7 @@ onMounted(() => {
           <p class="settings-row-hint">
             <template v-if="updateStatus === 'checking'">Checking GitHub releases…</template>
             <template v-else-if="updateResult?.latestVersion">
-              {{ updateStatusLabel[updateStatus] }} —
+              {{ updateStatusText }} —
               latest is v{{ updateResult.latestVersion }}
             </template>
             <template v-else>
@@ -444,7 +452,10 @@ onMounted(() => {
             {{ checkingUpdates ? "Checking…" : "Check now" }}
           </button>
           <button
-            v-if="updateResult && updateStatus !== 'current' && updateStatus !== 'checking'"
+            v-if="
+              updateResult &&
+              (updateStatus === 'outdated' || updateStatus === 'severely_outdated')
+            "
             type="button"
             class="settings-action-btn settings-action-btn--primary"
             @click="applyUpdate"

@@ -7,11 +7,6 @@
   min-width: 0;
 }
 
-.settings-header h1 {
-  margin: 0.25rem 0 0;
-  font-size: 1.75rem;
-}
-
 .settings-view .eyebrow {
   margin: 0;
   color: var(--accent-teal);
@@ -296,9 +291,15 @@
 }
 
 .update-status-dot--unknown,
-.update-status-dot--checking {
+.update-status-dot--checking,
+.update-status-dot--unsupported {
   background: var(--text-muted);
   box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.2);
+}
+
+.update-status-dot--error {
+  background: #f87171;
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25);
 }
 
 @media (max-width: 640px) {

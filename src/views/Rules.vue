@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
+import { useRuleDraft } from "../stores/ruleDraft";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
 import type { Device, RecentStreamIdentity, Rule, RuleCondition, SimulationResult, Stream } from "../types/graph";
 import {
@@ -25,6 +26,7 @@ import {
   targetLabel,
   type RuleTargetKind,
 } from "../utils/routingLayout";
+import { filterRecentlySeen, recentEntryAgo, recentEntryLabel } from "../utils/recentStreams";
 
 const rules = ref<Rule[]>([]);
 const simulation = ref<SimulationResult[]>([]);
@@ -34,6 +36,7 @@ const editingRuleId = ref<string | null>(null);
 const draftTargetKind = ref<RuleTargetKind>("output");
 const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
+const { consumePendingIdentity } = useRuleDraft();
 const { graph } = useRuntimeGraph();
 
 const isEditing = computed(() => editingRuleId.value !== null);
@@ -86,6 +89,17 @@ function openCreateModal() {
   showIdentityReference.value = true;
   showRuleModal.value = true;
 }
+
+function openCreateModalForIdentity(entry: RecentStreamIdentity) {
+  openCreateModal();
+  draftTargetKind.value = entry.direction === "capture" ? "input" : "output";
+  draft.value.name = `${entry.app_name} rule`;
+  draft.value.conditions = [{ type: "identity", value: entry.executable || entry.app_name }];
+}
+
+const recentlySeenEntries = computed(() =>
+  filterRecentlySeen(graph.value.recent_stream_identities),
+);
 
 function cloneRule(rule: Rule): Rule {
   return JSON.parse(JSON.stringify(rule)) as Rule;
@@ -363,7 +377,13 @@ const targetKindHint = computed(() =>
     : "Input targets: microphones, virtual inputs, and virtual mics.",
 );
 
-onMounted(loadRules);
+onMounted(async () => {
+  await loadRules();
+  const pending = consumePendingIdentity();
+  if (pending) {
+    openCreateModalForIdentity(pending);
+  }
+});
 </script>
 
 <template>
@@ -384,6 +404,35 @@ onMounted(loadRules);
         <button type="button" class="rules-simulate-btn" @click="runSimulation">Simulate</button>
       </div>
     </header>
+
+    <section v-if="recentlySeenEntries.length > 0" class="rules-panel rules-panel-recent">
+      <div class="rules-panel-header">
+        <div>
+          <h3>Recently seen</h3>
+          <p>
+            Apps that briefly appeared in the last hour but aren't active right now — create a rule
+            so they're routed correctly next time, even if they only last a second.
+          </p>
+        </div>
+      </div>
+      <ul class="recently-seen-list">
+        <li v-for="(entry, index) in recentlySeenEntries" :key="`${entry.app_name}-${index}`">
+          <div class="recently-seen-info">
+            <strong>{{ recentEntryLabel(entry) }}</strong>
+            <span class="recently-seen-meta">
+              {{ entry.direction === "capture" ? "Capture" : "Playback" }} · {{ recentEntryAgo(entry) }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="recently-seen-create-btn"
+            @click="openCreateModalForIdentity(entry)"
+          >
+            Create rule
+          </button>
+        </li>
+      </ul>
+    </section>
 
     <section class="rules-panel rules-panel-list">
       <div class="rules-panel-header">

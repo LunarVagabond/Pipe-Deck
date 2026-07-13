@@ -11,7 +11,7 @@ fn git_exact_tag() -> Option<String> {
 
 fn git_short_hash() -> String {
     std::process::Command::new("git")
-        .args(["rev-parse", "--short=5", "HEAD"])
+        .args(["rev-parse", "--short=7", "HEAD"])
         .output()
         .ok()
         .filter(|output| output.status.success())

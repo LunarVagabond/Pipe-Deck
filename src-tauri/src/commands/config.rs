@@ -65,3 +65,10 @@ pub fn set_auto_apply_rules(enabled: bool) -> Result<(), String> {
         .set_auto_apply_rules(enabled)
         .map_err(|error| error.to_string())
 }
+
+#[tauri::command]
+pub fn set_sidebar_collapsed(collapsed: bool) -> Result<(), String> {
+    ConfigStore::new()
+        .set_sidebar_collapsed(collapsed)
+        .map_err(|error| error.to_string())
+}

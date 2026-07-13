@@ -88,7 +88,12 @@ fn release_version_from_revision(revision: &str) -> Option<String> {
     }
 
     let version = trimmed.strip_prefix('v').unwrap_or(trimmed);
-    let parts: Vec<&str> = version.split('.').collect();
+    // Only the numeric `major.minor.patch` core needs to be all-digits — a release
+    // tag may carry a `-slug` suffix (e.g. `v0.0.2-alpha`, per `make release`'s tag
+    // format), which should still be recognized as a version rather than rejected
+    // as if it were a commit hash.
+    let core = version.split('-').next().unwrap_or(version);
+    let parts: Vec<&str> = core.split('.').collect();
     if parts.len() < 2 {
         return None;
     }
@@ -160,5 +165,14 @@ mod tests {
     #[test]
     fn release_version_rejects_commit_hashes() {
         assert_eq!(release_version_from_revision("910d0"), None);
+        assert_eq!(release_version_from_revision("cc38c6e"), None);
+    }
+
+    #[test]
+    fn release_version_parses_tags_with_slug_suffix() {
+        assert_eq!(
+            release_version_from_revision("v0.0.2-alpha"),
+            Some("0.0.2-alpha".to_string())
+        );
     }
 }

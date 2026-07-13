@@ -402,7 +402,6 @@ onMounted(() => {
     <header class="effects-header">
       <div>
         <p class="eyebrow">Virtual device processing</p>
-        <h1>Effects</h1>
       </div>
       <div class="effects-actions">
         <button type="button" @click="refresh">Refresh</button>

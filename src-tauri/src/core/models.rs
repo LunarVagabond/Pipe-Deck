@@ -173,6 +173,8 @@ pub struct Preferences {
     pub background_restore: bool,
     #[serde(default = "default_true")]
     pub auto_apply_rules: bool,
+    #[serde(default)]
+    pub sidebar_collapsed: bool,
 }
 
 impl Default for Preferences {
@@ -182,6 +184,7 @@ impl Default for Preferences {
             restore_on_startup: true,
             background_restore: false,
             auto_apply_rules: true,
+            sidebar_collapsed: false,
         }
     }
 }

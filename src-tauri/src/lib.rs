@@ -23,6 +23,9 @@ pub fn run() {
     };
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            tray::show_main_window(app);
+        }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
@@ -34,6 +37,7 @@ pub fn run() {
             commands::config::set_device_alias,
             commands::config::set_show_system_streams,
             commands::config::set_auto_apply_rules,
+            commands::config::set_sidebar_collapsed,
             commands::profile::get_profile,
             commands::profile::save_profile,
             commands::profile::save_profile_as,

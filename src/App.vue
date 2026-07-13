@@ -6,6 +6,7 @@ import ConfirmDialog from "./components/ConfirmDialog.vue";
 import PromptDialog from "./components/PromptDialog.vue";
 import AppFooter from "./components/AppFooter.vue";
 import NewDeviceDialog from "./components/NewDeviceDialog.vue";
+import NavIcon from "./components/NavIcon.vue";
 import { navigateKey } from "./composables/navigation";
 import Dashboard from "./views/Dashboard.vue";
 import Effects from "./views/Effects.vue";
@@ -17,7 +18,12 @@ import Settings from "./views/Settings.vue";
 import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
 import { useNewDeviceDialog } from "./stores/newDeviceDialog";
-import type { AppView, DaemonStatus } from "./types/graph";
+import { useUpdateStatus } from "./stores/updateStatus";
+import type { AppConfig, AppView, DaemonStatus } from "./types/graph";
+
+// Only views that actually wire up device creation should show the topbar's
+// "+ New" action — today that's only Routing (via RoutingGraph.vue).
+const NEW_DEVICE_VIEWS = new Set<AppView>(["routing"]);
 
 const navItems = ref<
   { id: AppView; label: string; enabled: boolean; comingSoon?: boolean }[]
@@ -33,22 +39,42 @@ const navItems = ref<
 ]);
 
 const activeView = ref<AppView>("dashboard");
-const daemonStatus = ref("Checking…");
+const daemonStatusRaw = ref<DaemonStatus | null>(null);
+const backgroundRestoreEnabled = ref(false);
+const sidebarCollapsed = ref(false);
 const { handleApplyResult } = useApplyResult();
 const { openNewDeviceDialog } = useNewDeviceDialog();
-const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
+const { updateStatus, updateStatusText, checkForUpdatesNow } = useUpdateStatus();
 
-async function openExternal(event: MouseEvent, url: string) {
-  event.preventDefault();
-  try {
-    await invoke("open_url", { url });
-  } catch (error) {
-    handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
-  }
-}
+const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
+
+const updateStatusDotClass = computed(() => `update-status-dot--${updateStatus.value}`);
+
+const pipeWireStatusText = computed(() => {
+  const status = daemonStatusRaw.value;
+  if (!status) return "Checking…";
+  if (status.running) return "Daemon active";
+  if (status.enabled) return "Daemon enabled";
+  return "PipeWire";
+});
+
+const pipeWireStatusClass = computed(() => {
+  const status = daemonStatusRaw.value;
+  if (!status) return "status-dot--muted";
+  if (status.running) return "status-dot--ok";
+  if (status.enabled) return "status-dot--warn";
+  return "status-dot--muted";
+});
+
+const restoreAtLoginText = computed(() => {
+  if (!backgroundRestoreEnabled.value) return "Disabled";
+  return daemonStatusRaw.value?.running ? "Enabled" : "Enabled (not running)";
+});
+
+const restoreAtLoginClass = computed(() => {
+  if (!backgroundRestoreEnabled.value) return "status-dot--muted";
+  return daemonStatusRaw.value?.running ? "status-dot--ok" : "status-dot--warn";
+});
 
 const topbarTitle = computed(() => {
   const item = navItems.value.find((entry) => entry.id === activeView.value);
@@ -69,28 +95,50 @@ provide(navigateKey, (view: AppView) => {
 
 async function refreshDaemonStatus() {
   try {
-    const status = await invoke<DaemonStatus>("get_daemon_status");
-    if (status.running || status.enabled) {
-      daemonStatus.value = status.running ? "Daemon active" : "Daemon enabled";
-    } else {
-      daemonStatus.value = "PipeWire";
-    }
+    daemonStatusRaw.value = await invoke<DaemonStatus>("get_daemon_status");
   } catch {
-    daemonStatus.value = "PipeWire";
+    daemonStatusRaw.value = null;
+  }
+}
+
+async function loadPreferences() {
+  try {
+    const config = await invoke<AppConfig>("get_config");
+    sidebarCollapsed.value = config.preferences?.sidebar_collapsed ?? false;
+    backgroundRestoreEnabled.value = config.preferences?.background_restore ?? false;
+  } catch {
+    sidebarCollapsed.value = false;
+    backgroundRestoreEnabled.value = false;
+  }
+}
+
+async function toggleSidebar() {
+  const next = !sidebarCollapsed.value;
+  sidebarCollapsed.value = next;
+  try {
+    await invoke("set_sidebar_collapsed", { collapsed: next });
+  } catch (error) {
+    sidebarCollapsed.value = !next;
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
   }
 }
 
 onMounted(() => {
   void refreshDaemonStatus();
+  void loadPreferences();
+  void checkForUpdatesNow();
 });
 </script>
 
 <template>
-  <div class="app-shell">
-    <nav class="sidebar">
+  <div class="app-shell" :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }">
+    <nav class="sidebar" :class="{ 'sidebar--collapsed': sidebarCollapsed }">
       <div class="brand">
         <img class="brand-logo" src="/pipe-deck.svg" alt="" width="56" height="56" />
-        <span class="brand-name">Pipe Deck</span>
+        <span v-show="!sidebarCollapsed" class="brand-name">Pipe Deck</span>
       </div>
       <a
         v-for="item in navItems"
@@ -102,33 +150,73 @@ onMounted(() => {
           'has-popover': item.comingSoon,
         }"
         :aria-disabled="!item.enabled || undefined"
-        :title="item.comingSoon ? 'Coming soon' : undefined"
+        :title="sidebarCollapsed ? item.label : item.comingSoon ? 'Coming soon' : undefined"
         href="#"
         @click.prevent="selectView(item.id, item.enabled)"
       >
-        {{ item.label }}
+        <NavIcon :kind="item.id" class="nav-item-icon" />
+        <span v-show="!sidebarCollapsed" class="nav-item-label">{{ item.label }}</span>
         <span v-if="item.comingSoon" class="nav-popover" role="tooltip">Coming soon</span>
       </a>
+
       <div class="sidebar-footer">
-        <a
-          class="sidebar-contribute"
-          :href="GITHUB_REPO"
-          @click="openExternal($event, GITHUB_REPO)"
-        >
-          Contribute on GitHub
-        </a>
-        <div class="daemon-status">
-          <span class="dot" />
-          {{ daemonStatus }}
+        <div class="status-tray">
+          <div class="status-row" :title="sidebarCollapsed ? pipeWireStatusText : undefined">
+            <span class="status-dot" :class="pipeWireStatusClass" />
+            <span v-show="!sidebarCollapsed" class="status-row-label">{{ pipeWireStatusText }}</span>
+          </div>
+          <div
+            class="status-row"
+            :title="sidebarCollapsed ? `Updates: ${updateStatusText}` : undefined"
+          >
+            <span class="status-dot" :class="updateStatusDotClass" />
+            <span v-show="!sidebarCollapsed" class="status-row-label">{{ updateStatusText }}</span>
+          </div>
+          <div
+            class="status-row"
+            :title="sidebarCollapsed ? `Restore at login: ${restoreAtLoginText}` : undefined"
+          >
+            <span class="status-dot" :class="restoreAtLoginClass" />
+            <span v-show="!sidebarCollapsed" class="status-row-label">
+              Restore: {{ restoreAtLoginText }}
+            </span>
+          </div>
         </div>
       </div>
     </nav>
+
+    <button
+      type="button"
+      class="sidebar-collapse-toggle"
+      :class="{ 'sidebar-collapse-toggle--collapsed': sidebarCollapsed }"
+      :aria-label="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+      :title="sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+      @click="toggleSidebar"
+    >
+      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+        <path
+          d="M15 6l-6 6 6 6"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+        />
+      </svg>
+    </button>
 
     <div class="main-area">
       <header class="topbar">
         <div class="topbar-title">{{ topbarTitle }}</div>
         <div class="topbar-actions">
-          <button type="button" class="topbar-btn" @click="openNewDeviceDialog()">+ New</button>
+          <button
+            v-if="showNewDeviceButton"
+            type="button"
+            class="topbar-btn"
+            @click="openNewDeviceDialog()"
+          >
+            + New
+          </button>
         </div>
       </header>
       <main class="content">

@@ -80,9 +80,18 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
   const currentVersion = appInfo.releaseVersion;
   if (!currentVersion) {
     return {
-      status: "unknown",
+      status: "error",
       currentVersion: appInfo.buildRevision,
       error: "Update check requires a tagged release build",
+      canAutoInstall: false,
+    };
+  }
+
+  if (appInfo.installKind === "flatpak") {
+    return {
+      status: "unsupported",
+      currentVersion,
+      error: "Flatpak builds update through Flathub — check there for the latest version.",
       canAutoInstall: false,
     };
   }
@@ -92,7 +101,7 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
     const latestVersion = manifest.version?.replace(/^v/i, "") ?? "";
     if (!latestVersion) {
       return {
-        status: "unknown",
+        status: "error",
         currentVersion,
         error: "Update manifest has no version",
         canAutoInstall: false,
@@ -116,7 +125,7 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
     };
   } catch (error) {
     return {
-      status: "unknown",
+      status: "error",
       currentVersion,
       error: error instanceof Error ? error.message : String(error),
       canAutoInstall: false,
@@ -136,7 +145,7 @@ export async function installUpdate(result: UpdateCheckResult): Promise<void> {
 
   const url = result.downloadUrl ?? result.releaseUrl;
   if (!url) {
-    throw new Error("No download URL available for this install type");
+    throw new Error(result.error ?? "No download URL available for this install type");
   }
 
   await invoke("open_url", { url });
@@ -146,6 +155,8 @@ export const updateStatusLabel: Record<UpdateStatus, string> = {
   current: "Up to date",
   outdated: "Update available",
   severely_outdated: "Update strongly recommended",
-  unknown: "Could not check",
+  unknown: "Not checked yet",
   checking: "Checking…",
+  error: "Update check failed",
+  unsupported: "Managed externally",
 };

@@ -60,7 +60,7 @@ pub fn attach_close_to_tray(app: &tauri::AppHandle) {
     }
 }
 
-fn show_main_window(app: &tauri::AppHandle) {
+pub(crate) fn show_main_window(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.unminimize();

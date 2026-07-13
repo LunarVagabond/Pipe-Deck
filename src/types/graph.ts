@@ -110,6 +110,7 @@ export interface Preferences {
   restore_on_startup?: boolean;
   background_restore?: boolean;
   auto_apply_rules?: boolean;
+  sidebar_collapsed?: boolean;
 }
 
 export interface StreamRouteRule {

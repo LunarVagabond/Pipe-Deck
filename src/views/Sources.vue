@@ -134,7 +134,6 @@ async function removeVirtual(device: Device) {
     <header class="sources-header view-header">
       <div>
         <p class="eyebrow">Capture and inputs</p>
-        <h1>Sources</h1>
       </div>
       <div class="sources-actions view-actions">
         <div class="header-toggle">

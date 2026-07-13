@@ -46,6 +46,15 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
+a.app-footer-revision {
+  text-decoration: none;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--accent-teal);
+  }
+}
+
 .app-footer-sep {
   opacity: 0.45;
 }

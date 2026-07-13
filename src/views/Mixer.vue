@@ -29,7 +29,6 @@ const isEmpty = computed(
     <header class="mixer-header">
       <div>
         <p class="eyebrow">Levels and mute</p>
-        <h1>Mixer</h1>
       </div>
       <div class="mixer-actions">
         <button type="button" @click="refresh">Refresh</button>
