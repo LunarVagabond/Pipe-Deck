@@ -177,7 +177,16 @@ const defaultEdgeOptions = {
   interactionWidth: 22,
 } as const;
 
-const built = computed(() => buildRoutingGraph(props.graph, groups.value));
+// Bumped whenever a drag persists a new position to the layout localStorage
+// side channel, so `built` recomputes immediately instead of only on the next
+// `graph-updated` push — otherwise a dragged node visually snaps back to its
+// pre-drag spot the instant the drag ends (buildRoutingGraph reads the saved
+// layout, but nothing here depends on it, so the computed cache is stale).
+const layoutVersion = ref(0);
+const built = computed(() => {
+  layoutVersion.value;
+  return buildRoutingGraph(props.graph, groups.value);
+});
 // Node ids currently mid-drag. `props.graph` can be replaced by a
 // `graph-updated` push at any moment (mixer/routing/rule commands and the
 // live PipeWire monitor all emit it, often several times a second) — without
@@ -314,12 +323,14 @@ function onNodeDragStop(event: NodeDragEvent) {
           saveNodePosition(memberId, memberNode.computedPosition.x, memberNode.computedPosition.y);
         }
       }
+      layoutVersion.value += 1;
       persistGroups();
     }
     return;
   }
 
   saveNodePosition(node.id, node.computedPosition.x, node.computedPosition.y);
+  layoutVersion.value += 1;
 
   const group = groups.value.find((entry) => entry.memberIds.includes(node.id));
   if (!group) return;
