@@ -43,6 +43,12 @@ pub async fn preflight_effect_chain(
     Ok(engine.preflight_effect_chain(&config))
 }
 
+#[tauri::command]
+pub async fn is_effect_chain_live(device_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+    let engine = state.engine.read().await;
+    Ok(engine.is_effect_chain_live(&device_id))
+}
+
 /// Structural Apply — writes the effects conf, restarts the dedicated
 /// filter-chain daemon, and re-links routing. Briefly interrupts audio on
 /// the target device only; the frontend must confirm with the user before
@@ -74,4 +80,19 @@ pub async fn remove_effect_chain_structural(
         .map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(result)
+}
+
+/// Live Params — pushes an EQ/gain value straight to the already-running
+/// effects node, no restart, no confirm needed. Safe to call on every slider
+/// tick once live effects are enabled for this device.
+#[tauri::command]
+pub async fn set_effect_chain_live_params(
+    device_id: String,
+    config: EffectChainConfig,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    engine
+        .set_effect_chain_live_params(&device_id, &config)
+        .map_err(|error| error.to_string())
 }

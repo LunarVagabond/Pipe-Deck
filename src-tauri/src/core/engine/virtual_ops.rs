@@ -5,7 +5,7 @@ use crate::core::models::{
 };
 use crate::core::restore::spec_from_create_result;
 use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
-use crate::pipewire::virtual_mic_mix;
+use crate::pipewire::{filter_chain, pipewire_restart, virtual_mic_mix};
 use std::collections::{HashMap, HashSet};
 
 use super::{CoreEngine, EngineError};
@@ -125,6 +125,26 @@ impl CoreEngine {
                 .devices
                 .retain(|device| device.system_name != system_name);
             return Ok(());
+        }
+
+        // A deleted device's live effects conf (if any) must go with it —
+        // otherwise it's an orphan that `filter-chain.service` will keep
+        // recreating a same-named ghost sink for on every future restart,
+        // long after the device it belonged to is gone.
+        if let Some(conf_path) = filter_chain::conf_path_for_device(system_name) {
+            if conf_path.is_file() {
+                let _ = std::fs::remove_file(&conf_path);
+                let _ = pipewire_restart::restart_filter_chain_service();
+            }
+        }
+        if let Some(device_id) = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.system_name == system_name)
+            .map(|device| device.id.clone())
+        {
+            let _ = ConfigStore::new().remove_effect_chain(&device_id);
         }
 
         self.virtual_registry
@@ -539,5 +559,44 @@ mod live_tests {
         let mic_after = mic_after.expect("virtual mic should still exist in graph");
         assert_eq!(mic_after.mix_sources.len(), 1, "expected exactly one mix source to be discovered");
         assert_eq!(mic_after.mix_sources[0].device_id, physical_mic.id);
+    }
+
+    #[test]
+    #[ignore]
+    fn removing_a_device_with_live_effects_cleans_up_its_conf_file() {
+        // Regression test: `remove_virtual_device` used to leave a device's
+        // effects conf.d file behind, which `filter-chain.service` would keep
+        // recreating a same-named ghost sink from on every future restart,
+        // long after the device itself (and all knowledge of it in the UI)
+        // was gone.
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let created = engine
+            .create_virtual_output("Pipe Deck Orphan Conf Test")
+            .expect("create disposable test device");
+
+        let config = crate::core::models::EffectChainConfig {
+            eq_bass: 5,
+            ..Default::default()
+        };
+        engine
+            .apply_effect_chain_structural(&created.device_id, &config)
+            .expect("structural apply should succeed");
+
+        let conf_path = crate::pipewire::filter_chain::conf_path_for_device(&created.system_name)
+            .expect("conf path should resolve");
+        assert!(conf_path.is_file(), "conf file should exist right after apply");
+
+        engine
+            .remove_virtual_device(&created.system_name)
+            .expect("remove_virtual_device should succeed");
+
+        assert!(
+            !conf_path.is_file(),
+            "conf file should be removed along with the device, not left as an orphan"
+        );
     }
 }

@@ -308,6 +308,12 @@
     opacity: 0.6;
     cursor: wait;
   }
+
+  &.is-live {
+    border-color: var(--accent-amber);
+    background: transparent;
+    color: var(--accent-amber);
+  }
 }
 
 @media (max-width: 900px) {

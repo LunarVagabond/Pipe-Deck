@@ -3,6 +3,15 @@ use crate::pipewire::adapter::AdapterError;
 use crate::pipewire::pactl::parse::{find_sink_input_index, find_source_output_index};
 use crate::pipewire::pactl::run_pactl;
 
+/// Moves a single sink-input (an app's playback stream) onto a different
+/// sink by raw name, bypassing `RuntimeGraph` lookup. Used to temporarily
+/// hold an in-use device's streams elsewhere while its underlying module is
+/// swapped out for an effects-hosted one, then move them back — see
+/// `core::engine::effects_ops::apply_effect_chain_structural`.
+pub fn move_sink_input_to_sink_name(sink_input_index: u32, target_sink_name: &str) -> Result<(), AdapterError> {
+    run_pactl(&["move-sink-input", &sink_input_index.to_string(), target_sink_name]).map(|_| ())
+}
+
 pub fn set_device_volume(device_id: &str, graph: &RuntimeGraph, percent: u8) -> Result<(), AdapterError> {
     let device = graph
         .devices

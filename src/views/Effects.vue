@@ -24,6 +24,7 @@ const draft = ref<EffectChainConfig>(emptyChain());
 const chainsLoading = ref(true);
 const saveState = ref<"idle" | "saving" | "saved" | "error">("idle");
 const liveApplyState = ref<"idle" | "checking" | "applying" | "applied" | "error">("idle");
+const isLive = ref(false);
 const capabilities = ref<FxCapabilities>({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
 let debounceTimer: number | undefined;
 let savedIndicatorTimer: number | undefined;
@@ -168,11 +169,22 @@ function loadDraftForDevice(deviceId: string) {
   draft.value = normalizeChain(chains.value[deviceId] ?? emptyChain());
 }
 
+async function refreshIsLive(deviceId: string) {
+  try {
+    isLive.value = await invoke<boolean>("is_effect_chain_live", { deviceId });
+  } catch {
+    isLive.value = false;
+  }
+}
+
 function selectDevice(deviceId: string) {
   selectedDeviceId.value = deviceId;
   loadDraftForDevice(deviceId);
+  void refreshIsLive(deviceId);
 }
 
+/** Persist-only save (device isn't live yet) — no audio effect, just keeps
+ * the draft in the profile. */
 async function applyDraft() {
   if (!selectedDeviceId.value) {
     return;
@@ -209,23 +221,94 @@ async function applyDraft() {
   }
 }
 
-function scheduleApply() {
-  window.clearTimeout(debounceTimer);
-  debounceTimer = window.setTimeout(() => {
-    void applyDraft();
-  }, 200);
-}
-
-/** The Structural Apply path: validates, then — only after explicit user
- * confirmation — actually loads the chain live. This briefly restarts just
- * the dedicated filter-chain daemon (never your main audio session), so it's
- * never triggered by a slider drag, only this deliberate action. */
-async function applyLive() {
+/** Live Params — pushes the value straight to the already-running effects
+ * node in real time. No restart, no confirmation; safe to fire on every
+ * slider tick. Only valid once live effects have been enabled once (see
+ * `toggleLiveEffects`). */
+async function applyLiveParams() {
   if (!selectedDeviceId.value) {
     return;
   }
   const deviceId = selectedDeviceId.value;
   const config = normalizeChain({ ...draft.value });
+
+  saveState.value = "saving";
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("set_effect_chain_live_params", {
+      deviceId,
+      config,
+    });
+    chains.value = { ...chains.value, [deviceId]: config };
+    if (result.success) {
+      saveState.value = "saved";
+      window.clearTimeout(savedIndicatorTimer);
+      savedIndicatorTimer = window.setTimeout(() => {
+        if (saveState.value === "saved") {
+          saveState.value = "idle";
+        }
+      }, 1000);
+    } else {
+      saveState.value = "error";
+    }
+  } catch (err) {
+    saveState.value = "error";
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
+/** Slider drags always land here: once live, values update in real time
+ * (short debounce, just to avoid flooding pw-cli); until then, they just
+ * persist to the profile like before. */
+function scheduleApply() {
+  window.clearTimeout(debounceTimer);
+  const delay = isLive.value ? 60 : 200;
+  debounceTimer = window.setTimeout(() => {
+    if (isLive.value) {
+      void applyLiveParams();
+    } else {
+      void applyDraft();
+    }
+  }, delay);
+}
+
+/** The one-time Structural Apply/revert: turns live effects on or off for
+ * this device. This is the only action that briefly restarts Pipe Deck's
+ * dedicated effects daemon (never your main audio session) — every other
+ * slider tweak after this goes through the real-time Live Params path with
+ * no restart and no confirmation. */
+async function toggleLiveEffects() {
+  if (!selectedDeviceId.value) {
+    return;
+  }
+  const deviceId = selectedDeviceId.value;
+  const config = normalizeChain({ ...draft.value });
+
+  if (isLive.value) {
+    const confirmed = await confirm(
+      "This removes the live effects chain from this device and briefly restarts the effects daemon to do it.",
+      { title: "Disable live effects?", confirmLabel: "Disable", cancelLabel: "Cancel" },
+    );
+    if (!confirmed) {
+      return;
+    }
+    liveApplyState.value = "applying";
+    try {
+      await invoke("remove_effect_chain_structural", { deviceId });
+      isLive.value = false;
+      liveApplyState.value = "idle";
+      handleApplyResult({ success: true }, "Live effects disabled");
+    } catch (err) {
+      liveApplyState.value = "error";
+      handleApplyResult(
+        { success: false, message: err instanceof Error ? err.message : String(err) },
+        "",
+      );
+    }
+    return;
+  }
 
   liveApplyState.value = "checking";
   let preflight: PreflightResult;
@@ -246,27 +329,14 @@ async function applyLive() {
     return;
   }
 
-  const isActive =
-    config.compressor.enabled ||
-    config.limiter.enabled ||
-    config.noise_gate.enabled ||
-    config.eq_sub !== 0 ||
-    config.eq_bass !== 0 ||
-    config.eq_mid !== 0 ||
-    config.eq_treble !== 0 ||
-    config.eq_air !== 0 ||
-    config.output_gain !== 0;
-
-  const confirmMessage = isActive
-    ? [
-        "This briefly restarts Pipe Deck's dedicated effects daemon (not your main audio session) to load the chain.",
-        ...preflight.warnings,
-      ].join(" ")
-    : "This removes the live effects chain from this device and briefly restarts the effects daemon to do it.";
+  const confirmMessage = [
+    "This briefly restarts Pipe Deck's dedicated effects daemon (not your main audio session) to load the chain. After that, sliders update in real time — no more confirmations.",
+    ...preflight.warnings,
+  ].join(" ");
 
   const confirmed = await confirm(confirmMessage, {
-    title: isActive ? "Apply effects live?" : "Remove live effects?",
-    confirmLabel: isActive ? "Apply" : "Remove",
+    title: "Enable live effects?",
+    confirmLabel: "Enable",
     cancelLabel: "Cancel",
   });
   if (!confirmed) {
@@ -276,13 +346,10 @@ async function applyLive() {
 
   liveApplyState.value = "applying";
   try {
-    if (isActive) {
-      await invoke("apply_effect_chain_structural", { deviceId, config });
-    } else {
-      await invoke("remove_effect_chain_structural", { deviceId });
-    }
+    await invoke("apply_effect_chain_structural", { deviceId, config });
+    isLive.value = true;
     liveApplyState.value = "applied";
-    handleApplyResult({ success: true }, isActive ? "Effects applied" : "Effects removed");
+    handleApplyResult({ success: true }, "Live effects enabled");
     window.clearTimeout(liveIndicatorTimer);
     liveIndicatorTimer = window.setTimeout(() => {
       if (liveApplyState.value === "applied") {
@@ -407,10 +474,14 @@ onMounted(() => {
             Live EQ isn't available on this system (PipeWire's filter-chain module wasn't found).
             Settings still save to your profile.
           </p>
+          <p v-else-if="isLive" class="notice-banner info effects-live-disabled">
+            Live — sliders update your actual audio in real time. Use Bypass to mute the effect
+            without disconnecting anything, or Disable live effects below to fully remove it.
+          </p>
           <p v-else class="notice-banner info effects-live-disabled">
-            Sliders save to your profile as you drag. Nothing reaches your actual audio until you
-            click <strong>Apply live</strong> below — that briefly restarts Pipe Deck's dedicated
-            effects daemon only, never your main audio session.
+            Sliders save to your profile as you drag, but nothing reaches your audio yet. Click
+            <strong>Enable live effects</strong> below once — after that, every slider updates in
+            real time with no further confirmation.
           </p>
 
           <div class="effects-section">
@@ -483,17 +554,20 @@ onMounted(() => {
               v-if="capabilities.builtin_eq"
               type="button"
               class="effects-apply-live"
+              :class="{ 'is-live': isLive }"
               :disabled="liveApplyState === 'checking' || liveApplyState === 'applying'"
-              @click="applyLive"
+              @click="toggleLiveEffects"
             >
               {{
                 liveApplyState === "checking"
                   ? "Checking…"
                   : liveApplyState === "applying"
-                    ? "Applying…"
+                    ? isLive ? "Enabling…" : "Disabling…"
                     : liveApplyState === "applied"
-                      ? "Applied"
-                      : "Apply live"
+                      ? "Done"
+                      : isLive
+                        ? "Disable live effects"
+                        : "Enable live effects"
               }}
             </button>
           </div>

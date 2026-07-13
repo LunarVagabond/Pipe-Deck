@@ -49,6 +49,34 @@ pub fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
     }))
 }
 
+/// The sink-input indices (app playback streams) currently on `system_name`.
+pub fn sink_input_indices_on(system_name: &str) -> Vec<u32> {
+    let sink_names = load_sink_index_names();
+    list_sink_inputs()
+        .iter()
+        .filter(|input| {
+            input
+                .sink_index
+                .and_then(|index| sink_names.get(&index))
+                .is_some_and(|name| name == system_name)
+        })
+        .map(|input| input.index)
+        .collect()
+}
+
+/// A shared scratch sink used to briefly hold an in-use device's playback
+/// streams while its underlying module is swapped out (e.g. for a
+/// Structural Apply), so the swap doesn't just silently fail whatever those
+/// streams were doing — see `core::engine::effects_ops::apply_effect_chain_structural`.
+pub const HOLDING_SINK_NAME: &str = "pipe-deck-hold";
+
+pub fn ensure_holding_sink() -> Result<(), AdapterError> {
+    if sink_exists(HOLDING_SINK_NAME)? {
+        return Ok(());
+    }
+    create_null_sink(HOLDING_SINK_NAME, "Pipe Deck (temporary hold)").map(|_| ())
+}
+
 pub fn feed_sink_description(virtual_mic_label: &str) -> String {
     format!("{virtual_mic_label} (Pipe Deck route)")
 }
