@@ -79,8 +79,8 @@ flatpak: ## Build Flatpak package locally
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
 
-docs-sync: ## Pull latest wiki into docs/ submodule and commit the pointer update
-	git submodule update --remote --merge docs
+docs-sync: ## Init (if needed) and pull latest wiki into docs/ submodule, committing the pointer update
+	git submodule update --init --remote --merge docs
 	@if ! git diff --quiet docs; then \
 		git add docs && git commit -m "docs: sync wiki submodule to $$(git -C docs rev-parse --short HEAD)"; \
 		echo "docs: submodule pointer updated"; \
