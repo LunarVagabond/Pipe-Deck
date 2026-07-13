@@ -244,10 +244,12 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
                 .ok()
                 .flatten()
                 .unwrap_or(100);
+            let muted = pactl::sink_mute_state(feed_sink_name).ok().flatten().unwrap_or(false);
 
             mix_sources.push(MixSource {
                 device_id: source_id.clone(),
                 volume_percent,
+                muted,
             });
 
             graph.links.push(Link {

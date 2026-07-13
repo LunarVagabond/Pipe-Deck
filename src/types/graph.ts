@@ -29,11 +29,13 @@ export interface RouteExplanation {
 
 export type SinkMode = "single" | "multi";
 
-/** A contributor to a virtual-mic mix; volume only affects its share of that
- * one mix (via a per-pair feed sink), not the source's own device volume. */
+/** A contributor to a virtual-mic mix; volume/mute only affect its share of
+ * that one mix (via a per-pair feed sink), not the source's own device
+ * volume — muting never touches the underlying link. */
 export interface MixSource {
   device_id: string;
   volume_percent: number;
+  muted: boolean;
 }
 
 export interface Device {
@@ -239,6 +241,8 @@ export interface EffectChainConfig {
   compressor: DynamicsStage;
   limiter: DynamicsStage;
   noise_gate: DynamicsStage;
+  /** Keeps the chain configured but passes audio through unprocessed. */
+  bypassed: boolean;
   /** @deprecated use eq_bass */
   eq_low?: number;
   /** @deprecated use eq_air */
@@ -310,6 +314,7 @@ export interface DaemonStatus {
 export interface MixSourceSpec {
   system_name: string;
   volume_percent: number;
+  muted: boolean;
 }
 
 export interface VirtualDeviceSpec {

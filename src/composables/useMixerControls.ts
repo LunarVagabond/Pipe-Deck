@@ -64,6 +64,21 @@ export function useMixerControls() {
     await invoke("set_stream_mute", { streamId, muted });
   }
 
+  /** Mutes/unmutes one mix source without touching its link — the feed sink
+   * and its port connections are untouched, only its own mute flag changes.
+   * Used for both physical-mic mixing and app-audio-passthrough legs. */
+  async function toggleMixSourceMute(virtualMicDeviceId: string, sourceDeviceId: string, muted: boolean) {
+    try {
+      await invoke("set_mix_source_mute", { virtualMicDeviceId, sourceDeviceId, muted: !muted });
+      handleApplyResult({ success: true }, muted ? "Unmuted" : "Muted");
+    } catch (error) {
+      handleApplyResult(
+        { success: false, message: error instanceof Error ? error.message : String(error) },
+        "",
+      );
+    }
+  }
+
   async function applyChannelVolume(
     channelType: "device" | "stream",
     id: string,
@@ -115,6 +130,7 @@ export function useMixerControls() {
     setMixSourceVolume,
     applyChannelVolume,
     toggleChannelMute,
+    toggleMixSourceMute,
     pendingVolumes,
     clampVolume,
     scheduleChannelVolume,

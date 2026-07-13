@@ -42,3 +42,36 @@ pub async fn preflight_effect_chain(
     let engine = state.engine.read().await;
     Ok(engine.preflight_effect_chain(&config))
 }
+
+/// Structural Apply — writes the effects conf, restarts the dedicated
+/// filter-chain daemon, and re-links routing. Briefly interrupts audio on
+/// the target device only; the frontend must confirm with the user before
+/// calling this (see the Effects view's Apply flow).
+#[tauri::command]
+pub async fn apply_effect_chain_structural(
+    device_id: String,
+    config: EffectChainConfig,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .apply_effect_chain_structural(&device_id, &config)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn remove_effect_chain_structural(
+    device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .remove_effect_chain_structural(&device_id)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}

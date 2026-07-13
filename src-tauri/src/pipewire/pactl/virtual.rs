@@ -39,7 +39,7 @@ pub fn sync_virtual_device_description(
     Ok(Some(new_module_id))
 }
 
-fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
+pub fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
     let sink_names = load_sink_index_names();
     Ok(list_sink_inputs().iter().any(|input| {
         input
@@ -96,11 +96,28 @@ pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -
         })
         .collect();
 
+    let known_slugs: std::collections::HashSet<&str> = known_virtual_inputs
+        .iter()
+        .filter_map(|name| name.strip_prefix("pipe-deck-"))
+        .collect();
+
     for (module_id, feed_name) in list_modules_for_sink_prefix("pipe-deck-feed-")? {
-        let Some(slug) = feed_name.strip_prefix("pipe-deck-feed-") else {
+        let Some(rest) = feed_name.strip_prefix("pipe-deck-feed-") else {
             continue;
         };
-        let virtual_input = format!("pipe-deck-{slug}");
+
+        // Per-pair mix-source feed sinks (`pipe-deck-feed-{mic}-{source}`,
+        // one per contributor to a mic's mix) are owned by
+        // `gc_feed_sinks_for_mix_pairs` instead, which understands their
+        // real in-use signal (a live pw-link connection, not a pactl
+        // sink-input). This function's `in_use` check below can't see that,
+        // so without this guard it would tear a mix source's feed sink down
+        // on every graph refresh regardless of whether it was just created.
+        if is_per_pair_mix_feed_sink(rest, &known_slugs) {
+            continue;
+        }
+
+        let virtual_input = format!("pipe-deck-{rest}");
         let virtual_exists = known_virtual_inputs.contains(&virtual_input);
         let in_use = sinks_with_inputs.contains(&feed_name);
 
@@ -113,6 +130,12 @@ pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -
     }
 
     Ok(())
+}
+
+fn is_per_pair_mix_feed_sink(feed_sink_rest: &str, known_slugs: &std::collections::HashSet<&str>) -> bool {
+    known_slugs
+        .iter()
+        .any(|slug| feed_sink_rest.starts_with(&format!("{slug}-")))
 }
 
 pub fn sink_exists(name: &str) -> Result<bool, AdapterError> {
@@ -455,6 +478,21 @@ fn extract_quoted_property(args: &str, marker: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_per_pair_mix_feed_sink_recognizes_mix_pair_names() {
+        let known_slugs: std::collections::HashSet<&str> = ["mic"].into_iter().collect();
+
+        // Regression test: `gc_feed_sinks` (the generic playback-feed-sink
+        // GC, run on every graph refresh) must never treat a per-pair
+        // mix-source feed sink as fair game — it previously did, because its
+        // "does this look like a bare mic feed sink" check matched the
+        // mix-pair naming scheme too, silently tearing mixed sources down
+        // moments after they were created.
+        assert!(is_per_pair_mix_feed_sink("mic-alsa_input.headset", &known_slugs));
+        assert!(!is_per_pair_mix_feed_sink("mic", &known_slugs));
+        assert!(!is_per_pair_mix_feed_sink("some-other-thing", &known_slugs));
+    }
 
     #[test]
     fn feed_sink_name_derives_from_virtual_input() {

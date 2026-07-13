@@ -1,12 +1,15 @@
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, SinkMode};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, MixSource};
 
 use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
     /// Duplicates a playback stream's audio into a virtual mic, Soundux-style
-    /// (the stream keeps playing at its original destination too). Reuses the
-    /// existing `pipe-deck-split-*` multi-output fan-out mechanism, which
-    /// already permits a virtual input as one of its targets.
+    /// (the stream keeps playing at its original destination too), by adding
+    /// the stream's own virtual output sink as a mix source of the mic. This
+    /// reuses the exact same per-pair feed-sink mechanism as physical-mic
+    /// mixing (`set_virtual_mic_mix`), which gives independent volume *and*
+    /// mute for this one passthrough leg — muting it never touches the
+    /// stream's own route or the mic's other sources.
     pub fn enable_stream_mic_passthrough(
         &mut self,
         stream_id: &str,
@@ -53,48 +56,39 @@ impl CoreEngine {
             .find(|device| device.id == original_target_id)
             .cloned();
 
-        let split_sink_id = match &current_target_device {
-            Some(device) if device.kind == DeviceKind::Virtual && device.sink_mode == Some(SinkMode::Multi) => {
+        // A device we created ourselves (any Pipe Deck virtual output, single
+        // or multi) already has reliable monitor ports we can tap directly —
+        // no need to insert another sink in front of it. Anything else
+        // (a real hardware output) gets its own dedicated virtual sink so the
+        // stream keeps playing there unchanged while we get a tappable
+        // monitor to feed the mic from.
+        let mix_source_device_id = match &current_target_device {
+            Some(device) if device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output => {
                 device.id.clone()
             }
             _ => {
                 let split_label = format!("{} passthrough", stream.app_name);
-                let result = self.create_virtual_multi_output(&split_label)?;
+                let result = self.create_virtual_output(&split_label)?;
                 self.set_stream_target(stream_id, &result.device_id)?;
+                self.set_device_targets(&result.device_id, &[original_target_id])?;
                 result.device_id
             }
         };
 
-        let existing_targets = self.device_targets(&split_sink_id);
-        let mut next_targets = existing_targets;
-        if !next_targets.contains(&original_target_id) {
-            next_targets.push(original_target_id);
-        }
-        if !next_targets.iter().any(|id| id == mic_device_id) {
-            next_targets.push(mic_device_id.to_string());
+        let mut updated_sources = mic.mix_sources.clone();
+        if !updated_sources.iter().any(|source| source.device_id == mix_source_device_id) {
+            updated_sources.push(MixSource {
+                device_id: mix_source_device_id,
+                volume_percent: 100,
+                muted: false,
+            });
         }
 
-        self.set_device_targets(&split_sink_id, &next_targets)
+        self.set_virtual_mic_mix(mic_device_id, &updated_sources)
     }
 
-    // Removing a mic from an existing passthrough fan-out needs no dedicated
-    // op: the split sink is a normal `pipe-deck-split-*` multi-output device,
-    // so dropping the mic from its target list is already handled by the
-    // generic `set_device_targets` path (same one the routing graph's
-    // device-to-device edge disconnect already uses for any multi-sink).
-
-    fn device_targets(&self, device_id: &str) -> Vec<String> {
-        self.graph
-            .devices
-            .iter()
-            .find(|device| device.id == device_id)
-            .map(|device| {
-                if !device.current_targets.is_empty() {
-                    device.current_targets.clone()
-                } else {
-                    device.current_target.clone().into_iter().collect()
-                }
-            })
-            .unwrap_or_default()
-    }
+    // Removing a passthrough leg needs no dedicated op: once added, it's a
+    // normal mix source on the mic (see `set_virtual_mic_mix`), so dropping
+    // it — or muting it without dropping it — reuses that same mix-source
+    // machinery and the routing graph's existing mic-mix disconnect gesture.
 }

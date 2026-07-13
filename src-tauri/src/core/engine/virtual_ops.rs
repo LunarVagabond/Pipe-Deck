@@ -169,9 +169,11 @@ impl CoreEngine {
                     EngineError::NotFound(format!("device not found: {}", mix_source.device_id))
                 })?;
 
-            if source.kind != DeviceKind::Physical || source.direction != DeviceDirection::Input {
+            let is_physical_mic = source.kind == DeviceKind::Physical && source.direction == DeviceDirection::Input;
+            let is_virtual_output = source.kind == DeviceKind::Virtual && source.direction == DeviceDirection::Output;
+            if !is_physical_mic && !is_virtual_output {
                 return Err(EngineError::InvalidInput(format!(
-                    "{} is not a physical input",
+                    "{} is not a physical input or virtual output",
                     source.label
                 )));
             }
@@ -179,10 +181,19 @@ impl CoreEngine {
             mix_source_specs.push(MixSourceSpec {
                 system_name: source.system_name.clone(),
                 volume_percent: mix_source.volume_percent,
+                muted: mix_source.muted,
             });
         }
 
         if self.graph.data_source == "mock" {
+            if let Some(device) = self
+                .graph
+                .devices
+                .iter_mut()
+                .find(|device| device.id == virtual_mic_device_id)
+            {
+                device.mix_sources = mix_sources.to_vec();
+            }
             return Ok(ApplyResult {
                 success: true,
                 message: Some("virtual mic mix updated (mock)".to_string()),
@@ -229,6 +240,20 @@ impl CoreEngine {
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_device_id}")))?;
 
         if self.graph.data_source == "mock" {
+            if let Some(device) = self
+                .graph
+                .devices
+                .iter_mut()
+                .find(|device| device.id == virtual_mic_device_id)
+            {
+                if let Some(mix_source) = device
+                    .mix_sources
+                    .iter_mut()
+                    .find(|mix_source| mix_source.device_id == source_device_id)
+                {
+                    mix_source.volume_percent = percent;
+                }
+            }
             return Ok(ApplyResult {
                 success: true,
                 message: Some("mix source volume updated (mock)".to_string()),
@@ -242,6 +267,64 @@ impl CoreEngine {
         let source_system_name = source.system_name.clone();
         ConfigStore::new()
             .update_mix_source_volume(&virtual_mic_system_name, &source_system_name, percent)
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        self.refresh_graph()?;
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
+    }
+
+    /// Mutes/unmutes one already-mixed source without touching its link — the
+    /// feed sink and its port connections stay exactly as they are.
+    pub fn set_mix_source_mute(
+        &mut self,
+        virtual_mic_device_id: &str,
+        source_device_id: &str,
+        muted: bool,
+    ) -> Result<ApplyResult, EngineError> {
+        let virtual_mic = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == virtual_mic_device_id)
+            .ok_or_else(|| EngineError::NotFound("virtual mic not found".to_string()))?;
+        let source = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == source_device_id)
+            .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_device_id}")))?;
+
+        if self.graph.data_source == "mock" {
+            if let Some(device) = self
+                .graph
+                .devices
+                .iter_mut()
+                .find(|device| device.id == virtual_mic_device_id)
+            {
+                if let Some(mix_source) = device
+                    .mix_sources
+                    .iter_mut()
+                    .find(|mix_source| mix_source.device_id == source_device_id)
+                {
+                    mix_source.muted = muted;
+                }
+            }
+            return Ok(ApplyResult {
+                success: true,
+                message: Some("mix source mute updated (mock)".to_string()),
+            });
+        }
+
+        virtual_mic_mix::set_mix_source_mute(&virtual_mic.system_name, &source.system_name, muted)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        let virtual_mic_system_name = virtual_mic.system_name.clone();
+        let source_system_name = source.system_name.clone();
+        ConfigStore::new()
+            .update_mix_source_mute(&virtual_mic_system_name, &source_system_name, muted)
             .map_err(|error| EngineError::Config(error.to_string()))?;
 
         self.refresh_graph()?;
@@ -336,4 +419,65 @@ pub(super) fn merge_virtual_devices(
 
     let mut seen_links = HashSet::new();
     graph.links.retain(|link| seen_links.insert((link.source_id.clone(), link.target_id.clone())));
+}
+
+#[cfg(test)]
+mod live_tests {
+    //! `#[ignore]`d: hits a real PipeWire session, same rationale as
+    //! `effects_ops::live_tests`. Creates and tears down its own disposable
+    //! virtual mic; only *reads* the real physical mic, never mutates it.
+    use super::*;
+
+    #[test]
+    #[ignore]
+    fn mixes_a_real_physical_mic_into_a_disposable_virtual_mic() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let physical_mic = engine
+            .runtime_graph()
+            .devices
+            .iter()
+            .find(|device| device.kind == DeviceKind::Physical && device.direction == DeviceDirection::Input)
+            .cloned();
+        let Some(physical_mic) = physical_mic else {
+            panic!("no physical input device found on this system to test with");
+        };
+
+        let created = engine
+            .create_virtual_input("Pipe Deck Live Mix Test")
+            .expect("create disposable virtual mic");
+
+        let cleanup = |engine: &mut CoreEngine| {
+            let _ = engine.remove_virtual_device(&created.system_name);
+        };
+
+        let mix_sources = vec![MixSource {
+            device_id: physical_mic.id.clone(),
+            volume_percent: 80,
+            muted: false,
+        }];
+
+        let result = engine.set_virtual_mic_mix(&created.device_id, &mix_sources);
+        if let Err(error) = &result {
+            cleanup(&mut engine);
+            panic!("set_virtual_mic_mix failed: {error}");
+        }
+
+        engine.refresh_graph().expect("refresh after mix");
+        let mic_after = engine
+            .runtime_graph()
+            .devices
+            .iter()
+            .find(|device| device.system_name == created.system_name)
+            .cloned();
+
+        cleanup(&mut engine);
+
+        let mic_after = mic_after.expect("virtual mic should still exist in graph");
+        assert_eq!(mic_after.mix_sources.len(), 1, "expected exactly one mix source to be discovered");
+        assert_eq!(mic_after.mix_sources[0].device_id, physical_mic.id);
+    }
 }

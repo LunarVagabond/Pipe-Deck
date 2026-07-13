@@ -7,6 +7,7 @@ pub mod graph_routing;
 pub mod live;
 pub mod mock;
 pub mod pactl;
+pub mod pipewire_restart;
 pub mod pw_dump;
 pub mod pw_link;
 pub mod split_sink;

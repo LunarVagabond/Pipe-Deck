@@ -4,11 +4,12 @@ import { invoke } from "@tauri-apps/api/core";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
 import ToggleSwitch from "./ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
-
-const open = defineModel<boolean>({ required: true });
+import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 
 const { handleApplyResult } = useApplyResult();
+const { newDeviceDialogState, closeNewDeviceDialog } = useNewDeviceDialog();
 
+const open = computed(() => newDeviceDialogState.value.open);
 const name = ref("");
 const type = ref<"input" | "output">("output");
 const multi = ref(false);
@@ -33,12 +34,14 @@ function resetForm() {
 }
 
 function close() {
-  open.value = false;
+  closeNewDeviceDialog();
   resetForm();
 }
 
 watch(open, async (value) => {
   if (value) {
+    type.value = newDeviceDialogState.value.type;
+    multi.value = newDeviceDialogState.value.multi;
     await nextTick();
     nameInputRef.value?.focus();
   }

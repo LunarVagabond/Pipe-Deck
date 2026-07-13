@@ -34,6 +34,7 @@ pub fn apply_virtual_mic_mix(
         )?;
         pw_link::link_capture_source_to_sink(&mix_source.system_name, &feed_name)?;
         pactl::set_sink_volume_by_name(&feed_name, mix_source.volume_percent)?;
+        pactl::set_sink_mute_by_name(&feed_name, mix_source.muted)?;
         pw_link::link_sink_monitor_to_target(&feed_name, &virtual_input.system_name, true)?;
 
         keep_source_names.insert(mix_source.system_name.clone());
@@ -53,6 +54,18 @@ pub fn set_mix_source_volume(
 ) -> Result<(), AdapterError> {
     let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
     pactl::set_sink_volume_by_name(&feed_name, volume_percent)
+}
+
+/// Mutes/unmutes one already-mixed source's feed sink directly — no relinking,
+/// so the port connections (and this source's place in the mix) are completely
+/// untouched. This is the mechanism behind "mute without breaking the link".
+pub fn set_mix_source_mute(
+    virtual_input_system_name: &str,
+    source_system_name: &str,
+    muted: bool,
+) -> Result<(), AdapterError> {
+    let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
+    pactl::set_sink_mute_by_name(&feed_name, muted)
 }
 
 pub fn disconnect_all_virtual_mic_mixes(virtual_input_system_name: &str) -> Result<(), AdapterError> {
@@ -85,6 +98,7 @@ mod tests {
         let sources = vec![MixSourceSpec {
             system_name: "pipe-deck-feed-mic".into(),
             volume_percent: 100,
+            muted: false,
         }];
         let error = apply_virtual_mic_mix(&mic, &sources).expect_err("self-loop should be rejected");
         assert!(error.to_string().contains("own playback feed"));

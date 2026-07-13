@@ -142,6 +142,36 @@ pub fn sink_volume_percent(system_name: &str) -> Result<Option<u8>, AdapterError
     Ok(None)
 }
 
+/// Mutes/unmutes a sink directly by its raw system/module name — the
+/// counterpart to `set_sink_volume_by_name` for a per-mix-source feed sink.
+/// Muting here never touches any `pw-link` connection: the feed sink stays
+/// wired exactly as it was, only its own mute flag changes.
+pub fn set_sink_mute_by_name(system_name: &str, muted: bool) -> Result<(), AdapterError> {
+    let flag = if muted { "1" } else { "0" };
+    run_pactl(&["set-sink-mute", system_name, flag]).map(|_| ())
+}
+
+/// Reads the current mute state of a sink by its raw system/module name.
+pub fn sink_mute_state(system_name: &str) -> Result<Option<bool>, AdapterError> {
+    let output = run_pactl(&["list", "sinks"])?;
+    let mut current_name = None;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Name: ") {
+            current_name = Some(rest.trim().to_string());
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("Mute: ") {
+            if current_name.as_deref() == Some(system_name) {
+                return Ok(Some(rest.trim() == "yes"));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
 fn uses_monitor_fan_out(device: &crate::core::models::Device) -> bool {
     device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output
 }

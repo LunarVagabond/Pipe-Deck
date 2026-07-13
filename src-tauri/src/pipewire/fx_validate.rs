@@ -104,6 +104,12 @@ fn check_range(label: &str, value: i32, range: (i32, i32), blocking_reasons: &mu
 /// Only called after `preflight` has returned `ok: true` — never accepts a
 /// plugin path, LADSPA name, or anything else sourced from outside this
 /// fixed builtin template.
+///
+/// The capture stage takes over `device_system_name` itself (replacing the
+/// device's plain null-sink for as long as effects are active) so anything
+/// already routed to it keeps finding a sink of the same name; the processed
+/// signal leaves via a separate `effect_output.{device_system_name}` node
+/// that must be explicitly linked onward (see `pipewire::filter_chain`).
 pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
     let gain_mult = db_to_linear_mult(config.output_gain);
@@ -141,7 +147,7 @@ context.modules = [
             audio.channels = 2
             audio.position = [ FL FR ]
             capture.props = {{
-                node.name   = "effect_input.{device_system_name}"
+                node.name   = "{device_system_name}"
                 media.class = Audio/Sink
             }}
             playback.props = {{

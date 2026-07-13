@@ -37,6 +37,7 @@ import {
 } from "../composables/routingGraphContext";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
+import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 import { usePrompt } from "../stores/prompt";
 import type { RuntimeGraph } from "../types/graph";
 
@@ -47,6 +48,7 @@ const props = defineProps<{
 const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
+const { openNewDeviceDialog } = useNewDeviceDialog();
 const vueFlow = useVueFlow();
 
 const edgeUpdatePending = ref<Edge | null>(null);
@@ -145,13 +147,27 @@ async function removeVirtualDevice(systemName: string, label: string) {
 
 function onContextMenuAction(action: "rename" | "delete") {
   const target = contextMenu.value;
-  if (!target) {
+  if (!target || target.kind !== "node") {
     return;
   }
   if (action === "rename") {
     void graphActions.renameDevice(target.systemName, target.label);
   } else if (action === "delete") {
     graphActions.deleteDevice(target.systemName, target.label);
+  }
+}
+
+function onPaneContextMenu(event: MouseEvent) {
+  event.preventDefault();
+  contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
+}
+
+function onAddNodeAction(type: "output" | "output-multi" | "input") {
+  contextMenu.value = null;
+  if (type === "input") {
+    openNewDeviceDialog("input", false);
+  } else {
+    openNewDeviceDialog("output", type === "output-multi");
   }
 }
 
@@ -396,7 +412,8 @@ onUnmounted(() => {
           {{ entry.label }}
         </span>
         <span class="routing-graph-legend-hint">
-          Drag wire ends off a port to disconnect · Shift+drag to select multiple nodes · Press G to group
+          Drag wire ends off a port to disconnect · Shift+drag to select multiple nodes · Press G to group ·
+          Right-click empty space to add a node
         </span>
       </div>
     </div>
@@ -404,6 +421,7 @@ onUnmounted(() => {
       :target="contextMenu"
       @rename="onContextMenuAction('rename')"
       @delete="onContextMenuAction('delete')"
+      @add-node="onAddNodeAction"
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas">
@@ -424,6 +442,7 @@ onUnmounted(() => {
         @edge-update-end="onEdgeUpdateEnd"
         @node-drag-stop="onNodeDragStop"
         @pane-click="onPaneClick"
+        @pane-context-menu="onPaneContextMenu"
       >
         <Background pattern-color="rgba(255,255,255,0.04)" :gap="20" />
         <Controls />

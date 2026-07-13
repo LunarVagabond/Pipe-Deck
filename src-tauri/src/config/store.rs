@@ -228,6 +228,39 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    /// Updates the persisted mute state for one already-mixed source without
+    /// touching the rest of the mix list.
+    pub fn update_mix_source_mute(
+        &self,
+        virtual_system_name: &str,
+        source_system_name: &str,
+        muted: bool,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let slug = virtual_system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(virtual_system_name);
+        let Some(spec) = config
+            .virtual_devices
+            .iter_mut()
+            .find(|entry| {
+                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+            })
+        else {
+            return Err(ConfigError::Read(format!(
+                "virtual device not found: {virtual_system_name}"
+            )));
+        };
+        if let Some(source) = spec
+            .mix_sources
+            .iter_mut()
+            .find(|source| source.system_name == source_system_name)
+        {
+            source.muted = muted;
+        }
+        self.save_config(&config)
+    }
+
     pub fn remove_virtual_device(&self, id_or_system_name: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let slug = id_or_system_name
@@ -468,8 +501,8 @@ mod tests {
             store.add_virtual_device(spec).unwrap();
 
             let sources = vec![
-                MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60 },
-                MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100 },
+                MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
+                MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
             ];
             store
                 .set_virtual_mic_mix_sources("pipe-deck-mic", &sources)
@@ -517,6 +550,7 @@ mod tests {
                 },
                 limiter: crate::core::models::DynamicsStage::default(),
                 noise_gate: crate::core::models::DynamicsStage::default(),
+                bypassed: false,
             };
             store
                 .set_effect_chain("virtual-game", &chain)

@@ -128,9 +128,10 @@ function existingDeviceTargets(device: Device): string[] {
 }
 
 function isMicMixCandidate(source: Device, target: Device): boolean {
+  const sourceIsPhysicalMic = source.kind === "physical" && source.direction === "input";
+  const sourceIsVirtualOutput = source.kind === "virtual" && source.direction === "output";
   return (
-    source.kind === "physical" &&
-    source.direction === "input" &&
+    (sourceIsPhysicalMic || sourceIsVirtualOutput) &&
     target.kind === "virtual" &&
     target.direction !== "duplex"
   );
@@ -157,7 +158,7 @@ function resolveDeviceToDevice(
       action: {
         type: "mic_mix",
         virtualMicDeviceId: target.id,
-        mixSources: [...existingMix, { device_id: source.id, volume_percent: 100 }],
+        mixSources: [...existingMix, { device_id: source.id, volume_percent: 100, muted: false }],
       },
     };
   }

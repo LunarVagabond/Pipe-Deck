@@ -60,6 +60,11 @@ pub struct MixSource {
     pub device_id: String,
     #[serde(default = "default_mix_volume")]
     pub volume_percent: u8,
+    /// Silences this source's contribution to the mix without touching the
+    /// link itself — the feed sink and its port connections stay exactly as
+    /// they are, only its own mute flag toggles (see `pactl::set_sink_mute_by_name`).
+    #[serde(default)]
+    pub muted: bool,
 }
 
 fn default_mix_volume() -> u8 {
@@ -71,6 +76,7 @@ impl MixSource {
         Self {
             device_id: device_id.into(),
             volume_percent: default_mix_volume(),
+            muted: false,
         }
     }
 }
@@ -202,6 +208,8 @@ pub struct MixSourceSpec {
     pub system_name: String,
     #[serde(default = "default_mix_volume")]
     pub volume_percent: u8,
+    #[serde(default)]
+    pub muted: bool,
 }
 
 impl MixSourceSpec {
@@ -209,6 +217,7 @@ impl MixSourceSpec {
         Self {
             system_name: system_name.into(),
             volume_percent: default_mix_volume(),
+            muted: false,
         }
     }
 }
@@ -558,9 +567,20 @@ pub struct EffectChainConfig {
     /// backing plugin is present on the host (see `pipewire::fx_capability`).
     #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
     pub noise_gate: DynamicsStage,
+    /// Keeps the chain configured (and, once live processing exists, keeps
+    /// its filter graph loaded) but passes audio through unprocessed. This is
+    /// a live param, not a topology change — toggling it never needs a
+    /// PipeWire restart once the live path is wired, unlike enabling/disabling
+    /// individual stages.
+    #[serde(default)]
+    pub bypassed: bool,
 }
 
 impl EffectChainConfig {
+    /// Whether this chain has any non-default settings worth persisting.
+    /// Deliberately independent of `bypassed` — bypassing mutes the chain's
+    /// effect on audio without discarding its configured settings, so a
+    /// bypassed-but-configured chain still counts as active here.
     pub fn is_active(&self) -> bool {
         self.compressor.enabled
             || self.limiter.enabled

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
+import { useConfirm } from "../stores/confirm";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
 import {
   emptyDynamicsStage,
@@ -10,19 +11,23 @@ import {
   type DynamicsStage,
   type EffectChainConfig,
   type FxCapabilities,
+  type PreflightResult,
 } from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { handleApplyResult } = useApplyResult();
+const { confirm } = useConfirm();
 
 const chains = ref<Record<string, EffectChainConfig>>({});
 const selectedDeviceId = ref<string | null>(null);
 const draft = ref<EffectChainConfig>(emptyChain());
 const chainsLoading = ref(true);
 const saveState = ref<"idle" | "saving" | "saved" | "error">("idle");
+const liveApplyState = ref<"idle" | "checking" | "applying" | "applied" | "error">("idle");
 const capabilities = ref<FxCapabilities>({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
 let debounceTimer: number | undefined;
 let savedIndicatorTimer: number | undefined;
+let liveIndicatorTimer: number | undefined;
 
 const eqBands = [
   { key: "eq_sub" as const, label: "Sub", hint: "60 Hz" },
@@ -64,6 +69,7 @@ function emptyChain(): EffectChainConfig {
     compressor: emptyDynamicsStage(),
     limiter: emptyDynamicsStage(),
     noise_gate: emptyDynamicsStage(),
+    bypassed: false,
   };
 }
 
@@ -88,6 +94,7 @@ function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
     compressor: normalizeDynamicsStage(chain.compressor),
     limiter: normalizeDynamicsStage(chain.limiter),
     noise_gate: normalizeDynamicsStage(chain.noise_gate),
+    bypassed: chain.bypassed ?? false,
   };
 }
 
@@ -209,6 +216,88 @@ function scheduleApply() {
   }, 200);
 }
 
+/** The Structural Apply path: validates, then — only after explicit user
+ * confirmation — actually loads the chain live. This briefly restarts just
+ * the dedicated filter-chain daemon (never your main audio session), so it's
+ * never triggered by a slider drag, only this deliberate action. */
+async function applyLive() {
+  if (!selectedDeviceId.value) {
+    return;
+  }
+  const deviceId = selectedDeviceId.value;
+  const config = normalizeChain({ ...draft.value });
+
+  liveApplyState.value = "checking";
+  let preflight: PreflightResult;
+  try {
+    preflight = await invoke<PreflightResult>("preflight_effect_chain", { config });
+  } catch (err) {
+    liveApplyState.value = "error";
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+    return;
+  }
+
+  if (!preflight.ok) {
+    liveApplyState.value = "error";
+    handleApplyResult({ success: false, message: preflight.blocking_reasons.join("; ") }, "");
+    return;
+  }
+
+  const isActive =
+    config.compressor.enabled ||
+    config.limiter.enabled ||
+    config.noise_gate.enabled ||
+    config.eq_sub !== 0 ||
+    config.eq_bass !== 0 ||
+    config.eq_mid !== 0 ||
+    config.eq_treble !== 0 ||
+    config.eq_air !== 0 ||
+    config.output_gain !== 0;
+
+  const confirmMessage = isActive
+    ? [
+        "This briefly restarts Pipe Deck's dedicated effects daemon (not your main audio session) to load the chain.",
+        ...preflight.warnings,
+      ].join(" ")
+    : "This removes the live effects chain from this device and briefly restarts the effects daemon to do it.";
+
+  const confirmed = await confirm(confirmMessage, {
+    title: isActive ? "Apply effects live?" : "Remove live effects?",
+    confirmLabel: isActive ? "Apply" : "Remove",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
+    liveApplyState.value = "idle";
+    return;
+  }
+
+  liveApplyState.value = "applying";
+  try {
+    if (isActive) {
+      await invoke("apply_effect_chain_structural", { deviceId, config });
+    } else {
+      await invoke("remove_effect_chain_structural", { deviceId });
+    }
+    liveApplyState.value = "applied";
+    handleApplyResult({ success: true }, isActive ? "Effects applied" : "Effects removed");
+    window.clearTimeout(liveIndicatorTimer);
+    liveIndicatorTimer = window.setTimeout(() => {
+      if (liveApplyState.value === "applied") {
+        liveApplyState.value = "idle";
+      }
+    }, 2000);
+  } catch (err) {
+    liveApplyState.value = "error";
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
 watch(
   eligibleDevices,
   (devices) => {
@@ -295,18 +384,33 @@ onMounted(() => {
               <h2>{{ selectedDevice.label }}</h2>
               <p class="effects-panel-subtitle">{{ selectedDevice.system_name }}</p>
             </div>
-            <p
-              v-if="saveState !== 'idle'"
-              class="effects-save-state"
-              :class="saveState"
-            >
-              {{ saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save failed" }}
-            </p>
+            <div class="effects-panel-header-actions">
+              <label class="effects-bypass-toggle" title="Keeps your settings but stops them from affecting audio, once live processing is enabled — the chain itself is never removed.">
+                <ToggleSwitch
+                  :model-value="draft.bypassed"
+                  :show-state-labels="false"
+                  @update:model-value="(next) => { draft.bypassed = next; scheduleApply(); }"
+                />
+                <span>Bypass</span>
+              </label>
+              <p
+                v-if="saveState !== 'idle'"
+                class="effects-save-state"
+                :class="saveState"
+              >
+                {{ saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save failed" }}
+              </p>
+            </div>
           </div>
 
-          <p class="notice-banner info effects-live-disabled">
-            Settings save to your profile, but sliders do not change audio yet. Live EQ is
-            paused while we rebuild a PipeWire-safe effects path.
+          <p v-if="!capabilities.builtin_eq" class="notice-banner warn effects-live-disabled">
+            Live EQ isn't available on this system (PipeWire's filter-chain module wasn't found).
+            Settings still save to your profile.
+          </p>
+          <p v-else class="notice-banner info effects-live-disabled">
+            Sliders save to your profile as you drag. Nothing reaches your actual audio until you
+            click <strong>Apply live</strong> below — that briefly restarts Pipe Deck's dedicated
+            effects daemon only, never your main audio session.
           </p>
 
           <div class="effects-section">
@@ -371,9 +475,28 @@ onMounted(() => {
             </div>
           </div>
 
-          <button type="button" class="effects-reset" @click="draft = emptyChain(); scheduleApply();">
-            Reset chain
-          </button>
+          <div class="effects-footer-actions">
+            <button type="button" class="effects-reset" @click="draft = emptyChain(); scheduleApply();">
+              Reset chain
+            </button>
+            <button
+              v-if="capabilities.builtin_eq"
+              type="button"
+              class="effects-apply-live"
+              :disabled="liveApplyState === 'checking' || liveApplyState === 'applying'"
+              @click="applyLive"
+            >
+              {{
+                liveApplyState === "checking"
+                  ? "Checking…"
+                  : liveApplyState === "applying"
+                    ? "Applying…"
+                    : liveApplyState === "applied"
+                      ? "Applied"
+                      : "Apply live"
+              }}
+            </button>
+          </div>
         </section>
       </div>
     </template>

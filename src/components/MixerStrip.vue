@@ -18,8 +18,13 @@ const props = withDefaults(
 );
 
 const { handleApplyResult } = useApplyResult();
-const { applyChannelVolume, toggleChannelMute, scheduleMixSourceVolume, pendingVolumes: pendingMixVolumes } =
-  useMixerControls();
+const {
+  applyChannelVolume,
+  toggleChannelMute,
+  toggleMixSourceMute,
+  scheduleMixSourceVolume,
+  pendingVolumes: pendingMixVolumes,
+} = useMixerControls();
 const { confirm } = useConfirm();
 const pendingVolumes = ref<Record<string, number>>({});
 const editingVolumeId = ref<string | null>(null);
@@ -31,6 +36,7 @@ interface MixSourceChannel {
   deviceId: string;
   label: string;
   level: number;
+  muted: boolean;
 }
 
 interface MixerChannel {
@@ -52,6 +58,7 @@ function toMixSourceChannel(deviceId: string, mixSource: MixSource): MixSourceCh
     deviceId: mixSource.device_id,
     label: source?.label ?? mixSource.device_id,
     level: pendingMixVolumes.value[key] ?? mixSource.volume_percent,
+    muted: mixSource.muted,
   };
 }
 
@@ -188,6 +195,10 @@ async function toggleMute(channel: MixerChannel) {
 
 function scheduleMixSource(channel: MixerChannel, mixSource: MixSourceChannel, percent: number) {
   scheduleMixSourceVolume(channel.id, mixSource.deviceId, clampVolume(percent));
+}
+
+async function toggleMixSourceMuteFor(channel: MixerChannel, mixSource: MixSourceChannel) {
+  await toggleMixSourceMute(channel.id, mixSource.deviceId, mixSource.muted);
 }
 
 async function saveRename(channel: MixerChannel, alias: string) {
@@ -336,6 +347,7 @@ async function removeVirtual(channel: MixerChannel) {
                 v-for="mixSource in channel.mixSources"
                 :key="mixSource.deviceId"
                 class="mix-source-row"
+                :class="{ muted: mixSource.muted }"
               >
                 <span class="mix-source-name" :title="mixSource.label">{{ mixSource.label }}</span>
                 <input
@@ -348,6 +360,16 @@ async function removeVirtual(channel: MixerChannel) {
                   @input="scheduleMixSource(channel, mixSource, Number(($event.target as HTMLInputElement).value))"
                 />
                 <span class="mix-source-level">{{ mixSource.level }}%</span>
+                <button
+                  type="button"
+                  class="mix-source-mute"
+                  :class="{ active: mixSource.muted }"
+                  :aria-label="mixSource.muted ? `Unmute ${mixSource.label}` : `Mute ${mixSource.label}`"
+                  :title="mixSource.muted ? 'Unmute — link stays connected while muted' : 'Mute — link stays connected'"
+                  @click="toggleMixSourceMuteFor(channel, mixSource)"
+                >
+                  {{ mixSource.muted ? "🔇" : "🔊" }}
+                </button>
               </div>
             </div>
           </article>

@@ -1,7 +1,9 @@
 use crate::core::models::EffectChainConfig;
 use crate::pipewire::adapter::AdapterError;
+use crate::pipewire::pactl;
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 pub fn is_pipe_deck_device(system_name: &str) -> bool {
     system_name.starts_with("pipe-deck-")
@@ -71,6 +73,44 @@ pub fn apply_effect_chain(
 fn effects_conf_dir() -> Option<PathBuf> {
     let home = std::env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".config/pipewire/pipewire.conf.d"))
+}
+
+/// Where live effects conf.d drop-ins actually live — the dedicated
+/// `filter-chain.service` daemon's config directory (per its own base conf's
+/// documented convention), *not* the main `pipewire.conf.d` used by
+/// `effects_conf_dir()` above (that one is legacy-cleanup-only; nothing
+/// current ever writes there).
+pub fn filter_chain_conf_dir() -> Option<PathBuf> {
+    let home = std::env::var("HOME").ok()?;
+    Some(PathBuf::from(home).join(".config/pipewire/filter-chain.conf.d"))
+}
+
+pub fn conf_path_for_device(device_system_name: &str) -> Option<PathBuf> {
+    let dir = filter_chain_conf_dir()?;
+    let slug = device_system_name.strip_prefix("pipe-deck-").unwrap_or(device_system_name);
+    Some(dir.join(format!("99-pipe-deck-effects-{slug}.conf")))
+}
+
+pub fn effect_output_name_for_device(device_system_name: &str) -> String {
+    format!("effect_output.{device_system_name}")
+}
+
+/// Polls for a sink named `system_name` to (re)appear after a filter-chain
+/// restart, so Structural Apply can confirm the swap actually took before
+/// re-linking anything downstream.
+pub fn wait_for_sink(system_name: &str, timeout: Duration) -> Result<(), AdapterError> {
+    let start = Instant::now();
+    loop {
+        if pactl::sink_exists(system_name).unwrap_or(false) {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(AdapterError::Message(format!(
+                "{system_name} did not reappear within {timeout:?} after the effects restart"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
 }
 
 #[cfg(test)]
