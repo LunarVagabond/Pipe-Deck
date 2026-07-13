@@ -1,10 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
 import { useApplyResult } from "../stores/notices";
 import { useProfiles } from "../stores/profiles";
-import type { Profile, RoutingDrift } from "../types/graph";
+import type { Profile } from "../types/graph";
 
 const {
   profiles,
@@ -23,7 +22,6 @@ const {
 const { handleApplyResult } = useApplyResult();
 
 const selectedProfile = ref<Profile | null>(null);
-const activeDrift = ref<RoutingDrift | null>(null);
 const saveAsName = ref("");
 const showSaveAs = ref(false);
 const importPath = ref("");
@@ -35,27 +33,7 @@ const activeName = computed(() => {
   return profiles.value.find((profile) => profile.id === active)?.name ?? active ?? "None";
 });
 
-async function loadDrift(profileId?: string) {
-  if (!profileId) {
-    activeDrift.value = null;
-    return;
-  }
-  try {
-    activeDrift.value = await invoke<RoutingDrift>("get_profile_drift", { profileId });
-  } catch {
-    activeDrift.value = null;
-  }
-}
 
-watch(activeProfileId, (profileId) => {
-  void loadDrift(profileId);
-}, { immediate: true });
-
-onMounted(async () => {
-  await listen("graph-updated", () => {
-    void loadDrift(activeProfileId.value);
-  });
-});
 
 async function loadDetails(profileId: string) {
   selectedProfile.value = await getProfile(profileId);
@@ -65,7 +43,6 @@ async function onSave(profileId: string) {
   await saveProfile(profileId);
   await refresh();
   await loadDetails(profileId);
-  await loadDrift(profileId);
   handleApplyResult({ success: true }, "Profile saved from live routing");
 }
 
@@ -83,7 +60,6 @@ async function onApply(profileId: string) {
     profileId,
   });
   handleApplyResult(result, "Profile routes applied to PipeWire");
-  await loadDrift(profileId);
 }
 
 async function onApplyAll(profileId: string) {
@@ -96,7 +72,6 @@ async function onApplyAll(profileId: string) {
   swapConfirmId.value = null;
   await refresh();
   await loadDetails(profileId);
-  await loadDrift(profileId);
 }
 
 async function onImport() {
@@ -147,34 +122,6 @@ async function onExport(profileId: string) {
       <strong>Apply</strong> pushes the profile’s saved routes to PipeWire — it does not change the profile file.
       Edit routing on the dashboard first, then Save; or edit a profile’s wants below, then Apply.
     </p>
-
-    <section v-if="activeDrift?.has_drift" class="profile-drift">
-      <div class="profile-drift-header">
-        <h2>Live routing differs from {{ activeDrift.profile_name }}</h2>
-        <button
-          v-if="activeProfileId"
-          type="button"
-          class="primary"
-          @click="onApply(activeProfileId)"
-        >
-          Apply
-        </button>
-      </div>
-      <ul class="profile-drift-list">
-        <li v-for="item in activeDrift.items" :key="item.stream_id">
-          <strong>{{ item.stream_label }}</strong>
-          <span class="profile-drift-arrow">
-            {{ item.live_target_label ?? "Unrouted" }}
-            →
-            {{ item.desired_target_label ?? "Unspecified" }}
-          </span>
-        </li>
-      </ul>
-    </section>
-
-    <section v-else-if="activeDrift && activeProfileId" class="profile-drift in-sync">
-      <p>Live routing matches <strong>{{ activeDrift.profile_name }}</strong>.</p>
-    </section>
 
     <div v-if="showSaveAs" class="profiles-form">
       <input v-model="saveAsName" type="text" placeholder="New profile name" />
