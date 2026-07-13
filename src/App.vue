@@ -27,7 +27,7 @@ const navItems = ref<
   { id: "routing", label: "Routing", enabled: true },
   { id: "mixer", label: "Mixer", enabled: true },
   { id: "sources", label: "Sources", enabled: true },
-  { id: "effects", label: "Effects", enabled: false, comingSoon: true },
+  { id: "effects", label: "Effects", enabled: true },
   { id: "settings", label: "Settings", enabled: true },
 ]);
 

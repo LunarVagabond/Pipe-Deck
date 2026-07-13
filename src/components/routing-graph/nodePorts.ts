@@ -49,9 +49,9 @@ export function computeDeviceConnections(graph: RuntimeGraph): Map<string, Devic
       entry(device.id).out.push(targetId);
       entry(targetId).in.push(device.id);
     }
-    for (const sourceId of device.mix_source_ids ?? []) {
-      entry(device.id).in.push(sourceId);
-      entry(sourceId).out.push(device.id);
+    for (const mixSource of device.mix_sources ?? []) {
+      entry(device.id).in.push(mixSource.device_id);
+      entry(mixSource.device_id).out.push(device.id);
     }
   }
 

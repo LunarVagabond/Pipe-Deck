@@ -341,7 +341,7 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
     outputs
 }
 
-fn extract_volume_percent(line: &str) -> Option<u8> {
+pub(crate) fn extract_volume_percent(line: &str) -> Option<u8> {
     line.split('/')
         .nth(1)
         .and_then(|part| part.trim().strip_suffix('%'))

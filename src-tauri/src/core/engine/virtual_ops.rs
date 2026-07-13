@@ -1,5 +1,8 @@
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, RuntimeGraph, VirtualDeviceResult};
+use crate::core::models::{
+    ApplyResult, DeviceDirection, DeviceKind, MixSource, MixSourceSpec, RuntimeGraph,
+    VirtualDeviceResult,
+};
 use crate::core::restore::spec_from_create_result;
 use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
 use crate::pipewire::virtual_mic_mix;
@@ -42,7 +45,7 @@ impl CoreEngine {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
-                mix_source_ids: Vec::new(),
+                mix_sources: Vec::new(),
             });
             return Ok(VirtualDeviceResult {
                 device_id: format!("virtual-{slug}"),
@@ -89,7 +92,7 @@ impl CoreEngine {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
-                mix_source_ids: Vec::new(),
+                mix_sources: Vec::new(),
             });
             return Ok(VirtualDeviceResult {
                 device_id: format!("virtual-{slug}"),
@@ -138,7 +141,7 @@ impl CoreEngine {
     pub fn set_virtual_mic_mix(
         &mut self,
         virtual_mic_device_id: &str,
-        mix_source_device_ids: &[String],
+        mix_sources: &[MixSource],
     ) -> Result<ApplyResult, EngineError> {
         let virtual_mic = self
             .graph
@@ -155,14 +158,16 @@ impl CoreEngine {
             ));
         }
 
-        let mut mix_system_names = Vec::new();
-        for source_id in mix_source_device_ids {
+        let mut mix_source_specs = Vec::new();
+        for mix_source in mix_sources {
             let source = self
                 .graph
                 .devices
                 .iter()
-                .find(|device| device.id == *source_id)
-                .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_id}")))?;
+                .find(|device| device.id == mix_source.device_id)
+                .ok_or_else(|| {
+                    EngineError::NotFound(format!("device not found: {}", mix_source.device_id))
+                })?;
 
             if source.kind != DeviceKind::Physical || source.direction != DeviceDirection::Input {
                 return Err(EngineError::InvalidInput(format!(
@@ -171,7 +176,10 @@ impl CoreEngine {
                 )));
             }
 
-            mix_system_names.push(source.system_name.clone());
+            mix_source_specs.push(MixSourceSpec {
+                system_name: source.system_name.clone(),
+                volume_percent: mix_source.volume_percent,
+            });
         }
 
         if self.graph.data_source == "mock" {
@@ -181,11 +189,11 @@ impl CoreEngine {
             });
         }
 
-        virtual_mic_mix::apply_virtual_mic_mix(&virtual_mic, &mix_system_names)
+        virtual_mic_mix::apply_virtual_mic_mix(&virtual_mic, &mix_source_specs)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         ConfigStore::new()
-            .set_virtual_mic_mix_sources(&virtual_mic.system_name, &mix_system_names)
+            .set_virtual_mic_mix_sources(&virtual_mic.system_name, &mix_source_specs)
             .map_err(|error| EngineError::Config(error.to_string()))?;
 
         self.refresh_graph()?;
@@ -193,9 +201,53 @@ impl CoreEngine {
             success: true,
             message: Some(format!(
                 "Mixed {} source(s) into {}",
-                mix_system_names.len(),
+                mix_source_specs.len(),
                 virtual_mic.label
             )),
+        })
+    }
+
+    /// Live gain adjustment for one already-mixed source — no relinking, so
+    /// this is safe to call at high frequency for a slider drag.
+    pub fn set_mix_source_volume(
+        &mut self,
+        virtual_mic_device_id: &str,
+        source_device_id: &str,
+        percent: u8,
+    ) -> Result<ApplyResult, EngineError> {
+        let virtual_mic = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == virtual_mic_device_id)
+            .ok_or_else(|| EngineError::NotFound("virtual mic not found".to_string()))?;
+        let source = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == source_device_id)
+            .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_device_id}")))?;
+
+        if self.graph.data_source == "mock" {
+            return Ok(ApplyResult {
+                success: true,
+                message: Some("mix source volume updated (mock)".to_string()),
+            });
+        }
+
+        virtual_mic_mix::set_mix_source_volume(&virtual_mic.system_name, &source.system_name, percent)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        let virtual_mic_system_name = virtual_mic.system_name.clone();
+        let source_system_name = source.system_name.clone();
+        ConfigStore::new()
+            .update_mix_source_volume(&virtual_mic_system_name, &source_system_name, percent)
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        self.refresh_graph()?;
+        Ok(ApplyResult {
+            success: true,
+            message: None,
         })
     }
 }

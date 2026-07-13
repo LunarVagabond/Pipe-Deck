@@ -4,7 +4,13 @@ import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
-import type { Device, EffectChainConfig } from "../types/graph";
+import {
+  emptyDynamicsStage,
+  type Device,
+  type DynamicsStage,
+  type EffectChainConfig,
+  type FxCapabilities,
+} from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { handleApplyResult } = useApplyResult();
@@ -14,6 +20,7 @@ const selectedDeviceId = ref<string | null>(null);
 const draft = ref<EffectChainConfig>(emptyChain());
 const chainsLoading = ref(true);
 const saveState = ref<"idle" | "saving" | "saved" | "error">("idle");
+const capabilities = ref<FxCapabilities>({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
 let debounceTimer: number | undefined;
 let savedIndicatorTimer: number | undefined;
 
@@ -25,6 +32,27 @@ const eqBands = [
   { key: "eq_air" as const, label: "Air", hint: "10 kHz" },
 ];
 
+const dynamicsStages = computed(() => [
+  {
+    key: "compressor" as const,
+    label: "Compressor",
+    available: false,
+    unavailableReason: "No supported backing plugin on this system yet",
+  },
+  {
+    key: "limiter" as const,
+    label: "Limiter",
+    available: capabilities.value.builtin_limiter,
+    unavailableReason: "PipeWire has no builtin limiter plugin on this system",
+  },
+  {
+    key: "noise_gate" as const,
+    label: "Noise gate",
+    available: Boolean(capabilities.value.ladspa_noise_gate),
+    unavailableReason: "Requires a LADSPA noise-suppression plugin (e.g. librnnoise) not found on this system",
+  },
+]);
+
 function emptyChain(): EffectChainConfig {
   return {
     eq_sub: 0,
@@ -33,8 +61,20 @@ function emptyChain(): EffectChainConfig {
     eq_treble: 0,
     eq_air: 0,
     output_gain: 0,
-    compressor: false,
+    compressor: emptyDynamicsStage(),
+    limiter: emptyDynamicsStage(),
+    noise_gate: emptyDynamicsStage(),
   };
+}
+
+/** Accepts a legacy bare `boolean` for `compressor` (pre-dynamics-suite
+ * configs) in addition to the current `DynamicsStage` object, mirroring the
+ * same migration the Rust side does for on-disk configs. */
+function normalizeDynamicsStage(value: DynamicsStage | boolean | undefined): DynamicsStage {
+  if (typeof value === "boolean") {
+    return { ...emptyDynamicsStage(), enabled: value };
+  }
+  return value ?? emptyDynamicsStage();
 }
 
 function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
@@ -45,7 +85,9 @@ function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
     eq_treble: chain.eq_treble ?? 0,
     eq_air: chain.eq_air ?? chain.eq_high ?? 0,
     output_gain: chain.output_gain ?? 0,
-    compressor: chain.compressor ?? false,
+    compressor: normalizeDynamicsStage(chain.compressor),
+    limiter: normalizeDynamicsStage(chain.limiter),
+    noise_gate: normalizeDynamicsStage(chain.noise_gate),
   };
 }
 
@@ -81,7 +123,9 @@ const isEmpty = computed(
 const isChainActive = computed(() => {
   const chain = draft.value;
   return (
-    chain.compressor ||
+    chain.compressor.enabled ||
+    chain.limiter.enabled ||
+    chain.noise_gate.enabled ||
     chain.eq_sub !== 0 ||
     chain.eq_bass !== 0 ||
     chain.eq_mid !== 0 ||
@@ -90,6 +134,14 @@ const isChainActive = computed(() => {
     chain.output_gain !== 0
   );
 });
+
+function toggleDynamicsStage(key: "compressor" | "limiter" | "noise_gate", enabled: boolean) {
+  draft.value = {
+    ...draft.value,
+    [key]: { ...draft.value[key], enabled },
+  };
+  scheduleApply();
+}
 
 async function loadChains() {
   chainsLoading.value = true;
@@ -171,7 +223,16 @@ watch(
   { immediate: true },
 );
 
+async function loadCapabilities() {
+  try {
+    capabilities.value = await invoke<FxCapabilities>("get_effect_capabilities");
+  } catch {
+    capabilities.value = { builtin_eq: false, builtin_gain: false, builtin_limiter: false };
+  }
+}
+
 onMounted(() => {
+  void loadCapabilities();
   void loadChains().then(() => {
     if (selectedDeviceId.value) {
       loadDraftForDevice(selectedDeviceId.value);
@@ -293,12 +354,19 @@ onMounted(() => {
               </label>
             </div>
 
-            <div class="effects-control effects-toggle-row">
-              <span>Compressor</span>
+            <div
+              v-for="stage in dynamicsStages"
+              :key="stage.key"
+              class="effects-control effects-toggle-row"
+              :class="{ disabled: !stage.available }"
+              :title="stage.available ? undefined : stage.unavailableReason"
+            >
+              <span>{{ stage.label }}</span>
               <ToggleSwitch
-                :model-value="draft.compressor"
+                :model-value="draft[stage.key].enabled"
+                :disabled="!stage.available"
                 :show-state-labels="false"
-                @update:model-value="(next) => { draft.compressor = next; scheduleApply(); }"
+                @update:model-value="(next) => toggleDynamicsStage(stage.key, next)"
               />
             </div>
           </div>

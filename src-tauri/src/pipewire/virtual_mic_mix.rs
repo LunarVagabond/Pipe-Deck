@@ -1,11 +1,15 @@
-use crate::core::models::{Device, DeviceDirection, DeviceKind};
+use crate::core::models::{Device, DeviceDirection, DeviceKind, MixSourceSpec};
 use crate::pipewire::adapter::AdapterError;
+use crate::pipewire::pactl;
 use crate::pipewire::pw_link;
 use std::collections::HashSet;
 
+/// Applies a virtual mic's mix sources, each through its own per-pair feed
+/// sink so it gets an independent gain (see `pactl::ensure_feed_sink_for_mix_pair`)
+/// instead of being summed at unity gain via a direct port link.
 pub fn apply_virtual_mic_mix(
     virtual_input: &Device,
-    mix_source_system_names: &[String],
+    mix_sources: &[MixSourceSpec],
 ) -> Result<(), AdapterError> {
     if virtual_input.kind != DeviceKind::Virtual || virtual_input.direction == DeviceDirection::Duplex {
         return Err(AdapterError::Message(
@@ -13,37 +17,83 @@ pub fn apply_virtual_mic_mix(
         ));
     }
 
-    let desired: HashSet<String> = mix_source_system_names.iter().cloned().collect();
-    let existing: HashSet<String> =
-        pw_link::list_capture_sources_for_virtual_input(&virtual_input.system_name)
-            .into_iter()
-            .collect();
+    let own_playback_feed = pactl::feed_sink_name_for_virtual_input(&virtual_input.system_name);
+    let mut keep_source_names = HashSet::new();
 
-    for source_name in existing.difference(&desired) {
-        pw_link::disconnect_capture_source_from_virtual_input(
-            source_name,
-            &virtual_input.system_name,
-        )?;
-    }
-
-    for source_name in mix_source_system_names {
-        if source_name.starts_with("pipe-deck-feed-") {
+    for mix_source in mix_sources {
+        if mix_source.system_name == own_playback_feed {
             return Err(AdapterError::Message(
-                "cannot mix internal feed sinks into a virtual microphone".into(),
+                "cannot mix a virtual mic's own playback feed sink into itself".into(),
             ));
         }
-        pw_link::link_capture_source_to_virtual_input(source_name, &virtual_input.system_name)?;
+
+        let feed_name = pactl::ensure_feed_sink_for_mix_pair(
+            &virtual_input.system_name,
+            &mix_source.system_name,
+            &virtual_input.label,
+        )?;
+        pw_link::link_capture_source_to_sink(&mix_source.system_name, &feed_name)?;
+        pactl::set_sink_volume_by_name(&feed_name, mix_source.volume_percent)?;
+        pw_link::link_sink_monitor_to_target(&feed_name, &virtual_input.system_name, true)?;
+
+        keep_source_names.insert(mix_source.system_name.clone());
     }
+
+    pactl::gc_feed_sinks_for_mix_pairs(&virtual_input.system_name, &keep_source_names)?;
 
     Ok(())
 }
 
+/// Sets the gain for one already-mixed source, without touching linking —
+/// safe to call at high frequency for a live slider drag.
+pub fn set_mix_source_volume(
+    virtual_input_system_name: &str,
+    source_system_name: &str,
+    volume_percent: u8,
+) -> Result<(), AdapterError> {
+    let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
+    pactl::set_sink_volume_by_name(&feed_name, volume_percent)
+}
+
 pub fn disconnect_all_virtual_mic_mixes(virtual_input_system_name: &str) -> Result<(), AdapterError> {
-    for source_name in pw_link::list_capture_sources_for_virtual_input(virtual_input_system_name) {
-        pw_link::disconnect_capture_source_from_virtual_input(
-            &source_name,
-            virtual_input_system_name,
-        )?;
+    pactl::gc_feed_sinks_for_mix_pairs(virtual_input_system_name, &HashSet::new())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_mic(direction: DeviceDirection) -> Device {
+        Device {
+            id: "mic".into(),
+            system_name: "pipe-deck-mic".into(),
+            label: "Mic".into(),
+            kind: DeviceKind::Virtual,
+            direction,
+            sink_mode: None,
+            volume_percent: None,
+            muted: None,
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        }
     }
-    Ok(())
+
+    #[test]
+    fn rejects_own_playback_feed_sink_as_mix_source() {
+        let mic = sample_mic(DeviceDirection::Input);
+        let sources = vec![MixSourceSpec {
+            system_name: "pipe-deck-feed-mic".into(),
+            volume_percent: 100,
+        }];
+        let error = apply_virtual_mic_mix(&mic, &sources).expect_err("self-loop should be rejected");
+        assert!(error.to_string().contains("own playback feed"));
+    }
+
+    #[test]
+    fn rejects_duplex_target() {
+        let mic = sample_mic(DeviceDirection::Duplex);
+        let error = apply_virtual_mic_mix(&mic, &[]).expect_err("duplex should be rejected");
+        assert!(error.to_string().contains("virtual input or virtual output"));
+    }
 }

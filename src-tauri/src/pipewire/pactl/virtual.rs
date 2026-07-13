@@ -216,6 +216,76 @@ pub fn unload_module(module_id: &str) -> Result<(), AdapterError> {
     run_pactl(&["unload-module", module_id]).map(|_| ())
 }
 
+/// Feed sink name for one mix-source contribution to one virtual mic. Each
+/// source gets its own sink so its volume can be controlled independently of
+/// the mic's other sources and of the source device's own volume.
+pub fn feed_sink_name_for_mix_pair(mic_system_name: &str, source_system_name: &str) -> String {
+    let mic_slug = mic_system_name
+        .strip_prefix("pipe-deck-")
+        .unwrap_or(mic_system_name);
+    let source_slug = slugify_for_feed_name(source_system_name);
+    format!("pipe-deck-feed-{mic_slug}-{source_slug}")
+}
+
+fn slugify_for_feed_name(system_name: &str) -> String {
+    system_name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .collect()
+}
+
+pub fn ensure_feed_sink_for_mix_pair(
+    mic_system_name: &str,
+    source_system_name: &str,
+    mic_label: &str,
+) -> Result<String, AdapterError> {
+    let feed_name = feed_sink_name_for_mix_pair(mic_system_name, source_system_name);
+    if sink_exists(&feed_name)? {
+        return Ok(feed_name);
+    }
+    create_null_sink(&feed_name, &feed_sink_description(mic_label))?;
+    Ok(feed_name)
+}
+
+pub fn remove_feed_sink_for_mix_pair(
+    mic_system_name: &str,
+    source_system_name: &str,
+) -> Result<(), AdapterError> {
+    let feed_name = feed_sink_name_for_mix_pair(mic_system_name, source_system_name);
+    let _ = pw_link::disconnect_sink_monitor(&feed_name);
+    if let Some(module_id) = find_module_id_by_sink_name(&feed_name)? {
+        unload_module(&module_id)?;
+    }
+    Ok(())
+}
+
+/// Removes any per-pair feed sink for `mic_system_name` whose source is no
+/// longer part of `keep_source_system_names`. Call after every mix apply so
+/// dropped sources don't leave orphaned sinks behind.
+pub fn gc_feed_sinks_for_mix_pairs(
+    mic_system_name: &str,
+    keep_source_system_names: &std::collections::HashSet<String>,
+) -> Result<(), AdapterError> {
+    let mic_slug = mic_system_name
+        .strip_prefix("pipe-deck-")
+        .unwrap_or(mic_system_name);
+    let prefix = format!("pipe-deck-feed-{mic_slug}-");
+    let keep_names: std::collections::HashSet<String> = keep_source_system_names
+        .iter()
+        .map(|name| feed_sink_name_for_mix_pair(mic_system_name, name))
+        .collect();
+
+    for (module_id, feed_name) in list_modules_for_sink_prefix(&prefix)? {
+        if keep_names.contains(&feed_name) {
+            continue;
+        }
+        let _ = pw_link::disconnect_sink_monitor(&feed_name);
+        unload_module(&module_id)?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn ensure_feed_sink_for_virtual_input(
     virtual_input_system_name: &str,
     label: &str,

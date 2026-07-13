@@ -2,6 +2,7 @@ mod effects_ops;
 mod graph_sync;
 mod mixer_ops;
 mod mock;
+mod passthrough_ops;
 mod profile_ops;
 mod routing_ops;
 mod virtual_ops;

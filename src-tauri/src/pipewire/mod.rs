@@ -1,5 +1,7 @@
 pub mod adapter;
 pub mod filter_chain;
+pub mod fx_capability;
+pub mod fx_validate;
 pub mod graph_enrich;
 pub mod graph_routing;
 pub mod live;

@@ -114,6 +114,34 @@ pub fn set_stream_mute(
     Ok(())
 }
 
+/// Sets volume directly on a sink by its raw system/module name, bypassing
+/// `RuntimeGraph` lookup. Used for per-mix-source feed sinks, which are
+/// intentionally hidden from the graph's device list.
+pub fn set_sink_volume_by_name(system_name: &str, percent: u8) -> Result<(), AdapterError> {
+    let volume_arg = format!("{}%", percent.min(100));
+    run_pactl(&["set-sink-volume", system_name, &volume_arg]).map(|_| ())
+}
+
+/// Reads the current volume of a sink by its raw system/module name. Used to
+/// reflect a per-mix-source feed sink's gain back into the runtime graph.
+pub fn sink_volume_percent(system_name: &str) -> Result<Option<u8>, AdapterError> {
+    let output = run_pactl(&["list", "sinks"])?;
+    let mut current_name = None;
+
+    for line in output.lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("Name: ") {
+            current_name = Some(rest.trim().to_string());
+            continue;
+        }
+        if line.starts_with("Volume:") && current_name.as_deref() == Some(system_name) {
+            return Ok(super::parse::extract_volume_percent(line));
+        }
+    }
+
+    Ok(None)
+}
+
 fn uses_monitor_fan_out(device: &crate::core::models::Device) -> bool {
     device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output
 }

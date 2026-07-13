@@ -1,4 +1,6 @@
 use crate::core::models::{ApplyResult, EffectChainConfig};
+use crate::pipewire::fx_capability::FxCapabilities;
+use crate::pipewire::fx_validate::PreflightResult;
 use crate::AppState;
 use std::collections::HashMap;
 use tauri::State;
@@ -24,4 +26,19 @@ pub async fn get_effect_chains(
     engine
         .get_effect_chains()
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_effect_capabilities(state: State<'_, AppState>) -> Result<FxCapabilities, String> {
+    let engine = state.engine.read().await;
+    Ok(engine.get_effect_capabilities())
+}
+
+#[tauri::command]
+pub async fn preflight_effect_chain(
+    config: EffectChainConfig,
+    state: State<'_, AppState>,
+) -> Result<PreflightResult, String> {
+    let engine = state.engine.read().await;
+    Ok(engine.preflight_effect_chain(&config))
 }

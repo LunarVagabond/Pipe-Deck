@@ -88,7 +88,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
-                    mix_source_ids: Vec::new(),
+                    mix_sources: Vec::new(),
                 },
                 Device {
                     id: "speakers".into(),
@@ -101,7 +101,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
-                    mix_source_ids: Vec::new(),
+                    mix_sources: Vec::new(),
                 },
             ],
             streams: vec![Stream {

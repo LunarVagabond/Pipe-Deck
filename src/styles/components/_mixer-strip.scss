@@ -54,7 +54,7 @@
   align-items: stretch;
   width: 100%;
   min-width: 0;
-  height: 18rem;
+  min-height: 18rem;
   padding: 0.75rem 0.75rem 0.8rem;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -308,6 +308,52 @@
   &.active {
     border-color: var(--accent-amber);
   }
+}
+
+.mixer-strip .mix-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border);
+}
+
+.mixer-strip .mix-sources-label {
+  margin: 0;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.mixer-strip .mix-source-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.mixer-strip .mix-source-name {
+  min-width: 0;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-strip .mix-source-slider {
+  width: 4rem;
+  accent-color: var(--accent-teal);
+  cursor: pointer;
+}
+
+.mixer-strip .mix-source-level {
+  min-width: 2rem;
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  text-align: right;
 }
 
 .mixer-strip .empty,

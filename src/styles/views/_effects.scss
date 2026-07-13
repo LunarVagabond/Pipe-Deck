@@ -247,6 +247,11 @@
   gap: 1rem;
   font-size: 0.85rem;
   color: var(--text-muted);
+
+  &.disabled {
+    opacity: 0.55;
+    cursor: help;
+  }
 }
 
 .effects-reset {

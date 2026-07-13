@@ -29,6 +29,13 @@ export interface RouteExplanation {
 
 export type SinkMode = "single" | "multi";
 
+/** A contributor to a virtual-mic mix; volume only affects its share of that
+ * one mix (via a per-pair feed sink), not the source's own device volume. */
+export interface MixSource {
+  device_id: string;
+  volume_percent: number;
+}
+
 export interface Device {
   id: string;
   system_name: string;
@@ -40,7 +47,7 @@ export interface Device {
   muted?: boolean;
   current_target?: string;
   current_targets?: string[];
-  mix_source_ids?: string[];
+  mix_sources?: MixSource[];
 }
 
 export interface Stream {
@@ -210,6 +217,18 @@ export interface VolumeStateEntry {
   muted?: boolean;
 }
 
+export interface DynamicsStage {
+  enabled: boolean;
+  threshold_db: number;
+  ratio_x10: number;
+  attack_ms: number;
+  release_ms: number;
+}
+
+export function emptyDynamicsStage(): DynamicsStage {
+  return { enabled: false, threshold_db: 0, ratio_x10: 0, attack_ms: 0, release_ms: 0 };
+}
+
 export interface EffectChainConfig {
   eq_sub: number;
   eq_bass: number;
@@ -217,11 +236,26 @@ export interface EffectChainConfig {
   eq_treble: number;
   eq_air: number;
   output_gain: number;
-  compressor: boolean;
+  compressor: DynamicsStage;
+  limiter: DynamicsStage;
+  noise_gate: DynamicsStage;
   /** @deprecated use eq_bass */
   eq_low?: number;
   /** @deprecated use eq_air */
   eq_high?: number;
+}
+
+export interface FxCapabilities {
+  builtin_eq: boolean;
+  builtin_gain: boolean;
+  builtin_limiter: boolean;
+  ladspa_noise_gate?: string;
+}
+
+export interface PreflightResult {
+  ok: boolean;
+  warnings: string[];
+  blocking_reasons: string[];
 }
 
 export interface Profile {
@@ -273,6 +307,11 @@ export interface DaemonStatus {
   devices_restored?: number;
 }
 
+export interface MixSourceSpec {
+  system_name: string;
+  volume_percent: number;
+}
+
 export interface VirtualDeviceSpec {
   id: string;
   slug: string;
@@ -280,7 +319,7 @@ export interface VirtualDeviceSpec {
   direction: DeviceDirection;
   created_at: string;
   multi?: boolean;
-  mix_sources?: string[];
+  mix_sources?: MixSourceSpec[];
 }
 
 export type AppView =

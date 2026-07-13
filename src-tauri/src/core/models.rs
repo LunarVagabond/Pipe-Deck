@@ -49,7 +49,30 @@ pub struct Device {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub current_targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mix_source_ids: Vec<String>,
+    pub mix_sources: Vec<MixSource>,
+}
+
+/// A single contributor to a virtual-mic mix, with a gain that only affects
+/// its contribution to that specific mix (not the source device's own
+/// volume). Backed by a per-pair feed sink; see `pipewire::virtual_mic_mix`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MixSource {
+    pub device_id: String,
+    #[serde(default = "default_mix_volume")]
+    pub volume_percent: u8,
+}
+
+fn default_mix_volume() -> u8 {
+    100
+}
+
+impl MixSource {
+    pub fn unity(device_id: impl Into<String>) -> Self {
+        Self {
+            device_id: device_id.into(),
+            volume_percent: default_mix_volume(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -166,9 +189,52 @@ pub struct VirtualDeviceSpec {
     pub created_at: String,
     #[serde(default)]
     pub multi: bool,
-    /// Physical capture device system names mixed into this virtual input (e.g. headset mic).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub mix_sources: Vec<String>,
+    /// Physical capture device system names mixed into this virtual input (e.g. headset mic),
+    /// each with its own gain (applied via a per-pair feed sink, not the source's own volume).
+    #[serde(default, deserialize_with = "deserialize_mix_source_specs", skip_serializing_if = "Vec::is_empty")]
+    pub mix_sources: Vec<MixSourceSpec>,
+}
+
+/// A persisted mix contributor, keyed by system name (not a runtime device id,
+/// which isn't stable across PipeWire restarts/config reloads).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct MixSourceSpec {
+    pub system_name: String,
+    #[serde(default = "default_mix_volume")]
+    pub volume_percent: u8,
+}
+
+impl MixSourceSpec {
+    pub fn unity(system_name: impl Into<String>) -> Self {
+        Self {
+            system_name: system_name.into(),
+            volume_percent: default_mix_volume(),
+        }
+    }
+}
+
+/// Accepts either the legacy `Vec<String>` shape (bare system names, unity
+/// gain) or the current `Vec<MixSourceSpec>` shape, so existing saved configs
+/// keep loading after this field grew a volume.
+fn deserialize_mix_source_specs<'de, D>(deserializer: D) -> Result<Vec<MixSourceSpec>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Entry {
+        Legacy(String),
+        Sourced(MixSourceSpec),
+    }
+
+    let entries: Vec<Entry> = Vec::deserialize(deserializer)?;
+    Ok(entries
+        .into_iter()
+        .map(|entry| match entry {
+            Entry::Legacy(system_name) => MixSourceSpec::unity(system_name),
+            Entry::Sourced(spec) => spec,
+        })
+        .collect())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -426,6 +492,45 @@ pub struct VolumeStateEntry {
     pub muted: bool,
 }
 
+/// A single dynamics processing block (compressor, limiter, or noise gate).
+/// `ratio_x10` is fixed-point (20 == 2.0:1) so the struct can derive `Eq`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct DynamicsStage {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub threshold_db: i32,
+    #[serde(default)]
+    pub ratio_x10: i32,
+    #[serde(default)]
+    pub attack_ms: i32,
+    #[serde(default)]
+    pub release_ms: i32,
+}
+
+/// Accepts either a legacy bare bool (`compressor: true`) or the current
+/// `DynamicsStage` object, so existing saved configs keep loading after this
+/// field grew real parameters.
+fn deserialize_dynamics_stage<'de, D>(deserializer: D) -> Result<DynamicsStage, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Entry {
+        LegacyBool(bool),
+        Stage(DynamicsStage),
+    }
+
+    match Entry::deserialize(deserializer)? {
+        Entry::LegacyBool(enabled) => Ok(DynamicsStage {
+            enabled,
+            ..Default::default()
+        }),
+        Entry::Stage(stage) => Ok(stage),
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct EffectChainConfig {
     /// Sub bass (~60 Hz).
@@ -445,13 +550,21 @@ pub struct EffectChainConfig {
     /// Master trim in dB (-12..+12).
     #[serde(default)]
     pub output_gain: i32,
-    #[serde(default)]
-    pub compressor: bool,
+    #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
+    pub compressor: DynamicsStage,
+    #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
+    pub limiter: DynamicsStage,
+    /// Modeled now; stays UI-disabled until `fx_capability` confirms a real
+    /// backing plugin is present on the host (see `pipewire::fx_capability`).
+    #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
+    pub noise_gate: DynamicsStage,
 }
 
 impl EffectChainConfig {
     pub fn is_active(&self) -> bool {
-        self.compressor
+        self.compressor.enabled
+            || self.limiter.enabled
+            || self.noise_gate.enabled
             || self.eq_sub != 0
             || self.eq_bass != 0
             || self.eq_mid != 0

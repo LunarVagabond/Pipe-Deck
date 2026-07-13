@@ -134,6 +134,39 @@ pub fn link_capture_source_to_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Result<(), AdapterError> {
+    link_capture_source_to_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
+}
+
+pub fn disconnect_capture_source_from_virtual_input(
+    capture_source_system_name: &str,
+    virtual_input_system_name: &str,
+) -> Result<(), AdapterError> {
+    disconnect_capture_source_from_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
+}
+
+/// Links a physical capture source into a regular sink's playback ports
+/// (as opposed to a virtual-input's `input_*` ports). Used to feed a
+/// per-mix-source gain node (a plain null-sink "feed sink") ahead of
+/// summing it into a virtual mic via that sink's monitor.
+pub fn link_capture_source_to_sink(
+    capture_source_system_name: &str,
+    sink_system_name: &str,
+) -> Result<(), AdapterError> {
+    link_capture_source_to_target_ports(capture_source_system_name, sink_system_name, "playback_")
+}
+
+pub fn disconnect_capture_source_from_sink(
+    capture_source_system_name: &str,
+    sink_system_name: &str,
+) -> Result<(), AdapterError> {
+    disconnect_capture_source_from_target_ports(capture_source_system_name, sink_system_name, "playback_")
+}
+
+fn link_capture_source_to_target_ports(
+    capture_source_system_name: &str,
+    target_system_name: &str,
+    target_port_prefix: &str,
+) -> Result<(), AdapterError> {
     let source_ports = output_ports_for(capture_source_system_name);
     if source_ports.is_empty() {
         return Err(AdapterError::Message(format!(
@@ -141,10 +174,10 @@ pub fn link_capture_source_to_virtual_input(
         )));
     }
 
-    let target_ports = virtual_input_ports_for(virtual_input_system_name);
+    let target_ports = target_ports_with_prefix(target_system_name, target_port_prefix);
     if target_ports.is_empty() {
         return Err(AdapterError::Message(format!(
-            "{virtual_input_system_name} has no input ports to mix into"
+            "{target_system_name} has no {target_port_prefix}* ports to mix into"
         )));
     }
 
@@ -158,7 +191,7 @@ pub fn link_capture_source_to_virtual_input(
         return Ok(());
     }
 
-    disconnect_capture_source_from_virtual_input(capture_source_system_name, virtual_input_system_name)?;
+    disconnect_capture_source_from_target_ports(capture_source_system_name, target_system_name, target_port_prefix)?;
 
     for (output_port, input_port) in &desired {
         run_pw_link(&["-L", output_port, input_port])?;
@@ -167,11 +200,12 @@ pub fn link_capture_source_to_virtual_input(
     Ok(())
 }
 
-pub fn disconnect_capture_source_from_virtual_input(
+fn disconnect_capture_source_from_target_ports(
     capture_source_system_name: &str,
-    virtual_input_system_name: &str,
+    target_system_name: &str,
+    target_port_prefix: &str,
 ) -> Result<(), AdapterError> {
-    let target_prefix = format!("{virtual_input_system_name}:input_");
+    let target_prefix = format!("{target_system_name}:{target_port_prefix}");
     for (output_port, input_port) in list_capture_links_for_source(capture_source_system_name) {
         if input_port.starts_with(&target_prefix) {
             let _ = run_pw_link(&["-d", &output_port, &input_port]);
@@ -201,8 +235,8 @@ fn output_ports_for(system_name: &str) -> Vec<String> {
         .collect()
 }
 
-fn virtual_input_ports_for(system_name: &str) -> Vec<String> {
-    let prefix = format!("{system_name}:input_");
+fn target_ports_with_prefix(system_name: &str, port_prefix: &str) -> Vec<String> {
+    let prefix = format!("{system_name}:{port_prefix}");
     list_ports("-i")
         .into_iter()
         .filter(|port| port.starts_with(&prefix))
@@ -225,6 +259,16 @@ fn pair_capture_ports(source_ports: &[String], target_ports: &[String]) -> Vec<(
 }
 
 pub fn list_capture_sources_for_virtual_input(virtual_input_system_name: &str) -> Vec<String> {
+    list_capture_sources_for_target_ports(virtual_input_system_name, "input_")
+}
+
+/// Same discovery as `list_capture_sources_for_virtual_input`, but against a
+/// regular sink's playback ports (a per-mix-source feed sink).
+pub fn list_capture_sources_for_sink(sink_system_name: &str) -> Vec<String> {
+    list_capture_sources_for_target_ports(sink_system_name, "playback_")
+}
+
+fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_prefix: &str) -> Vec<String> {
     let output = match Command::new("pw-link").arg("-l").output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
@@ -233,7 +277,7 @@ pub fn list_capture_sources_for_virtual_input(virtual_input_system_name: &str) -
     let text = String::from_utf8_lossy(&output.stdout);
     let mut sources = Vec::new();
     let mut current_target_port: Option<String> = None;
-    let target_prefix = format!("{virtual_input_system_name}:input_");
+    let target_prefix = format!("{target_system_name}:{target_port_prefix}");
 
     for line in text.lines() {
         if let Some(source_port) = line.strip_prefix("  |<- ") {

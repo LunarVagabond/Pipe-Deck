@@ -126,7 +126,7 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
-                    mix_source_ids: Vec::new(),
+                    mix_sources: Vec::new(),
                 });
                 continue;
             }
@@ -149,7 +149,7 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
-                    mix_source_ids: Vec::new(),
+                    mix_sources: Vec::new(),
                 });
             }
         }

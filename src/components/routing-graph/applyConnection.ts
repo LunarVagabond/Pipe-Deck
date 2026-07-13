@@ -46,9 +46,18 @@ export async function applyRoutingConnection(
     } else if (result.action.type === "mic_mix") {
       const response = await invoke<{ success: boolean; message?: string }>("set_virtual_mic_mix", {
         virtualMicDeviceId: result.action.virtualMicDeviceId,
-        mixSourceDeviceIds: result.action.mixSourceDeviceIds,
+        mixSources: result.action.mixSources,
       });
       onResult(response, "Microphone mix updated");
+    } else if (result.action.type === "stream_mic_passthrough_add") {
+      const response = await invoke<{ success: boolean; message?: string }>(
+        "enable_stream_mic_passthrough",
+        {
+          streamId: result.action.streamId,
+          micDeviceId: result.action.micDeviceId,
+        },
+      );
+      onResult(response, "Also sending this app's audio to your microphone");
     } else {
       const response = await invoke<{ success: boolean; message?: string }>("set_device_route", {
         sourceDeviceId: result.action.sourceDeviceId,

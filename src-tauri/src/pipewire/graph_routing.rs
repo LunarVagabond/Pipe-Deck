@@ -1,5 +1,5 @@
 use crate::core::models::{
-    DeviceDirection, DeviceKind, Link, RuntimeGraph, StreamDirection,
+    DeviceDirection, DeviceKind, Link, MixSource, RuntimeGraph, StreamDirection,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_identity_key, StreamIdentityKey};
@@ -202,6 +202,12 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
     }
 }
 
+/// Each mix source is fed through its own per-pair feed sink
+/// (`pipe-deck-feed-{mic}-{source}`, see `pactl::ensure_feed_sink_for_mix_pair`)
+/// whose monitor is linked into the mic's input ports, so an independent
+/// gain per source can be read back from the feed sink's own volume. This
+/// walks: mic's input ports -> feed sink names -> feed sink's playback ports
+/// -> the physical capture source actually feeding it.
 fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
     let name_to_id: HashMap<String, String> = graph
         .devices
@@ -219,24 +225,39 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
             continue;
         }
 
-        let capture_sources =
-            pw_link::list_capture_sources_for_virtual_input(&device.system_name);
-        let mix_ids: Vec<String> = capture_sources
-            .iter()
-            .filter_map(|name| name_to_id.get(name).cloned())
-            .collect();
-        device.mix_source_ids = mix_ids;
+        let feed_sink_names = pw_link::list_capture_sources_for_virtual_input(&device.system_name);
+        let mut mix_sources = Vec::new();
 
-        for source_name in capture_sources {
+        for feed_sink_name in &feed_sink_names {
+            if !feed_sink_name.starts_with("pipe-deck-feed-") {
+                continue;
+            }
+
+            let Some(source_name) = pw_link::list_capture_sources_for_sink(feed_sink_name).into_iter().next() else {
+                continue;
+            };
             let Some(source_id) = name_to_id.get(&source_name) else {
                 continue;
             };
+
+            let volume_percent = pactl::sink_volume_percent(feed_sink_name)
+                .ok()
+                .flatten()
+                .unwrap_or(100);
+
+            mix_sources.push(MixSource {
+                device_id: source_id.clone(),
+                volume_percent,
+            });
+
             graph.links.push(Link {
                 id: format!("pwlink-mix-{source_name}-{}", device.system_name),
                 source_id: source_id.clone(),
                 target_id: device.id.clone(),
             });
         }
+
+        device.mix_sources = mix_sources;
     }
 }
 
@@ -260,7 +281,7 @@ mod tests {
                 muted: Some(false),
                 current_target: None,
                 current_targets: Vec::new(),
-                mix_source_ids: Vec::new(),
+                mix_sources: Vec::new(),
             }],
             streams: Vec::new(),
             links: Vec::new(),
@@ -309,7 +330,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
-                    mix_source_ids: Vec::new(),
+                    mix_sources: Vec::new(),
                 },
                 Device {
                     id: "headset".into(),
@@ -322,7 +343,7 @@ mod tests {
                     muted: None,
                     current_target: None,
                     current_targets: Vec::new(),
-                    mix_source_ids: Vec::new(),
+                    mix_sources: Vec::new(),
                 },
             ],
             streams: vec![Stream {

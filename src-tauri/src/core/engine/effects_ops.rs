@@ -1,5 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::{ApplyResult, EffectChainConfig};
+use crate::pipewire::fx_capability::{self, FxCapabilities};
+use crate::pipewire::fx_validate::{self, PreflightResult};
 use crate::pipewire::filter_chain;
 use std::collections::HashMap;
 
@@ -10,6 +12,23 @@ impl CoreEngine {
         ConfigStore::new()
             .effect_chains()
             .map_err(|error| EngineError::Config(error.to_string()))
+    }
+
+    /// What the installed system can actually back for live effects — used
+    /// to grey out UI controls nothing can realize, rather than let a user
+    /// configure a stage that would silently fail (or worse, get force-fit
+    /// through an unvalidated path) at apply time.
+    pub fn get_effect_capabilities(&self) -> FxCapabilities {
+        fx_capability::probe_capabilities()
+    }
+
+    /// Validates a candidate chain against the v1 safety contract without
+    /// writing anything or touching PipeWire — safe to call on every slider
+    /// change so the UI can show blocking reasons before the user ever hits
+    /// Apply.
+    pub fn preflight_effect_chain(&self, config: &EffectChainConfig) -> PreflightResult {
+        let capabilities = fx_capability::probe_capabilities();
+        fx_validate::preflight(config, &capabilities)
     }
 
     pub fn set_device_effects(
