@@ -1,8 +1,0 @@
-{
-  "extends": "../tsconfig.json",
-  "compilerOptions": {
-    "types": ["@playwright/test", "node"],
-    "noEmit": true
-  },
-  "include": ["**/*.ts", "../src/**/*.ts", "../src/**/*.vue"]
-}

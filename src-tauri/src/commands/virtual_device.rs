@@ -1,4 +1,4 @@
-use crate::core::models::{ApplyResult, VirtualDeviceResult};
+use crate::core::models::{ApplyResult, MixSource, VirtualDeviceResult};
 use crate::AppState;
 use tauri::State;
 
@@ -61,13 +61,93 @@ pub async fn remove_virtual_device(
 #[tauri::command]
 pub async fn set_virtual_mic_mix(
     virtual_mic_device_id: String,
-    mix_source_device_ids: Vec<String>,
+    mix_sources: Vec<MixSource>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
     let result = engine
-        .set_virtual_mic_mix(&virtual_mic_device_id, &mix_source_device_ids)
+        .set_virtual_mic_mix(&virtual_mic_device_id, &mix_sources)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+/// Adds one source to a mic's mix — computed against the server's own graph,
+/// not a frontend-supplied full list, so two mixing actions fired close
+/// together can't race and silently drop one of them.
+#[tauri::command]
+pub async fn add_mix_source(
+    virtual_mic_device_id: String,
+    source_device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .add_mix_source(&virtual_mic_device_id, &source_device_id)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn remove_mix_source(
+    virtual_mic_device_id: String,
+    source_device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .remove_mix_source(&virtual_mic_device_id, &source_device_id)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn set_mix_source_volume(
+    virtual_mic_device_id: String,
+    source_device_id: String,
+    percent: u8,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .set_mix_source_volume(&virtual_mic_device_id, &source_device_id, percent)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn set_mix_source_mute(
+    virtual_mic_device_id: String,
+    source_device_id: String,
+    muted: bool,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .set_mix_source_mute(&virtual_mic_device_id, &source_device_id, muted)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn enable_stream_mic_passthrough(
+    stream_id: String,
+    mic_device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .enable_stream_mic_passthrough(&stream_id, &mic_device_id)
         .map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(result)

@@ -316,7 +316,7 @@ fn create_virtual_from_spec(spec: &VirtualDeviceSpec) -> Result<(), String> {
             muted: None,
             current_target: None,
             current_targets: Vec::new(),
-            mix_source_ids: Vec::new(),
+            mix_sources: Vec::new(),
         };
         crate::pipewire::virtual_mic_mix::apply_virtual_mic_mix(&virtual_input, &spec.mix_sources)
             .map_err(|error| error.to_string())?;

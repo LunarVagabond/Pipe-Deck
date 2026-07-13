@@ -38,7 +38,7 @@ coverage/
 test-results/
 playwright-report/
 blob-report/
-e2e/.cache/
+src/e2e/.cache/
 
 # Caches and incremental build metadata
 .cache/

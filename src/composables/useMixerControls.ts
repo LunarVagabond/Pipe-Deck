@@ -39,8 +39,44 @@ export function useMixerControls() {
     await invoke("set_device_mute", { deviceId, muted });
   }
 
+  async function setMixSourceVolume(virtualMicDeviceId: string, sourceDeviceId: string, percent: number) {
+    await invoke("set_mix_source_volume", { virtualMicDeviceId, sourceDeviceId, percent });
+  }
+
+  /** Debounced per-mix-source gain apply, mirrors `scheduleChannelVolume` but
+   * targets one contributor to a virtual mic's mix rather than a whole channel. */
+  function scheduleMixSourceVolume(virtualMicDeviceId: string, sourceDeviceId: string, percent: number) {
+    const next = clampVolume(percent);
+    const key = `${virtualMicDeviceId}:${sourceDeviceId}`;
+    pendingVolumes.value[key] = next;
+    window.clearTimeout(debounceTimers[key]);
+    debounceTimers[key] = window.setTimeout(() => {
+      setMixSourceVolume(virtualMicDeviceId, sourceDeviceId, pendingVolumes.value[key]).catch((error) => {
+        handleApplyResult(
+          { success: false, message: error instanceof Error ? error.message : String(error) },
+          "",
+        );
+      });
+    }, 120);
+  }
+
   async function setStreamMute(streamId: string, muted: boolean) {
     await invoke("set_stream_mute", { streamId, muted });
+  }
+
+  /** Mutes/unmutes one mix source without touching its link — the feed sink
+   * and its port connections are untouched, only its own mute flag changes.
+   * Used for both physical-mic mixing and app-audio-passthrough legs. */
+  async function toggleMixSourceMute(virtualMicDeviceId: string, sourceDeviceId: string, muted: boolean) {
+    try {
+      await invoke("set_mix_source_mute", { virtualMicDeviceId, sourceDeviceId, muted: !muted });
+      handleApplyResult({ success: true }, muted ? "Unmuted" : "Muted");
+    } catch (error) {
+      handleApplyResult(
+        { success: false, message: error instanceof Error ? error.message : String(error) },
+        "",
+      );
+    }
   }
 
   async function applyChannelVolume(
@@ -91,10 +127,13 @@ export function useMixerControls() {
     setStreamVolume,
     setDeviceMute,
     setStreamMute,
+    setMixSourceVolume,
     applyChannelVolume,
     toggleChannelMute,
+    toggleMixSourceMute,
     pendingVolumes,
     clampVolume,
     scheduleChannelVolume,
+    scheduleMixSourceVolume,
   };
 }

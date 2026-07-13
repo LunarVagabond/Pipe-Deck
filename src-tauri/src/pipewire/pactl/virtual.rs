@@ -39,7 +39,7 @@ pub fn sync_virtual_device_description(
     Ok(Some(new_module_id))
 }
 
-fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
+pub fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
     let sink_names = load_sink_index_names();
     Ok(list_sink_inputs().iter().any(|input| {
         input
@@ -47,6 +47,52 @@ fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
             .and_then(|index| sink_names.get(&index))
             .is_some_and(|name| name == system_name)
     }))
+}
+
+/// The sink-input indices (app playback streams) currently on `system_name`.
+pub fn sink_input_indices_on(system_name: &str) -> Vec<u32> {
+    let sink_names = load_sink_index_names();
+    list_sink_inputs()
+        .iter()
+        .filter(|input| {
+            input
+                .sink_index
+                .and_then(|index| sink_names.get(&index))
+                .is_some_and(|name| name == system_name)
+        })
+        .map(|input| input.index)
+        .collect()
+}
+
+/// A shared scratch sink used to briefly hold an in-use device's playback
+/// streams while its underlying module is swapped out (e.g. for a
+/// Structural Apply), so the swap doesn't just silently fail whatever those
+/// streams were doing — see `core::engine::effects_ops::apply_effect_chain_structural`.
+pub const HOLDING_SINK_NAME: &str = "pipe-deck-hold";
+
+pub fn ensure_holding_sink() -> Result<(), AdapterError> {
+    if sink_exists(HOLDING_SINK_NAME)? {
+        return Ok(());
+    }
+    create_null_sink(HOLDING_SINK_NAME, "Pipe Deck (temporary hold)").map(|_| ())
+}
+
+/// Tears the scratch hold sink back down once every stream that was parked on
+/// it has been moved back to its real device — it's only ever meant to exist
+/// for the duration of a single swap, not persist across the session. Safe to
+/// call even if the sink is still carrying streams or doesn't exist: skips
+/// removal rather than risk stranding audio, and no-ops if already gone.
+pub fn remove_holding_sink() -> Result<(), AdapterError> {
+    if !sink_exists(HOLDING_SINK_NAME)? {
+        return Ok(());
+    }
+    if !sink_input_indices_on(HOLDING_SINK_NAME).is_empty() {
+        return Ok(());
+    }
+    if let Some(module_id) = find_module_id_by_sink_name(HOLDING_SINK_NAME)? {
+        unload_module(&module_id)?;
+    }
+    Ok(())
 }
 
 pub fn feed_sink_description(virtual_mic_label: &str) -> String {
@@ -96,11 +142,28 @@ pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -
         })
         .collect();
 
+    let known_slugs: std::collections::HashSet<&str> = known_virtual_inputs
+        .iter()
+        .filter_map(|name| name.strip_prefix("pipe-deck-"))
+        .collect();
+
     for (module_id, feed_name) in list_modules_for_sink_prefix("pipe-deck-feed-")? {
-        let Some(slug) = feed_name.strip_prefix("pipe-deck-feed-") else {
+        let Some(rest) = feed_name.strip_prefix("pipe-deck-feed-") else {
             continue;
         };
-        let virtual_input = format!("pipe-deck-{slug}");
+
+        // Per-pair mix-source feed sinks (`pipe-deck-feed-{mic}-{source}`,
+        // one per contributor to a mic's mix) are owned by
+        // `gc_feed_sinks_for_mix_pairs` instead, which understands their
+        // real in-use signal (a live pw-link connection, not a pactl
+        // sink-input). This function's `in_use` check below can't see that,
+        // so without this guard it would tear a mix source's feed sink down
+        // on every graph refresh regardless of whether it was just created.
+        if is_per_pair_mix_feed_sink(rest, &known_slugs) {
+            continue;
+        }
+
+        let virtual_input = format!("pipe-deck-{rest}");
         let virtual_exists = known_virtual_inputs.contains(&virtual_input);
         let in_use = sinks_with_inputs.contains(&feed_name);
 
@@ -113,6 +176,12 @@ pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -
     }
 
     Ok(())
+}
+
+fn is_per_pair_mix_feed_sink(feed_sink_rest: &str, known_slugs: &std::collections::HashSet<&str>) -> bool {
+    known_slugs
+        .iter()
+        .any(|slug| feed_sink_rest.starts_with(&format!("{slug}-")))
 }
 
 pub fn sink_exists(name: &str) -> Result<bool, AdapterError> {
@@ -214,6 +283,76 @@ pub struct PactlVirtualModule {
 
 pub fn unload_module(module_id: &str) -> Result<(), AdapterError> {
     run_pactl(&["unload-module", module_id]).map(|_| ())
+}
+
+/// Feed sink name for one mix-source contribution to one virtual mic. Each
+/// source gets its own sink so its volume can be controlled independently of
+/// the mic's other sources and of the source device's own volume.
+pub fn feed_sink_name_for_mix_pair(mic_system_name: &str, source_system_name: &str) -> String {
+    let mic_slug = mic_system_name
+        .strip_prefix("pipe-deck-")
+        .unwrap_or(mic_system_name);
+    let source_slug = slugify_for_feed_name(source_system_name);
+    format!("pipe-deck-feed-{mic_slug}-{source_slug}")
+}
+
+fn slugify_for_feed_name(system_name: &str) -> String {
+    system_name
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .collect()
+}
+
+pub fn ensure_feed_sink_for_mix_pair(
+    mic_system_name: &str,
+    source_system_name: &str,
+    mic_label: &str,
+) -> Result<String, AdapterError> {
+    let feed_name = feed_sink_name_for_mix_pair(mic_system_name, source_system_name);
+    if sink_exists(&feed_name)? {
+        return Ok(feed_name);
+    }
+    create_null_sink(&feed_name, &feed_sink_description(mic_label))?;
+    Ok(feed_name)
+}
+
+pub fn remove_feed_sink_for_mix_pair(
+    mic_system_name: &str,
+    source_system_name: &str,
+) -> Result<(), AdapterError> {
+    let feed_name = feed_sink_name_for_mix_pair(mic_system_name, source_system_name);
+    let _ = pw_link::disconnect_sink_monitor(&feed_name);
+    if let Some(module_id) = find_module_id_by_sink_name(&feed_name)? {
+        unload_module(&module_id)?;
+    }
+    Ok(())
+}
+
+/// Removes any per-pair feed sink for `mic_system_name` whose source is no
+/// longer part of `keep_source_system_names`. Call after every mix apply so
+/// dropped sources don't leave orphaned sinks behind.
+pub fn gc_feed_sinks_for_mix_pairs(
+    mic_system_name: &str,
+    keep_source_system_names: &std::collections::HashSet<String>,
+) -> Result<(), AdapterError> {
+    let mic_slug = mic_system_name
+        .strip_prefix("pipe-deck-")
+        .unwrap_or(mic_system_name);
+    let prefix = format!("pipe-deck-feed-{mic_slug}-");
+    let keep_names: std::collections::HashSet<String> = keep_source_system_names
+        .iter()
+        .map(|name| feed_sink_name_for_mix_pair(mic_system_name, name))
+        .collect();
+
+    for (module_id, feed_name) in list_modules_for_sink_prefix(&prefix)? {
+        if keep_names.contains(&feed_name) {
+            continue;
+        }
+        let _ = pw_link::disconnect_sink_monitor(&feed_name);
+        unload_module(&module_id)?;
+    }
+
+    Ok(())
 }
 
 pub(crate) fn ensure_feed_sink_for_virtual_input(
@@ -385,6 +524,21 @@ fn extract_quoted_property(args: &str, marker: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn is_per_pair_mix_feed_sink_recognizes_mix_pair_names() {
+        let known_slugs: std::collections::HashSet<&str> = ["mic"].into_iter().collect();
+
+        // Regression test: `gc_feed_sinks` (the generic playback-feed-sink
+        // GC, run on every graph refresh) must never treat a per-pair
+        // mix-source feed sink as fair game — it previously did, because its
+        // "does this look like a bare mic feed sink" check matched the
+        // mix-pair naming scheme too, silently tearing mixed sources down
+        // moments after they were created.
+        assert!(is_per_pair_mix_feed_sink("mic-alsa_input.headset", &known_slugs));
+        assert!(!is_per_pair_mix_feed_sink("mic", &known_slugs));
+        assert!(!is_per_pair_mix_feed_sink("some-other-thing", &known_slugs));
+    }
 
     #[test]
     fn feed_sink_name_derives_from_virtual_input() {

@@ -10,7 +10,13 @@ export interface RoutingGraphNodeMenuTarget {
   deletable: boolean;
 }
 
-export type RoutingGraphMenuTarget = RoutingGraphNodeMenuTarget;
+export interface RoutingGraphPaneMenuTarget {
+  kind: "pane";
+  x: number;
+  y: number;
+}
+
+export type RoutingGraphMenuTarget = RoutingGraphNodeMenuTarget | RoutingGraphPaneMenuTarget;
 
 export interface RoutingGraphActions {
   openMenu: (target: RoutingGraphMenuTarget) => void;

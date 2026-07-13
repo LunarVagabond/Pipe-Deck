@@ -2,16 +2,15 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
-import ToggleSwitch from "./ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
-
-const open = defineModel<boolean>({ required: true });
+import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 
 const { handleApplyResult } = useApplyResult();
+const { newDeviceDialogState, closeNewDeviceDialog } = useNewDeviceDialog();
 
+const open = computed(() => newDeviceDialogState.value.open);
 const name = ref("");
 const type = ref<"input" | "output">("output");
-const multi = ref(false);
 const nameInputRef = ref<HTMLInputElement | null>(null);
 
 const canCreate = computed(() => name.value.trim().length > 0);
@@ -29,16 +28,16 @@ const slug = computed(() => {
 function resetForm() {
   name.value = "";
   type.value = "output";
-  multi.value = false;
 }
 
 function close() {
-  open.value = false;
+  closeNewDeviceDialog();
   resetForm();
 }
 
 watch(open, async (value) => {
   if (value) {
+    type.value = newDeviceDialogState.value.type;
     await nextTick();
     nameInputRef.value?.focus();
   }
@@ -47,12 +46,7 @@ watch(open, async (value) => {
 async function createVirtual() {
   const trimmed = name.value.trim();
   if (!trimmed) return;
-  const command =
-    type.value === "input"
-      ? "create_virtual_input"
-      : multi.value
-        ? "create_virtual_multi_output"
-        : "create_virtual_output";
+  const command = type.value === "input" ? "create_virtual_input" : "create_virtual_output";
   try {
     await invoke(command, { name: trimmed });
     handleApplyResult({ success: true }, `${trimmed} created`);
@@ -110,14 +104,6 @@ async function createVirtual() {
             <span class="new-device-type-card-sub">Mixes microphones into one virtual mic</span>
           </button>
         </div>
-      </div>
-
-      <div v-if="type === 'output'" class="new-device-toggle-row">
-        <div class="new-device-toggle-copy">
-          <span class="new-device-field-label">Multi-output</span>
-          <p class="new-device-toggle-hint">Fan this sink out to several outputs at once, instead of just one.</p>
-        </div>
-        <ToggleSwitch v-model="multi" :show-state-labels="false" />
       </div>
 
       <div class="dialog-actions">

@@ -8,6 +8,7 @@ const buildRevision = ref("…");
 
 const GITHUB_PROFILE = "https://github.com/LunarVagabond";
 const MIT_LICENSE_URL = "https://opensource.org/licenses/MIT";
+const GITHUB_ISSUES_URL = "https://github.com/LunarVagabond/Pipe-Deck/issues/new?template=bug_report.yml";
 
 async function openExternal(event: MouseEvent, url: string) {
   event.preventDefault();
@@ -45,6 +46,16 @@ onMounted(async () => {
         @click="openExternal($event, MIT_LICENSE_URL)"
       >
         MIT License
+      </a>
+    </div>
+
+    <div class="app-footer-center">
+      <a
+        class="app-footer-link app-footer-bug-link"
+        :href="GITHUB_ISSUES_URL"
+        @click="openExternal($event, GITHUB_ISSUES_URL)"
+      >
+        Found a Bug? Report it!
       </a>
     </div>
 

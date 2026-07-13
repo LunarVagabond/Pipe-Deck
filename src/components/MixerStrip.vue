@@ -5,7 +5,7 @@ import NodeCardHeader from "./NodeCardHeader.vue";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
-import type { Device, Stream } from "../types/graph";
+import type { Device, MixSource, Stream } from "../types/graph";
 
 const props = withDefaults(
   defineProps<{
@@ -18,13 +18,26 @@ const props = withDefaults(
 );
 
 const { handleApplyResult } = useApplyResult();
-const { applyChannelVolume, toggleChannelMute } = useMixerControls();
+const {
+  applyChannelVolume,
+  toggleChannelMute,
+  toggleMixSourceMute,
+  scheduleMixSourceVolume,
+  pendingVolumes: pendingMixVolumes,
+} = useMixerControls();
 const { confirm } = useConfirm();
 const pendingVolumes = ref<Record<string, number>>({});
 const editingVolumeId = ref<string | null>(null);
 const volumeDraft = ref("");
 const volumeInputRef = ref<HTMLInputElement | null>(null);
 let debounceTimers: Record<string, number> = {};
+
+interface MixSourceChannel {
+  deviceId: string;
+  label: string;
+  level: number;
+  muted: boolean;
+}
 
 interface MixerChannel {
   id: string;
@@ -35,6 +48,18 @@ interface MixerChannel {
   channelType: "device" | "stream";
   level: number;
   muted: boolean;
+  mixSources: MixSourceChannel[];
+}
+
+function toMixSourceChannel(deviceId: string, mixSource: MixSource): MixSourceChannel {
+  const source = props.devices.find((device) => device.id === mixSource.device_id);
+  const key = `${deviceId}:${mixSource.device_id}`;
+  return {
+    deviceId: mixSource.device_id,
+    label: source?.label ?? mixSource.device_id,
+    level: pendingMixVolumes.value[key] ?? mixSource.volume_percent,
+    muted: mixSource.muted,
+  };
 }
 
 function toDeviceChannel(device: Device): MixerChannel | null {
@@ -51,6 +76,7 @@ function toDeviceChannel(device: Device): MixerChannel | null {
     channelType: "device",
     level: pendingVolumes.value[device.id] ?? device.volume_percent,
     muted: device.muted ?? false,
+    mixSources: (device.mix_sources ?? []).map((mixSource) => toMixSourceChannel(device.id, mixSource)),
   };
 }
 
@@ -68,6 +94,7 @@ function toStreamChannel(stream: Stream): MixerChannel | null {
     channelType: "stream",
     level: pendingVolumes.value[stream.id] ?? stream.volume_percent,
     muted: stream.muted ?? false,
+    mixSources: [],
   };
 }
 
@@ -166,6 +193,14 @@ async function toggleMute(channel: MixerChannel) {
   await toggleChannelMute(channel.channelType, channel.id, channel.muted);
 }
 
+function scheduleMixSource(channel: MixerChannel, mixSource: MixSourceChannel, percent: number) {
+  scheduleMixSourceVolume(channel.id, mixSource.deviceId, clampVolume(percent));
+}
+
+async function toggleMixSourceMuteFor(channel: MixerChannel, mixSource: MixSourceChannel) {
+  await toggleMixSourceMute(channel.id, mixSource.deviceId, mixSource.muted);
+}
+
 async function saveRename(channel: MixerChannel, alias: string) {
   if (!channel.systemName) {
     return;
@@ -217,84 +252,69 @@ async function removeVirtual(channel: MixerChannel) {
           :class="`mixer-group--${section.title.toLowerCase()}`"
         >
           <h3>{{ section.title }}</h3>
-          <div class="channel-grid">
+          <div class="channel-list">
             <article
               v-for="channel in section.channels"
               :key="channel.id"
               class="channel"
               :class="channelAccentClass(channel)"
             >
-              <div class="channel-meter" aria-hidden="true">
-                <span class="channel-meter-fill" :style="{ width: `${channel.level}%` }" />
-              </div>
-              <div class="channel-slider">
-              <div class="level-wrap">
-                <input
-                  v-if="editingVolumeId === channel.id"
-                  ref="volumeInputRef"
-                  class="level-input"
-                  type="number"
-                  min="0"
-                  max="100"
-                  inputmode="numeric"
-                  :aria-label="`${channel.label} volume percent`"
-                  v-model="volumeDraft"
-                  @blur="commitVolumeEdit(channel)"
-                  @keydown.enter.prevent="commitVolumeEdit(channel)"
-                  @keydown.esc.prevent="cancelVolumeEdit(channel)"
-                />
-                <button
-                  v-else
-                  type="button"
-                  class="level"
-                  :aria-label="`Set ${channel.label} volume`"
-                  @click="startVolumeEdit(channel)"
-                >
-                  {{ channel.level }}%
-                </button>
-              </div>
-              <div class="volume-vertical-wrap">
-                <div
-                  class="meter-fill"
-                  :style="{ height: `${channel.level}%` }"
-                  aria-hidden="true"
-                />
-                <input
-                  type="range"
-                  class="volume-vertical"
-                  min="0"
-                  max="100"
-                  :value="channel.level"
-                  :aria-label="`${channel.label} volume`"
-                  @input="scheduleVolume(channel, Number(($event.target as HTMLInputElement).value))"
-                />
-              </div>
-            </div>
-            <div class="channel-footer">
-              <NodeCardHeader
-                v-if="channel.channelType === 'device'"
-                layout="stacked"
-                show-label-tooltip
-                :label="channel.label"
-                editable
-                :deletable="channel.kind === 'virtual'"
-                @save="(name) => saveRename(channel, name)"
-                @delete="removeVirtual(channel)"
-              >
-                <template #toolbar-extra>
+              <div class="channel-main">
+                <div class="channel-identity">
+                  <NodeCardHeader
+                    v-if="channel.channelType === 'device'"
+                    layout="inline"
+                    show-label-tooltip
+                    :label="channel.label"
+                    editable
+                    :deletable="channel.kind === 'virtual'"
+                    @save="(name) => saveRename(channel, name)"
+                    @delete="removeVirtual(channel)"
+                  />
+                  <p v-else class="stream-channel-label" :title="channel.label">{{ channel.label }}</p>
+                </div>
+
+                <div class="channel-fader">
+                  <div class="channel-meter" aria-hidden="true">
+                    <span class="channel-meter-fill" :style="{ width: `${channel.level}%` }" />
+                  </div>
+                  <input
+                    type="range"
+                    class="volume-horizontal"
+                    min="0"
+                    max="100"
+                    :value="channel.level"
+                    :aria-label="`${channel.label} volume`"
+                    @input="scheduleVolume(channel, Number(($event.target as HTMLInputElement).value))"
+                  />
+                </div>
+
+                <div class="level-wrap">
+                  <input
+                    v-if="editingVolumeId === channel.id"
+                    ref="volumeInputRef"
+                    class="level-input"
+                    type="number"
+                    min="0"
+                    max="100"
+                    inputmode="numeric"
+                    :aria-label="`${channel.label} volume percent`"
+                    v-model="volumeDraft"
+                    @blur="commitVolumeEdit(channel)"
+                    @keydown.enter.prevent="commitVolumeEdit(channel)"
+                    @keydown.esc.prevent="cancelVolumeEdit(channel)"
+                  />
                   <button
+                    v-else
                     type="button"
-                    class="mute"
-                    :class="{ active: channel.muted }"
-                    :aria-label="channel.muted ? 'Muted' : 'Unmuted'"
-                    @click="toggleMute(channel)"
+                    class="level"
+                    :aria-label="`Set ${channel.label} volume`"
+                    @click="startVolumeEdit(channel)"
                   >
-                    {{ channel.muted ? "🔇" : "🔊" }}
+                    {{ channel.level }}%
                   </button>
-                </template>
-              </NodeCardHeader>
-              <div v-else class="stream-channel-footer">
-                <p class="stream-channel-label" :title="channel.label">{{ channel.label }}</p>
+                </div>
+
                 <button
                   type="button"
                   class="mute"
@@ -305,10 +325,41 @@ async function removeVirtual(channel: MixerChannel) {
                   {{ channel.muted ? "🔇" : "🔊" }}
                 </button>
               </div>
-            </div>
-          </article>
-        </div>
-      </section>
+
+              <div v-if="channel.mixSources.length > 0" class="mix-sources">
+                <p class="mix-sources-label">Mixed in</p>
+                <div
+                  v-for="mixSource in channel.mixSources"
+                  :key="mixSource.deviceId"
+                  class="mix-source-row"
+                  :class="{ muted: mixSource.muted }"
+                >
+                  <span class="mix-source-name" :title="mixSource.label">{{ mixSource.label }}</span>
+                  <input
+                    type="range"
+                    class="mix-source-slider"
+                    min="0"
+                    max="100"
+                    :value="mixSource.level"
+                    :aria-label="`${mixSource.label} contribution to ${channel.label}`"
+                    @input="scheduleMixSource(channel, mixSource, Number(($event.target as HTMLInputElement).value))"
+                  />
+                  <span class="mix-source-level">{{ mixSource.level }}%</span>
+                  <button
+                    type="button"
+                    class="mix-source-mute"
+                    :class="{ active: mixSource.muted }"
+                    :aria-label="mixSource.muted ? `Unmute ${mixSource.label}` : `Mute ${mixSource.label}`"
+                    :title="mixSource.muted ? 'Unmute — link stays connected while muted' : 'Mute — link stays connected'"
+                    @click="toggleMixSourceMuteFor(channel, mixSource)"
+                  >
+                    {{ mixSource.muted ? "🔇" : "🔊" }}
+                  </button>
+                </div>
+              </div>
+            </article>
+          </div>
+        </section>
       </div>
     </template>
 

@@ -132,7 +132,7 @@ mod tests {
             muted: None,
             current_target: None,
             current_targets: Vec::new(),
-            mix_source_ids: Vec::new(),
+            mix_sources: Vec::new(),
         }
     }
 
@@ -155,6 +155,42 @@ mod tests {
     }
 
     #[test]
+    fn virtual_mic_input_is_a_valid_fan_out_target() {
+        let mic = Device {
+            id: "mic".into(),
+            system_name: "pipe-deck-mic".into(),
+            label: "Mic".into(),
+            kind: DeviceKind::Virtual,
+            direction: DeviceDirection::Input,
+            sink_mode: None,
+            volume_percent: None,
+            muted: None,
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        };
+        assert!(validate_fan_out_target(&mic).is_ok());
+    }
+
+    #[test]
+    fn physical_input_is_not_a_valid_fan_out_target() {
+        let mic = Device {
+            id: "mic".into(),
+            system_name: "alsa_input.mic".into(),
+            label: "Mic".into(),
+            kind: DeviceKind::Physical,
+            direction: DeviceDirection::Input,
+            sink_mode: None,
+            volume_percent: None,
+            muted: None,
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        };
+        assert!(validate_fan_out_target(&mic).is_err());
+    }
+
+    #[test]
     fn rejects_non_virtual_sink_fan_out() {
         let graph = RuntimeGraph {
             devices: vec![Device {
@@ -168,7 +204,7 @@ mod tests {
                 muted: None,
                 current_target: None,
                 current_targets: Vec::new(),
-                mix_source_ids: Vec::new(),
+                mix_sources: Vec::new(),
             }],
             streams: Vec::new(),
             links: Vec::new(),

@@ -8,8 +8,8 @@
     "build": "vue-tsc --noEmit && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:e2e": "playwright test --config e2e/playwright.config.ts",
-    "typecheck:e2e": "tsc -p e2e/tsconfig.json --noEmit"
+    "test:e2e": "playwright test --config src/e2e/playwright.config.ts",
+    "typecheck:e2e": "tsc -p src/e2e/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

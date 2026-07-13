@@ -174,7 +174,7 @@ impl ConfigStore {
     pub fn set_virtual_mic_mix_sources(
         &self,
         virtual_system_name: &str,
-        mix_sources: &[String],
+        mix_sources: &[crate::core::models::MixSourceSpec],
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let slug = virtual_system_name
@@ -192,6 +192,72 @@ impl ConfigStore {
             )));
         };
         spec.mix_sources = mix_sources.to_vec();
+        self.save_config(&config)
+    }
+
+    /// Updates the persisted gain for one already-mixed source without
+    /// touching the rest of the mix list.
+    pub fn update_mix_source_volume(
+        &self,
+        virtual_system_name: &str,
+        source_system_name: &str,
+        percent: u8,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let slug = virtual_system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(virtual_system_name);
+        let Some(spec) = config
+            .virtual_devices
+            .iter_mut()
+            .find(|entry| {
+                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+            })
+        else {
+            return Err(ConfigError::Read(format!(
+                "virtual device not found: {virtual_system_name}"
+            )));
+        };
+        if let Some(source) = spec
+            .mix_sources
+            .iter_mut()
+            .find(|source| source.system_name == source_system_name)
+        {
+            source.volume_percent = percent;
+        }
+        self.save_config(&config)
+    }
+
+    /// Updates the persisted mute state for one already-mixed source without
+    /// touching the rest of the mix list.
+    pub fn update_mix_source_mute(
+        &self,
+        virtual_system_name: &str,
+        source_system_name: &str,
+        muted: bool,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let slug = virtual_system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(virtual_system_name);
+        let Some(spec) = config
+            .virtual_devices
+            .iter_mut()
+            .find(|entry| {
+                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+            })
+        else {
+            return Err(ConfigError::Read(format!(
+                "virtual device not found: {virtual_system_name}"
+            )));
+        };
+        if let Some(source) = spec
+            .mix_sources
+            .iter_mut()
+            .find(|source| source.system_name == source_system_name)
+        {
+            source.muted = muted;
+        }
         self.save_config(&config)
     }
 
@@ -418,6 +484,53 @@ mod tests {
     }
 
     #[test]
+    fn mix_source_volume_round_trip_persists() {
+        use crate::core::models::MixSourceSpec;
+
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            let spec = VirtualDeviceSpec {
+                id: "virtual-mic".into(),
+                slug: "mic".into(),
+                label: "Mic".into(),
+                direction: crate::core::models::DeviceDirection::Input,
+                created_at: "2026-07-09T10:00:00Z".into(),
+                multi: false,
+                mix_sources: Vec::new(),
+            };
+            store.add_virtual_device(spec).unwrap();
+
+            let sources = vec![
+                MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
+                MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
+            ];
+            store
+                .set_virtual_mic_mix_sources("pipe-deck-mic", &sources)
+                .expect("save mix sources");
+
+            let loaded = store.virtual_devices();
+            assert_eq!(loaded[0].mix_sources, sources);
+        });
+    }
+
+    #[test]
+    fn legacy_mix_sources_shape_deserializes_at_unity_gain() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "version: 1\nprofile_index: []\nvirtual_devices:\n  - id: virtual-mic\n    slug: mic\n    label: Mic\n    direction: input\n    created_at: '2026-07-09T10:00:00Z'\n    mix_sources:\n      - alsa_input.headset\n",
+            )
+            .unwrap();
+            let config = store.load_config().unwrap();
+            assert_eq!(
+                config.virtual_devices[0].mix_sources,
+                vec![crate::core::models::MixSourceSpec::unity("alsa_input.headset")]
+            );
+        });
+    }
+
+    #[test]
     fn effect_chain_round_trip_persists() {
         with_temp_config(|store| {
             store.ensure_layout().unwrap();
@@ -428,7 +541,16 @@ mod tests {
                 eq_treble: 0,
                 eq_air: 0,
                 output_gain: 0,
-                compressor: true,
+                compressor: crate::core::models::DynamicsStage {
+                    enabled: true,
+                    threshold_db: -18,
+                    ratio_x10: 30,
+                    attack_ms: 10,
+                    release_ms: 100,
+                },
+                limiter: crate::core::models::DynamicsStage::default(),
+                noise_gate: crate::core::models::DynamicsStage::default(),
+                bypassed: false,
             };
             store
                 .set_effect_chain("virtual-game", &chain)
@@ -439,6 +561,22 @@ mod tests {
                 .remove_effect_chain("virtual-game")
                 .expect("remove chain");
             assert!(store.effect_chains().unwrap().is_empty());
+        });
+    }
+
+    #[test]
+    fn legacy_bare_bool_compressor_deserializes_as_enabled_stage() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "version: 1\nprofile_index: []\nplugins:\n  pipe-deck-effects:\n    enabled: true\n    config:\n      chains:\n        virtual-game:\n          compressor: true\n",
+            )
+            .unwrap();
+            let chains = store.effect_chains().expect("load chains");
+            let chain = chains.get("virtual-game").expect("chain present");
+            assert!(chain.compressor.enabled);
+            assert_eq!(chain.compressor.threshold_db, 0);
         });
     }
 }

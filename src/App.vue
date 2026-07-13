@@ -16,6 +16,7 @@ import Rules from "./views/Rules.vue";
 import Settings from "./views/Settings.vue";
 import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
+import { useNewDeviceDialog } from "./stores/newDeviceDialog";
 import type { AppView, DaemonStatus } from "./types/graph";
 
 const navItems = ref<
@@ -27,14 +28,14 @@ const navItems = ref<
   { id: "routing", label: "Routing", enabled: true },
   { id: "mixer", label: "Mixer", enabled: true },
   { id: "sources", label: "Sources", enabled: true },
-  { id: "effects", label: "Effects", enabled: false, comingSoon: true },
+  { id: "effects", label: "Effects", enabled: true },
   { id: "settings", label: "Settings", enabled: true },
 ]);
 
 const activeView = ref<AppView>("dashboard");
 const daemonStatus = ref("Checking…");
-const showNewModal = ref(false);
 const { handleApplyResult } = useApplyResult();
+const { openNewDeviceDialog } = useNewDeviceDialog();
 const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
 
 async function openExternal(event: MouseEvent, url: string) {
@@ -127,7 +128,7 @@ onMounted(() => {
       <header class="topbar">
         <div class="topbar-title">{{ topbarTitle }}</div>
         <div class="topbar-actions">
-          <button type="button" class="topbar-btn" @click="showNewModal = true">+ New</button>
+          <button type="button" class="topbar-btn" @click="openNewDeviceDialog()">+ New</button>
         </div>
       </header>
       <main class="content">
@@ -146,6 +147,6 @@ onMounted(() => {
     <NoticeStack />
     <ConfirmDialog />
     <PromptDialog />
-    <NewDeviceDialog v-model="showNewModal" />
+    <NewDeviceDialog />
   </div>
 </template>

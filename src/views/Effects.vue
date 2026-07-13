@@ -3,19 +3,32 @@ import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
+import { useConfirm } from "../stores/confirm";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
-import type { Device, EffectChainConfig } from "../types/graph";
+import {
+  emptyDynamicsStage,
+  type Device,
+  type DynamicsStage,
+  type EffectChainConfig,
+  type FxCapabilities,
+  type PreflightResult,
+} from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { handleApplyResult } = useApplyResult();
+const { confirm } = useConfirm();
 
 const chains = ref<Record<string, EffectChainConfig>>({});
 const selectedDeviceId = ref<string | null>(null);
 const draft = ref<EffectChainConfig>(emptyChain());
 const chainsLoading = ref(true);
 const saveState = ref<"idle" | "saving" | "saved" | "error">("idle");
+const liveApplyState = ref<"idle" | "checking" | "applying" | "applied" | "error">("idle");
+const isLive = ref(false);
+const capabilities = ref<FxCapabilities>({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
 let debounceTimer: number | undefined;
 let savedIndicatorTimer: number | undefined;
+let liveIndicatorTimer: number | undefined;
 
 const eqBands = [
   { key: "eq_sub" as const, label: "Sub", hint: "60 Hz" },
@@ -25,6 +38,27 @@ const eqBands = [
   { key: "eq_air" as const, label: "Air", hint: "10 kHz" },
 ];
 
+const dynamicsStages = computed(() => [
+  {
+    key: "compressor" as const,
+    label: "Compressor",
+    available: false,
+    unavailableReason: "No supported backing plugin on this system yet",
+  },
+  {
+    key: "limiter" as const,
+    label: "Limiter",
+    available: capabilities.value.builtin_limiter,
+    unavailableReason: "PipeWire has no builtin limiter plugin on this system",
+  },
+  {
+    key: "noise_gate" as const,
+    label: "Noise gate",
+    available: Boolean(capabilities.value.ladspa_noise_gate),
+    unavailableReason: "Requires a LADSPA noise-suppression plugin (e.g. librnnoise) not found on this system",
+  },
+]);
+
 function emptyChain(): EffectChainConfig {
   return {
     eq_sub: 0,
@@ -33,8 +67,21 @@ function emptyChain(): EffectChainConfig {
     eq_treble: 0,
     eq_air: 0,
     output_gain: 0,
-    compressor: false,
+    compressor: emptyDynamicsStage(),
+    limiter: emptyDynamicsStage(),
+    noise_gate: emptyDynamicsStage(),
+    bypassed: false,
   };
+}
+
+/** Accepts a legacy bare `boolean` for `compressor` (pre-dynamics-suite
+ * configs) in addition to the current `DynamicsStage` object, mirroring the
+ * same migration the Rust side does for on-disk configs. */
+function normalizeDynamicsStage(value: DynamicsStage | boolean | undefined): DynamicsStage {
+  if (typeof value === "boolean") {
+    return { ...emptyDynamicsStage(), enabled: value };
+  }
+  return value ?? emptyDynamicsStage();
 }
 
 function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
@@ -45,7 +92,10 @@ function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
     eq_treble: chain.eq_treble ?? 0,
     eq_air: chain.eq_air ?? chain.eq_high ?? 0,
     output_gain: chain.output_gain ?? 0,
-    compressor: chain.compressor ?? false,
+    compressor: normalizeDynamicsStage(chain.compressor),
+    limiter: normalizeDynamicsStage(chain.limiter),
+    noise_gate: normalizeDynamicsStage(chain.noise_gate),
+    bypassed: chain.bypassed ?? false,
   };
 }
 
@@ -81,7 +131,9 @@ const isEmpty = computed(
 const isChainActive = computed(() => {
   const chain = draft.value;
   return (
-    chain.compressor ||
+    chain.compressor.enabled ||
+    chain.limiter.enabled ||
+    chain.noise_gate.enabled ||
     chain.eq_sub !== 0 ||
     chain.eq_bass !== 0 ||
     chain.eq_mid !== 0 ||
@@ -90,6 +142,14 @@ const isChainActive = computed(() => {
     chain.output_gain !== 0
   );
 });
+
+function toggleDynamicsStage(key: "compressor" | "limiter" | "noise_gate", enabled: boolean) {
+  draft.value = {
+    ...draft.value,
+    [key]: { ...draft.value[key], enabled },
+  };
+  scheduleApply();
+}
 
 async function loadChains() {
   chainsLoading.value = true;
@@ -109,11 +169,22 @@ function loadDraftForDevice(deviceId: string) {
   draft.value = normalizeChain(chains.value[deviceId] ?? emptyChain());
 }
 
+async function refreshIsLive(deviceId: string) {
+  try {
+    isLive.value = await invoke<boolean>("is_effect_chain_live", { deviceId });
+  } catch {
+    isLive.value = false;
+  }
+}
+
 function selectDevice(deviceId: string) {
   selectedDeviceId.value = deviceId;
   loadDraftForDevice(deviceId);
+  void refreshIsLive(deviceId);
 }
 
+/** Persist-only save (device isn't live yet) — no audio effect, just keeps
+ * the draft in the profile. */
 async function applyDraft() {
   if (!selectedDeviceId.value) {
     return;
@@ -150,11 +221,148 @@ async function applyDraft() {
   }
 }
 
+/** Live Params — pushes the value straight to the already-running effects
+ * node in real time. No restart, no confirmation; safe to fire on every
+ * slider tick. Only valid once live effects have been enabled once (see
+ * `toggleLiveEffects`). */
+async function applyLiveParams() {
+  if (!selectedDeviceId.value) {
+    return;
+  }
+  const deviceId = selectedDeviceId.value;
+  const config = normalizeChain({ ...draft.value });
+
+  saveState.value = "saving";
+  try {
+    const result = await invoke<{ success: boolean; message?: string }>("set_effect_chain_live_params", {
+      deviceId,
+      config,
+    });
+    chains.value = { ...chains.value, [deviceId]: config };
+    if (result.success) {
+      saveState.value = "saved";
+      window.clearTimeout(savedIndicatorTimer);
+      savedIndicatorTimer = window.setTimeout(() => {
+        if (saveState.value === "saved") {
+          saveState.value = "idle";
+        }
+      }, 1000);
+    } else {
+      saveState.value = "error";
+    }
+  } catch (err) {
+    saveState.value = "error";
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
+/** Slider drags always land here: once live, values update in real time
+ * (short debounce, just to avoid flooding pw-cli); until then, they just
+ * persist to the profile like before. */
 function scheduleApply() {
   window.clearTimeout(debounceTimer);
+  const delay = isLive.value ? 60 : 200;
   debounceTimer = window.setTimeout(() => {
-    void applyDraft();
-  }, 200);
+    if (isLive.value) {
+      void applyLiveParams();
+    } else {
+      void applyDraft();
+    }
+  }, delay);
+}
+
+/** The one-time Structural Apply/revert: turns live effects on or off for
+ * this device. This is the only action that briefly restarts Pipe Deck's
+ * dedicated effects daemon (never your main audio session) — every other
+ * slider tweak after this goes through the real-time Live Params path with
+ * no restart and no confirmation. */
+async function toggleLiveEffects() {
+  if (!selectedDeviceId.value) {
+    return;
+  }
+  const deviceId = selectedDeviceId.value;
+  const config = normalizeChain({ ...draft.value });
+
+  if (isLive.value) {
+    const confirmed = await confirm(
+      "This removes the live effects chain from this device and briefly restarts the effects daemon to do it.",
+      { title: "Disable live effects?", confirmLabel: "Disable", cancelLabel: "Cancel" },
+    );
+    if (!confirmed) {
+      return;
+    }
+    liveApplyState.value = "applying";
+    try {
+      await invoke("remove_effect_chain_structural", { deviceId });
+      isLive.value = false;
+      liveApplyState.value = "idle";
+      handleApplyResult({ success: true }, "Live effects disabled");
+    } catch (err) {
+      liveApplyState.value = "error";
+      handleApplyResult(
+        { success: false, message: err instanceof Error ? err.message : String(err) },
+        "",
+      );
+    }
+    return;
+  }
+
+  liveApplyState.value = "checking";
+  let preflight: PreflightResult;
+  try {
+    preflight = await invoke<PreflightResult>("preflight_effect_chain", { config });
+  } catch (err) {
+    liveApplyState.value = "error";
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+    return;
+  }
+
+  if (!preflight.ok) {
+    liveApplyState.value = "error";
+    handleApplyResult({ success: false, message: preflight.blocking_reasons.join("; ") }, "");
+    return;
+  }
+
+  const confirmMessage = [
+    "This briefly restarts Pipe Deck's dedicated effects daemon (not your main audio session) to load the chain. After that, sliders update in real time — no more confirmations.",
+    ...preflight.warnings,
+  ].join(" ");
+
+  const confirmed = await confirm(confirmMessage, {
+    title: "Enable live effects?",
+    confirmLabel: "Enable",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
+    liveApplyState.value = "idle";
+    return;
+  }
+
+  liveApplyState.value = "applying";
+  try {
+    await invoke("apply_effect_chain_structural", { deviceId, config });
+    isLive.value = true;
+    liveApplyState.value = "applied";
+    handleApplyResult({ success: true }, "Live effects enabled");
+    window.clearTimeout(liveIndicatorTimer);
+    liveIndicatorTimer = window.setTimeout(() => {
+      if (liveApplyState.value === "applied") {
+        liveApplyState.value = "idle";
+      }
+    }, 2000);
+  } catch (err) {
+    liveApplyState.value = "error";
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
 }
 
 watch(
@@ -171,7 +379,16 @@ watch(
   { immediate: true },
 );
 
+async function loadCapabilities() {
+  try {
+    capabilities.value = await invoke<FxCapabilities>("get_effect_capabilities");
+  } catch {
+    capabilities.value = { builtin_eq: false, builtin_gain: false, builtin_limiter: false };
+  }
+}
+
 onMounted(() => {
+  void loadCapabilities();
   void loadChains().then(() => {
     if (selectedDeviceId.value) {
       loadDraftForDevice(selectedDeviceId.value);
@@ -193,9 +410,8 @@ onMounted(() => {
     </header>
 
     <p class="effects-help">
-      Five-band EQ and dynamics settings are saved for profiles. Live processing is temporarily
-      disabled while we rework the PipeWire integration — adjusting sliders will not touch your
-      system audio session.
+      Five-band EQ and dynamics settings are saved for profiles. Enable live effects on a device
+      to actually process its audio — see the status banner below for each device's current state.
     </p>
 
     <p v-if="isMockData" class="notice-banner mock">
@@ -234,18 +450,37 @@ onMounted(() => {
               <h2>{{ selectedDevice.label }}</h2>
               <p class="effects-panel-subtitle">{{ selectedDevice.system_name }}</p>
             </div>
-            <p
-              v-if="saveState !== 'idle'"
-              class="effects-save-state"
-              :class="saveState"
-            >
-              {{ saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save failed" }}
-            </p>
+            <div class="effects-panel-header-actions">
+              <label class="effects-bypass-toggle" title="Keeps your settings but stops them from affecting audio, once live processing is enabled — the chain itself is never removed.">
+                <ToggleSwitch
+                  :model-value="draft.bypassed"
+                  :show-state-labels="false"
+                  @update:model-value="(next) => { draft.bypassed = next; scheduleApply(); }"
+                />
+                <span>Bypass</span>
+              </label>
+              <p
+                v-if="saveState !== 'idle'"
+                class="effects-save-state"
+                :class="saveState"
+              >
+                {{ saveState === "saving" ? "Saving…" : saveState === "saved" ? "Saved" : "Save failed" }}
+              </p>
+            </div>
           </div>
 
-          <p class="notice-banner info effects-live-disabled">
-            Settings save to your profile, but sliders do not change audio yet. Live EQ is
-            paused while we rebuild a PipeWire-safe effects path.
+          <p v-if="!capabilities.builtin_eq" class="notice-banner warn effects-live-disabled">
+            Live EQ isn't available on this system (PipeWire's filter-chain module wasn't found).
+            Settings still save to your profile.
+          </p>
+          <p v-else-if="isLive" class="notice-banner info effects-live-disabled">
+            Live — sliders update your actual audio in real time. Use Bypass to mute the effect
+            without disconnecting anything, or Disable live effects below to fully remove it.
+          </p>
+          <p v-else class="notice-banner info effects-live-disabled">
+            Sliders save to your profile as you drag, but nothing reaches your audio yet. Click
+            <strong>Enable live effects</strong> below once — after that, every slider updates in
+            real time with no further confirmation.
           </p>
 
           <div class="effects-section">
@@ -293,19 +528,48 @@ onMounted(() => {
               </label>
             </div>
 
-            <div class="effects-control effects-toggle-row">
-              <span>Compressor</span>
+            <div
+              v-for="stage in dynamicsStages"
+              :key="stage.key"
+              class="effects-control effects-toggle-row"
+              :class="{ disabled: !stage.available }"
+              :title="stage.available ? undefined : stage.unavailableReason"
+            >
+              <span>{{ stage.label }}</span>
               <ToggleSwitch
-                :model-value="draft.compressor"
+                :model-value="draft[stage.key].enabled"
+                :disabled="!stage.available"
                 :show-state-labels="false"
-                @update:model-value="(next) => { draft.compressor = next; scheduleApply(); }"
+                @update:model-value="(next) => toggleDynamicsStage(stage.key, next)"
               />
             </div>
           </div>
 
-          <button type="button" class="effects-reset" @click="draft = emptyChain(); scheduleApply();">
-            Reset chain
-          </button>
+          <div class="effects-footer-actions">
+            <button type="button" class="effects-reset" @click="draft = emptyChain(); scheduleApply();">
+              Reset chain
+            </button>
+            <button
+              v-if="capabilities.builtin_eq"
+              type="button"
+              class="effects-apply-live"
+              :class="{ 'is-live': isLive }"
+              :disabled="liveApplyState === 'checking' || liveApplyState === 'applying'"
+              @click="toggleLiveEffects"
+            >
+              {{
+                liveApplyState === "checking"
+                  ? "Checking…"
+                  : liveApplyState === "applying"
+                    ? isLive ? "Enabling…" : "Disabling…"
+                    : liveApplyState === "applied"
+                      ? "Done"
+                      : isLive
+                        ? "Disable live effects"
+                        : "Enable live effects"
+              }}
+            </button>
+          </div>
         </section>
       </div>
     </template>

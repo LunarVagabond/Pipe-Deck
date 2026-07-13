@@ -9,7 +9,7 @@ declare global {
 
 test.describe("RoutingGraph edge rendering", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/e2e/fixtures/routing-graph-harness.html");
+    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
     await page.waitForSelector(".vue-flow__node");
   });
 

@@ -4,6 +4,7 @@ import {
   deviceSubtitle,
   isMultiSink,
   streamAccent,
+  streamDisplayLabel,
   streamSubtitle,
 } from "../../utils/routingLayout";
 import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
@@ -128,7 +129,7 @@ export { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
 function streamNodeKind(stream: Stream): RoutingGraphNodeData {
   const playback = stream.direction === "playback";
   return {
-    label: stream.app_name,
+    label: streamDisplayLabel(stream),
     subtitle: streamSubtitle(stream),
     nodeKind: "stream",
     entityId: stream.id,
@@ -205,7 +206,27 @@ function slotIndexForY(y: number): number {
 
 export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
   const layout = loadLayout();
+
+  // Saved positions are keyed by node id and never removed when a node disappears
+  // (a stream closes, a device is unplugged). Left unpruned, those stale entries
+  // keep "occupying" slots forever, so a brand new node in a busy lane gets pushed
+  // past them into an ever-growing y offset — landing far from the live cluster
+  // instead of the nearest free gap. Drop anything that isn't part of the current
+  // graph before slots are computed.
+  const liveNodeIds = new Set<string>();
+  for (const stream of graph.streams) liveNodeIds.add(streamNodeId(stream.id));
+  for (const device of graph.devices) {
+    if (deviceColumn(device)) liveNodeIds.add(deviceNodeId(device.id));
+  }
+  for (const group of groups) liveNodeIds.add(group.id);
+
   let layoutChanged = false;
+  for (const id of Object.keys(layout)) {
+    if (!liveNodeIds.has(id)) {
+      delete layout[id];
+      layoutChanged = true;
+    }
+  }
 
   const occupiedSlots: Record<RoutingNodeKind, Set<number>> = {
     stream: new Set(),

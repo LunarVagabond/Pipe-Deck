@@ -13,7 +13,12 @@ export type RoutingConnectionAction =
   | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
   | { type: "device_route"; sourceDeviceId: string; targetDeviceId: string }
   | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] }
-  | { type: "mic_mix"; virtualMicDeviceId: string; mixSourceDeviceIds: string[] };
+  // Computed server-side against the engine's own graph (see
+  // `add_mix_source`/`remove_mix_source`) rather than a client-computed full
+  // list, so two mixing actions fired close together can't race and drop one.
+  | { type: "mic_mix_add"; virtualMicDeviceId: string; sourceDeviceId: string }
+  | { type: "mic_mix_remove"; virtualMicDeviceId: string; sourceDeviceId: string }
+  | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string };
 
 export interface PreviousEdge {
   source: string;
@@ -73,6 +78,14 @@ function findDevice(graph: RuntimeGraph, deviceId: string): Device | undefined {
   return graph.devices.find((device) => device.id === deviceId);
 }
 
+/** Soundux-style passthrough: dragging an app's playback stream onto a
+ * virtual mic adds the mic as a second destination (duplicated, still
+ * playing at its original output too) rather than replacing the stream's
+ * target the way every other stream drag does. */
+function isMicPassthroughCandidate(stream: Stream, target: Device): boolean {
+  return stream.direction === "playback" && target.kind === "virtual" && target.direction === "input";
+}
+
 function resolveStreamToDevice(
   graph: RuntimeGraph,
   streamId: string,
@@ -87,6 +100,19 @@ function resolveStreamToDevice(
   const allowed = sinksForStream(graph.devices, stream);
   if (!allowed.some((entry) => entry.id === deviceId)) {
     return { error: "This target is not valid for the stream direction." };
+  }
+
+  if (isMicPassthroughCandidate(stream, device)) {
+    if (stream.current_target === deviceId || stream.current_targets?.includes(deviceId)) {
+      return { error: "This app's audio is already sent to this microphone." };
+    }
+    return {
+      action: {
+        type: "stream_mic_passthrough_add",
+        streamId,
+        micDeviceId: deviceId,
+      },
+    };
   }
 
   return {
@@ -106,9 +132,10 @@ function existingDeviceTargets(device: Device): string[] {
 }
 
 function isMicMixCandidate(source: Device, target: Device): boolean {
+  const sourceIsPhysicalMic = source.kind === "physical" && source.direction === "input";
+  const sourceIsVirtualOutput = source.kind === "virtual" && source.direction === "output";
   return (
-    source.kind === "physical" &&
-    source.direction === "input" &&
+    (sourceIsPhysicalMic || sourceIsVirtualOutput) &&
     target.kind === "virtual" &&
     target.direction !== "duplex"
   );
@@ -127,15 +154,15 @@ function resolveDeviceToDevice(
   }
 
   if (isMicMixCandidate(source, target)) {
-    const existingMix = target.mix_source_ids ?? [];
-    if (existingMix.includes(source.id)) {
+    const existingMix = target.mix_sources ?? [];
+    if (existingMix.some((mixSource) => mixSource.device_id === source.id)) {
       return { error: "This microphone is already mixed into this device." };
     }
     return {
       action: {
-        type: "mic_mix",
+        type: "mic_mix_add",
         virtualMicDeviceId: target.id,
-        mixSourceDeviceIds: [...existingMix, source.id],
+        sourceDeviceId: source.id,
       },
     };
   }
@@ -243,15 +270,15 @@ function resolveEdgeDisconnect(
   }
 
   if (isMicMixCandidate(device, targetDevice)) {
-    const existingMix = targetDevice.mix_source_ids ?? [];
-    if (!existingMix.includes(device.id)) {
+    const existingMix = targetDevice.mix_sources ?? [];
+    if (!existingMix.some((mixSource) => mixSource.device_id === device.id)) {
       return { error: "Connection not found." };
     }
     return {
       action: {
-        type: "mic_mix",
+        type: "mic_mix_remove",
         virtualMicDeviceId: targetDevice.id,
-        mixSourceDeviceIds: existingMix.filter((id) => id !== device.id),
+        sourceDeviceId: device.id,
       },
     };
   }

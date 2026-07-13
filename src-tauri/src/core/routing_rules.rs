@@ -157,7 +157,7 @@ mod tests {
             muted: None,
             current_target: None,
             current_targets: Vec::new(),
-            mix_source_ids: Vec::new(),
+            mix_sources: Vec::new(),
         };
         let targets = vec![
             Device {
@@ -171,7 +171,7 @@ mod tests {
                 muted: None,
                 current_target: None,
                 current_targets: Vec::new(),
-                mix_source_ids: Vec::new(),
+                mix_sources: Vec::new(),
             },
             Device {
                 id: "speakers".into(),
@@ -184,7 +184,7 @@ mod tests {
                 muted: None,
                 current_target: None,
                 current_targets: Vec::new(),
-                mix_source_ids: Vec::new(),
+                mix_sources: Vec::new(),
             },
         ];
         save_device_route_rule(&source, &targets).unwrap();

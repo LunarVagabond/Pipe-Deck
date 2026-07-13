@@ -1,5 +1,4 @@
 use crate::config::ConfigStore;
-use crate::core::effects::apply_profile_effects;
 use crate::core::models::{
     ApplyResult, Profile, ProfileIndexEntry, RoutingDrift,
 };
@@ -11,6 +10,7 @@ use crate::core::routing::{
 };
 use crate::config::profile_store::{import_profile_archive, ProfileStore};
 use crate::core::restore;
+use crate::pipewire::filter_chain;
 use std::path::Path;
 
 use super::mock::{apply_mock_profile, apply_mock_profile_volumes, apply_mock_snapshot};
@@ -245,13 +245,15 @@ impl CoreEngine {
         }
 
         if self.graph.data_source != "mock" {
-            if let Ok(warnings) = apply_profile_effects(&self.graph, &profile) {
-                if let Err(error) = store.replace_effect_chains(profile.effect_state.clone()) {
-                    self.last_error = Some(error.to_string());
-                }
-                if let Some(warning) = warnings.into_iter().next() {
-                    self.last_error = Some(warning);
-                }
+            let active = self.active_effect_chains(&profile.effect_state);
+            if let Err(error) = filter_chain::sync_all_effects(&active, &[]) {
+                self.last_error = Some(error.to_string());
+            }
+            // Only re-enables live processing for devices that were already
+            // live before the swap — see `reapply_previously_live_effect_chains`.
+            self.reapply_previously_live_effect_chains(&active);
+            if let Err(error) = store.replace_effect_chains(profile.effect_state.clone()) {
+                self.last_error = Some(error.to_string());
             }
         }
 

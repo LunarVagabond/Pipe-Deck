@@ -1,6 +1,6 @@
 .app-footer {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 1rem;
   flex-shrink: 0;
@@ -19,6 +19,20 @@
   white-space: nowrap;
   justify-self: start;
   min-width: 0;
+}
+
+.app-footer-center {
+  justify-self: center;
+  white-space: nowrap;
+}
+
+.app-footer-bug-link {
+  color: var(--accent-amber);
+  font-weight: 600;
+
+  &:hover {
+    color: var(--accent-teal);
+  }
 }
 
 .app-footer-right {
@@ -54,6 +68,10 @@
   }
 
   .app-footer-left {
+    justify-self: start;
+  }
+
+  .app-footer-center {
     justify-self: start;
   }
 

@@ -5,12 +5,18 @@ use crate::pipewire::graph_routing;
 use crate::pipewire::pw_dump::{self, PwDumpObject};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
 const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const MONITOR_DEBOUNCE: Duration = Duration::from_millis(200);
+// Under sustained high-churn (many streams appearing/disappearing rapidly),
+// events never go quiet long enough for the debounce window alone to fire —
+// this caps how long a burst can coalesce before we force a refresh anyway,
+// so routing changes still surface promptly (see PipeWire_Design.md).
+const MAX_COALESCE_WINDOW: Duration = Duration::from_millis(400);
 
 pub struct LivePipeWireAdapter {
     cached_graph: Arc<Mutex<RuntimeGraph>>,
@@ -128,17 +134,42 @@ fn run_pw_dump_monitor(
     };
 
     let reader = BufReader::new(stdout);
-    let mut last_refresh = Instant::now() - MONITOR_DEBOUNCE;
+    // A dedicated reader thread lets the main loop coalesce bursts by
+    // *waiting to go quiet* (or hitting MAX_COALESCE_WINDOW) rather than
+    // firing one full graph refresh per line — under high churn, a burst of
+    // pw-dump events collapses into a single refresh instead of a refresh
+    // storm that never lets the graph settle.
+    let (tx, rx) = mpsc::channel::<()>();
+    thread::spawn(move || {
+        for line in reader.lines() {
+            if line.is_err() || tx.send(()).is_err() {
+                break;
+            }
+        }
+    });
 
-    for line in reader.lines() {
-        if line.is_err() {
+    loop {
+        if rx.recv().is_err() {
             break;
         }
-        let elapsed = last_refresh.elapsed();
-        if elapsed < MONITOR_DEBOUNCE {
-            thread::sleep(MONITOR_DEBOUNCE - elapsed);
+
+        let deadline = Instant::now() + MAX_COALESCE_WINDOW;
+        loop {
+            match rx.recv_timeout(MONITOR_DEBOUNCE) {
+                Ok(()) => {
+                    if Instant::now() >= deadline {
+                        break;
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => break,
+                Err(RecvTimeoutError::Disconnected) => {
+                    notify_graph_listeners(cached_graph, listener_slot);
+                    let _ = child.kill();
+                    return false;
+                }
+            }
         }
-        last_refresh = Instant::now();
+
         notify_graph_listeners(cached_graph, listener_slot);
     }
 

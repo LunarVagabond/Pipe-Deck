@@ -29,9 +29,9 @@
 }
 
 .mixer-strip .mixer-groups {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
   width: 100%;
 }
 
@@ -39,23 +39,20 @@
   min-width: 0;
 }
 
-.mixer-strip .channel-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
-  gap: 0.75rem;
-  align-items: stretch;
+.mixer-strip .channel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
   width: 100%;
 }
 
 .mixer-strip .channel {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 0.75rem;
-  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   width: 100%;
   min-width: 0;
-  height: 18rem;
-  padding: 0.75rem 0.75rem 0.8rem;
+  padding: 0.6rem 0.9rem;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: rgba(11, 15, 20, 0.55);
@@ -87,11 +84,56 @@
   box-shadow: inset 0 0 0 1px rgba(124, 92, 255, 0.12);
 }
 
+.mixer-strip .channel-main {
+  display: grid;
+  grid-template-columns: minmax(9rem, 16rem) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.9rem;
+  width: 100%;
+}
+
+.mixer-strip .channel-identity {
+  min-width: 0;
+}
+
+.mixer-strip .channel-identity .node-card-header {
+  min-width: 0;
+}
+
+.mixer-strip .channel-identity .node-card-title strong {
+  display: block;
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-strip .stream-channel-label {
+  margin: 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-strip .channel-fader {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .mixer-strip .channel-meter {
+  position: absolute;
+  left: 0;
+  right: 0;
   height: 0.35rem;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
   overflow: hidden;
+  pointer-events: none;
 }
 
 .mixer-strip .channel-meter-fill {
@@ -101,22 +143,21 @@
   background: linear-gradient(90deg, var(--accent-teal), var(--accent-purple));
 }
 
-.mixer-strip .channel-slider {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 0.45rem;
+.mixer-strip .volume-horizontal {
   width: 100%;
-  align-self: start;
-  min-height: 0;
+  margin: 0;
+  accent-color: var(--accent-purple);
+  cursor: pointer;
+  position: relative;
+  z-index: 1;
+  background: transparent;
 }
 
 .mixer-strip .level-wrap {
   display: flex;
   align-items: center;
-  justify-content: center;
-  height: 1.1rem;
+  justify-content: flex-end;
+  width: 3rem;
   flex-shrink: 0;
 }
 
@@ -125,7 +166,8 @@
   background: transparent;
   padding: 0;
   margin: 0;
-  font-size: 0.68rem;
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
   color: var(--text-muted);
   line-height: 1;
   cursor: pointer;
@@ -143,7 +185,7 @@
   border-radius: 4px;
   background: var(--surface-2);
   color: var(--text);
-  font-size: 0.68rem;
+  font-size: 0.75rem;
   line-height: 1;
   text-align: center;
   padding: 0.1rem 0.2rem;
@@ -158,145 +200,12 @@
   -moz-appearance: textfield;
 }
 
-.mixer-strip .volume-vertical-wrap {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  width: 2rem;
-  height: 8.25rem;
-  flex-shrink: 0;
-}
-
-.mixer-strip .meter-fill {
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  width: 0.4rem;
-  transform: translateX(-50%);
-  border-radius: 999px;
-  background: linear-gradient(
-    180deg,
-    rgba(124, 92, 255, 0.15) 0%,
-    rgba(124, 92, 255, 0.55) 100%
-  );
-  pointer-events: none;
-  max-height: 100%;
-}
-
-.mixer-strip .stream-channel-footer {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.45rem;
-  width: 100%;
-  min-height: 4.35rem;
-  justify-content: flex-end;
-}
-
-.mixer-strip .stream-channel-label {
-  margin: 0;
-  width: 100%;
-  min-height: 2.05rem;
-  font-size: 0.76rem;
-  font-weight: 600;
-  line-height: 1.35;
-  text-align: center;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.mixer-strip .volume-vertical {
-  width: 8.25rem;
-  height: 1.35rem;
-  margin: 0;
-  padding: 0;
-  transform: rotate(-90deg);
-  transform-origin: center center;
-  accent-color: var(--accent-purple);
-  cursor: pointer;
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-
-  &::-webkit-slider-runnable-track {
-    height: 0.4rem;
-    border-radius: 999px;
-    background: var(--surface-3, rgba(255, 255, 255, 0.12));
-  }
-
-  &::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 0.9rem;
-    height: 0.9rem;
-    margin-top: -0.25rem;
-    border-radius: 50%;
-    background: var(--accent-purple);
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  }
-
-  &::-moz-range-track {
-    height: 0.4rem;
-    border-radius: 999px;
-    background: var(--surface-3, rgba(255, 255, 255, 0.12));
-    border: none;
-  }
-
-  &::-moz-range-thumb {
-    width: 0.9rem;
-    height: 0.9rem;
-    border-radius: 50%;
-    background: var(--accent-purple);
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
-  }
-}
-
-.mixer-strip .channel-footer {
-  width: 100%;
-  min-width: 0;
-  align-self: end;
-
-  .node-card-header.is-stacked {
-    min-height: 4.35rem;
-    justify-content: flex-end;
-  }
-
-  .node-card-title {
-    width: 100%;
-    min-height: 2.05rem;
-
-    strong {
-      display: -webkit-box;
-      font-size: 0.76rem;
-      font-weight: 600;
-      line-height: 1.35;
-      min-height: 2.05rem;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: normal;
-    }
-  }
-
-  .node-card-title-input {
-    width: 100%;
-    font-size: 0.76rem;
-    text-align: center;
-  }
-}
-
 .mixer-strip .mute {
   display: grid;
   place-items: center;
   width: 1.55rem;
   height: 1.55rem;
+  flex-shrink: 0;
   border: 1px solid var(--border);
   background: var(--surface-2);
   border-radius: 6px;
@@ -310,6 +219,78 @@
   }
 }
 
+.mixer-strip .mix-sources {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  width: 100%;
+  margin-top: 0.15rem;
+  padding: 0.4rem 0 0 1.2rem;
+  border-top: 1px solid var(--border);
+}
+
+.mixer-strip .mix-sources-label {
+  margin: 0;
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.mixer-strip .mix-source-row {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12rem) minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 0.6rem;
+
+  &.muted {
+    opacity: 0.55;
+  }
+}
+
+.mixer-strip .mix-source-mute {
+  display: grid;
+  place-items: center;
+  width: 1.3rem;
+  height: 1.3rem;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 5px;
+  padding: 0;
+  cursor: pointer;
+  line-height: 1;
+  font-size: 0.68rem;
+
+  &.active {
+    border-color: var(--accent-amber);
+  }
+}
+
+.mixer-strip .mix-source-name {
+  min-width: 0;
+  font-size: 0.75rem;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mixer-strip .mix-source-slider {
+  width: 100%;
+  min-width: 4rem;
+  accent-color: var(--accent-teal);
+  cursor: pointer;
+}
+
+.mixer-strip .mix-source-level {
+  min-width: 2.25rem;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  text-align: right;
+}
+
 .mixer-strip .empty,
 .mixer-strip .note {
   margin: 0;
@@ -317,18 +298,14 @@
   color: var(--text-muted);
 }
 
-@media (max-width: 700px) {
-  .mixer-strip .channel {
-    width: 8.5rem;
-    min-width: 8.5rem;
-    height: 15.5rem;
+@media (max-width: 900px) {
+  .mixer-strip .channel-main {
+    grid-template-columns: minmax(7rem, 10rem) minmax(0, 1fr) auto auto;
+    gap: 0.5rem;
   }
 
-  .mixer-strip .volume-vertical-wrap {
-    height: 7.25rem;
-  }
-
-  .mixer-strip .volume-vertical {
-    width: 7.25rem;
+  .mixer-strip .mix-source-row {
+    grid-template-columns: minmax(5rem, 8rem) minmax(0, 1fr) auto auto;
+    gap: 0.35rem;
   }
 }
