@@ -1,4 +1,4 @@
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, MixSource};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind};
 
 use super::{CoreEngine, EngineError};
 
@@ -75,16 +75,7 @@ impl CoreEngine {
             }
         };
 
-        let mut updated_sources = mic.mix_sources.clone();
-        if !updated_sources.iter().any(|source| source.device_id == mix_source_device_id) {
-            updated_sources.push(MixSource {
-                device_id: mix_source_device_id,
-                volume_percent: 100,
-                muted: false,
-            });
-        }
-
-        self.set_virtual_mic_mix(mic_device_id, &updated_sources)
+        self.add_mix_source(mic_device_id, &mix_source_device_id)
     }
 
     // Removing a passthrough leg needs no dedicated op: once added, it's a

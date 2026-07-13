@@ -1,5 +1,5 @@
 import type { Connection } from "@vue-flow/core";
-import type { Device, MixSource, RuntimeGraph, Stream } from "../../types/graph";
+import type { Device, RuntimeGraph, Stream } from "../../types/graph";
 import {
   isMultiSink,
   sinksForStream,
@@ -13,7 +13,11 @@ export type RoutingConnectionAction =
   | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
   | { type: "device_route"; sourceDeviceId: string; targetDeviceId: string }
   | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] }
-  | { type: "mic_mix"; virtualMicDeviceId: string; mixSources: MixSource[] }
+  // Computed server-side against the engine's own graph (see
+  // `add_mix_source`/`remove_mix_source`) rather than a client-computed full
+  // list, so two mixing actions fired close together can't race and drop one.
+  | { type: "mic_mix_add"; virtualMicDeviceId: string; sourceDeviceId: string }
+  | { type: "mic_mix_remove"; virtualMicDeviceId: string; sourceDeviceId: string }
   | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string };
 
 export interface PreviousEdge {
@@ -156,9 +160,9 @@ function resolveDeviceToDevice(
     }
     return {
       action: {
-        type: "mic_mix",
+        type: "mic_mix_add",
         virtualMicDeviceId: target.id,
-        mixSources: [...existingMix, { device_id: source.id, volume_percent: 100, muted: false }],
+        sourceDeviceId: source.id,
       },
     };
   }
@@ -272,9 +276,9 @@ function resolveEdgeDisconnect(
     }
     return {
       action: {
-        type: "mic_mix",
+        type: "mic_mix_remove",
         virtualMicDeviceId: targetDevice.id,
-        mixSources: existingMix.filter((mixSource) => mixSource.device_id !== device.id),
+        sourceDeviceId: device.id,
       },
     };
   }

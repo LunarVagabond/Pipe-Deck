@@ -72,6 +72,8 @@ pub fn run() {
             commands::virtual_device::create_virtual_input,
             commands::virtual_device::remove_virtual_device,
             commands::virtual_device::set_virtual_mic_mix,
+            commands::virtual_device::add_mix_source,
+            commands::virtual_device::remove_mix_source,
             commands::virtual_device::set_mix_source_volume,
             commands::virtual_device::set_mix_source_mute,
             commands::virtual_device::enable_stream_mic_passthrough,

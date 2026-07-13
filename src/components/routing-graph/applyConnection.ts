@@ -43,10 +43,16 @@ export async function applyRoutingConnection(
         targetDeviceIds: result.action.targetDeviceIds,
       });
       onResult(response, "Sink routing updated");
-    } else if (result.action.type === "mic_mix") {
-      const response = await invoke<{ success: boolean; message?: string }>("set_virtual_mic_mix", {
+    } else if (result.action.type === "mic_mix_add") {
+      const response = await invoke<{ success: boolean; message?: string }>("add_mix_source", {
         virtualMicDeviceId: result.action.virtualMicDeviceId,
-        mixSources: result.action.mixSources,
+        sourceDeviceId: result.action.sourceDeviceId,
+      });
+      onResult(response, "Microphone mix updated");
+    } else if (result.action.type === "mic_mix_remove") {
+      const response = await invoke<{ success: boolean; message?: string }>("remove_mix_source", {
+        virtualMicDeviceId: result.action.virtualMicDeviceId,
+        sourceDeviceId: result.action.sourceDeviceId,
       });
       onResult(response, "Microphone mix updated");
     } else if (result.action.type === "stream_mic_passthrough_add") {

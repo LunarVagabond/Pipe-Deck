@@ -218,6 +218,66 @@ impl CoreEngine {
         })
     }
 
+    /// Adds one source to a mic's mix, computing the resulting full list from
+    /// this engine's own (server-authoritative) graph rather than trusting a
+    /// frontend-supplied "existing + new" snapshot. `set_virtual_mic_mix`
+    /// replaces the whole mix wholesale, so if the frontend's copy of
+    /// `mix_sources` were even slightly stale — e.g. a second drag fired
+    /// before the graph update from the first one arrived — it would silently
+    /// drop whatever it didn't know about. Reading fresh here closes that
+    /// race entirely.
+    pub fn add_mix_source(
+        &mut self,
+        virtual_mic_device_id: &str,
+        source_device_id: &str,
+    ) -> Result<ApplyResult, EngineError> {
+        let virtual_mic = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == virtual_mic_device_id)
+            .ok_or_else(|| EngineError::NotFound("virtual mic not found".to_string()))?;
+
+        let mut updated_sources = virtual_mic.mix_sources.clone();
+        if updated_sources.iter().any(|source| source.device_id == source_device_id) {
+            return Ok(ApplyResult {
+                success: false,
+                message: Some("This device is already mixed into this device.".to_string()),
+            });
+        }
+        updated_sources.push(MixSource {
+            device_id: source_device_id.to_string(),
+            volume_percent: 100,
+            muted: false,
+        });
+
+        self.set_virtual_mic_mix(virtual_mic_device_id, &updated_sources)
+    }
+
+    /// Removes one source from a mic's mix; same server-authoritative-list
+    /// reasoning as `add_mix_source`.
+    pub fn remove_mix_source(
+        &mut self,
+        virtual_mic_device_id: &str,
+        source_device_id: &str,
+    ) -> Result<ApplyResult, EngineError> {
+        let virtual_mic = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.id == virtual_mic_device_id)
+            .ok_or_else(|| EngineError::NotFound("virtual mic not found".to_string()))?;
+
+        let updated_sources: Vec<MixSource> = virtual_mic
+            .mix_sources
+            .iter()
+            .filter(|source| source.device_id != source_device_id)
+            .cloned()
+            .collect();
+
+        self.set_virtual_mic_mix(virtual_mic_device_id, &updated_sources)
+    }
+
     /// Live gain adjustment for one already-mixed source — no relinking, so
     /// this is safe to call at high frequency for a slider drag.
     pub fn set_mix_source_volume(
