@@ -148,7 +148,8 @@ release:
 	else \
 		sed -i "s|</releases>|    <release version=\"$$ver\" date=\"$$release_date\" />\n  </releases>|" "$$metainfo"; \
 	fi; \
-	version_files="package.json package-lock.json src-tauri/Cargo.toml src-tauri/tauri.conf.json packaging/com.pipedeck.PipeDeck.metainfo.xml"; \
+	(cd $(TAURI_DIR) && $(CARGO) check -q --manifest-path Cargo.toml) || true; \
+	version_files="package.json package-lock.json src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/tauri.conf.json packaging/com.pipedeck.PipeDeck.metainfo.xml"; \
 	git add -- $$version_files; \
 	if git diff --cached --quiet -- $$version_files; then \
 		echo "release: no version changes to commit (continuing with tag)"; \
