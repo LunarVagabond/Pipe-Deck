@@ -6,7 +6,7 @@ Pipe Deck is a desktop app that helps you **see, route, mix, and automate** Linu
 
 > Looking for a **Linux audio mixer** that goes beyond volume sliders? Pipe Deck combines routing, mixing, virtual devices, and rule-based automation in one place — built for PipeWire on modern Linux desktops.
 
-[![Build](https://github.com/pipedeck/pipe-deck/actions/workflows/build.yml/badge.svg)](https://github.com/pipedeck/pipe-deck/actions/workflows/build.yml)
+[![Build](https://github.com/LunarVagabond/Pipe-Deck/actions/workflows/build.yml/badge.svg)](https://github.com/LunarVagabond/Pipe-Deck/actions/workflows/build.yml)
 
 ## Why Pipe Deck
 
@@ -28,7 +28,7 @@ Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are *
 
 | Dashboard | Mixer | Routing |
 |-----------|-------|---------|
-| ![Dashboard — live audio graph](docs/images/dashboard.svg) | ![Mixer — per-app levels and mute](docs/images/mixer.svg) | ![Routing — application to output](docs/images/routing.svg) |
+| ![Dashboard — live audio graph](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/dashboard.svg) | ![Mixer — per-app levels and mute](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/mixer.svg) | ![Routing — application to output](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/routing.svg) |
 
 ## Features
 
@@ -49,8 +49,8 @@ Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are *
 ## Quick start
 
 ```bash
-git clone https://github.com/pipedeck/pipe-deck.git
-cd pipe-deck
+git clone https://github.com/LunarVagabond/Pipe-Deck.git
+cd Pipe-Deck
 make install   # first-time setup
 make start     # run desktop app in dev mode
 ```
@@ -60,19 +60,19 @@ make build     # production bundles
 make help      # list all commands
 ```
 
-See [Contributing](docs/project/Contributing.md) for the full contributor workflow.
+See [Contributing](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Contributing) for the full contributor workflow.
 
 ## Documentation
 
-Product and technical docs live in [`docs/`](docs/). That folder is structured for migration to the [GitHub Wiki](https://github.com/pipedeck/pipe-deck/wiki) — wiki chrome (`Home`, `_Sidebar`, `_Footer`) is included.
+Product and technical docs live in the [GitHub Wiki](https://github.com/LunarVagabond/Pipe-Deck/wiki). The `docs/` directory is a git submodule pointing at the wiki repo.
 
 | Section | Contents |
 |---------|----------|
-| [Home / index](docs/Home.md) | User-facing overview and doc map |
-| [Product](docs/product/) | Requirements, roadmap, decisions |
-| [Architecture](docs/architecture/) | System and PipeWire design |
-| [Specifications](docs/specs/) | UI, config, plugins, rule engine |
-| [Project](docs/project/) | Contributing, packaging, plugins, [Releasing](docs/project/Release.md) |
+| [Home / index](https://github.com/LunarVagabond/Pipe-Deck/wiki/Home) | User-facing overview and doc map |
+| [Product](https://github.com/LunarVagabond/Pipe-Deck/wiki/product/Product_Requirements) | Requirements, roadmap, decisions |
+| [Architecture](https://github.com/LunarVagabond/Pipe-Deck/wiki/architecture/System_Architecture) | System and PipeWire design |
+| [Specifications](https://github.com/LunarVagabond/Pipe-Deck/wiki/specs/UI_Spec) | UI, config, plugins, rule engine |
+| [Project](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Contributing) | Contributing, packaging, plugins, [Releasing](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Release) |
 
 Open work is tracked in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues). List locally with `gh issue list`.
 
@@ -93,7 +93,7 @@ Every feature must pass one question:
 
 > Does this make Linux audio easier to understand and manage?
 
-If yes, see [Contributing](docs/project/Contributing.md) and open an issue or PR. [Plugin authors](docs/project/Plugins.md) should read the [Plugin API](docs/specs/Plugin_API.md).
+If yes, see [Contributing](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Contributing) and open an issue or PR. [Plugin authors](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Plugins) should read the [Plugin API](https://github.com/LunarVagabond/Pipe-Deck/wiki/specs/Plugin_API).
 
 ## License
 
