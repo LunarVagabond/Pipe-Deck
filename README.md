@@ -28,7 +28,7 @@ Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are *
 
 | Dashboard | Mixer | Routing |
 |-----------|-------|---------|
-| ![Dashboard — live audio graph](assets/images/dashboard.svg) | ![Mixer — per-app levels and mute](assets/images/mixer.svg) | ![Routing — application to output](assets/images/routing.svg) |
+| ![Dashboard — live audio graph](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/dashboard.svg) | ![Mixer — per-app levels and mute](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/mixer.svg) | ![Routing — application to output](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/routing.svg) |
 
 ## Features
 
