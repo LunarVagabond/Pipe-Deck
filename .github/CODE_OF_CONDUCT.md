@@ -1,84 +1,24 @@
-# Contributor Covenant Code of Conduct
+# Code of Conduct
 
-## Our Pledge
+## The short version
 
-We as members, contributors, and leaders pledge to make participation in our
-community a harassment-free experience for everyone, regardless of age, body
-size, visible or invisible disability, ethnicity, sex characteristics, gender
-identity and expression, level of experience, education, socio-economic
-status, nationality, personal appearance, race, religion, or sexual identity
-and orientation.
+Be good to one another. Disagree on ideas, not people. Don't be a jerk.
 
-We pledge to act and interact in ways that contribute to an open, welcoming,
-diverse, inclusive, and healthy community.
+## What that means in practice
 
-## Our Standards
-
-Examples of behavior that contributes to a positive environment for our
-community include:
-
-- Demonstrating empathy and kindness toward other people
-- Being respectful of differing opinions, viewpoints, and experiences
-- Giving and gracefully accepting constructive feedback
-- Accepting responsibility and apologizing to those affected by our mistakes,
-  and learning from the experience
-- Focusing on what is best not just for us as individuals, but for the
-  overall community
-
-Examples of unacceptable behavior include:
-
-- The use of sexualized language or imagery, and sexual attention or
-  advances of any kind
-- Trolling, insulting or derogatory comments, and personal or political
-  attacks
-- Public or private harassment
-- Publishing others' private information, such as a physical or email
-  address, without their explicit permission
-- Other conduct which could reasonably be considered inappropriate in a
-  professional setting
-
-## Enforcement Responsibilities
-
-Project maintainers are responsible for clarifying and enforcing our
-standards of acceptable behavior and will take appropriate and fair
-corrective action in response to any behavior that they deem inappropriate,
-threatening, offensive, or harmful.
-
-## Scope
-
-This Code of Conduct applies within all community spaces (GitHub issues,
-pull requests, discussions, and the project Discord) and also applies when
-an individual is officially representing the community in public spaces.
+- Give feedback on the work, not the person.
+- Assume good faith — most disagreements are misunderstandings, not attacks.
+- Harassment, personal insults, and deliberately derailing discussions with
+  unrelated arguments aren't welcome here.
+- Keep issues, PRs, and Discord focused on Pipe Deck.
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers at **cconlon@dcorps.dev**. All complaints will
-be reviewed and investigated promptly and fairly.
+If someone's behavior is making this project unpleasant to work on, email
+**cconlon@dcorps.dev**. Maintainers will look into it and take whatever
+action fits — a heads-up, a warning, or a ban from project spaces (GitHub
+issues/PRs, Discord) for repeat or serious offenses.
 
-All maintainers are obligated to respect the privacy and security of the
-reporter of any incident.
+## Scope
 
-## Enforcement Guidelines
-
-Maintainers will follow these Community Impact Guidelines in determining
-the consequences for any action they deem in violation of this Code of
-Conduct:
-
-1. **Correction** — Private, written warning and clarification of the
-   violation.
-2. **Warning** — A warning with consequences for continued behavior,
-   including temporary limits on interaction.
-3. **Temporary Ban** — A temporary ban from any sort of interaction or
-   public communication with the community.
-4. **Permanent Ban** — A permanent ban from any sort of public interaction
-   within the community.
-
-## Attribution
-
-This Code of Conduct is adapted from the [Contributor Covenant][homepage],
-version 2.1, available at
-[https://www.contributor-covenant.org/version/2/1/code_of_conduct.html][v2.1].
-
-[homepage]: https://www.contributor-covenant.org
-[v2.1]: https://www.contributor-covenant.org/version/2/1/code_of_conduct.html
+Applies to GitHub (issues, PRs, discussions) and the project Discord.
