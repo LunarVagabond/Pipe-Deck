@@ -69,10 +69,10 @@ Product and technical docs live in the [GitHub Wiki](https://github.com/LunarVag
 | Section | Contents |
 |---------|----------|
 | [Home / index](https://github.com/LunarVagabond/Pipe-Deck/wiki/Home) | User-facing overview and doc map |
-| [Product](https://github.com/LunarVagabond/Pipe-Deck/wiki/product/Product_Requirements) | Requirements, roadmap, decisions |
-| [Architecture](https://github.com/LunarVagabond/Pipe-Deck/wiki/architecture/System_Architecture) | System and PipeWire design |
-| [Specifications](https://github.com/LunarVagabond/Pipe-Deck/wiki/specs/UI_Spec) | UI, config, plugins, rule engine |
-| [Project](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Contributing) | Packaging, plugins, [Releasing](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Release) — see [Contributing](.github/CONTRIBUTING.md) for the contributor workflow |
+| [Product](https://github.com/LunarVagabond/Pipe-Deck/wiki/Product_Requirements) | Requirements, roadmap, decisions |
+| [Architecture](https://github.com/LunarVagabond/Pipe-Deck/wiki/System_Architecture) | System and PipeWire design |
+| [Specifications](https://github.com/LunarVagabond/Pipe-Deck/wiki/UI_Spec) | UI, config, plugins, rule engine |
+| [Project](https://github.com/LunarVagabond/Pipe-Deck/wiki/Contributing) | Packaging, plugins, [Releasing](https://github.com/LunarVagabond/Pipe-Deck/wiki/Release) — see [Contributing](.github/CONTRIBUTING.md) for the contributor workflow |
 
 Open work is tracked in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues). List locally with `gh issue list`.
 
@@ -93,7 +93,7 @@ Every feature must pass one question:
 
 > Does this make Linux audio easier to understand and manage?
 
-If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Plugin authors](https://github.com/LunarVagabond/Pipe-Deck/wiki/project/Plugins) should read the [Plugin API](https://github.com/LunarVagabond/Pipe-Deck/wiki/specs/Plugin_API).
+If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Plugin authors](https://github.com/LunarVagabond/Pipe-Deck/wiki/Plugins) should read the [Plugin API](https://github.com/LunarVagabond/Pipe-Deck/wiki/Plugin_API).
 
 ## License
 

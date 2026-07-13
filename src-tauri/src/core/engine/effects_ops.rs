@@ -200,6 +200,7 @@ impl CoreEngine {
             for index in &held_sink_inputs {
                 let _ = pactl::move_sink_input_to_sink_name(*index, &device.system_name);
             }
+            let _ = pactl::remove_holding_sink();
             let _ = self.refresh_graph();
             return Err(EngineError::Adapter(format!(
                 "effects apply failed and was rolled back to no effects: {error}"
@@ -209,6 +210,7 @@ impl CoreEngine {
         for index in &held_sink_inputs {
             let _ = pactl::move_sink_input_to_sink_name(*index, &device.system_name);
         }
+        let _ = pactl::remove_holding_sink();
 
         ConfigStore::new()
             .set_effect_chain(device_id, config)
@@ -333,6 +335,7 @@ impl CoreEngine {
         for index in &held_sink_inputs {
             let _ = pactl::move_sink_input_to_sink_name(*index, &device.system_name);
         }
+        let _ = pactl::remove_holding_sink();
 
         self.refresh_graph()?;
         crate::core::routing::apply_sink_targets(&self.graph, &device.id, &downstream_target_ids)
@@ -375,6 +378,8 @@ impl CoreEngine {
 
         filter_chain::wait_for_sink(&device.system_name, Duration::from_secs(5))
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        filter_chain::wait_for_effect_output_ports(&device.system_name, Duration::from_secs(5))
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         let effect_output_name = filter_chain::effect_output_name_for_device(&device.system_name);
         for target in downstream_targets {
@@ -403,13 +408,45 @@ impl CoreEngine {
             .effect_chains()
             .map_err(|error| EngineError::Config(error.to_string()))?;
         let active = self.active_effect_chains(&chains);
+        self.reapply_previously_live_effect_chains(&active);
         let _ = filter_chain::sync_all_effects(&active, &[])
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         Ok(())
     }
 
-    fn active_effect_chains(
+    /// Re-establishes live processing (Structural Apply) for any device that
+    /// already has a live conf file on disk from before — that file is the
+    /// signal the user had previously confirmed "Enable live effects" for
+    /// this device, so silently restoring it on app-boot/profile-swap restore
+    /// isn't turning on live processing that was never explicitly approved
+    /// (PD-017 §1). A chain that's configured but was never applied stays
+    /// persist-only, same as before this existed. `apply_effect_chain_structural`
+    /// is already idempotent (no-ops without a restart if the rendered conf
+    /// is unchanged), so this is safe to call on every restore/swap. Each
+    /// device is independent — one failing must not block the rest of
+    /// restore, per #20's acceptance criteria.
+    pub(super) fn reapply_previously_live_effect_chains(&mut self, active: &[(String, EffectChainConfig)]) {
+        for (system_name, config) in active {
+            let was_live = filter_chain::conf_path_for_device(system_name)
+                .is_some_and(|path| path.is_file());
+            if !was_live {
+                continue;
+            }
+            let Some(device_id) = self
+                .graph
+                .devices
+                .iter()
+                .find(|device| &device.system_name == system_name)
+                .map(|device| device.id.clone())
+            else {
+                continue;
+            };
+            let _ = self.apply_effect_chain_structural(&device_id, config);
+        }
+    }
+
+    pub(super) fn active_effect_chains(
         &self,
         chains: &std::collections::HashMap<String, EffectChainConfig>,
     ) -> Vec<(String, EffectChainConfig)> {

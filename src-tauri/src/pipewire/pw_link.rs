@@ -235,6 +235,13 @@ fn output_ports_for(system_name: &str) -> Vec<String> {
         .collect()
 }
 
+/// Whether `pw-link -o` currently reports any output port for `system_name` —
+/// used to confirm a node has actually registered its ports before wiring
+/// anything to it (a node/sink can exist slightly before its ports do).
+pub fn has_output_ports(system_name: &str) -> bool {
+    !output_ports_for(system_name).is_empty()
+}
+
 fn target_ports_with_prefix(system_name: &str, port_prefix: &str) -> Vec<String> {
     let prefix = format!("{system_name}:{port_prefix}");
     list_ports("-i")

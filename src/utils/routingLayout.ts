@@ -109,6 +109,29 @@ export function ruleTargetKindLabel(kind: RuleTargetKind): string {
   return kind === "output" ? "Output" : "Input";
 }
 
+function titleCaseFromBinary(executable: string): string {
+  return executable
+    .split(/[-_\s]+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/** The one place stream node labels get decided.
+ *
+ * PipeWire's `application.name` isn't always the app itself — some apps
+ * (e.g. Discord over WebRTC) set it to an internal engine name like "WEBRTC
+ * VoiceEngine" rather than their own name, while others (Firefox) report it
+ * correctly. `application.process.binary` (the actual executable) is more
+ * reliable when present, so it takes precedence; `app_name` is the fallback
+ * for streams with no executable reported. */
+export function streamDisplayLabel(stream: { app_name: string; executable?: string }): string {
+  if (stream.executable) {
+    return titleCaseFromBinary(stream.executable);
+  }
+  return stream.app_name;
+}
+
 export function targetLabel(device: Device): string {
   if (device.kind === "virtual" && device.direction === "input") {
     return `${device.label} (virtual mic)`;
@@ -116,8 +139,13 @@ export function targetLabel(device: Device): string {
   return device.label;
 }
 
+// Every virtual output supports fanning out to multiple targets today — there
+// is no PipeWire-level difference between a "multi output" and a plain output
+// sink, both are the same null-sink under the hood. `sink_mode` is kept on
+// the model only for backward-compat deserialization of older persisted
+// devices/profiles; it no longer drives any behavioral distinction here.
 export function isMultiSink(device: Device): boolean {
-  return device.sink_mode === "multi";
+  return device.kind === "virtual" && (device.direction === "output" || device.direction === "duplex");
 }
 
 export function deviceTargetIds(device: Device): string[] {
@@ -132,9 +160,6 @@ export function deviceSubtitle(device: Device): string {
     return "Split fan-out sink";
   }
   if (device.direction === "output" || device.direction === "duplex") {
-    if (device.kind === "virtual" && isMultiSink(device)) {
-      return "Multi Output Sink";
-    }
     return device.kind === "virtual" ? "Virtual Sink" : "Hardware Output";
   }
   return device.kind === "virtual" ? "Virtual Source" : "Hardware Input";
@@ -150,12 +175,15 @@ export function streamSubtitle(stream: {
   if (stream.is_system) {
     return "System stream";
   }
-  if (stream.media_name && stream.media_name !== stream.app_name) {
-    const suffix = stream.executable ? ` · ${stream.executable}` : "";
-    return `${stream.media_name}${suffix}`;
+  const label = streamDisplayLabel(stream);
+  if (stream.media_name && stream.media_name !== label) {
+    return stream.media_name;
   }
-  if (stream.executable && stream.executable !== stream.app_name) {
-    return stream.executable;
+  // Surfaces the raw `application.name` (e.g. "WEBRTC VoiceEngine") whenever
+  // the label above came from the executable instead, so that identifying
+  // detail isn't lost even though it's no longer the primary label.
+  if (stream.app_name !== label) {
+    return stream.app_name;
   }
   return stream.direction === "capture" ? "Capture stream" : "Playback stream";
 }

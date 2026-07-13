@@ -4,6 +4,7 @@ import {
   deviceSubtitle,
   isMultiSink,
   streamAccent,
+  streamDisplayLabel,
   streamSubtitle,
 } from "../../utils/routingLayout";
 import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
@@ -128,7 +129,7 @@ export { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
 function streamNodeKind(stream: Stream): RoutingGraphNodeData {
   const playback = stream.direction === "playback";
   return {
-    label: stream.app_name,
+    label: streamDisplayLabel(stream),
     subtitle: streamSubtitle(stream),
     nodeKind: "stream",
     entityId: stream.id,

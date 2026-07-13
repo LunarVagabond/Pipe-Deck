@@ -13,7 +13,7 @@ my-plugin/
 ## Develop
 
 1. Copy this directory to `~/.config/pipe-deck/plugins/<id>/`
-2. Implement JSON-RPC 2.0 over stdin/stdout (see `docs/specs/Plugin_API.md`)
+2. Implement JSON-RPC 2.0 over stdin/stdout (see `docs/Plugin_API.md`)
 3. Enable the plugin in Pipe Deck Settings and approve capabilities
 
 ## Test locally

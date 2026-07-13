@@ -1,6 +1,6 @@
 use crate::core::models::EffectChainConfig;
 use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl;
+use crate::pipewire::{pactl, pw_link};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -107,6 +107,28 @@ pub fn wait_for_sink(system_name: &str, timeout: Duration) -> Result<(), Adapter
         if start.elapsed() > timeout {
             return Err(AdapterError::Message(format!(
                 "{system_name} did not reappear within {timeout:?} after the effects restart"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+/// Polls for the filter-chain's *playback* side (`effect_output.{system_name}`)
+/// to actually register its output ports after a restart. `wait_for_sink` only
+/// confirms the capture sink exists; the paired playback node backing
+/// `effect_output.*` can take a beat longer to show up, and relinking
+/// downstream targets against it before then fails (and triggers an
+/// avoidable — if correct — Structural Apply rollback).
+pub fn wait_for_effect_output_ports(system_name: &str, timeout: Duration) -> Result<(), AdapterError> {
+    let effect_output_name = effect_output_name_for_device(system_name);
+    let start = Instant::now();
+    loop {
+        if pw_link::has_output_ports(&effect_output_name) {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(AdapterError::Message(format!(
+                "{effect_output_name} did not register output ports within {timeout:?} after the effects restart"
             )));
         }
         std::thread::sleep(Duration::from_millis(150));

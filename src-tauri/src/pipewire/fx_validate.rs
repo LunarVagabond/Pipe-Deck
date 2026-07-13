@@ -169,6 +169,27 @@ fn db_to_linear_mult(db: i32) -> f64 {
     10f64.powf(f64::from(db) / 20.0)
 }
 
+// `render_conf` deliberately does not emit a node for `config.noise_gate`
+// yet, even though `fx_capability::probe_capabilities` can confirm
+// `librnnoise_ladspa` is installed and `preflight` allows enabling it. Its
+// `noise_suppressor_stereo` label exposes two genuinely separate mono ports
+// per side ("Input (L)"/"Input (R)", "Output (L)"/"Output (R)" — confirmed
+// against the plugin's own source, werman/noise-suppression-for-voice
+// src/ladspa_plugin/RnNoiseLadspaPlugin.h), unlike this template's builtin
+// biquads, whose single "In"/"Out" port is implicitly replicated across
+// `audio.channels` by filter-chain itself (per `man 7
+// libpipewire-module-filter-chain`, biquads only ever declare one input and
+// one output port). A single link in this graph can only carry one of the
+// LADSPA plugin's two channel ports, and there is no adapter here that
+// safely recombines two mono ports into the single multichannel port a
+// biquad expects — PipeWire's own `mixer` builtin *sums* multiple inputs
+// into one output, which would collapse L/R rather than preserve them.
+// Correctly hosting this plugin needs a second, separately chained
+// filter-chain module (its own capture/playback node pair feeding into this
+// one, the same pattern already used to link `effect_output.*` onward) —
+// real new plumbing, not a one-line addition — so it's left for follow-up
+// rather than guessed at without a live PipeWire session to verify against.
+
 /// The exact `(control_name, value)` pairs to push through `pw_cli::set_params`
 /// for a live slider update — node/control names must match `render_conf`'s
 /// filter-graph node names exactly, since this is talking to the same live

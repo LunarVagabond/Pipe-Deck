@@ -77,6 +77,24 @@ pub fn ensure_holding_sink() -> Result<(), AdapterError> {
     create_null_sink(HOLDING_SINK_NAME, "Pipe Deck (temporary hold)").map(|_| ())
 }
 
+/// Tears the scratch hold sink back down once every stream that was parked on
+/// it has been moved back to its real device — it's only ever meant to exist
+/// for the duration of a single swap, not persist across the session. Safe to
+/// call even if the sink is still carrying streams or doesn't exist: skips
+/// removal rather than risk stranding audio, and no-ops if already gone.
+pub fn remove_holding_sink() -> Result<(), AdapterError> {
+    if !sink_exists(HOLDING_SINK_NAME)? {
+        return Ok(());
+    }
+    if !sink_input_indices_on(HOLDING_SINK_NAME).is_empty() {
+        return Ok(());
+    }
+    if let Some(module_id) = find_module_id_by_sink_name(HOLDING_SINK_NAME)? {
+        unload_module(&module_id)?;
+    }
+    Ok(())
+}
+
 pub fn feed_sink_description(virtual_mic_label: &str) -> String {
     format!("{virtual_mic_label} (Pipe Deck route)")
 }

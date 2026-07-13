@@ -9,7 +9,7 @@ const emit = defineEmits<{
   rename: [];
   delete: [];
   close: [];
-  "add-node": [type: "output" | "output-multi" | "input"];
+  "add-node": [type: "output" | "input"];
 }>();
 </script>
 
@@ -42,7 +42,6 @@ const emit = defineEmits<{
     <template v-else>
       <p class="routing-graph-context-menu-label">Add node</p>
       <button type="button" @click="emit('add-node', 'output')">+ Virtual Output</button>
-      <button type="button" @click="emit('add-node', 'output-multi')">+ Virtual Multi Output</button>
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
     </template>
   </div>

@@ -410,9 +410,8 @@ onMounted(() => {
     </header>
 
     <p class="effects-help">
-      Five-band EQ and dynamics settings are saved for profiles. Live processing is temporarily
-      disabled while we rework the PipeWire integration — adjusting sliders will not touch your
-      system audio session.
+      Five-band EQ and dynamics settings are saved for profiles. Enable live effects on a device
+      to actually process its audio — see the status banner below for each device's current state.
     </p>
 
     <p v-if="isMockData" class="notice-banner mock">

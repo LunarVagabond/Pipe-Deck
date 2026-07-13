@@ -39,6 +39,7 @@ import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
 import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 import { usePrompt } from "../stores/prompt";
+import { streamDisplayLabel } from "../utils/routingLayout";
 import type { RuntimeGraph } from "../types/graph";
 
 const props = defineProps<{
@@ -101,9 +102,7 @@ const graphActions = {
   labelForEntity(entityId: string) {
     const stream = props.graph.streams.find((entry) => entry.id === entityId);
     if (stream) {
-      return stream.media_name && stream.media_name !== stream.app_name
-        ? `${stream.app_name} (${stream.media_name})`
-        : stream.app_name;
+      return streamDisplayLabel(stream);
     }
     const device = props.graph.devices.find((entry) => entry.id === entityId);
     return device?.label ?? entityId;
@@ -162,13 +161,9 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-function onAddNodeAction(type: "output" | "output-multi" | "input") {
+function onAddNodeAction(type: "output" | "input") {
   contextMenu.value = null;
-  if (type === "input") {
-    openNewDeviceDialog("input", false);
-  } else {
-    openNewDeviceDialog("output", type === "output-multi");
-  }
+  openNewDeviceDialog(type);
 }
 
 const nodeTypes = {
@@ -183,7 +178,27 @@ const defaultEdgeOptions = {
 } as const;
 
 const built = computed(() => buildRoutingGraph(props.graph, groups.value));
-const nodes = computed<Node[]>(() => built.value.nodes as Node[]);
+// Node ids currently mid-drag. `props.graph` can be replaced by a
+// `graph-updated` push at any moment (mixer/routing/rule commands and the
+// live PipeWire monitor all emit it, often several times a second) — without
+// this, a rebuild landing mid-drag recomputes positions from the *last
+// saved* layout (only updated on drag-stop) and snaps the dragged node back
+// to its pre-drag spot while vue-flow's own connection-line cursor tracking
+// keeps going, splitting the two visually. While a node id is in this set,
+// its live vue-flow position is preserved instead of the freshly built one.
+const draggingNodeIds = ref<Set<string>>(new Set());
+const nodes = computed<Node[]>(() => {
+  if (draggingNodeIds.value.size === 0) {
+    return built.value.nodes as Node[];
+  }
+  return (built.value.nodes as Node[]).map((node) => {
+    if (!draggingNodeIds.value.has(node.id)) {
+      return node;
+    }
+    const live = vueFlow.findNode(node.id);
+    return live ? { ...node, position: live.computedPosition } : node;
+  });
+});
 const edges = computed<Edge[]>(() =>
   built.value.edges.map((edge) => ({
     ...edge,
@@ -275,8 +290,15 @@ function onDocumentPointerDown(event: PointerEvent) {
 
 const DETACH_THRESHOLD = 0.4;
 
+function onNodeDragStart(event: NodeDragEvent) {
+  draggingNodeIds.value = new Set([...draggingNodeIds.value, event.node.id]);
+}
+
 function onNodeDragStop(event: NodeDragEvent) {
   const node = event.node;
+  const next = new Set(draggingNodeIds.value);
+  next.delete(node.id);
+  draggingNodeIds.value = next;
 
   if (node.type === "groupNode") {
     const group = groups.value.find((entry) => entry.id === node.id);
@@ -440,6 +462,7 @@ onUnmounted(() => {
         @edge-update="onEdgeUpdate"
         @edge-update-start="onEdgeUpdateStart"
         @edge-update-end="onEdgeUpdateEnd"
+        @node-drag-start="onNodeDragStart"
         @node-drag-stop="onNodeDragStop"
         @pane-click="onPaneClick"
         @pane-context-menu="onPaneContextMenu"

@@ -63,7 +63,7 @@ check: build-daemon-dev build-cli ## Run frontend and Rust checks without produc
 test: build-daemon-dev build-cli ## Run Rust tests
 	$(CARGO) test --manifest-path $(TAURI_DIR)/Cargo.toml
 
-test-e2e: ## Run frontend Playwright component tests (e2e/, needs `npx playwright install chromium` once)
+test-e2e: ## Run frontend Playwright component tests (src/e2e/, needs `npx playwright install chromium` once)
 	$(NPM) run test:e2e
 
 preview: ## Preview the built frontend assets
