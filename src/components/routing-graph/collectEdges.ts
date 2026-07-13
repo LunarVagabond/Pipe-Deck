@@ -1,5 +1,6 @@
 import type { RuntimeGraph } from "../../types/graph";
 import {
+  columnRank,
   deviceColumn,
   deviceTargetIds,
   isMultiSink,
@@ -26,6 +27,16 @@ function edgeKey(source: string, target: string): string {
   return `${source}|${target}`;
 }
 
+/** Column rank of a stream or device, for detecting backward-flowing connections. */
+function entityColumnRank(graph: RuntimeGraph, entityId: string): number {
+  if (graph.streams.some((stream) => stream.id === entityId)) {
+    return columnRank("applications");
+  }
+  const device = graph.devices.find((entry) => entry.id === entityId);
+  const column = device ? deviceColumn(device) : null;
+  return column ? columnRank(column) : columnRank("applications");
+}
+
 function makeEdge(
   graph: RuntimeGraph,
   linkId: string,
@@ -50,6 +61,15 @@ function makeEdge(
     targetId,
   );
 
+  // Nodes always render their input ports on the left and output ports on the
+  // right, so a connection whose source sits in a column to the right of its
+  // target's (e.g. a mic in the rightmost "inputs" column feeding a capture
+  // stream or a mix target further left) has to bend backward. The default
+  // bezier edge handles that by bowing out vertically, which can read as an
+  // edge leaving the bottom of one node and entering the top of another.
+  // Route those backward connections as an orthogonal smoothstep instead.
+  const isBackward = entityColumnRank(graph, sourceId) > entityColumnRank(graph, targetId);
+
   return {
     id: linkId,
     source,
@@ -59,6 +79,7 @@ function makeEdge(
     animated: true,
     updatable: true,
     interactionWidth: 22,
+    type: isBackward ? "smoothstep" : undefined,
     class: `routing-edge ${edgeClassForPort()}`,
     style: { stroke: edgeColorForPorts(), strokeWidth: "2.5" },
   };

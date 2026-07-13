@@ -1,4 +1,4 @@
-use crate::core::models::{Stream, StreamDirection};
+use crate::core::models::Stream;
 use crate::core::stream_identity::is_internal_audio_client;
 use crate::pipewire::pactl;
 
@@ -44,21 +44,17 @@ pub fn resolve_playback_target_device_id(
 }
 
 pub fn stream_matches_pactl_source_output(stream: &Stream, output: &pactl::PactlSourceOutput) -> bool {
-    if stream.id == format!("pactl-source-output-{}", output.index) {
-        return true;
-    }
-
-    if stream.direction != StreamDirection::Capture {
-        return false;
-    }
-
-    stream_matches_pactl_capture_identity(stream, output)
+    pactl::stream_matches_source_output(stream, output)
 }
 
 pub fn stream_matches_pactl_capture_identity(
     stream: &Stream,
     output: &pactl::PactlSourceOutput,
 ) -> bool {
+    if let Some(object_id) = output.object_id {
+        return stream.id == format!("node-{object_id}");
+    }
+
     if let Some(system_name) = &stream.system_name {
         if output
             .node_name
@@ -87,37 +83,5 @@ pub fn stream_matches_pactl_capture_identity(
 }
 
 pub fn stream_matches_pactl_input(stream: &Stream, input: &pactl::PactlSinkInput) -> bool {
-    if stream.id == format!("pactl-sink-input-{}", input.index) {
-        return true;
-    }
-
-    if stream.direction != StreamDirection::Playback {
-        return false;
-    }
-
-    if let Some(system_name) = &stream.system_name {
-        if input
-            .node_name
-            .as_deref()
-            .is_some_and(|node_name| node_name == system_name)
-        {
-            return true;
-        }
-    }
-
-    if stream.app_name != input.application_name {
-        if stream
-            .executable
-            .as_deref()
-            .is_none_or(|executable| executable != input.application_name)
-        {
-            return false;
-        }
-    }
-
-    match (&stream.media_name, &input.media_name) {
-        (Some(left), Some(right)) => left == right,
-        (None, None) => true,
-        _ => false,
-    }
+    pactl::stream_matches_sink_input(stream, input)
 }

@@ -31,6 +31,26 @@ export function streamAccent(streamId: string): string {
   return accentForId(streamId);
 }
 
+/**
+ * Left-to-right position of each column in the routing graph. Used to tell
+ * "forward" connections (application → routing → outputs, always left to
+ * right) apart from "backward" ones (inputs feeding a capture stream or a
+ * mix target, which sit in the rightmost column and so always connect back
+ * toward the left). The default bezier edge assumes source-on-left/target-
+ * on-right and loops wildly for backward connections, so callers use this to
+ * pick a saner edge routing for them instead.
+ */
+const COLUMN_RANK: Record<NodeColumn, number> = {
+  applications: 0,
+  routing: 1,
+  outputs: 2,
+  inputs: 3,
+};
+
+export function columnRank(column: NodeColumn): number {
+  return COLUMN_RANK[column];
+}
+
 export function deviceColumn(device: Device): NodeColumn | null {
   if (device.system_name.startsWith("pipe-deck-feed-")) {
     return null;
