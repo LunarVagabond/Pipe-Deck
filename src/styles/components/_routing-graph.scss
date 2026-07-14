@@ -434,6 +434,32 @@
   stroke-dasharray: 6 4;
 }
 
+.routing-graph-edge-volume {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.45rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  pointer-events: all;
+  font-size: 0.65rem;
+
+  input[type="range"] {
+    width: 4.5rem;
+    accent-color: #3fd0c9;
+    height: 0.8rem;
+  }
+
+  span {
+    flex-shrink: 0;
+    width: 2rem;
+    text-align: right;
+    color: var(--text-muted);
+  }
+}
+
 // Draggable arrow / cable endpoints (visible on hover).
 .routing-graph-canvas .vue-flow__edgeupdater {
   cursor: grab;

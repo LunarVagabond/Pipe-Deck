@@ -31,7 +31,9 @@ function portTitle(handle: RoutingGraphHandle): string {
 }
 
 function onContextMenu(event: MouseEvent) {
-  if (!props.data.systemName || (!props.data.editable && !props.data.deletable)) {
+  const canRenameOrDelete = Boolean(props.data.systemName) && (props.data.editable || props.data.deletable);
+  const connections = actions?.outgoingConnectionsFor(props.data.entityId) ?? [];
+  if (!canRenameOrDelete && connections.length === 0) {
     return;
   }
   event.preventDefault();
@@ -44,6 +46,7 @@ function onContextMenu(event: MouseEvent) {
     systemName: props.data.systemName,
     editable: Boolean(props.data.editable),
     deletable: Boolean(props.data.deletable),
+    connections,
   });
 }
 
