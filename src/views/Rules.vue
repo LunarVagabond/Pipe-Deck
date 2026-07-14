@@ -93,8 +93,11 @@ function openCreateModal() {
 function openCreateModalForIdentity(entry: RecentStreamIdentity) {
   openCreateModal();
   draftTargetKind.value = entry.direction === "capture" ? "input" : "output";
-  draft.value.name = `${entry.app_name} rule`;
-  draft.value.conditions = [{ type: "identity", value: entry.executable || entry.app_name }];
+  draft.value.name = `${recentEntryLabel(entry)} rule`;
+  draft.value.conditions = [
+    { type: "identity", value: entry.executable || entry.app_name },
+    { type: "direction", value: entry.direction },
+  ];
 }
 
 const recentlySeenEntries = computed(() =>

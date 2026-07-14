@@ -412,12 +412,14 @@
 .identity-app-cell {
   color: var(--text);
   font-weight: 600;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .identity-recent-badge {
   display: inline-block;
   margin-left: 0.35rem;
+  margin-top: 0.15rem;
   padding: 0.1rem 0.35rem;
   border-radius: 4px;
   font-size: 0.62rem;

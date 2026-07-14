@@ -19,6 +19,7 @@ import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
 import { useNewDeviceDialog } from "./stores/newDeviceDialog";
 import { useUpdateStatus } from "./stores/updateStatus";
+import { useRuntimeGraph } from "./stores/runtimeGraph";
 import type { AppConfig, AppView, DaemonStatus } from "./types/graph";
 
 // Only views that actually wire up device creation should show the topbar's
@@ -40,40 +41,45 @@ const navItems = ref<
 
 const activeView = ref<AppView>("dashboard");
 const daemonStatusRaw = ref<DaemonStatus | null>(null);
-const backgroundRestoreEnabled = ref(false);
 const sidebarCollapsed = ref(false);
 const { handleApplyResult } = useApplyResult();
 const { openNewDeviceDialog } = useNewDeviceDialog();
 const { updateStatus, updateStatusText, checkForUpdatesNow } = useUpdateStatus();
+const { graph: runtimeGraph, loading: runtimeGraphLoading, error: runtimeGraphError } =
+  useRuntimeGraph();
 
 const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
 
 const updateStatusDotClass = computed(() => `update-status-dot--${updateStatus.value}`);
 
 const pipeWireStatusText = computed(() => {
-  const status = daemonStatusRaw.value;
-  if (!status) return "Checking…";
-  if (status.running) return "Daemon active";
-  if (status.enabled) return "Daemon enabled";
-  return "PipeWire";
+  if (runtimeGraphLoading.value && !runtimeGraph.value.devices.length && !runtimeGraph.value.streams.length) {
+    return "Checking…";
+  }
+  if (runtimeGraphError.value) return "PipeWire unreachable";
+  if (runtimeGraph.value.data_source === "mock") return "Mock data";
+  return "PipeWire is running";
 });
 
 const pipeWireStatusClass = computed(() => {
-  const status = daemonStatusRaw.value;
-  if (!status) return "status-dot--muted";
-  if (status.running) return "status-dot--ok";
-  if (status.enabled) return "status-dot--warn";
-  return "status-dot--muted";
+  if (runtimeGraphLoading.value && !runtimeGraph.value.devices.length && !runtimeGraph.value.streams.length) {
+    return "status-dot--muted";
+  }
+  if (runtimeGraphError.value) return "status-dot--error";
+  if (runtimeGraph.value.data_source === "mock") return "status-dot--muted";
+  return "status-dot--ok";
 });
 
 const restoreAtLoginText = computed(() => {
-  if (!backgroundRestoreEnabled.value) return "Disabled";
-  return daemonStatusRaw.value?.running ? "Enabled" : "Enabled (not running)";
+  const status = daemonStatusRaw.value;
+  if (!status?.enabled) return "Disabled";
+  return status.running ? "Enabled" : "Enabled (not running)";
 });
 
 const restoreAtLoginClass = computed(() => {
-  if (!backgroundRestoreEnabled.value) return "status-dot--muted";
-  return daemonStatusRaw.value?.running ? "status-dot--ok" : "status-dot--warn";
+  const status = daemonStatusRaw.value;
+  if (!status?.enabled) return "status-dot--muted";
+  return status.running ? "status-dot--ok" : "status-dot--warn";
 });
 
 const topbarTitle = computed(() => {
@@ -105,10 +111,8 @@ async function loadPreferences() {
   try {
     const config = await invoke<AppConfig>("get_config");
     sidebarCollapsed.value = config.preferences?.sidebar_collapsed ?? false;
-    backgroundRestoreEnabled.value = config.preferences?.background_restore ?? false;
   } catch {
     sidebarCollapsed.value = false;
-    backgroundRestoreEnabled.value = false;
   }
 }
 
