@@ -63,6 +63,16 @@ onMounted(async () => {
 
     <div class="app-footer-center">
       <a
+        v-if="revisionUrl"
+        class="app-footer-revision"
+        :href="revisionUrl"
+        @click="openExternal($event, revisionUrl)"
+      >
+        Pipe Deck {{ buildRevision }}
+      </a>
+      <span v-else class="app-footer-revision">Pipe Deck {{ buildRevision }}</span>
+      <span class="app-footer-sep">-</span>
+      <a
         class="app-footer-link app-footer-bug-link"
         :href="GITHUB_ISSUES_URL"
         @click="openExternal($event, GITHUB_ISSUES_URL)"
@@ -75,15 +85,6 @@ onMounted(async () => {
       <span v-if="appInfo?.pipewireVersion" class="app-footer-pipewire-version">
         PipeWire {{ appInfo.pipewireVersion }}
       </span>
-      <a
-        v-if="revisionUrl"
-        class="app-footer-revision"
-        :href="revisionUrl"
-        @click="openExternal($event, revisionUrl)"
-      >
-        {{ buildRevision }}
-      </a>
-      <span v-else class="app-footer-revision">{{ buildRevision }}</span>
     </div>
   </footer>
 </template>
