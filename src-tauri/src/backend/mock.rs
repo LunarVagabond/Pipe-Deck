@@ -1,5 +1,6 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, Link, MixSourceSpec, RuntimeGraph, Stream, StreamDirection,
+    Device, DeviceDirection, DeviceKind, Link, MixSource, MixSourceSpec, RuntimeGraph, SinkMode,
+    Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -26,6 +27,37 @@ impl MockAudioBackend {
 
     fn lock(&self) -> std::sync::MutexGuard<'_, RuntimeGraph> {
         self.graph.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn push_virtual_device(&self, label: &str, direction: DeviceDirection, multi: bool) -> VirtualDeviceResult {
+        let slug = crate::backend::slugify(label);
+        let system_name = format!("pipe-deck-{slug}");
+        let device_id = format!("virtual-{slug}");
+        let mut graph = self.lock();
+        graph.devices.push(Device {
+            id: device_id.clone(),
+            system_name: system_name.clone(),
+            label: label.to_string(),
+            kind: DeviceKind::Virtual,
+            direction: direction.clone(),
+            sink_mode: match direction {
+                DeviceDirection::Output | DeviceDirection::Duplex => {
+                    Some(if multi { SinkMode::Multi } else { SinkMode::Single })
+                }
+                DeviceDirection::Input => None,
+            },
+            volume_percent: Some(100),
+            muted: Some(false),
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        });
+        VirtualDeviceResult {
+            device_id,
+            system_name,
+            label: label.to_string(),
+            multi,
+        }
     }
 
     fn sample_graph() -> RuntimeGraph {
@@ -341,19 +373,147 @@ impl AudioBackend for MockAudioBackend {
 
     fn apply_graph_routing(&self, _graph: &mut RuntimeGraph, _ctx: &ApplyRulesContext<'_>) {}
 
-    fn apply_virtual_mic_mix(&self, _virtual_input: &Device, _mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+    fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let resolved: Vec<MixSource> = mix_sources
+            .iter()
+            .filter_map(|spec| {
+                graph
+                    .devices
+                    .iter()
+                    .find(|device| device.system_name == spec.system_name)
+                    .map(|device| MixSource {
+                        device_id: device.id.clone(),
+                        volume_percent: spec.volume_percent,
+                        muted: spec.muted,
+                    })
+            })
+            .collect();
+        if let Some(device) = graph.devices.iter_mut().find(|device| device.id == virtual_input.id) {
+            device.mix_sources = resolved;
+        }
         Ok(())
     }
 
-    fn set_mix_source_volume(&self, _virtual_input_system_name: &str, _source_system_name: &str, _percent: u8) -> Result<(), BackendError> {
+    fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let source_device_id = graph
+            .devices
+            .iter()
+            .find(|device| device.system_name == source_system_name)
+            .map(|device| device.id.clone());
+        if let Some(source_device_id) = source_device_id {
+            if let Some(device) = graph
+                .devices
+                .iter_mut()
+                .find(|device| device.system_name == virtual_input_system_name)
+            {
+                if let Some(mix_source) = device
+                    .mix_sources
+                    .iter_mut()
+                    .find(|mix_source| mix_source.device_id == source_device_id)
+                {
+                    mix_source.volume_percent = percent;
+                }
+            }
+        }
         Ok(())
     }
 
-    fn set_mix_source_mute(&self, _virtual_input_system_name: &str, _source_system_name: &str, _muted: bool) -> Result<(), BackendError> {
+    fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let source_device_id = graph
+            .devices
+            .iter()
+            .find(|device| device.system_name == source_system_name)
+            .map(|device| device.id.clone());
+        if let Some(source_device_id) = source_device_id {
+            if let Some(device) = graph
+                .devices
+                .iter_mut()
+                .find(|device| device.system_name == virtual_input_system_name)
+            {
+                if let Some(mix_source) = device
+                    .mix_sources
+                    .iter_mut()
+                    .find(|mix_source| mix_source.device_id == source_device_id)
+                {
+                    mix_source.muted = muted;
+                }
+            }
+        }
         Ok(())
     }
 
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
         crate::backend::linux::graph_enrich::apply_device_aliases(devices);
+    }
+
+    fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+        Ok(self.push_virtual_device(label, DeviceDirection::Output, multi))
+    }
+
+    fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError> {
+        Ok(self.push_virtual_device(label, DeviceDirection::Input, false))
+    }
+
+    fn restore_virtual_device(
+        &self,
+        system_name: &str,
+        label: &str,
+        direction: DeviceDirection,
+        multi: bool,
+        _mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
+        // Unreachable in practice: restore_session/restore_profile_virtual_devices/
+        // apply_persisted_routes all short-circuit on PIPE_DECK_USE_MOCK=1
+        // before ever calling this. Implemented for trait completeness.
+        let mut graph = self.lock();
+        graph.devices.push(Device {
+            id: format!("virtual-{}", system_name.trim_start_matches("pipe-deck-")),
+            system_name: system_name.to_string(),
+            label: label.to_string(),
+            kind: DeviceKind::Virtual,
+            direction: direction.clone(),
+            sink_mode: match direction {
+                DeviceDirection::Output | DeviceDirection::Duplex => {
+                    Some(if multi { SinkMode::Multi } else { SinkMode::Single })
+                }
+                DeviceDirection::Input => None,
+            },
+            volume_percent: Some(100),
+            muted: Some(false),
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        });
+        Ok(())
+    }
+
+    fn remove_virtual_device(&self, system_name: &str) -> Result<(), BackendError> {
+        self.lock().devices.retain(|device| device.system_name != system_name);
+        Ok(())
+    }
+
+    fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo> {
+        self.lock()
+            .devices
+            .iter()
+            .filter(|device| device.kind == DeviceKind::Virtual)
+            .map(|device| VirtualDeviceInfo {
+                device_id: device.id.clone(),
+                system_name: device.system_name.clone(),
+                label: device.label.clone(),
+                direction: device.direction.clone(),
+                multi: device.sink_mode == Some(SinkMode::Multi),
+            })
+            .collect()
+    }
+
+    fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError> {
+        if let Some(device) = self.lock().devices.iter_mut().find(|device| device.system_name == system_name) {
+            device.label = alias.to_string();
+        }
+        Ok(())
     }
 }

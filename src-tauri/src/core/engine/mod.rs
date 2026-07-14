@@ -18,7 +18,6 @@ use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::AudioBackend;
 use crate::pipewire::filter_chain;
 use crate::plugins::PluginManager;
-use crate::backend::linux::virtual_devices::VirtualDeviceRegistry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -45,7 +44,6 @@ pub struct CoreEngine {
     graph: RuntimeGraph,
     adapter: Box<dyn AudioBackend>,
     rollback_stack: Vec<crate::core::routing::RoutingSnapshot>,
-    virtual_registry: Arc<VirtualDeviceRegistry>,
     device_id_remap: HashMap<String, String>,
     last_error: Option<String>,
     manual_overrides: HashSet<StreamIdentityKey>,
@@ -63,7 +61,6 @@ impl CoreEngine {
             graph: RuntimeGraph::default(),
             adapter: crate::backend::create_backend(),
             rollback_stack: Vec::new(),
-            virtual_registry: VirtualDeviceRegistry::new(),
             device_id_remap: HashMap::new(),
             last_error: None,
             manual_overrides: HashSet::new(),
@@ -78,10 +75,6 @@ impl CoreEngine {
 
     pub fn runtime_graph(&self) -> &RuntimeGraph {
         &self.graph
-    }
-
-    pub fn virtual_registry(&self) -> &Arc<VirtualDeviceRegistry> {
-        &self.virtual_registry
     }
 
     pub fn last_error(&self) -> Option<&str> {
@@ -108,7 +101,7 @@ impl CoreEngine {
         self.initialize_plugins();
 
         if std::env::var("PIPE_DECK_USE_MOCK").as_deref() != Ok("1") {
-            let restore_result = restore::restore_session(&self.virtual_registry)
+            let restore_result = restore::restore_session(self.adapter.as_ref())
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
             self.apply_restore_notice(&restore_result);
             let _ = filter_chain::cleanup_effects_conf_files();

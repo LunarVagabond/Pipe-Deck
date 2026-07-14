@@ -1,7 +1,6 @@
 use crate::config::ConfigStore;
 use crate::core::models::DaemonStatus;
 use crate::core::restore::{self, RestoreError};
-use crate::backend::linux::virtual_devices::VirtualDeviceRegistry;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -86,17 +85,17 @@ pub fn run() -> i32 {
         return 0;
     }
 
-    let registry = VirtualDeviceRegistry::new();
+    let backend = crate::backend::create_backend();
     let mut last_error = None;
     let mut devices_restored = 0u32;
 
     for attempt in 0..5 {
-        match restore::restore_session(&registry) {
+        match restore::restore_session(backend.as_ref()) {
             Ok(result) => {
                 devices_restored =
                     (result.created.len() + result.adopted.len()) as u32;
                 if result.errors.is_empty() {
-                    if let Err(error) = restore::apply_persisted_routes(&registry) {
+                    if let Err(error) = restore::apply_persisted_routes(backend.as_ref()) {
                         last_error = Some(error.to_string());
                     } else {
                         write_status(pid, &started, None, devices_restored);

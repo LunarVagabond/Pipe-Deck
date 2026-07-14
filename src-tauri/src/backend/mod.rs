@@ -2,7 +2,7 @@ pub mod linux;
 pub mod mock;
 pub mod stub;
 
-use crate::core::models::{Device, MixSourceSpec, RuntimeGraph};
+use crate::core::models::{Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
@@ -15,6 +15,42 @@ pub enum BackendError {
 }
 
 pub type GraphListener = Box<dyn Fn(RuntimeGraph) + Send + Sync>;
+
+/// Shared by every backend's virtual-device system_name derivation — moved
+/// here (from `backend::linux::virtual_devices`, still re-exported there)
+/// so `MockAudioBackend` doesn't need to depend on `backend::linux`.
+pub fn slugify(name: &str) -> String {
+    let slug = name
+        .to_lowercase()
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+
+    if slug.is_empty() {
+        "device".into()
+    } else {
+        slug
+    }
+}
+
+#[cfg(test)]
+mod slugify_tests {
+    use super::slugify;
+
+    #[test]
+    fn slugifies_names_with_punctuation_and_case() {
+        assert_eq!(slugify("Game Mix"), "game-mix");
+        assert_eq!(slugify("My Mic!!!"), "my-mic");
+    }
+
+    #[test]
+    fn empty_or_all_punctuation_falls_back_to_device() {
+        assert_eq!(slugify(""), "device");
+        assert_eq!(slugify("!!!"), "device");
+    }
+}
 
 pub trait AudioBackend: Send + Sync {
     // Graph fetch/subscribe.
@@ -56,17 +92,30 @@ pub trait AudioBackend: Send + Sync {
     );
     fn apply_graph_routing(&self, graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>);
 
-    // Virtual device mix sources / aliases / levels. Virtual device
-    // create/remove itself stays engine-held via `VirtualDeviceRegistry`
-    // (see core/restore.rs, core/engine/virtual_ops.rs) rather than moving
-    // behind this trait — the registry doesn't just track bookkeeping, it
-    // *is* the Linux creation mechanism, so splitting "system-level create"
-    // from "registry state" isn't a clean boundary without a deeper redesign
-    // than #68 calls for.
+    // Virtual device mix sources / aliases / levels.
     fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError>;
     fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError>;
     fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError>;
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]);
+
+    // Virtual device lifecycle. `create_virtual_output`/`create_virtual_input`
+    // are for user-initiated new devices, where system_name is derived from
+    // the label. `restore_virtual_device` is for config-driven recreation
+    // (core/restore.rs) where system_name is already fixed (the persisted
+    // slug) and must NOT be re-derived from a possibly-since-renamed label.
+    fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError>;
+    fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError>;
+    fn restore_virtual_device(
+        &self,
+        system_name: &str,
+        label: &str,
+        direction: DeviceDirection,
+        multi: bool,
+        mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError>;
+    fn remove_virtual_device(&self, system_name: &str) -> Result<(), BackendError>;
+    fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo>;
+    fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError>;
 
     // Live routing-state queries used only as rule-matching fallbacks when
     // `RuntimeGraph`'s own `current_targets`/`current_target` are stale or
@@ -191,5 +240,36 @@ impl AudioBackend for EmptyAudioBackend {
 
     fn is_routed_to(&self, _source_system_name: &str, _target_system_name: &str, _target_is_input: bool) -> bool {
         false
+    }
+
+    fn create_virtual_output(&self, _label: &str, _multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn create_virtual_input(&self, _label: &str) -> Result<VirtualDeviceResult, BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn restore_virtual_device(
+        &self,
+        _system_name: &str,
+        _label: &str,
+        _direction: DeviceDirection,
+        _multi: bool,
+        _mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn remove_virtual_device(&self, _system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo> {
+        Vec::new()
+    }
+
+    fn set_virtual_device_alias(&self, _system_name: &str, _alias: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
     }
 }

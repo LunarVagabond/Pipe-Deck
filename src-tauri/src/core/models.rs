@@ -775,6 +775,44 @@ pub struct VirtualDeviceResult {
     pub multi: bool,
 }
 
+/// Backend-neutral virtual device bookkeeping info returned by
+/// `AudioBackend::list_virtual_devices` — deliberately smaller than
+/// `backend::linux::virtual_devices::VirtualDeviceEntry` (no `module_id`,
+/// a pactl-only implementation detail). Never serialized to the frontend.
+#[derive(Debug, Clone)]
+pub struct VirtualDeviceInfo {
+    pub device_id: String,
+    pub system_name: String,
+    pub label: String,
+    pub direction: DeviceDirection,
+    pub multi: bool,
+}
+
+impl VirtualDeviceInfo {
+    pub fn to_device(&self) -> Device {
+        Device {
+            id: self.device_id.clone(),
+            system_name: self.system_name.clone(),
+            label: self.label.clone(),
+            kind: DeviceKind::Virtual,
+            direction: self.direction.clone(),
+            sink_mode: match self.direction {
+                DeviceDirection::Output | DeviceDirection::Duplex => Some(if self.multi {
+                    SinkMode::Multi
+                } else {
+                    SinkMode::Single
+                }),
+                DeviceDirection::Input => None,
+            },
+            volume_percent: Some(100),
+            muted: Some(false),
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReconcileState {

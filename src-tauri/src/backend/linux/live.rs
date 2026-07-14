@@ -1,11 +1,13 @@
-use crate::core::models::{Device, MixSourceSpec, RuntimeGraph};
+use crate::core::models::{Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
 use crate::backend::linux::graph_enrich;
 use crate::backend::linux::graph_routing;
 use crate::backend::linux::pw_dump::{self, PwDumpObject};
+use crate::backend::linux::virtual_devices::{VirtualDeviceEntry, VirtualDeviceRegistry};
 use crate::backend::linux::virtual_mic_mix;
+use crate::backend::slugify;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
@@ -25,6 +27,7 @@ const MAX_COALESCE_WINDOW: Duration = Duration::from_millis(400);
 pub struct LinuxPipeWireBackend {
     cached_graph: Arc<Mutex<RuntimeGraph>>,
     listener: Arc<Mutex<Option<GraphListener>>>,
+    registry: Arc<VirtualDeviceRegistry>,
 }
 
 impl LinuxPipeWireBackend {
@@ -37,11 +40,21 @@ impl LinuxPipeWireBackend {
         });
         let cached_graph = Arc::new(Mutex::new(graph));
         let listener = Arc::new(Mutex::new(None));
+        let registry = VirtualDeviceRegistry::new();
 
         Ok(Self {
             cached_graph,
             listener,
+            registry,
         })
+    }
+
+    fn create_output_internal(&self, system_name: &str, label: &str, multi: bool) -> Result<VirtualDeviceEntry, BackendError> {
+        self.registry.create_output_for(system_name, label, multi)
+    }
+
+    fn create_input_internal(&self, system_name: &str, label: &str) -> Result<VirtualDeviceEntry, BackendError> {
+        self.registry.create_input_for(system_name, label)
     }
 }
 
@@ -176,6 +189,63 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, target_is_input: bool) -> bool {
         crate::backend::linux::pw_link::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_input)
+    }
+
+    fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+        let system_name = format!("pipe-deck-{}", slugify(label));
+        Ok(self.create_output_internal(&system_name, label, multi)?.into_result())
+    }
+
+    fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError> {
+        let system_name = format!("pipe-deck-{}", slugify(label));
+        Ok(self.create_input_internal(&system_name, label)?.into_result())
+    }
+
+    fn restore_virtual_device(
+        &self,
+        system_name: &str,
+        label: &str,
+        direction: DeviceDirection,
+        multi: bool,
+        mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
+        let entry = match direction {
+            DeviceDirection::Input => self.create_input_internal(system_name, label)?,
+            DeviceDirection::Output | DeviceDirection::Duplex => {
+                self.create_output_internal(system_name, label, multi)?
+            }
+        };
+
+        if direction != DeviceDirection::Duplex && !mix_sources.is_empty() {
+            virtual_mic_mix::apply_virtual_mic_mix(&entry.to_device(), mix_sources)?;
+        }
+
+        Ok(())
+    }
+
+    fn remove_virtual_device(&self, system_name: &str) -> Result<(), BackendError> {
+        self.registry.remove_device(system_name)
+    }
+
+    fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo> {
+        let _ = self.registry.discover_from_pactl();
+        self.registry.list_devices().iter().map(|entry| entry.to_info()).collect()
+    }
+
+    fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError> {
+        let _ = crate::backend::linux::pactl::sync_feed_sink_for_virtual_input(system_name, alias);
+        let _ = self.registry.set_label(system_name, alias);
+        if let Some(entry) = self.registry.get(system_name) {
+            if let Ok(Some(new_module_id)) = crate::backend::linux::pactl::sync_virtual_device_description(
+                system_name,
+                entry.direction,
+                &entry.module_id,
+                alias,
+            ) {
+                let _ = self.registry.set_module_id(system_name, &new_module_id);
+            }
+        }
+        Ok(())
     }
 }
 

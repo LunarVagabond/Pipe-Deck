@@ -10,17 +10,11 @@ use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
     pub fn refresh_graph(&mut self) -> Result<(), EngineError> {
-        let _ = self.virtual_registry.discover_from_pactl();
         self.graph = self
             .adapter
             .fetch_graph()
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        merge_virtual_devices(
-            &mut self.graph,
-            &self.virtual_registry,
-            &mut self.device_id_remap,
-            self.adapter.as_ref(),
-        );
+        merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
         self.sync_live_graph();
         self.finalize_graph_snapshot();
         self.apply_rules_for_new_streams();
@@ -31,14 +25,8 @@ impl CoreEngine {
     }
 
     pub fn apply_graph_update(&mut self, graph: RuntimeGraph) {
-        let _ = self.virtual_registry.discover_from_pactl();
         self.graph = graph;
-        merge_virtual_devices(
-            &mut self.graph,
-            &self.virtual_registry,
-            &mut self.device_id_remap,
-            self.adapter.as_ref(),
-        );
+        merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
         self.sync_live_graph();
         self.finalize_graph_snapshot();
         self.apply_rules_for_new_streams();

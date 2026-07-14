@@ -189,7 +189,7 @@ impl CoreEngine {
 
         if self.graph.data_source != "mock" {
             let restore_result = restore::restore_profile_virtual_devices(
-                &self.virtual_registry,
+                self.adapter.as_ref(),
                 &profile,
             )
             .map_err(|error| EngineError::Adapter(error.to_string()))?;

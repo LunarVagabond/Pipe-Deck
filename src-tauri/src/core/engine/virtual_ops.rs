@@ -4,7 +4,6 @@ use crate::core::models::{
     VirtualDeviceResult,
 };
 use crate::core::restore::spec_from_create_result;
-use crate::backend::linux::virtual_devices::VirtualDeviceRegistry;
 use crate::backend::linux::virtual_mic_mix;
 use crate::pipewire::{filter_chain, pipewire_restart};
 use std::collections::{HashMap, HashSet};
@@ -22,21 +21,7 @@ impl CoreEngine {
             .map_err(|error| EngineError::Config(error.to_string()))?;
 
         if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
-            let _ = crate::backend::linux::pactl::sync_feed_sink_for_virtual_input(system_name, alias);
-
-            let registry = self.virtual_registry();
-            let _ = registry.set_label(system_name, alias);
-
-            if let Some(entry) = registry.get(system_name) {
-                if let Ok(Some(new_module_id)) = crate::backend::linux::pactl::sync_virtual_device_description(
-                    system_name,
-                    entry.direction,
-                    &entry.module_id,
-                    alias,
-                ) {
-                    let _ = registry.set_module_id(system_name, &new_module_id);
-                }
-            }
+            let _ = self.adapter.set_virtual_device_alias(system_name, alias);
         }
 
         Ok(())
@@ -58,133 +43,80 @@ impl CoreEngine {
         name: &str,
         multi: bool,
     ) -> Result<VirtualDeviceResult, EngineError> {
-        if self.graph.data_source == "mock" {
-            let slug = name.to_lowercase().replace(' ', "-");
-            let system_name = format!("pipe-deck-{slug}");
-            self.graph.devices.push(crate::core::models::Device {
-                id: format!("virtual-{slug}"),
-                system_name: system_name.clone(),
-                label: name.to_string(),
-                kind: crate::core::models::DeviceKind::Virtual,
-                direction: crate::core::models::DeviceDirection::Output,
-                sink_mode: Some(if multi {
-                    crate::core::models::SinkMode::Multi
-                } else {
-                    crate::core::models::SinkMode::Single
-                }),
-                volume_percent: Some(100),
-                muted: Some(false),
-                current_target: None,
-                current_targets: Vec::new(),
-                mix_sources: Vec::new(),
-            });
-            return Ok(VirtualDeviceResult {
-                device_id: format!("virtual-{slug}"),
-                system_name,
-                label: name.to_string(),
-                multi,
-            });
-        }
+        let result = self
+            .adapter
+            .create_virtual_output(name, multi)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
-        let result = if multi {
-            self.virtual_registry
-                .create_multi_output(name)
-                .map_err(|error| EngineError::Adapter(error.to_string()))?
-        } else {
-            self.virtual_registry
-                .create_output(name)
-                .map_err(|error| EngineError::Adapter(error.to_string()))?
-        };
-        ConfigStore::new()
-            .add_virtual_device(spec_from_create_result(
-                &result.device_id,
-                &result.system_name,
-                &result.label,
-                DeviceDirection::Output,
-                multi,
-            ))
-            .map_err(|error| EngineError::Config(error.to_string()))?;
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .add_virtual_device(spec_from_create_result(
+                    &result.device_id,
+                    &result.system_name,
+                    &result.label,
+                    DeviceDirection::Output,
+                    multi,
+                ))
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
         self.refresh_graph()?;
         Ok(result)
     }
 
     pub fn create_virtual_input(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {
-        if self.graph.data_source == "mock" {
-            let slug = name.to_lowercase().replace(' ', "-");
-            let system_name = format!("pipe-deck-{slug}");
-            self.graph.devices.push(crate::core::models::Device {
-                id: format!("virtual-{slug}"),
-                system_name: system_name.clone(),
-                label: name.to_string(),
-                kind: crate::core::models::DeviceKind::Virtual,
-                direction: crate::core::models::DeviceDirection::Input,
-                sink_mode: None,
-                volume_percent: Some(100),
-                muted: Some(false),
-                current_target: None,
-                current_targets: Vec::new(),
-                mix_sources: Vec::new(),
-            });
-            return Ok(VirtualDeviceResult {
-                device_id: format!("virtual-{slug}"),
-                system_name,
-                label: name.to_string(),
-                multi: false,
-            });
-        }
-
         let result = self
-            .virtual_registry
-            .create_input(name)
+            .adapter
+            .create_virtual_input(name)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        ConfigStore::new()
-            .add_virtual_device(spec_from_create_result(
-                &result.device_id,
-                &result.system_name,
-                &result.label,
-                DeviceDirection::Input,
-                false,
-            ))
-            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .add_virtual_device(spec_from_create_result(
+                    &result.device_id,
+                    &result.system_name,
+                    &result.label,
+                    DeviceDirection::Input,
+                    false,
+                ))
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
         self.refresh_graph()?;
         Ok(result)
     }
 
     pub fn remove_virtual_device(&mut self, system_name: &str) -> Result<(), EngineError> {
-        if self.graph.data_source == "mock" {
-            self.graph
+        if self.graph.data_source != "mock" {
+            // A deleted device's live effects conf (if any) must go with it —
+            // otherwise it's an orphan that `filter-chain.service` will keep
+            // recreating a same-named ghost sink for on every future restart,
+            // long after the device it belonged to is gone.
+            if let Some(conf_path) = filter_chain::conf_path_for_device(system_name) {
+                if conf_path.is_file() {
+                    let _ = std::fs::remove_file(&conf_path);
+                    let _ = pipewire_restart::restart_filter_chain_service();
+                }
+            }
+            if let Some(device_id) = self
+                .graph
                 .devices
-                .retain(|device| device.system_name != system_name);
-            return Ok(());
-        }
-
-        // A deleted device's live effects conf (if any) must go with it —
-        // otherwise it's an orphan that `filter-chain.service` will keep
-        // recreating a same-named ghost sink for on every future restart,
-        // long after the device it belonged to is gone.
-        if let Some(conf_path) = filter_chain::conf_path_for_device(system_name) {
-            if conf_path.is_file() {
-                let _ = std::fs::remove_file(&conf_path);
-                let _ = pipewire_restart::restart_filter_chain_service();
+                .iter()
+                .find(|device| device.system_name == system_name)
+                .map(|device| device.id.clone())
+            {
+                let _ = ConfigStore::new().remove_effect_chain(&device_id);
             }
         }
-        if let Some(device_id) = self
-            .graph
-            .devices
-            .iter()
-            .find(|device| device.system_name == system_name)
-            .map(|device| device.id.clone())
-        {
-            let _ = ConfigStore::new().remove_effect_chain(&device_id);
-        }
 
-        self.virtual_registry
-            .remove_device(system_name)
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        let _ = virtual_mic_mix::disconnect_all_virtual_mic_mixes(system_name);
-        ConfigStore::new()
+        self.adapter
             .remove_virtual_device(system_name)
-            .map_err(|error| EngineError::Config(error.to_string()))?;
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        if self.graph.data_source != "mock" {
+            let _ = virtual_mic_mix::disconnect_all_virtual_mic_mixes(system_name);
+            ConfigStore::new()
+                .remove_virtual_device(system_name)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
         self.refresh_graph()?;
         Ok(())
     }
@@ -236,28 +168,15 @@ impl CoreEngine {
             });
         }
 
-        if self.graph.data_source == "mock" {
-            if let Some(device) = self
-                .graph
-                .devices
-                .iter_mut()
-                .find(|device| device.id == virtual_mic_device_id)
-            {
-                device.mix_sources = mix_sources.to_vec();
-            }
-            return Ok(ApplyResult {
-                success: true,
-                message: Some("virtual mic mix updated (mock)".to_string()),
-            });
-        }
-
         self.adapter
             .apply_virtual_mic_mix(&virtual_mic, &mix_source_specs)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
-        ConfigStore::new()
-            .set_virtual_mic_mix_sources(&virtual_mic.system_name, &mix_source_specs)
-            .map_err(|error| EngineError::Config(error.to_string()))?;
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .set_virtual_mic_mix_sources(&virtual_mic.system_name, &mix_source_specs)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
 
         self.refresh_graph()?;
         Ok(ApplyResult {
@@ -351,36 +270,17 @@ impl CoreEngine {
             .find(|device| device.id == source_device_id)
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_device_id}")))?;
 
-        if self.graph.data_source == "mock" {
-            if let Some(device) = self
-                .graph
-                .devices
-                .iter_mut()
-                .find(|device| device.id == virtual_mic_device_id)
-            {
-                if let Some(mix_source) = device
-                    .mix_sources
-                    .iter_mut()
-                    .find(|mix_source| mix_source.device_id == source_device_id)
-                {
-                    mix_source.volume_percent = percent;
-                }
-            }
-            return Ok(ApplyResult {
-                success: true,
-                message: Some("mix source volume updated (mock)".to_string()),
-            });
-        }
-
         self.adapter
             .set_mix_source_volume(&virtual_mic.system_name, &source.system_name, percent)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
-        let virtual_mic_system_name = virtual_mic.system_name.clone();
-        let source_system_name = source.system_name.clone();
-        ConfigStore::new()
-            .update_mix_source_volume(&virtual_mic_system_name, &source_system_name, percent)
-            .map_err(|error| EngineError::Config(error.to_string()))?;
+        if self.graph.data_source != "mock" {
+            let virtual_mic_system_name = virtual_mic.system_name.clone();
+            let source_system_name = source.system_name.clone();
+            ConfigStore::new()
+                .update_mix_source_volume(&virtual_mic_system_name, &source_system_name, percent)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
 
         self.refresh_graph()?;
         Ok(ApplyResult {
@@ -410,36 +310,17 @@ impl CoreEngine {
             .find(|device| device.id == source_device_id)
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_device_id}")))?;
 
-        if self.graph.data_source == "mock" {
-            if let Some(device) = self
-                .graph
-                .devices
-                .iter_mut()
-                .find(|device| device.id == virtual_mic_device_id)
-            {
-                if let Some(mix_source) = device
-                    .mix_sources
-                    .iter_mut()
-                    .find(|mix_source| mix_source.device_id == source_device_id)
-                {
-                    mix_source.muted = muted;
-                }
-            }
-            return Ok(ApplyResult {
-                success: true,
-                message: Some("mix source mute updated (mock)".to_string()),
-            });
-        }
-
         self.adapter
             .set_mix_source_mute(&virtual_mic.system_name, &source.system_name, muted)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
-        let virtual_mic_system_name = virtual_mic.system_name.clone();
-        let source_system_name = source.system_name.clone();
-        ConfigStore::new()
-            .update_mix_source_mute(&virtual_mic_system_name, &source_system_name, muted)
-            .map_err(|error| EngineError::Config(error.to_string()))?;
+        if self.graph.data_source != "mock" {
+            let virtual_mic_system_name = virtual_mic.system_name.clone();
+            let source_system_name = source.system_name.clone();
+            ConfigStore::new()
+                .update_mix_source_mute(&virtual_mic_system_name, &source_system_name, muted)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
 
         self.refresh_graph()?;
         Ok(ApplyResult {
@@ -451,7 +332,6 @@ impl CoreEngine {
 
 pub(super) fn merge_virtual_devices(
     graph: &mut RuntimeGraph,
-    registry: &VirtualDeviceRegistry,
     device_id_remap: &mut HashMap<String, String>,
     adapter: &dyn crate::backend::AudioBackend,
 ) {
@@ -463,7 +343,7 @@ pub(super) fn merge_virtual_devices(
 
     let mut id_remap = HashMap::new();
 
-    for entry in registry.list_devices() {
+    for entry in adapter.list_virtual_devices() {
         let sink_mode = if entry.direction == crate::core::models::DeviceDirection::Output {
             let multi = multi_by_name
                 .get(&entry.system_name)

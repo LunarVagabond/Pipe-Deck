@@ -1,4 +1,4 @@
-use crate::core::models::{Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceResult};
+use crate::core::models::{Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::backend::BackendError;
 use crate::backend::linux::pactl;
 use std::collections::HashMap;
@@ -95,47 +95,55 @@ impl VirtualDeviceRegistry {
     }
 
     pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
-        self.create_output_with_mode(name, false)
+        let system_name = format!("pipe-deck-{}", slugify(name));
+        Ok(self.create_output_for(&system_name, name, false)?.into_result())
     }
 
     pub fn create_multi_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
-        self.create_output_with_mode(name, true)
+        let system_name = format!("pipe-deck-{}", slugify(name));
+        Ok(self.create_output_for(&system_name, name, true)?.into_result())
     }
 
-    fn create_output_with_mode(
+    /// `system_name` is taken as given, not re-slugified from `label` — used
+    /// both for brand-new devices (caller derives it from the label) and for
+    /// restore's config-driven recreation, where the system_name is a
+    /// persisted slug that must survive a label rename unchanged.
+    pub fn create_output_for(
         self: &Arc<Self>,
-        name: &str,
+        system_name: &str,
+        label: &str,
         multi: bool,
-    ) -> Result<VirtualDeviceResult, BackendError> {
-        let slug = slugify(name);
-        let system_name = format!("pipe-deck-{slug}");
-        let module_id = pactl::create_null_sink(&system_name, name)?;
+    ) -> Result<VirtualDeviceEntry, BackendError> {
+        let module_id = pactl::create_null_sink(system_name, label)?;
         let entry = VirtualDeviceEntry {
             module_id,
-            device_id: format!("virtual-{slug}"),
-            system_name: system_name.clone(),
-            label: name.to_string(),
+            device_id: format!("virtual-{}", system_name.trim_start_matches("pipe-deck-")),
+            system_name: system_name.to_string(),
+            label: label.to_string(),
             direction: DeviceDirection::Output,
             multi,
         };
         self.insert_entry(entry.clone())?;
-        Ok(entry.into_result())
+        Ok(entry)
     }
 
     pub fn create_input(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
-        let slug = slugify(name);
-        let system_name = format!("pipe-deck-{slug}");
-        let module_id = pactl::create_virtual_source(&system_name, name)?;
+        let system_name = format!("pipe-deck-{}", slugify(name));
+        Ok(self.create_input_for(&system_name, name)?.into_result())
+    }
+
+    pub fn create_input_for(self: &Arc<Self>, system_name: &str, label: &str) -> Result<VirtualDeviceEntry, BackendError> {
+        let module_id = pactl::create_virtual_source(system_name, label)?;
         let entry = VirtualDeviceEntry {
             module_id,
-            device_id: format!("virtual-{slug}"),
-            system_name: system_name.clone(),
-            label: name.to_string(),
+            device_id: format!("virtual-{}", system_name.trim_start_matches("pipe-deck-")),
+            system_name: system_name.to_string(),
+            label: label.to_string(),
             direction: DeviceDirection::Input,
             multi: false,
         };
         self.insert_entry(entry.clone())?;
-        Ok(entry.into_result())
+        Ok(entry)
     }
 
     pub fn remove_device(self: &Arc<Self>, system_name: &str) -> Result<(), BackendError> {
@@ -190,11 +198,21 @@ impl VirtualDeviceRegistry {
 }
 
 impl VirtualDeviceEntry {
-    fn into_result(self) -> VirtualDeviceResult {
+    pub(super) fn into_result(self) -> VirtualDeviceResult {
         VirtualDeviceResult {
             device_id: self.device_id,
             system_name: self.system_name,
             label: self.label,
+            multi: self.multi,
+        }
+    }
+
+    pub fn to_info(&self) -> VirtualDeviceInfo {
+        VirtualDeviceInfo {
+            device_id: self.device_id.clone(),
+            system_name: self.system_name.clone(),
+            label: self.label.clone(),
+            direction: self.direction.clone(),
             multi: self.multi,
         }
     }
@@ -223,21 +241,7 @@ impl VirtualDeviceEntry {
     }
 }
 
-pub fn slugify(name: &str) -> String {
-    let slug = name
-        .to_lowercase()
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-        .collect::<String>()
-        .trim_matches('-')
-        .to_string();
-
-    if slug.is_empty() {
-        "device".into()
-    } else {
-        slug
-    }
-}
+pub use crate::backend::slugify;
 
 #[cfg(test)]
 mod tests {

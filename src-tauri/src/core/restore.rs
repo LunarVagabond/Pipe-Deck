@@ -2,10 +2,9 @@ use crate::config::ConfigStore;
 use crate::core::models::{DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceSpec};
 use crate::backend::AudioBackend;
 use crate::backend::linux::pactl::{self, PactlVirtualModule};
-use crate::backend::linux::virtual_devices::{slugify, VirtualDeviceRegistry};
+use crate::backend::slugify;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -16,7 +15,7 @@ pub enum RestoreError {
     Adapter(String),
 }
 
-pub fn restore_session(registry: &Arc<VirtualDeviceRegistry>) -> Result<RestoreResult, RestoreError> {
+pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, RestoreError> {
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
         return Ok(RestoreResult {
             created: Vec::new(),
@@ -33,9 +32,6 @@ pub fn restore_session(registry: &Arc<VirtualDeviceRegistry>) -> Result<RestoreR
         .map_err(|error| RestoreError::Config(error.to_string()))?;
 
     if !config.preferences.restore_on_startup {
-        registry
-            .discover_from_pactl()
-            .map_err(|error| RestoreError::Adapter(error.to_string()))?;
         return Ok(RestoreResult {
             created: Vec::new(),
             adopted: Vec::new(),
@@ -96,7 +92,7 @@ pub fn restore_session(registry: &Arc<VirtualDeviceRegistry>) -> Result<RestoreR
             continue;
         }
 
-        match create_virtual_from_spec(spec) {
+        match restore_virtual_from_spec(backend, &system_name, spec) {
             Ok(()) => result.created.push(system_name),
             Err(error) => result.errors.push(format!("{system_name}: {error}")),
         }
@@ -124,15 +120,11 @@ pub fn restore_session(registry: &Arc<VirtualDeviceRegistry>) -> Result<RestoreR
             .map_err(|error| RestoreError::Config(error.to_string()))?;
     }
 
-    registry
-        .discover_from_pactl()
-        .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-
     Ok(result)
 }
 
 pub fn restore_profile_virtual_devices(
-    registry: &Arc<VirtualDeviceRegistry>,
+    backend: &dyn AudioBackend,
     profile: &Profile,
 ) -> Result<RestoreResult, RestoreError> {
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
@@ -189,30 +181,24 @@ pub fn restore_profile_virtual_devices(
             result.adopted.push(system_name);
             continue;
         }
-        match create_virtual_from_spec(spec) {
+        match restore_virtual_from_spec(backend, &system_name, spec) {
             Ok(()) => result.created.push(system_name),
             Err(error) => result.errors.push(format!("{system_name}: {error}")),
         }
     }
 
-    registry
-        .discover_from_pactl()
-        .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-
     Ok(result)
 }
 
-pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(), RestoreError> {
+pub fn apply_persisted_routes(backend: &dyn AudioBackend) -> Result<(), RestoreError> {
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
         return Ok(());
     }
 
-    let adapter = crate::backend::linux::live::LinuxPipeWireBackend::new()
-        .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-    let mut graph = adapter
+    let mut graph = backend
         .fetch_graph()
         .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-    merge_registry_into_graph(&mut graph, registry, &adapter);
+    merge_registry_into_graph(&mut graph, backend);
 
     let overrides = HashSet::new();
     let device_overrides = HashSet::new();
@@ -222,24 +208,20 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
         dry_run: false,
         mock_graph_only: false,
         limit_to_identities: None,
-        backend: &adapter,
+        backend,
     };
-    adapter.apply_graph_routing(&mut graph, &ctx);
+    backend.apply_graph_routing(&mut graph, &ctx);
     Ok(())
 }
 
-pub fn merge_registry_into_graph(
-    graph: &mut RuntimeGraph,
-    registry: &VirtualDeviceRegistry,
-    adapter: &dyn AudioBackend,
-) {
+pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, backend: &dyn AudioBackend) {
     let multi_by_name: std::collections::HashMap<String, bool> = ConfigStore::new()
         .virtual_devices()
         .into_iter()
         .map(|spec| (format!("pipe-deck-{}", spec.slug), spec.multi))
         .collect();
 
-    for entry in registry.list_devices() {
+    for entry in backend.list_virtual_devices() {
         let sink_mode = if entry.direction == DeviceDirection::Output {
             let multi = multi_by_name
                 .get(&entry.system_name)
@@ -271,7 +253,7 @@ pub fn merge_registry_into_graph(
         }
     }
 
-    adapter.apply_device_aliases_and_levels(&mut graph.devices);
+    backend.apply_device_aliases_and_levels(&mut graph.devices);
 }
 
 pub fn spec_from_create_result(
@@ -296,38 +278,20 @@ pub fn spec_from_create_result(
     }
 }
 
-fn create_virtual_from_spec(spec: &VirtualDeviceSpec) -> Result<(), String> {
-    let system_name = format!("pipe-deck-{}", spec.slug);
-    match spec.direction {
-        DeviceDirection::Input => pactl::create_virtual_source(&system_name, &spec.label)
-            .map(|_| ())
-            .map_err(|error| error.to_string()),
-        DeviceDirection::Output | DeviceDirection::Duplex => {
-            pactl::create_null_sink(&system_name, &spec.label)
-                .map(|_| ())
-                .map_err(|error| error.to_string())
-        }
-    }?;
-
-    if spec.direction != DeviceDirection::Duplex && !spec.mix_sources.is_empty() {
-        let virtual_input = crate::core::models::Device {
-            id: spec.id.clone(),
-            system_name: system_name.clone(),
-            label: spec.label.clone(),
-            kind: crate::core::models::DeviceKind::Virtual,
-            direction: spec.direction.clone(),
-            sink_mode: None,
-            volume_percent: None,
-            muted: None,
-            current_target: None,
-            current_targets: Vec::new(),
-            mix_sources: Vec::new(),
-        };
-        crate::backend::linux::virtual_mic_mix::apply_virtual_mic_mix(&virtual_input, &spec.mix_sources)
-            .map_err(|error| error.to_string())?;
-    }
-
-    Ok(())
+fn restore_virtual_from_spec(
+    backend: &dyn AudioBackend,
+    system_name: &str,
+    spec: &VirtualDeviceSpec,
+) -> Result<(), String> {
+    backend
+        .restore_virtual_device(
+            system_name,
+            &spec.label,
+            spec.direction.clone(),
+            spec.multi,
+            &spec.mix_sources,
+        )
+        .map_err(|error| error.to_string())
 }
 
 #[cfg(test)]

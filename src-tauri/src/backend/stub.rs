@@ -1,5 +1,5 @@
 use super::{AudioBackend, BackendError, GraphListener};
-use crate::core::models::{Device, MixSourceSpec, RuntimeGraph};
+use crate::core::models::{Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
@@ -108,4 +108,45 @@ impl AudioBackend for StubBackend {
     }
 
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
+
+    fn create_virtual_output(&self, _label: &str, _multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn create_virtual_input(&self, _label: &str) -> Result<VirtualDeviceResult, BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn restore_virtual_device(
+        &self,
+        _system_name: &str,
+        _label: &str,
+        _direction: DeviceDirection,
+        _multi: bool,
+        _mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn remove_virtual_device(&self, _system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo> {
+        Vec::new()
+    }
+
+    fn set_virtual_device_alias(&self, _system_name: &str, _alias: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
 }
