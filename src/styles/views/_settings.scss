@@ -26,8 +26,8 @@
   gap: 0.35rem;
   padding: 0.3rem;
   border-radius: 0.75rem;
-  background: rgba(11, 15, 20, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--background) 72%, transparent);
+  border: 1px solid var(--border);
   width: fit-content;
 }
 
@@ -107,6 +107,65 @@
 
 .settings-support-row {
   align-items: center;
+}
+
+.settings-subheading {
+  margin: 1.5rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  &:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+}
+
+.scheme-select-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.scheme-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  // The popup listbox is native chrome outside our styling reach in most
+  // engines; color-scheme (set on :root by src/stores/theme.ts) is what
+  // actually makes it render dark-on-dark/light-on-light instead of
+  // defaulting to a light popup on a dark page. These rules cover the
+  // engines (Firefox) that do honor option styling directly.
+  option {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+.scheme-active-badge {
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(38, 195, 163, 0.35);
+  background: rgba(38, 195, 163, 0.12);
+  color: var(--accent-teal);
+  font-size: 0.72rem;
+  font-weight: 600;
 }
 
 .settings-bmc {

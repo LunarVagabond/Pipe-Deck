@@ -18,7 +18,7 @@
   position: sticky;
   top: 0;
   overflow: hidden;
-  background: #0b0f14;
+  background: var(--background);
   border-right: 1px solid var(--border);
   padding: 1.25rem 0.85rem;
 }
@@ -245,7 +245,7 @@
   z-index: 2;
   padding: 0.85rem 1.5rem;
   border-bottom: 1px solid var(--border);
-  background: rgba(11, 15, 20, 0.95);
+  background: color-mix(in srgb, var(--background) 95%, transparent);
   backdrop-filter: blur(8px);
 }
 
@@ -268,5 +268,5 @@
   min-width: 0;
   overflow: auto;
   padding: 1.25rem 1.5rem 1.5rem;
-  background: linear-gradient(180deg, #0b0f14 0%, #10151d 100%);
+  background: var(--background);
 }

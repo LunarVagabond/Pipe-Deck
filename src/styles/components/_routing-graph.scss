@@ -184,7 +184,7 @@
   max-width: 260px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: rgba(11, 15, 20, 0.92);
+  background: color-mix(in srgb, var(--background) 92%, transparent);
   display: flex;
   align-items: stretch;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);

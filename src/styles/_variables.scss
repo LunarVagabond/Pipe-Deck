@@ -5,11 +5,16 @@
   font-weight: 400;
   color: #e6e9ef;
   background-color: #0b0f14;
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
+  // Built-in fallback palette (Midnight Deck / dark #1) — pre-JS and failure-mode
+  // fallback only. Applied schemes override these via inline styles on :root
+  // at runtime (see src/stores/theme.ts).
+  --background: #0b0f14;
   --surface-1: #131820;
   --surface-2: #1c2330;
   --border: #2a3344;

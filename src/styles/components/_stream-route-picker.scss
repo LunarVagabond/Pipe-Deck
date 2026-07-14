@@ -92,7 +92,7 @@
       flex-shrink: 0;
       border: 1.5px solid rgba(124, 92, 255, 0.55);
       border-radius: 4px;
-      background: rgba(11, 15, 20, 0.9);
+      background: var(--surface-1);
       display: grid;
       place-content: center;
       cursor: pointer;

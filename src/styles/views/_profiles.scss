@@ -177,7 +177,7 @@
 .profile-details {
   border: 1px solid var(--border);
   border-radius: 12px;
-  background: rgba(19, 24, 32, 0.8);
+  background: color-mix(in srgb, var(--surface-1) 80%, transparent);
   padding: 1rem;
 
   h3 {
