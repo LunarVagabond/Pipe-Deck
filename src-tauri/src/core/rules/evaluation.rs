@@ -10,8 +10,8 @@ use crate::core::rules::matching::{
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_display_label, stream_identity_key};
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pw_link;
+use crate::backend::BackendError;
+use crate::backend::linux::pw_link;
 use std::collections::HashSet;
 
 pub fn evaluate_stream_route(
@@ -86,7 +86,7 @@ pub fn evaluate_stream_route(
 pub fn apply_routing_rules_with_explanations(
     graph: &mut RuntimeGraph,
     ctx: &ApplyRulesContext<'_>,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let config = ConfigStore::new()
         .load_config()
         .unwrap_or_else(|_| ConfigStore::default_config());
@@ -158,7 +158,7 @@ pub fn apply_routing_rules_with_explanations(
             Ok(())
         } else {
             crate::core::routing::apply_stream_to_sink(graph, &stream, &target_device.id)
-                .map_err(|error| AdapterError::Message(error.to_string()))
+                .map_err(|error| BackendError::Message(error.to_string()))
         };
 
         match apply_result {
@@ -190,7 +190,7 @@ fn apply_device_rules(
     graph: &mut RuntimeGraph,
     device_rules: &[DeviceRouteRule],
     ctx: &ApplyRulesContext<'_>,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     if ctx.dry_run {
         return Ok(());
     }

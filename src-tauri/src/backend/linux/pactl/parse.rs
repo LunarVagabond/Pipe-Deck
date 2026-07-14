@@ -1,5 +1,5 @@
 use crate::core::models::{StreamDirection};
-use crate::pipewire::adapter::AdapterError;
+use crate::backend::BackendError;
 use std::collections::HashMap;
 use std::process::Command;
 
@@ -153,14 +153,14 @@ pub fn stream_matches_source_output(
     }
 }
 
-pub(crate) fn find_sink_input_index(_graph: &crate::core::models::RuntimeGraph, stream: &crate::core::models::Stream) -> Result<u32, AdapterError> {
+pub(crate) fn find_sink_input_index(_graph: &crate::core::models::RuntimeGraph, stream: &crate::core::models::Stream) -> Result<u32, BackendError> {
     for input in list_sink_inputs() {
         if stream_matches_sink_input(stream, &input) {
             return Ok(input.index);
         }
     }
 
-    Err(AdapterError::Message(format!(
+    Err(BackendError::Message(format!(
         "could not find pactl sink-input for stream {}",
         stream.app_name
     )))
@@ -169,14 +169,14 @@ pub(crate) fn find_sink_input_index(_graph: &crate::core::models::RuntimeGraph, 
 pub(crate) fn find_source_output_index(
     _graph: &crate::core::models::RuntimeGraph,
     stream: &crate::core::models::Stream,
-) -> Result<u32, AdapterError> {
+) -> Result<u32, BackendError> {
     for output in list_source_outputs() {
         if stream_matches_source_output(stream, &output) {
             return Ok(output.index);
         }
     }
 
-    Err(AdapterError::Message(format!(
+    Err(BackendError::Message(format!(
         "could not find pactl source-output for stream {}",
         stream.app_name
     )))

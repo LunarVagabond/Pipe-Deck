@@ -1,14 +1,14 @@
 use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph};
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl;
-use crate::pipewire::pw_link;
+use crate::backend::BackendError;
+use crate::backend::linux::pactl;
+use crate::backend::linux::pw_link;
 use std::collections::HashSet;
 
 pub fn apply_stream_to_sink(
     graph: &RuntimeGraph,
     stream_id: &str,
     target_device_id: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     pactl::move_stream_to_target(graph, stream_id, target_device_id)
 }
 
@@ -16,15 +16,15 @@ pub fn apply_sink_targets(
     graph: &RuntimeGraph,
     sink_device_id: &str,
     target_device_ids: &[String],
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let sink = graph
         .devices
         .iter()
         .find(|device| device.id == sink_device_id)
-        .ok_or_else(|| AdapterError::Message(format!("sink device not found: {sink_device_id}")))?;
+        .ok_or_else(|| BackendError::Message(format!("sink device not found: {sink_device_id}")))?;
 
     if sink.kind != DeviceKind::Virtual || sink.direction != DeviceDirection::Output {
-        return Err(AdapterError::Message(
+        return Err(BackendError::Message(
             "only virtual output sinks can fan out to targets".into(),
         ));
     }
@@ -39,7 +39,7 @@ pub fn apply_sink_targets(
             .iter()
             .find(|device| device.id == target_device_ids[0])
             .ok_or_else(|| {
-                AdapterError::Message(format!(
+                BackendError::Message(format!(
                     "target device not found: {}",
                     target_device_ids[0]
                 ))
@@ -65,14 +65,14 @@ pub fn fan_out_sink(
     graph: &RuntimeGraph,
     sink_system_name: &str,
     target_device_ids: &[String],
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let mut linked = HashSet::new();
     for target_id in target_device_ids {
         let target = graph
             .devices
             .iter()
             .find(|device| device.id == *target_id)
-            .ok_or_else(|| AdapterError::Message(format!("target device not found: {target_id}")))?;
+            .ok_or_else(|| BackendError::Message(format!("target device not found: {target_id}")))?;
         validate_fan_out_target(target)?;
         let target_is_virtual_source =
             target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
@@ -91,7 +91,7 @@ pub fn fan_out_sink(
 pub fn prune_stale_fan_out_links(
     sink_system_name: &str,
     allowed_targets: &HashSet<String>,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let routes = pw_link::list_all_monitor_routes_for_source(sink_system_name);
     for target_name in routes {
         if !allowed_targets.contains(&target_name) {
@@ -101,11 +101,11 @@ pub fn prune_stale_fan_out_links(
     Ok(())
 }
 
-fn validate_fan_out_target(device: &Device) -> Result<(), AdapterError> {
+fn validate_fan_out_target(device: &Device) -> Result<(), BackendError> {
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => Ok(()),
         DeviceDirection::Input if device.kind == DeviceKind::Virtual => Ok(()),
-        _ => Err(AdapterError::Message(
+        _ => Err(BackendError::Message(
             "fan-out targets must be outputs or virtual inputs".into(),
         )),
     }

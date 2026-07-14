@@ -4,7 +4,7 @@ use crate::core::models::{
 };
 use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::CandidateRule;
-use crate::pipewire::pw_link;
+use crate::backend::linux::pw_link;
 use regex::Regex;
 use std::collections::HashSet;
 

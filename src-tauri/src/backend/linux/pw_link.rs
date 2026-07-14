@@ -1,4 +1,4 @@
-use crate::pipewire::adapter::AdapterError;
+use crate::backend::BackendError;
 use std::process::Command;
 
 const STEREO_MONITOR_SUFFIXES: [(&str, &str); 2] = [(":monitor_FL", ":playback_FL"), (":monitor_FR", ":playback_FR")];
@@ -8,7 +8,7 @@ pub fn link_sink_monitor_to_target(
     source_system_name: &str,
     target_system_name: &str,
     target_is_virtual_source: bool,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let suffix_pairs = if target_is_virtual_source {
         &STEREO_INPUT_SUFFIXES[..]
     } else {
@@ -97,7 +97,7 @@ pub fn list_all_monitor_routes_for_source(source_system_name: &str) -> Vec<Strin
 pub fn disconnect_sink_monitor_route(
     source_system_name: &str,
     target_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     disconnect_stereo_route(source_system_name, target_system_name, &STEREO_MONITOR_SUFFIXES)?;
     disconnect_stereo_route(source_system_name, target_system_name, &STEREO_INPUT_SUFFIXES)
 }
@@ -106,7 +106,7 @@ fn disconnect_stereo_route(
     source_system_name: &str,
     target_system_name: &str,
     suffix_pairs: &[(&str, &str)],
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     for (source_suffix, target_suffix) in suffix_pairs {
         let output_port = format!("{source_system_name}{source_suffix}");
         let input_port = format!("{target_system_name}{target_suffix}");
@@ -115,7 +115,7 @@ fn disconnect_stereo_route(
     Ok(())
 }
 
-pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), AdapterError> {
+pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), BackendError> {
     for (output_port, input_port) in list_monitor_links_for_source(source_system_name) {
         let _ = run_pw_link(&["-d", &output_port, &input_port]);
     }
@@ -132,14 +132,14 @@ pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), AdapterEr
 pub fn link_capture_source_to_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     link_capture_source_to_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
 }
 
 pub fn disconnect_capture_source_from_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     disconnect_capture_source_from_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
 }
 
@@ -150,14 +150,14 @@ pub fn disconnect_capture_source_from_virtual_input(
 pub fn link_capture_source_to_sink(
     capture_source_system_name: &str,
     sink_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     link_capture_source_to_target_ports(capture_source_system_name, sink_system_name, "playback_")
 }
 
 pub fn disconnect_capture_source_from_sink(
     capture_source_system_name: &str,
     sink_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     disconnect_capture_source_from_target_ports(capture_source_system_name, sink_system_name, "playback_")
 }
 
@@ -165,17 +165,17 @@ fn link_capture_source_to_target_ports(
     capture_source_system_name: &str,
     target_system_name: &str,
     target_port_prefix: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let source_ports = output_ports_for(capture_source_system_name);
     if source_ports.is_empty() {
-        return Err(AdapterError::Message(format!(
+        return Err(BackendError::Message(format!(
             "capture source {capture_source_system_name} has no output ports"
         )));
     }
 
     let target_ports = target_ports_with_prefix(target_system_name, target_port_prefix);
     if target_ports.is_empty() {
-        return Err(AdapterError::Message(format!(
+        return Err(BackendError::Message(format!(
             "{target_system_name} has no {target_port_prefix}* ports to mix into"
         )));
     }
@@ -203,7 +203,7 @@ fn disconnect_capture_source_from_target_ports(
     capture_source_system_name: &str,
     target_system_name: &str,
     target_port_prefix: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let target_prefix = format!("{target_system_name}:{target_port_prefix}");
     for (output_port, input_port) in list_capture_links_for_source(capture_source_system_name) {
         if input_port.starts_with(&target_prefix) {
@@ -395,18 +395,18 @@ fn list_monitor_links_for_source(source_system_name: &str) -> Vec<(String, Strin
     links
 }
 
-fn run_pw_link(args: &[&str]) -> Result<(), AdapterError> {
+fn run_pw_link(args: &[&str]) -> Result<(), BackendError> {
     let output = Command::new("pw-link")
         .args(args)
         .output()
-        .map_err(|error| AdapterError::Message(format!("failed to run pw-link: {error}")))?;
+        .map_err(|error| BackendError::Message(format!("failed to run pw-link: {error}")))?;
 
     if output.status.success() {
         return Ok(());
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(AdapterError::Message(format!(
+    Err(BackendError::Message(format!(
         "pw-link {} failed: {stderr}",
         args.join(" ")
     )))

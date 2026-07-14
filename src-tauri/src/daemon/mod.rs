@@ -1,7 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::DaemonStatus;
 use crate::core::restore::{self, RestoreError};
-use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
+use crate::backend::linux::virtual_devices::VirtualDeviceRegistry;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;

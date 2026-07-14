@@ -1,7 +1,7 @@
 use crate::core::models::{Device, DeviceDirection, DeviceKind, MixSourceSpec};
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl;
-use crate::pipewire::pw_link;
+use crate::backend::BackendError;
+use crate::backend::linux::pactl;
+use crate::backend::linux::pw_link;
 use std::collections::HashSet;
 
 /// Applies a virtual mic's mix sources, each through its own per-pair feed
@@ -10,9 +10,9 @@ use std::collections::HashSet;
 pub fn apply_virtual_mic_mix(
     virtual_input: &Device,
     mix_sources: &[MixSourceSpec],
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     if virtual_input.kind != DeviceKind::Virtual || virtual_input.direction == DeviceDirection::Duplex {
-        return Err(AdapterError::Message(
+        return Err(BackendError::Message(
             "mix sources can only be attached to a virtual input or virtual output".into(),
         ));
     }
@@ -22,7 +22,7 @@ pub fn apply_virtual_mic_mix(
 
     for mix_source in mix_sources {
         if mix_source.system_name == own_playback_feed {
-            return Err(AdapterError::Message(
+            return Err(BackendError::Message(
                 "cannot mix a virtual mic's own playback feed sink into itself".into(),
             ));
         }
@@ -51,7 +51,7 @@ pub fn set_mix_source_volume(
     virtual_input_system_name: &str,
     source_system_name: &str,
     volume_percent: u8,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
     pactl::set_sink_volume_by_name(&feed_name, volume_percent)
 }
@@ -63,12 +63,12 @@ pub fn set_mix_source_mute(
     virtual_input_system_name: &str,
     source_system_name: &str,
     muted: bool,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
     pactl::set_sink_mute_by_name(&feed_name, muted)
 }
 
-pub fn disconnect_all_virtual_mic_mixes(virtual_input_system_name: &str) -> Result<(), AdapterError> {
+pub fn disconnect_all_virtual_mic_mixes(virtual_input_system_name: &str) -> Result<(), BackendError> {
     pactl::gc_feed_sinks_for_mix_pairs(virtual_input_system_name, &HashSet::new())
 }
 

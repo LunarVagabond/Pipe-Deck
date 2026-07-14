@@ -1,4 +1,4 @@
-use crate::pipewire::adapter::AdapterError;
+use crate::backend::BackendError;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -12,29 +12,29 @@ const FILTER_CHAIN_SERVICE: &str = "filter-chain.service";
 
 /// Restarts the filter-chain daemon and waits for it to report active.
 /// Never touches `pipewire.service` / `pipewire-pulse.service` / `wireplumber.service`.
-pub fn restart_filter_chain_service() -> Result<(), AdapterError> {
+pub fn restart_filter_chain_service() -> Result<(), BackendError> {
     run_systemctl(&["--user", "restart", FILTER_CHAIN_SERVICE])?;
     wait_for_active(FILTER_CHAIN_SERVICE, Duration::from_secs(5))
 }
 
-fn run_systemctl(args: &[&str]) -> Result<(), AdapterError> {
+fn run_systemctl(args: &[&str]) -> Result<(), BackendError> {
     let output = Command::new("systemctl")
         .args(args)
         .output()
-        .map_err(|error| AdapterError::Message(format!("failed to run systemctl: {error}")))?;
+        .map_err(|error| BackendError::Message(format!("failed to run systemctl: {error}")))?;
 
     if output.status.success() {
         return Ok(());
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(AdapterError::Message(format!(
+    Err(BackendError::Message(format!(
         "systemctl {} failed: {stderr}",
         args.join(" ")
     )))
 }
 
-fn wait_for_active(unit: &str, timeout: Duration) -> Result<(), AdapterError> {
+fn wait_for_active(unit: &str, timeout: Duration) -> Result<(), BackendError> {
     let start = Instant::now();
     loop {
         let output = Command::new("systemctl")
@@ -46,7 +46,7 @@ fn wait_for_active(unit: &str, timeout: Duration) -> Result<(), AdapterError> {
             }
         }
         if start.elapsed() > timeout {
-            return Err(AdapterError::Message(format!(
+            return Err(BackendError::Message(format!(
                 "{unit} did not report active within {timeout:?} after restart"
             )));
         }

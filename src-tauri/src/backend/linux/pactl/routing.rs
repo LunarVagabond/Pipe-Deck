@@ -1,12 +1,12 @@
 use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirection};
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl::parse::{find_sink_input_index, find_source_output_index};
-use crate::pipewire::pactl::run_pactl;
-use crate::pipewire::pactl::r#virtual::{
+use crate::backend::BackendError;
+use crate::backend::linux::pactl::parse::{find_sink_input_index, find_source_output_index};
+use crate::backend::linux::pactl::run_pactl;
+use crate::backend::linux::pactl::r#virtual::{
     create_null_sink, create_virtual_source, ensure_feed_sink_for_virtual_input,
     feed_sink_name_for_virtual_input, sink_exists,
 };
-use crate::pipewire::pw_link;
+use crate::backend::linux::pw_link;
 use std::collections::HashSet;
 use std::process::Command;
 
@@ -14,12 +14,12 @@ pub fn move_stream_to_target(
     graph: &RuntimeGraph,
     stream_id: &str,
     target_device_id: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let target = graph
         .devices
         .iter()
         .find(|device| device.id == target_device_id)
-        .ok_or_else(|| AdapterError::Message(format!("target device not found: {target_device_id}")))?;
+        .ok_or_else(|| BackendError::Message(format!("target device not found: {target_device_id}")))?;
 
     move_stream_to_resolved_target(graph, stream_id, target)
 }
@@ -28,15 +28,15 @@ pub fn move_stream_to_sink_name(
     graph: &RuntimeGraph,
     stream_id: &str,
     sink_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let stream = graph
         .streams
         .iter()
         .find(|stream| stream.id == stream_id)
-        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+        .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
 
     if stream.direction != StreamDirection::Playback {
-        return Err(AdapterError::Message(
+        return Err(BackendError::Message(
             "only playback streams can be moved to a sink".into(),
         ));
     }
@@ -57,12 +57,12 @@ pub fn clear_stream_target(
     graph: &RuntimeGraph,
     stream_id: &str,
     avoid_target_device_id: Option<&str>,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let stream = graph
         .streams
         .iter()
         .find(|stream| stream.id == stream_id)
-        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+        .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
 
     match stream.direction {
         StreamDirection::Playback => {
@@ -88,7 +88,7 @@ pub fn clear_stream_target(
     Ok(())
 }
 
-fn move_sink_input_with_fallback(index: u32, sink_name: &str) -> Result<(), AdapterError> {
+fn move_sink_input_with_fallback(index: u32, sink_name: &str) -> Result<(), BackendError> {
     if run_pactl(&["move-sink-input", &index.to_string(), sink_name]).is_ok() {
         return Ok(());
     }
@@ -101,7 +101,7 @@ fn move_sink_input_with_fallback(index: u32, sink_name: &str) -> Result<(), Adap
     Ok(())
 }
 
-fn move_source_output_with_fallback(index: u32, source_name: &str) -> Result<(), AdapterError> {
+fn move_source_output_with_fallback(index: u32, source_name: &str) -> Result<(), BackendError> {
     if run_pactl(&["move-source-output", &index.to_string(), source_name]).is_ok() {
         return Ok(());
     }
@@ -114,7 +114,7 @@ fn move_source_output_with_fallback(index: u32, source_name: &str) -> Result<(),
     Ok(())
 }
 
-fn ensure_unrouted_playback_sink() -> Result<(), AdapterError> {
+fn ensure_unrouted_playback_sink() -> Result<(), BackendError> {
     if sink_exists(UNROUTED_PLAYBACK_SINK)? {
         return Ok(());
     }
@@ -122,7 +122,7 @@ fn ensure_unrouted_playback_sink() -> Result<(), AdapterError> {
     Ok(())
 }
 
-fn ensure_unrouted_capture_source() -> Result<(), AdapterError> {
+fn ensure_unrouted_capture_source() -> Result<(), BackendError> {
     if sink_exists(UNROUTED_CAPTURE_SOURCE)? {
         return Ok(());
     }
@@ -155,7 +155,7 @@ fn avoid_source_system_names(
 fn resolve_clear_playback_sink(
     graph: &RuntimeGraph,
     avoid: &HashSet<String>,
-) -> Result<String, AdapterError> {
+) -> Result<String, BackendError> {
     if let Some(default_sink) = get_default_sink_name() {
         if !avoid.contains(&default_sink) {
             return Ok(default_sink);
@@ -185,7 +185,7 @@ fn resolve_clear_playback_sink(
 fn resolve_clear_capture_source(
     graph: &RuntimeGraph,
     avoid: &HashSet<String>,
-) -> Result<String, AdapterError> {
+) -> Result<String, BackendError> {
     if let Some(default_source) = get_default_source_name() {
         if !avoid.contains(&default_source) {
             return Ok(default_source);
@@ -234,18 +234,18 @@ fn move_stream_to_resolved_target(
     graph: &RuntimeGraph,
     stream_id: &str,
     target: &crate::core::models::Device,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let stream = graph
         .streams
         .iter()
         .find(|stream| stream.id == stream_id)
-        .ok_or_else(|| AdapterError::Message(format!("stream not found: {stream_id}")))?;
+        .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
 
     match stream.direction {
         StreamDirection::Playback => {
             let sink_name = resolve_playback_sink_name(target)?;
             if !matches!(target.direction, DeviceDirection::Output | DeviceDirection::Duplex | DeviceDirection::Input) {
-                return Err(AdapterError::Message(
+                return Err(BackendError::Message(
                     "playback streams must target an output or virtual input".into(),
                 ));
             }
@@ -254,7 +254,7 @@ fn move_stream_to_resolved_target(
         }
         StreamDirection::Capture => {
             if !matches!(target.direction, DeviceDirection::Input | DeviceDirection::Duplex) {
-                return Err(AdapterError::Message(
+                return Err(BackendError::Message(
                     "capture streams must target an input device".into(),
                 ));
             }
@@ -270,7 +270,7 @@ fn move_stream_to_resolved_target(
     Ok(())
 }
 
-fn resolve_playback_sink_name(target: &crate::core::models::Device) -> Result<String, AdapterError> {
+fn resolve_playback_sink_name(target: &crate::core::models::Device) -> Result<String, BackendError> {
     if target.direction == DeviceDirection::Input && target.kind == crate::core::models::DeviceKind::Virtual {
         let feed_sink = ensure_feed_sink_for_virtual_input(&target.system_name, &target.label)?;
         pw_link::link_sink_monitor_to_target(&feed_sink, &target.system_name, true)?;
@@ -278,7 +278,7 @@ fn resolve_playback_sink_name(target: &crate::core::models::Device) -> Result<St
     }
 
     if !matches!(target.direction, DeviceDirection::Output | DeviceDirection::Duplex) {
-        return Err(AdapterError::Message(
+        return Err(BackendError::Message(
             "playback streams must target an output device".into(),
         ));
     }

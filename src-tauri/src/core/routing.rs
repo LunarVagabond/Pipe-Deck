@@ -1,14 +1,14 @@
 use crate::core::models::{
     DeviceDirection, DeviceKind, DeviceRouteIntent, Profile, RoutingIntent, RuntimeGraph, Stream,
 };
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::split_sink;
+use crate::backend::BackendError;
+use crate::backend::linux::split_sink;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum RoutingError {
     #[error("adapter error: {0}")]
-    Adapter(#[from] AdapterError),
+    Adapter(#[from] BackendError),
     #[error("{0}")]
     Message(String),
 }
@@ -100,8 +100,8 @@ pub fn apply_profile_volumes(
     profile: &Profile,
 ) -> Result<(), RoutingError> {
     for (device_id, state) in &profile.volume_state {
-        crate::pipewire::pactl::set_device_volume(device_id, graph, state.volume_percent)?;
-        crate::pipewire::pactl::set_device_mute(device_id, graph, state.muted)?;
+        crate::backend::linux::pactl::set_device_volume(device_id, graph, state.volume_percent)?;
+        crate::backend::linux::pactl::set_device_mute(device_id, graph, state.muted)?;
     }
     Ok(())
 }

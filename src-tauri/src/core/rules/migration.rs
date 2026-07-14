@@ -1,6 +1,6 @@
 use crate::config::store::ConfigStore;
 use crate::core::models::{RoutingRulesConfig, Rule, RuleCondition};
-use crate::pipewire::adapter::AdapterError;
+use crate::backend::BackendError;
 
 pub fn migrate_routing_rules_to_authored(rules: &RoutingRulesConfig) -> Vec<Rule> {
     rules
@@ -46,11 +46,11 @@ pub fn migrate_routing_rules_to_authored(rules: &RoutingRulesConfig) -> Vec<Rule
         .collect()
 }
 
-pub fn ensure_rules_migrated() -> Result<(), AdapterError> {
+pub fn ensure_rules_migrated() -> Result<(), BackendError> {
     let store = ConfigStore::new();
     let mut config = store
         .load_config()
-        .map_err(|error| AdapterError::Message(error.to_string()))?;
+        .map_err(|error| BackendError::Message(error.to_string()))?;
 
     if !config.rules.is_empty() || config.routing_rules.stream_rules.is_empty() {
         return Ok(());
@@ -60,5 +60,5 @@ pub fn ensure_rules_migrated() -> Result<(), AdapterError> {
     config.routing_rules.stream_rules.clear();
     store
         .save_config(&config)
-        .map_err(|error| AdapterError::Message(error.to_string()))
+        .map_err(|error| BackendError::Message(error.to_string()))
 }

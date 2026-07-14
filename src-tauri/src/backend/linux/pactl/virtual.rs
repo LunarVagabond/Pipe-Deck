@@ -1,9 +1,9 @@
 use crate::config::store::ConfigStore;
 use crate::core::models::DeviceDirection;
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl::parse::{list_sink_inputs, load_sink_index_names};
-use crate::pipewire::pactl::run_pactl;
-use crate::pipewire::pw_link;
+use crate::backend::BackendError;
+use crate::backend::linux::pactl::parse::{list_sink_inputs, load_sink_index_names};
+use crate::backend::linux::pactl::run_pactl;
+use crate::backend::linux::pw_link;
 use std::collections::HashMap;
 
 /// Renames the live PipeWire/PulseAudio node backing a primary virtual
@@ -20,7 +20,7 @@ pub fn sync_virtual_device_description(
     direction: DeviceDirection,
     module_id: &str,
     description: &str,
-) -> Result<Option<String>, AdapterError> {
+) -> Result<Option<String>, BackendError> {
     if sink_description(system_name)?.as_deref() == Some(description) {
         return Ok(None);
     }
@@ -39,7 +39,7 @@ pub fn sync_virtual_device_description(
     Ok(Some(new_module_id))
 }
 
-pub fn virtual_device_in_use(system_name: &str) -> Result<bool, AdapterError> {
+pub fn virtual_device_in_use(system_name: &str) -> Result<bool, BackendError> {
     let sink_names = load_sink_index_names();
     Ok(list_sink_inputs().iter().any(|input| {
         input
@@ -70,7 +70,7 @@ pub fn sink_input_indices_on(system_name: &str) -> Vec<u32> {
 /// streams were doing — see `core::engine::effects_ops::apply_effect_chain_structural`.
 pub const HOLDING_SINK_NAME: &str = "pipe-deck-hold";
 
-pub fn ensure_holding_sink() -> Result<(), AdapterError> {
+pub fn ensure_holding_sink() -> Result<(), BackendError> {
     if sink_exists(HOLDING_SINK_NAME)? {
         return Ok(());
     }
@@ -82,7 +82,7 @@ pub fn ensure_holding_sink() -> Result<(), AdapterError> {
 /// for the duration of a single swap, not persist across the session. Safe to
 /// call even if the sink is still carrying streams or doesn't exist: skips
 /// removal rather than risk stranding audio, and no-ops if already gone.
-pub fn remove_holding_sink() -> Result<(), AdapterError> {
+pub fn remove_holding_sink() -> Result<(), BackendError> {
     if !sink_exists(HOLDING_SINK_NAME)? {
         return Ok(());
     }
@@ -102,7 +102,7 @@ pub fn feed_sink_description(virtual_mic_label: &str) -> String {
 pub fn sync_feed_sink_for_virtual_input(
     virtual_input_system_name: &str,
     label: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
     if !sink_exists(&feed_name)? {
         return Ok(());
@@ -122,7 +122,7 @@ pub fn feed_sink_name_for_virtual_input(virtual_input_system_name: &str) -> Stri
     format!("pipe-deck-feed-{slug}")
 }
 
-pub fn remove_feed_sink_for_virtual_input(virtual_input_system_name: &str) -> Result<(), AdapterError> {
+pub fn remove_feed_sink_for_virtual_input(virtual_input_system_name: &str) -> Result<(), BackendError> {
     let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
     let _ = pw_link::disconnect_sink_monitor(&feed_name);
     if let Some(module_id) = find_module_id_by_sink_name(&feed_name)? {
@@ -131,7 +131,7 @@ pub fn remove_feed_sink_for_virtual_input(virtual_input_system_name: &str) -> Re
     Ok(())
 }
 
-pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -> Result<(), AdapterError> {
+pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -> Result<(), BackendError> {
     let sink_names = load_sink_index_names();
     let sinks_with_inputs: std::collections::HashSet<String> = list_sink_inputs()
         .iter()
@@ -184,12 +184,12 @@ fn is_per_pair_mix_feed_sink(feed_sink_rest: &str, known_slugs: &std::collection
         .any(|slug| feed_sink_rest.starts_with(&format!("{slug}-")))
 }
 
-pub fn sink_exists(name: &str) -> Result<bool, AdapterError> {
+pub fn sink_exists(name: &str) -> Result<bool, BackendError> {
     let output = run_pactl(&["list", "sinks", "short"])?;
     Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
 
-pub fn create_null_sink(name: &str, description: &str) -> Result<String, AdapterError> {
+pub fn create_null_sink(name: &str, description: &str) -> Result<String, BackendError> {
     let props = description_module_args(description);
     let output = run_pactl(&[
         "load-module",
@@ -204,7 +204,7 @@ pub fn create_null_sink(name: &str, description: &str) -> Result<String, Adapter
 
 /// PipeWire does not provide `module-null-source`. Create a virtual capture
 /// endpoint using a null sink configured as an Audio/Source node.
-pub fn create_virtual_source(name: &str, description: &str) -> Result<String, AdapterError> {
+pub fn create_virtual_source(name: &str, description: &str) -> Result<String, BackendError> {
     let props = description_module_args(description);
     let output = run_pactl(&[
         "load-module",
@@ -219,7 +219,7 @@ pub fn create_virtual_source(name: &str, description: &str) -> Result<String, Ad
     Ok(output.trim().to_string())
 }
 
-pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, AdapterError> {
+pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, BackendError> {
     let output = run_pactl(&["list", "modules", "short"])?;
     for line in output.lines() {
         let Some((module_id, args)) = parse_module_short_line(line) else {
@@ -232,7 +232,7 @@ pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, Ad
     Ok(None)
 }
 
-pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, AdapterError> {
+pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, BackendError> {
     let output = run_pactl(&["list", "modules", "short"])?;
     let mut entries = Vec::new();
     let config_labels = configured_virtual_labels();
@@ -281,7 +281,7 @@ pub struct PactlVirtualModule {
     pub multi: bool,
 }
 
-pub fn unload_module(module_id: &str) -> Result<(), AdapterError> {
+pub fn unload_module(module_id: &str) -> Result<(), BackendError> {
     run_pactl(&["unload-module", module_id]).map(|_| ())
 }
 
@@ -307,7 +307,7 @@ pub fn ensure_feed_sink_for_mix_pair(
     mic_system_name: &str,
     source_system_name: &str,
     mic_label: &str,
-) -> Result<String, AdapterError> {
+) -> Result<String, BackendError> {
     let feed_name = feed_sink_name_for_mix_pair(mic_system_name, source_system_name);
     if sink_exists(&feed_name)? {
         return Ok(feed_name);
@@ -319,7 +319,7 @@ pub fn ensure_feed_sink_for_mix_pair(
 pub fn remove_feed_sink_for_mix_pair(
     mic_system_name: &str,
     source_system_name: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let feed_name = feed_sink_name_for_mix_pair(mic_system_name, source_system_name);
     let _ = pw_link::disconnect_sink_monitor(&feed_name);
     if let Some(module_id) = find_module_id_by_sink_name(&feed_name)? {
@@ -334,7 +334,7 @@ pub fn remove_feed_sink_for_mix_pair(
 pub fn gc_feed_sinks_for_mix_pairs(
     mic_system_name: &str,
     keep_source_system_names: &std::collections::HashSet<String>,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     let mic_slug = mic_system_name
         .strip_prefix("pipe-deck-")
         .unwrap_or(mic_system_name);
@@ -358,7 +358,7 @@ pub fn gc_feed_sinks_for_mix_pairs(
 pub(crate) fn ensure_feed_sink_for_virtual_input(
     virtual_input_system_name: &str,
     label: &str,
-) -> Result<String, AdapterError> {
+) -> Result<String, BackendError> {
     let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
     let description = feed_sink_description(label);
 
@@ -375,7 +375,7 @@ fn sync_feed_sink_description(
     feed_name: &str,
     virtual_input_system_name: &str,
     description: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     if sink_description(feed_name)?.as_deref() == Some(description) {
         return Ok(());
     }
@@ -389,7 +389,7 @@ fn sync_feed_sink_description(
     Ok(())
 }
 
-fn feed_sink_in_use(feed_name: &str) -> Result<bool, AdapterError> {
+fn feed_sink_in_use(feed_name: &str) -> Result<bool, BackendError> {
     let sink_names = load_sink_index_names();
     Ok(list_sink_inputs().iter().any(|input| {
         input
@@ -399,7 +399,7 @@ fn feed_sink_in_use(feed_name: &str) -> Result<bool, AdapterError> {
     }))
 }
 
-fn sink_description(name: &str) -> Result<Option<String>, AdapterError> {
+fn sink_description(name: &str) -> Result<Option<String>, BackendError> {
     let output = run_pactl(&["list", "sinks"])?;
     let mut current_name = None;
 
@@ -419,7 +419,7 @@ fn sink_description(name: &str) -> Result<Option<String>, AdapterError> {
     Ok(None)
 }
 
-fn list_modules_for_sink_prefix(prefix: &str) -> Result<Vec<(String, String)>, AdapterError> {
+fn list_modules_for_sink_prefix(prefix: &str) -> Result<Vec<(String, String)>, BackendError> {
     let output = run_pactl(&["list", "modules", "short"])?;
     let mut entries = Vec::new();
 

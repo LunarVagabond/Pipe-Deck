@@ -19,34 +19,10 @@ pub async fn set_device_alias(
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
-    ConfigStore::new()
-        .set_device_alias(&system_name, &alias)
-        .map_err(|error| error.to_string())?;
-
-    if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
-        let _ = crate::pipewire::pactl::sync_feed_sink_for_virtual_input(&system_name, &alias);
-    }
-
-    {
-        let engine = state.engine.read().await;
-        if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
-            let registry = engine.virtual_registry();
-            let _ = registry.set_label(&system_name, &alias);
-
-            if let Some(entry) = registry.get(&system_name) {
-                if let Ok(Some(new_module_id)) = crate::pipewire::pactl::sync_virtual_device_description(
-                    &system_name,
-                    entry.direction,
-                    &entry.module_id,
-                    &alias,
-                ) {
-                    let _ = registry.set_module_id(&system_name, &new_module_id);
-                }
-            }
-        }
-    }
-
     let mut engine = state.engine.write().await;
+    engine
+        .apply_device_alias(&system_name, &alias)
+        .map_err(|error| error.to_string())?;
     engine.refresh_graph().map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(())

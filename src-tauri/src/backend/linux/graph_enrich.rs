@@ -1,7 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection};
-use crate::pipewire::pactl;
-use crate::pipewire::stream_match::{
+use crate::backend::linux::pactl;
+use crate::backend::linux::stream_match::{
     is_system_stream_name, resolve_capture_target_device_id, resolve_playback_target_device_id,
     stream_matches_pactl_capture_identity, stream_matches_pactl_input,
     stream_matches_pactl_source_output,

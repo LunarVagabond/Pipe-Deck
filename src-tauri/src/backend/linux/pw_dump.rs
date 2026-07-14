@@ -4,8 +4,8 @@ use crate::core::models::{
 use crate::core::stream_identity::{
     is_internal_audio_client, parse_stream_identity, parse_window_class,
 };
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::graph_enrich;
+use crate::backend::BackendError;
+use crate::backend::linux::graph_enrich;
 use serde::Deserialize;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -19,16 +19,16 @@ pub struct PwDumpObject {
     pub info: Option<Value>,
 }
 
-pub fn run_snapshot() -> Result<Vec<u8>, AdapterError> {
+pub fn run_snapshot() -> Result<Vec<u8>, BackendError> {
     let output = Command::new("timeout")
         .args(["5", "pw-dump", "-N"])
         .output()
         .or_else(|_| Command::new("pw-dump").arg("-N").output())
-        .map_err(|error| AdapterError::Message(format!("failed to run pw-dump: {error}")))?;
+        .map_err(|error| BackendError::Message(format!("failed to run pw-dump: {error}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(AdapterError::Message(format!("pw-dump failed: {stderr}")));
+        return Err(BackendError::Message(format!("pw-dump failed: {stderr}")));
     }
 
     Ok(output.stdout)

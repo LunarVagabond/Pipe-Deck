@@ -1,8 +1,8 @@
 use crate::core::models::RuntimeGraph;
-use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
-use crate::pipewire::graph_enrich;
-use crate::pipewire::graph_routing;
-use crate::pipewire::pw_dump::{self, PwDumpObject};
+use crate::backend::{BackendError, GraphListener, AudioBackend};
+use crate::backend::linux::graph_enrich;
+use crate::backend::linux::graph_routing;
+use crate::backend::linux::pw_dump::{self, PwDumpObject};
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -18,13 +18,13 @@ const MONITOR_DEBOUNCE: Duration = Duration::from_millis(200);
 // so routing changes still surface promptly (see PipeWire_Design.md).
 const MAX_COALESCE_WINDOW: Duration = Duration::from_millis(400);
 
-pub struct LivePipeWireAdapter {
+pub struct LinuxPipeWireBackend {
     cached_graph: Arc<Mutex<RuntimeGraph>>,
     listener: Arc<Mutex<Option<GraphListener>>>,
 }
 
-impl LivePipeWireAdapter {
-    pub fn new() -> Result<Self, AdapterError> {
+impl LinuxPipeWireBackend {
+    pub fn new() -> Result<Self, BackendError> {
         let graph = enumerate_pipewire().unwrap_or_else(|error| RuntimeGraph {
             notice: Some(format!(
                 "PipeWire snapshot unavailable ({error}). Dashboard will retry automatically."
@@ -41,14 +41,14 @@ impl LivePipeWireAdapter {
     }
 }
 
-impl PipeWireAdapter for LivePipeWireAdapter {
-    fn fetch_graph(&self) -> Result<RuntimeGraph, AdapterError> {
+impl AudioBackend for LinuxPipeWireBackend {
+    fn fetch_graph(&self) -> Result<RuntimeGraph, BackendError> {
         match enumerate_pipewire() {
             Ok(graph) => {
                 let mut cached = self
                     .cached_graph
                     .lock()
-                    .map_err(|_| AdapterError::Message("graph lock poisoned".into()))?;
+                    .map_err(|_| BackendError::Message("graph lock poisoned".into()))?;
                 *cached = graph.clone();
                 Ok(graph)
             }
@@ -56,7 +56,7 @@ impl PipeWireAdapter for LivePipeWireAdapter {
                 let cached = self
                     .cached_graph
                     .lock()
-                    .map_err(|_| AdapterError::Message("graph lock poisoned".into()))?;
+                    .map_err(|_| BackendError::Message("graph lock poisoned".into()))?;
                 if cached.devices.is_empty() && cached.streams.is_empty() {
                     return Err(error);
                 }
@@ -69,11 +69,11 @@ impl PipeWireAdapter for LivePipeWireAdapter {
         }
     }
 
-    fn subscribe(&self, listener: GraphListener) -> Result<(), AdapterError> {
+    fn subscribe(&self, listener: GraphListener) -> Result<(), BackendError> {
         *self
             .listener
             .lock()
-            .map_err(|_| AdapterError::Message("listener lock poisoned".into()))? =
+            .map_err(|_| BackendError::Message("listener lock poisoned".into()))? =
             Some(listener);
 
         let cached_graph = self.cached_graph.clone();
@@ -85,6 +85,31 @@ impl PipeWireAdapter for LivePipeWireAdapter {
         });
 
         Ok(())
+    }
+
+    fn set_device_volume(&self, graph: &RuntimeGraph, device_id: &str, percent: u8) -> Result<(), BackendError> {
+        crate::backend::linux::pactl::set_device_volume(device_id, graph, percent)
+    }
+
+    fn set_device_mute(&self, graph: &RuntimeGraph, device_id: &str, muted: bool) -> Result<(), BackendError> {
+        crate::backend::linux::pactl::set_device_mute(device_id, graph, muted)
+    }
+
+    fn set_stream_volume(&self, graph: &RuntimeGraph, stream_id: &str, percent: u8) -> Result<(), BackendError> {
+        crate::backend::linux::pactl::set_stream_volume(graph, stream_id, percent)
+    }
+
+    fn set_stream_mute(&self, graph: &RuntimeGraph, stream_id: &str, muted: bool) -> Result<(), BackendError> {
+        crate::backend::linux::pactl::set_stream_mute(graph, stream_id, muted)
+    }
+
+    fn clear_stream_target(
+        &self,
+        graph: &RuntimeGraph,
+        stream_id: &str,
+        previous_target_device_id: Option<&str>,
+    ) -> Result<(), BackendError> {
+        crate::backend::linux::pactl::clear_stream_target(graph, stream_id, previous_target_device_id)
     }
 }
 
@@ -187,16 +212,16 @@ fn run_poll_loop(
     }
 }
 
-fn enumerate_pipewire() -> Result<RuntimeGraph, AdapterError> {
+fn enumerate_pipewire() -> Result<RuntimeGraph, BackendError> {
     let stdout = pw_dump::run_snapshot()?;
     if stdout.is_empty() {
-        return Err(AdapterError::Message(
+        return Err(BackendError::Message(
             "pw-dump returned no data — is PipeWire running?".into(),
         ));
     }
 
     let objects: Vec<PwDumpObject> = serde_json::from_slice(&stdout).map_err(|error| {
-        AdapterError::Message(format!("failed to parse pw-dump output: {error}"))
+        BackendError::Message(format!("failed to parse pw-dump output: {error}"))
     })?;
 
     let mut graph = pw_dump::normalize(&objects);

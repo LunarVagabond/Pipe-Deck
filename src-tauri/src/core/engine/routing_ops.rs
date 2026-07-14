@@ -196,12 +196,9 @@ impl CoreEngine {
             stream.current_targets.clear();
             Ok(())
         } else {
-            crate::pipewire::pactl::clear_stream_target(
-                &self.graph,
-                stream_id,
-                previous_target_device_id,
-            )
-            .map_err(|error| EngineError::Routing(error.to_string()))
+            self.adapter
+                .clear_stream_target(&self.graph, stream_id, previous_target_device_id)
+                .map_err(|error| EngineError::Routing(error.to_string()))
         };
 
         if let Err(error) = apply_result {
@@ -230,7 +227,7 @@ impl CoreEngine {
         if self.graph.data_source != "mock" {
             self.refresh_graph()?;
         } else {
-            crate::pipewire::live::apply_user_cleared_routes(
+            crate::backend::linux::live::apply_user_cleared_routes(
                 &mut self.graph,
                 &self.cleared_stream_routes,
                 &self.cleared_device_routes,

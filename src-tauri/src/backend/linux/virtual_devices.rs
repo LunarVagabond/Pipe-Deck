@@ -1,6 +1,6 @@
 use crate::core::models::{Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceResult};
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::pactl;
+use crate::backend::BackendError;
+use crate::backend::linux::pactl;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -24,12 +24,12 @@ impl VirtualDeviceRegistry {
         Arc::new(Self::default())
     }
 
-    pub fn discover_from_pactl(self: &Arc<Self>) -> Result<(), AdapterError> {
+    pub fn discover_from_pactl(self: &Arc<Self>) -> Result<(), BackendError> {
         let modules = pactl::list_pipe_deck_modules()?;
         let mut devices = self
             .devices
             .lock()
-            .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?;
+            .map_err(|_| BackendError::Message("virtual registry lock poisoned".into()))?;
 
         devices.retain(|name, _| !name.starts_with("pipe-deck-feed-"));
 
@@ -59,11 +59,11 @@ impl VirtualDeviceRegistry {
             .unwrap_or_default()
     }
 
-    pub fn set_label(&self, system_name: &str, label: &str) -> Result<(), AdapterError> {
+    pub fn set_label(&self, system_name: &str, label: &str) -> Result<(), BackendError> {
         let mut devices = self
             .devices
             .lock()
-            .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?;
+            .map_err(|_| BackendError::Message("virtual registry lock poisoned".into()))?;
         let Some(entry) = devices.get_mut(system_name) else {
             return Ok(());
         };
@@ -82,11 +82,11 @@ impl VirtualDeviceRegistry {
     /// unloaded and recreated (e.g. to change its description) — `remove_device`
     /// unloads by module id, so this must stay in sync with whatever module is
     /// currently backing `system_name`.
-    pub fn set_module_id(&self, system_name: &str, module_id: &str) -> Result<(), AdapterError> {
+    pub fn set_module_id(&self, system_name: &str, module_id: &str) -> Result<(), BackendError> {
         let mut devices = self
             .devices
             .lock()
-            .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?;
+            .map_err(|_| BackendError::Message("virtual registry lock poisoned".into()))?;
         let Some(entry) = devices.get_mut(system_name) else {
             return Ok(());
         };
@@ -94,11 +94,11 @@ impl VirtualDeviceRegistry {
         Ok(())
     }
 
-    pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
+    pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
         self.create_output_with_mode(name, false)
     }
 
-    pub fn create_multi_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
+    pub fn create_multi_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
         self.create_output_with_mode(name, true)
     }
 
@@ -106,7 +106,7 @@ impl VirtualDeviceRegistry {
         self: &Arc<Self>,
         name: &str,
         multi: bool,
-    ) -> Result<VirtualDeviceResult, AdapterError> {
+    ) -> Result<VirtualDeviceResult, BackendError> {
         let slug = slugify(name);
         let system_name = format!("pipe-deck-{slug}");
         let module_id = pactl::create_null_sink(&system_name, name)?;
@@ -122,7 +122,7 @@ impl VirtualDeviceRegistry {
         Ok(entry.into_result())
     }
 
-    pub fn create_input(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, AdapterError> {
+    pub fn create_input(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
         let slug = slugify(name);
         let system_name = format!("pipe-deck-{slug}");
         let module_id = pactl::create_virtual_source(&system_name, name)?;
@@ -138,12 +138,12 @@ impl VirtualDeviceRegistry {
         Ok(entry.into_result())
     }
 
-    pub fn remove_device(self: &Arc<Self>, system_name: &str) -> Result<(), AdapterError> {
+    pub fn remove_device(self: &Arc<Self>, system_name: &str) -> Result<(), BackendError> {
         let removed = {
             let mut devices = self
                 .devices
                 .lock()
-                .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?;
+                .map_err(|_| BackendError::Message("virtual registry lock poisoned".into()))?;
 
             if let Some(entry) = devices.remove(system_name) {
                 Some(entry)
@@ -164,26 +164,26 @@ impl VirtualDeviceRegistry {
                 let _ = pactl::remove_feed_sink_for_virtual_input(&entry.system_name);
             }
             let _ = pactl::unload_module(&entry.module_id);
-            let _ = crate::pipewire::pw_link::disconnect_sink_monitor(&entry.system_name);
+            let _ = crate::backend::linux::pw_link::disconnect_sink_monitor(&entry.system_name);
             return Ok(());
         }
 
         let sink_name = system_name.strip_suffix(".monitor").unwrap_or(system_name);
         if let Some(module_id) = pactl::find_module_id_by_sink_name(sink_name)? {
             pactl::unload_module(&module_id)?;
-            let _ = crate::pipewire::pw_link::disconnect_sink_monitor(sink_name);
+            let _ = crate::backend::linux::pw_link::disconnect_sink_monitor(sink_name);
             return Ok(());
         }
 
-        Err(AdapterError::Message(format!(
+        Err(BackendError::Message(format!(
             "no tracked virtual device for {system_name}"
         )))
     }
 
-    fn insert_entry(&self, entry: VirtualDeviceEntry) -> Result<(), AdapterError> {
+    fn insert_entry(&self, entry: VirtualDeviceEntry) -> Result<(), BackendError> {
         self.devices
             .lock()
-            .map_err(|_| AdapterError::Message("virtual registry lock poisoned".into()))?
+            .map_err(|_| BackendError::Message("virtual registry lock poisoned".into()))?
             .insert(entry.system_name.clone(), entry);
         Ok(())
     }

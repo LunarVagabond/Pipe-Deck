@@ -1,6 +1,6 @@
 use crate::core::models::EffectChainConfig;
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::{pactl, pw_link};
+use crate::backend::BackendError;
+use crate::backend::linux::{pactl, pw_link};
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -15,7 +15,7 @@ pub fn is_pipe_deck_device(system_name: &str) -> bool {
 pub fn sync_all_effects(
     _active: &[(String, EffectChainConfig)],
     _deactivated_system_names: &[String],
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
         return Ok(());
     }
@@ -24,7 +24,7 @@ pub fn sync_all_effects(
 }
 
 /// Remove any Pipe Deck-owned PipeWire drop-ins. Safe to call on startup.
-pub fn cleanup_effects_conf_files() -> Result<(), AdapterError> {
+pub fn cleanup_effects_conf_files() -> Result<(), BackendError> {
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
         return Ok(());
     }
@@ -38,7 +38,7 @@ pub fn cleanup_effects_conf_files() -> Result<(), AdapterError> {
     }
 
     for entry in fs::read_dir(&dir).map_err(|error| {
-        AdapterError::Message(format!("failed to read pipewire config dir: {error}"))
+        BackendError::Message(format!("failed to read pipewire config dir: {error}"))
     })? {
         let Ok(entry) = entry else { continue };
         let name = entry.file_name();
@@ -54,7 +54,7 @@ pub fn cleanup_effects_conf_files() -> Result<(), AdapterError> {
 pub fn apply_effect_chain(
     device_system_name: &str,
     config: &EffectChainConfig,
-) -> Result<Option<String>, AdapterError> {
+) -> Result<Option<String>, BackendError> {
     let active = if config.is_active() {
         vec![(device_system_name.to_string(), config.clone())]
     } else {
@@ -98,14 +98,14 @@ pub fn effect_output_name_for_device(device_system_name: &str) -> String {
 /// Polls for a sink named `system_name` to (re)appear after a filter-chain
 /// restart, so Structural Apply can confirm the swap actually took before
 /// re-linking anything downstream.
-pub fn wait_for_sink(system_name: &str, timeout: Duration) -> Result<(), AdapterError> {
+pub fn wait_for_sink(system_name: &str, timeout: Duration) -> Result<(), BackendError> {
     let start = Instant::now();
     loop {
         if pactl::sink_exists(system_name).unwrap_or(false) {
             return Ok(());
         }
         if start.elapsed() > timeout {
-            return Err(AdapterError::Message(format!(
+            return Err(BackendError::Message(format!(
                 "{system_name} did not reappear within {timeout:?} after the effects restart"
             )));
         }
@@ -119,7 +119,7 @@ pub fn wait_for_sink(system_name: &str, timeout: Duration) -> Result<(), Adapter
 /// `effect_output.*` can take a beat longer to show up, and relinking
 /// downstream targets against it before then fails (and triggers an
 /// avoidable — if correct — Structural Apply rollback).
-pub fn wait_for_effect_output_ports(system_name: &str, timeout: Duration) -> Result<(), AdapterError> {
+pub fn wait_for_effect_output_ports(system_name: &str, timeout: Duration) -> Result<(), BackendError> {
     let effect_output_name = effect_output_name_for_device(system_name);
     let start = Instant::now();
     loop {
@@ -127,7 +127,7 @@ pub fn wait_for_effect_output_ports(system_name: &str, timeout: Duration) -> Res
             return Ok(());
         }
         if start.elapsed() > timeout {
-            return Err(AdapterError::Message(format!(
+            return Err(BackendError::Message(format!(
                 "{effect_output_name} did not register output ports within {timeout:?} after the effects restart"
             )));
         }

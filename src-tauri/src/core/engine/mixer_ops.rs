@@ -1,5 +1,3 @@
-use crate::pipewire::pactl;
-
 use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
@@ -12,7 +10,8 @@ impl CoreEngine {
             return Err(EngineError::Adapter(format!("device not found: {device_id}")));
         }
 
-        pactl::set_device_volume(device_id, &self.graph, percent)
+        self.adapter
+            .set_device_volume(&self.graph, device_id, percent)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())
@@ -27,7 +26,8 @@ impl CoreEngine {
             return Err(EngineError::Adapter(format!("device not found: {device_id}")));
         }
 
-        pactl::set_device_mute(device_id, &self.graph, muted)
+        self.adapter
+            .set_device_mute(&self.graph, device_id, muted)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())
@@ -42,7 +42,8 @@ impl CoreEngine {
             return Err(EngineError::Adapter(format!("stream not found: {stream_id}")));
         }
 
-        pactl::set_stream_volume(&self.graph, stream_id, percent)
+        self.adapter
+            .set_stream_volume(&self.graph, stream_id, percent)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())
@@ -57,7 +58,8 @@ impl CoreEngine {
             return Err(EngineError::Adapter(format!("stream not found: {stream_id}")));
         }
 
-        pactl::set_stream_mute(&self.graph, stream_id, muted)
+        self.adapter
+            .set_stream_mute(&self.graph, stream_id, muted)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         self.refresh_graph()?;
         Ok(())

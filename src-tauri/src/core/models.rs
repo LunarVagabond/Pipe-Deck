@@ -54,7 +54,7 @@ pub struct Device {
 
 /// A single contributor to a virtual-mic mix, with a gain that only affects
 /// its contribution to that specific mix (not the source device's own
-/// volume). Backed by a per-pair feed sink; see `pipewire::virtual_mic_mix`.
+/// volume). Backed by a per-pair feed sink; see `backend::linux::virtual_mic_mix`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MixSource {
     pub device_id: String,

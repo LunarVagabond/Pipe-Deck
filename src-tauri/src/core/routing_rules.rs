@@ -3,17 +3,17 @@ use crate::core::models::{
     Device, DeviceRouteRule, RuntimeGraph, Stream, StreamRouteRule,
 };
 use crate::core::stream_identity::{rule_identity_key, stream_identity_key};
-use crate::pipewire::adapter::AdapterError;
-use crate::pipewire::split_sink;
+use crate::backend::BackendError;
+use crate::backend::linux::split_sink;
 
 pub fn apply_persisted_routing_rules(
     graph: &mut RuntimeGraph,
     ctx: &crate::core::rules::ApplyRulesContext<'_>,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     crate::core::rules::apply_routing_rules_with_explanations(graph, ctx)
 }
 
-pub fn clear_stream_route_rule(stream: &Stream) -> Result<(), AdapterError> {
+pub fn clear_stream_route_rule(stream: &Stream) -> Result<(), BackendError> {
     let mut rules = ConfigStore::new().routing_rules();
     let identity = stream_identity_key(stream);
     rules
@@ -21,20 +21,20 @@ pub fn clear_stream_route_rule(stream: &Stream) -> Result<(), AdapterError> {
         .retain(|rule| rule_identity_key(rule) != identity);
     ConfigStore::new()
         .save_routing_rules(&rules)
-        .map_err(|error| AdapterError::Message(error.to_string()))
+        .map_err(|error| BackendError::Message(error.to_string()))
 }
 
-pub fn clear_device_route_rule(source: &Device) -> Result<(), AdapterError> {
+pub fn clear_device_route_rule(source: &Device) -> Result<(), BackendError> {
     let mut rules = ConfigStore::new().routing_rules();
     rules
         .device_rules
         .retain(|rule| rule.source_system_name != source.system_name);
     ConfigStore::new()
         .save_routing_rules(&rules)
-        .map_err(|error| AdapterError::Message(error.to_string()))
+        .map_err(|error| BackendError::Message(error.to_string()))
 }
 
-pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), AdapterError> {
+pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), BackendError> {
     let mut rules = ConfigStore::new().routing_rules();
     let identity = stream_identity_key(stream);
     rules.stream_rules.retain(|rule| rule_identity_key(rule) != identity);
@@ -47,10 +47,10 @@ pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), Ad
     });
     ConfigStore::new()
         .save_routing_rules(&rules)
-        .map_err(|error| AdapterError::Message(error.to_string()))
+        .map_err(|error| BackendError::Message(error.to_string()))
 }
 
-pub fn save_device_route_rule(source: &Device, targets: &[Device]) -> Result<(), AdapterError> {
+pub fn save_device_route_rule(source: &Device, targets: &[Device]) -> Result<(), BackendError> {
     if targets.is_empty() {
         return Ok(());
     }
@@ -65,14 +65,14 @@ pub fn save_device_route_rule(source: &Device, targets: &[Device]) -> Result<(),
     });
     ConfigStore::new()
         .save_routing_rules(&rules)
-        .map_err(|error| AdapterError::Message(error.to_string()))
+        .map_err(|error| BackendError::Message(error.to_string()))
 }
 
 pub fn apply_stream_to_target(
     graph: &RuntimeGraph,
     stream: &Stream,
     target: &Device,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     split_sink::apply_stream_to_sink(graph, &stream.id, &target.id)
 }
 
@@ -80,7 +80,7 @@ pub fn apply_stream_to_sink_id(
     graph: &RuntimeGraph,
     stream: &Stream,
     target_device_id: &str,
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     split_sink::apply_stream_to_sink(graph, &stream.id, target_device_id)
 }
 
@@ -88,7 +88,7 @@ pub fn apply_sink_to_targets(
     graph: &RuntimeGraph,
     sink_device_id: &str,
     target_device_ids: &[String],
-) -> Result<(), AdapterError> {
+) -> Result<(), BackendError> {
     split_sink::apply_sink_targets(graph, sink_device_id, target_device_ids)
 }
 

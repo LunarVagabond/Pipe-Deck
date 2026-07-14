@@ -15,10 +15,10 @@ use crate::core::recent_streams::RecentStreamCache;
 use crate::core::restore;
 use crate::core::rules;
 use crate::core::stream_identity::StreamIdentityKey;
-use crate::pipewire::adapter::PipeWireAdapter;
+use crate::backend::AudioBackend;
 use crate::pipewire::filter_chain;
 use crate::plugins::PluginManager;
-use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
+use crate::backend::linux::virtual_devices::VirtualDeviceRegistry;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
@@ -43,7 +43,7 @@ pub enum EngineError {
 
 pub struct CoreEngine {
     graph: RuntimeGraph,
-    adapter: Box<dyn PipeWireAdapter>,
+    adapter: Box<dyn AudioBackend>,
     rollback_stack: Vec<crate::core::routing::RoutingSnapshot>,
     virtual_registry: Arc<VirtualDeviceRegistry>,
     device_id_remap: HashMap<String, String>,
@@ -61,7 +61,7 @@ impl CoreEngine {
     pub fn new() -> Self {
         Self {
             graph: RuntimeGraph::default(),
-            adapter: create_adapter(),
+            adapter: crate::backend::create_backend(),
             rollback_stack: Vec::new(),
             virtual_registry: VirtualDeviceRegistry::new(),
             device_id_remap: HashMap::new(),
@@ -232,41 +232,5 @@ impl CoreEngine {
         if !parts.is_empty() {
             self.graph.notice = Some(parts.join(". "));
         }
-    }
-}
-
-fn create_adapter() -> Box<dyn PipeWireAdapter> {
-    if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
-        return Box::new(crate::pipewire::mock::MockPipeWireAdapter::new());
-    }
-
-    match crate::pipewire::live::LivePipeWireAdapter::new() {
-        Ok(adapter) => Box::new(adapter),
-        Err(error) => {
-            eprintln!("PipeWire enumeration unavailable: {error}");
-            Box::new(EmptyPipeWireAdapter {
-                notice: format!("PipeWire unavailable: {error}"),
-            })
-        }
-    }
-}
-
-struct EmptyPipeWireAdapter {
-    notice: String,
-}
-
-impl PipeWireAdapter for EmptyPipeWireAdapter {
-    fn fetch_graph(&self) -> Result<RuntimeGraph, crate::pipewire::adapter::AdapterError> {
-        Ok(RuntimeGraph {
-            notice: Some(self.notice.clone()),
-            ..RuntimeGraph::default()
-        })
-    }
-
-    fn subscribe(
-        &self,
-        _listener: crate::pipewire::adapter::GraphListener,
-    ) -> Result<(), crate::pipewire::adapter::AdapterError> {
-        Ok(())
     }
 }

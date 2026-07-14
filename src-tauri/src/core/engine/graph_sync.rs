@@ -51,8 +51,8 @@ impl CoreEngine {
     }
 
     fn sync_live_graph(&mut self) {
-        crate::pipewire::live::sync_live_routing_graph(&mut self.graph);
-        crate::pipewire::live::apply_user_cleared_routes(
+        crate::backend::linux::live::sync_live_routing_graph(&mut self.graph);
+        crate::backend::linux::live::apply_user_cleared_routes(
             &mut self.graph,
             &self.cleared_stream_routes,
             &self.cleared_device_routes,
@@ -104,7 +104,7 @@ impl CoreEngine {
             mock_graph_only: self.graph.data_source == "mock",
             limit_to_identities: None,
         };
-        crate::pipewire::live::apply_graph_routing(&mut self.graph, &ctx);
+        crate::backend::linux::live::apply_graph_routing(&mut self.graph, &ctx);
     }
 
     fn apply_rules_for_new_streams(&mut self) {

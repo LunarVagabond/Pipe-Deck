@@ -4,13 +4,44 @@ use crate::core::models::{
     VirtualDeviceResult,
 };
 use crate::core::restore::spec_from_create_result;
-use crate::pipewire::virtual_devices::VirtualDeviceRegistry;
-use crate::pipewire::{filter_chain, pipewire_restart, virtual_mic_mix};
+use crate::backend::linux::virtual_devices::VirtualDeviceRegistry;
+use crate::backend::linux::virtual_mic_mix;
+use crate::pipewire::{filter_chain, pipewire_restart};
 use std::collections::{HashMap, HashSet};
 
 use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
+    /// Persists a device alias and, for Pipe Deck-owned virtual devices,
+    /// syncs the feed sink and pactl module description to match. Moved
+    /// here from the `set_device_alias` command handler, which used to call
+    /// `backend::linux::pactl` directly instead of going through the engine.
+    pub fn apply_device_alias(&mut self, system_name: &str, alias: &str) -> Result<(), EngineError> {
+        ConfigStore::new()
+            .set_device_alias(system_name, alias)
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        if system_name.starts_with("pipe-deck-") && !system_name.starts_with("pipe-deck-feed-") {
+            let _ = crate::backend::linux::pactl::sync_feed_sink_for_virtual_input(system_name, alias);
+
+            let registry = self.virtual_registry();
+            let _ = registry.set_label(system_name, alias);
+
+            if let Some(entry) = registry.get(system_name) {
+                if let Ok(Some(new_module_id)) = crate::backend::linux::pactl::sync_virtual_device_description(
+                    system_name,
+                    entry.direction,
+                    &entry.module_id,
+                    alias,
+                ) {
+                    let _ = registry.set_module_id(system_name, &new_module_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn create_virtual_output(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {
         self.create_virtual_output_with_mode(name, false)
     }
@@ -469,8 +500,8 @@ pub(super) fn merge_virtual_devices(
         }
     }
 
-    crate::pipewire::live::apply_device_aliases(&mut graph.devices);
-    crate::pipewire::live::apply_device_levels(&mut graph.devices);
+    crate::backend::linux::live::apply_device_aliases(&mut graph.devices);
+    crate::backend::linux::live::apply_device_levels(&mut graph.devices);
 
     for (old_id, new_id) in id_remap {
         device_id_remap.insert(old_id.clone(), new_id.clone());

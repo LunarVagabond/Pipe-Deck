@@ -1,8 +1,8 @@
 use crate::config::ConfigStore;
 use crate::core::models::{DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceSpec};
-use crate::pipewire::adapter::PipeWireAdapter;
-use crate::pipewire::pactl::{self, PactlVirtualModule};
-use crate::pipewire::virtual_devices::{slugify, VirtualDeviceRegistry};
+use crate::backend::AudioBackend;
+use crate::backend::linux::pactl::{self, PactlVirtualModule};
+use crate::backend::linux::virtual_devices::{slugify, VirtualDeviceRegistry};
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -207,7 +207,7 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
         return Ok(());
     }
 
-    let adapter = crate::pipewire::live::LivePipeWireAdapter::new()
+    let adapter = crate::backend::linux::live::LinuxPipeWireBackend::new()
         .map_err(|error| RestoreError::Adapter(error.to_string()))?;
     let mut graph = adapter
         .fetch_graph()
@@ -223,7 +223,7 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
         mock_graph_only: false,
         limit_to_identities: None,
     };
-    crate::pipewire::live::apply_graph_routing(&mut graph, &ctx);
+    crate::backend::linux::live::apply_graph_routing(&mut graph, &ctx);
     Ok(())
 }
 
@@ -266,7 +266,7 @@ pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, registry: &VirtualDev
         }
     }
 
-    crate::pipewire::live::apply_device_aliases(&mut graph.devices);
+    crate::backend::linux::live::apply_device_aliases(&mut graph.devices);
 }
 
 pub fn spec_from_create_result(
@@ -318,7 +318,7 @@ fn create_virtual_from_spec(spec: &VirtualDeviceSpec) -> Result<(), String> {
             current_targets: Vec::new(),
             mix_sources: Vec::new(),
         };
-        crate::pipewire::virtual_mic_mix::apply_virtual_mic_mix(&virtual_input, &spec.mix_sources)
+        crate::backend::linux::virtual_mic_mix::apply_virtual_mic_mix(&virtual_input, &spec.mix_sources)
             .map_err(|error| error.to_string())?;
     }
 

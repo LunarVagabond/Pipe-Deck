@@ -1,6 +1,6 @@
 use crate::core::models::Stream;
 use crate::core::stream_identity::is_internal_audio_client;
-use crate::pipewire::pactl;
+use crate::backend::linux::pactl;
 
 pub fn is_system_stream_name(application_name: &str, node_name: &Option<String>) -> bool {
     let node_name = node_name.as_deref().unwrap_or_default();

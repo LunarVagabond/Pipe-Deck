@@ -1,13 +1,13 @@
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
 };
-use crate::pipewire::adapter::{AdapterError, GraphListener, PipeWireAdapter};
+use crate::backend::{BackendError, GraphListener, AudioBackend};
 
 /// Static sample graph for development until real PipeWire enumeration lands.
 /// Data is stable — no simulated changes or background polling.
-pub struct MockPipeWireAdapter;
+pub struct MockAudioBackend;
 
-impl MockPipeWireAdapter {
+impl MockAudioBackend {
     pub fn new() -> Self {
         Self
     }
@@ -198,13 +198,43 @@ fn mock_device(
     }
 }
 
-impl PipeWireAdapter for MockPipeWireAdapter {
-    fn fetch_graph(&self) -> Result<RuntimeGraph, AdapterError> {
+impl AudioBackend for MockAudioBackend {
+    fn fetch_graph(&self) -> Result<RuntimeGraph, BackendError> {
         Ok(Self::sample_graph())
     }
 
-    fn subscribe(&self, _listener: GraphListener) -> Result<(), AdapterError> {
+    fn subscribe(&self, _listener: GraphListener) -> Result<(), BackendError> {
         // Mock adapter is static; real PipeWire adapter will push live updates here.
+        Ok(())
+    }
+
+    // Mutation for the mock data source happens in `CoreEngine`'s own
+    // `data_source == "mock"` branches today (see `core/engine/mock.rs`),
+    // which short-circuit before ever calling the adapter — these are
+    // unreachable no-ops until that mock state is consolidated onto this
+    // backend (tracked as a later step of issue #68).
+    fn set_device_volume(&self, _graph: &RuntimeGraph, _device_id: &str, _percent: u8) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn set_device_mute(&self, _graph: &RuntimeGraph, _device_id: &str, _muted: bool) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn set_stream_volume(&self, _graph: &RuntimeGraph, _stream_id: &str, _percent: u8) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn set_stream_mute(&self, _graph: &RuntimeGraph, _stream_id: &str, _muted: bool) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn clear_stream_target(
+        &self,
+        _graph: &RuntimeGraph,
+        _stream_id: &str,
+        _previous_target_device_id: Option<&str>,
+    ) -> Result<(), BackendError> {
         Ok(())
     }
 }

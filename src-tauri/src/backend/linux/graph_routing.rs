@@ -3,9 +3,9 @@ use crate::core::models::{
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_identity_key, StreamIdentityKey};
-use crate::pipewire::graph_enrich::{apply_pactl_capture_targets, apply_pactl_playback_targets};
-use crate::pipewire::pactl;
-use crate::pipewire::pw_link;
+use crate::backend::linux::graph_enrich::{apply_pactl_capture_targets, apply_pactl_playback_targets};
+use crate::backend::linux::pactl;
+use crate::backend::linux::pw_link;
 use std::collections::{HashMap, HashSet};
 
 pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
@@ -242,7 +242,7 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
 mod tests {
     use super::*;
     use crate::core::models::{Device, Stream};
-    use crate::pipewire::stream_match::resolve_playback_target_device_id;
+    use crate::backend::linux::stream_match::resolve_playback_target_device_id;
 
     #[test]
     fn feed_sink_maps_to_virtual_input_target() {
