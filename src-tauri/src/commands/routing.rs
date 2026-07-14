@@ -78,6 +78,68 @@ pub async fn clear_stream_target(
 }
 
 #[tauri::command]
+pub async fn add_connection_effect(
+    source_id: String,
+    target_device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .add_connection_effect(&source_id, &target_device_id)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn remove_connection_effect(
+    source_id: String,
+    target_device_id: String,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .remove_connection_effect(&source_id, &target_device_id)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn set_connection_volume(
+    source_id: String,
+    target_device_id: String,
+    percent: u8,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .set_connection_volume(&source_id, &target_device_id, percent)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn set_connection_mute(
+    source_id: String,
+    target_device_id: String,
+    muted: bool,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .set_connection_mute(&source_id, &target_device_id, muted)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn undo_last_routing(
     app: tauri::AppHandle,
     state: State<'_, AppState>,

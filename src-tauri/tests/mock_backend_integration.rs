@@ -8,7 +8,7 @@
 //! before it ships, not just a clean `cargo check`.
 
 use pipe_deck_lib::core::engine::CoreEngine;
-use pipe_deck_lib::core::models::{DeviceDirection, DeviceKind, MixSource};
+use pipe_deck_lib::core::models::{ConnectionEffectKind, DeviceDirection, DeviceKind, MixSource};
 
 fn mock_engine() -> CoreEngine {
     std::env::set_var("PIPE_DECK_USE_MOCK", "1");
@@ -162,6 +162,85 @@ fn virtual_mic_mix_add_and_volume_adjust() {
     engine.set_mix_source_mute(&input.device_id, &physical_source, true).expect("set_mix_source_mute");
     let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
     assert!(mic.mix_sources[0].muted);
+}
+
+#[test]
+fn connection_effect_add_adjust_and_remove_round_trip() {
+    let mut engine = mock_engine();
+    // The sample graph's "stream-spotify -> sink-music" link is a stream
+    // (app playback) routed to a virtual device — exercising the stream
+    // insertion path, not just device-to-device.
+    let link = engine
+        .runtime_graph()
+        .links
+        .iter()
+        .find(|link| link.id == "link-spotify-music")
+        .expect("sample graph should have the spotify->music link")
+        .clone();
+
+    let result = engine
+        .add_connection_effect(&link.source_id, &link.target_id)
+        .expect("add_connection_effect");
+    assert!(result.success, "{:?}", result.message);
+
+    let updated_link = engine
+        .runtime_graph()
+        .links
+        .iter()
+        .find(|l| l.id == link.id)
+        .unwrap();
+    assert_eq!(
+        updated_link.effects,
+        vec![ConnectionEffectKind::Volume {
+            volume_percent: 100,
+            muted: false
+        }]
+    );
+
+    engine
+        .set_connection_volume(&link.source_id, &link.target_id, 40)
+        .expect("set_connection_volume");
+    let updated_link = engine
+        .runtime_graph()
+        .links
+        .iter()
+        .find(|l| l.id == link.id)
+        .unwrap();
+    assert_eq!(
+        updated_link.effects,
+        vec![ConnectionEffectKind::Volume {
+            volume_percent: 40,
+            muted: false
+        }]
+    );
+
+    engine
+        .set_connection_mute(&link.source_id, &link.target_id, true)
+        .expect("set_connection_mute");
+    let updated_link = engine
+        .runtime_graph()
+        .links
+        .iter()
+        .find(|l| l.id == link.id)
+        .unwrap();
+    assert_eq!(
+        updated_link.effects,
+        vec![ConnectionEffectKind::Volume {
+            volume_percent: 40,
+            muted: true
+        }]
+    );
+
+    engine
+        .remove_connection_effect(&link.source_id, &link.target_id)
+        .expect("remove_connection_effect");
+    let updated_link = engine
+        .runtime_graph()
+        .links
+        .iter()
+        .find(|l| l.id == link.id)
+        .unwrap();
+    assert!(updated_link.effects.is_empty());
 }
 
 #[test]
