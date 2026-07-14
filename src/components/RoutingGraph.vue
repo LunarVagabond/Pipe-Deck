@@ -300,13 +300,24 @@ function onDocumentPointerDown(event: PointerEvent) {
 const DETACH_THRESHOLD = 0.4;
 
 function onNodeDragStart(event: NodeDragEvent) {
-  draggingNodeIds.value = new Set([...draggingNodeIds.value, event.node.id]);
+  // event.nodes carries every node vue-flow is moving together in this drag
+  // (a multi-select drag); fall back to just event.node when it's
+  // undefined/empty (single-node drag).
+  const dragged = event.nodes?.length ? event.nodes : [event.node];
+  const next = new Set(draggingNodeIds.value);
+  for (const draggedNode of dragged) {
+    next.add(draggedNode.id);
+  }
+  draggingNodeIds.value = next;
 }
 
 function onNodeDragStop(event: NodeDragEvent) {
   const node = event.node;
+  const idsToClear = event.nodes?.length ? event.nodes.map((n) => n.id) : [node.id];
   const next = new Set(draggingNodeIds.value);
-  next.delete(node.id);
+  for (const id of idsToClear) {
+    next.delete(id);
+  }
   draggingNodeIds.value = next;
 
   if (node.type === "groupNode") {
@@ -329,9 +340,18 @@ function onNodeDragStop(event: NodeDragEvent) {
     return;
   }
 
-  saveNodePosition(node.id, node.computedPosition.x, node.computedPosition.y);
+  // Non-group node(s). event.nodes carries every node vue-flow moved together
+  // during this drag (multi-select); fall back to just node for a single drag.
+  const draggedNodes = event.nodes?.length ? event.nodes : [node];
+  for (const draggedNode of draggedNodes) {
+    saveNodePosition(draggedNode.id, draggedNode.computedPosition.x, draggedNode.computedPosition.y);
+  }
   layoutVersion.value += 1;
 
+  // Detach-from-group check only considers the primary grabbed node — a node
+  // landing outside its group's bounds as a side effect of where other
+  // multi-selected nodes were relative to the pointer shouldn't silently
+  // detach it on its own.
   const group = groups.value.find((entry) => entry.memberIds.includes(node.id));
   if (!group) return;
 

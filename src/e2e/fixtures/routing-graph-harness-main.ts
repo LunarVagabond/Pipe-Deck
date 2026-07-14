@@ -1,9 +1,9 @@
 import { createApp, defineComponent, h, reactive } from "vue";
-import RoutingGraph from "../../src/components/RoutingGraph.vue";
+import RoutingGraph from "../../../src/components/RoutingGraph.vue";
 import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 import "@vue-flow/controls/dist/style.css";
-import "../../src/styles/main.scss";
+import "../../../src/styles/main.scss";
 import type { RuntimeGraph } from "../../src/types/graph";
 
 /**
