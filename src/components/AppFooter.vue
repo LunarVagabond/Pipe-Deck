@@ -72,6 +72,9 @@ onMounted(async () => {
     </div>
 
     <div class="app-footer-right">
+      <span v-if="appInfo?.pipewireVersion" class="app-footer-pipewire-version">
+        PipeWire {{ appInfo.pipewireVersion }}
+      </span>
       <a
         v-if="revisionUrl"
         class="app-footer-revision"

@@ -129,6 +129,13 @@ pub trait AudioBackend: Send + Sync {
     fn is_routed_to(&self, _source_system_name: &str, _target_system_name: &str, _target_is_input: bool) -> bool {
         false
     }
+
+    // Backing audio-stack version, for display only (Settings/about footer).
+    // `None` means "unknown/unavailable" rather than an error — every backend
+    // gets this for free unless it overrides it.
+    fn platform_audio_version(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

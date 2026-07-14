@@ -6,6 +6,7 @@ export interface AppInfo {
   installKind: InstallKind;
   backgroundRestoreSupported: boolean;
   installLabel: string;
+  pipewireVersion?: string;
 }
 
 export type UpdateStatus =

@@ -145,6 +145,10 @@ impl CoreEngine {
         }
     }
 
+    pub fn platform_audio_version(&self) -> Option<String> {
+        self.adapter.platform_audio_version()
+    }
+
     pub fn list_plugins(&self) -> Vec<PluginStatus> {
         self.plugin_manager
             .lock()

@@ -247,6 +247,24 @@ impl AudioBackend for LinuxPipeWireBackend {
         }
         Ok(())
     }
+
+    fn platform_audio_version(&self) -> Option<String> {
+        query_pipewire_version()
+    }
+}
+
+fn query_pipewire_version() -> Option<String> {
+    let output = Command::new("pw-cli").arg("--version").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    parse_pipewire_version(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_pipewire_version(text: &str) -> Option<String> {
+    text.lines()
+        .find_map(|line| line.trim().strip_prefix("Linked with libpipewire "))
+        .map(|version| version.trim().to_string())
 }
 
 fn notify_graph_listeners(
@@ -365,3 +383,19 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, BackendError> {
     Ok(graph)
 }
 
+
+#[cfg(test)]
+mod version_tests {
+    use super::parse_pipewire_version;
+
+    #[test]
+    fn parses_linked_with_line() {
+        let output = "pw-cli\nCompiled with libpipewire 1.0.5\nLinked with libpipewire 1.0.5\n";
+        assert_eq!(parse_pipewire_version(output), Some("1.0.5".to_string()));
+    }
+
+    #[test]
+    fn none_for_unexpected_output() {
+        assert_eq!(parse_pipewire_version("command not found"), None);
+    }
+}

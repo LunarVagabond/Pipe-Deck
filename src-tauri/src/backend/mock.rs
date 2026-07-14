@@ -516,4 +516,8 @@ impl AudioBackend for MockAudioBackend {
         }
         Ok(())
     }
+
+    fn platform_audio_version(&self) -> Option<String> {
+        Some("1.0.0 (mock)".to_string())
+    }
 }

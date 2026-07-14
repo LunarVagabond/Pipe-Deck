@@ -22,6 +22,7 @@ pub struct AppInfo {
     pub install_kind: InstallKind,
     pub background_restore_supported: bool,
     pub install_label: String,
+    pub pipewire_version: Option<String>,
 }
 
 fn detect_install_kind() -> InstallKind {
@@ -115,18 +116,20 @@ fn build_revision_for_display() -> String {
 }
 
 #[tauri::command]
-pub fn get_app_info() -> AppInfo {
+pub async fn get_app_info(state: tauri::State<'_, crate::AppState>) -> Result<AppInfo, String> {
     let install_kind = detect_install_kind();
     let background_restore_supported = !matches!(install_kind, InstallKind::Flatpak);
     let build_revision = build_revision_for_display();
+    let pipewire_version = state.engine.read().await.platform_audio_version();
 
-    AppInfo {
+    Ok(AppInfo {
         release_version: release_version_from_revision(&build_revision),
         install_label: install_label(&install_kind),
         background_restore_supported,
         install_kind,
         build_revision,
-    }
+        pipewire_version,
+    })
 }
 
 #[tauri::command]

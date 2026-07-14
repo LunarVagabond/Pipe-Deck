@@ -42,6 +42,12 @@
   white-space: nowrap;
 }
 
+.app-footer-pipewire-version {
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  margin-right: 0.6rem;
+}
+
 .app-footer-revision {
   color: var(--text);
   font-weight: 600;
