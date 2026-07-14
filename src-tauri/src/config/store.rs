@@ -1,6 +1,6 @@
 use crate::core::models::{
-    AppConfig, DeviceAliasEntry, EffectChainConfig, PluginEntry, Preferences, ProfileIndexEntry,
-    Rule, RoutingRulesConfig, VirtualDeviceSpec,
+    connection_effect_key, AppConfig, ConnectionEffectKind, DeviceAliasEntry, EffectChainConfig,
+    PluginEntry, Preferences, ProfileIndexEntry, Rule, RoutingRulesConfig, VirtualDeviceSpec,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -64,6 +64,7 @@ impl ConfigStore {
             rules: Vec::new(),
             virtual_devices: Vec::new(),
             plugins: HashMap::new(),
+            connection_effects: HashMap::new(),
         }
     }
 
@@ -281,6 +282,85 @@ impl ConfigStore {
             .find(|source| source.system_name == source_system_name)
         {
             source.muted = muted;
+        }
+        self.save_config(&config)
+    }
+
+    /// Reads the persisted effects for one connection (issue #105), if any.
+    pub fn connection_effects(
+        &self,
+        source_system_name: &str,
+        target_system_name: &str,
+    ) -> Result<Vec<ConnectionEffectKind>, ConfigError> {
+        let config = self.load_config()?;
+        let key = connection_effect_key(source_system_name, target_system_name);
+        Ok(config.connection_effects.get(&key).cloned().unwrap_or_default())
+    }
+
+    /// Every persisted connection's effects, keyed the same way as
+    /// `AppConfig::connection_effects` — used to recreate backing feed sinks
+    /// on startup/profile-swap (see `core::restore`).
+    pub fn all_connection_effects(
+        &self,
+    ) -> Result<std::collections::HashMap<String, Vec<ConnectionEffectKind>>, ConfigError> {
+        Ok(self.load_config()?.connection_effects)
+    }
+
+    /// Adds or replaces a connection's effect list (issue #105). An empty
+    /// `effects` list removes the entry entirely rather than persisting a
+    /// bare empty vec.
+    pub fn set_connection_effects(
+        &self,
+        source_system_name: &str,
+        target_system_name: &str,
+        effects: Vec<ConnectionEffectKind>,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let key = connection_effect_key(source_system_name, target_system_name);
+        if effects.is_empty() {
+            config.connection_effects.remove(&key);
+        } else {
+            config.connection_effects.insert(key, effects);
+        }
+        self.save_config(&config)
+    }
+
+    /// Updates the persisted volume for a connection's `Volume` effect
+    /// without touching any other effect kind attached to the same
+    /// connection. No-ops if the connection has no `Volume` effect yet —
+    /// callers add the effect first (see issue #108's `add_connection_effect`).
+    pub fn update_connection_volume(
+        &self,
+        source_system_name: &str,
+        target_system_name: &str,
+        percent: u8,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let key = connection_effect_key(source_system_name, target_system_name);
+        if let Some(effects) = config.connection_effects.get_mut(&key) {
+            for effect in effects.iter_mut() {
+                let ConnectionEffectKind::Volume { volume_percent, .. } = effect;
+                *volume_percent = percent;
+            }
+        }
+        self.save_config(&config)
+    }
+
+    /// Updates the persisted mute state for a connection's `Volume` effect.
+    /// See `update_connection_volume` for the no-op-if-absent behavior.
+    pub fn update_connection_mute(
+        &self,
+        source_system_name: &str,
+        target_system_name: &str,
+        muted_value: bool,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let key = connection_effect_key(source_system_name, target_system_name);
+        if let Some(effects) = config.connection_effects.get_mut(&key) {
+            for effect in effects.iter_mut() {
+                let ConnectionEffectKind::Volume { muted, .. } = effect;
+                *muted = muted_value;
+            }
         }
         self.save_config(&config)
     }
@@ -632,6 +712,113 @@ mod tests {
             let chain = chains.get("virtual-game").expect("chain present");
             assert!(chain.compressor.enabled);
             assert_eq!(chain.compressor.threshold_db, 0);
+        });
+    }
+
+    #[test]
+    fn connection_effects_round_trip_persists() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+
+            store
+                .set_connection_effects(
+                    "stream-spotify",
+                    "alsa_output.speakers",
+                    vec![ConnectionEffectKind::Volume {
+                        volume_percent: 80,
+                        muted: false,
+                    }],
+                )
+                .expect("save connection effects");
+
+            let effects = store
+                .connection_effects("stream-spotify", "alsa_output.speakers")
+                .expect("load connection effects");
+            assert_eq!(
+                effects,
+                vec![ConnectionEffectKind::Volume {
+                    volume_percent: 80,
+                    muted: false
+                }]
+            );
+
+            // A different pair with no effects yet reads back empty, not an error.
+            assert!(store
+                .connection_effects("stream-other", "alsa_output.speakers")
+                .unwrap()
+                .is_empty());
+        });
+    }
+
+    #[test]
+    fn connection_volume_and_mute_updates_do_not_touch_other_connections() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            store
+                .set_connection_effects(
+                    "mic",
+                    "pipe-deck-mic",
+                    vec![ConnectionEffectKind::Volume {
+                        volume_percent: 100,
+                        muted: false,
+                    }],
+                )
+                .unwrap();
+            store
+                .set_connection_effects(
+                    "stream-spotify",
+                    "pipe-deck-mic",
+                    vec![ConnectionEffectKind::Volume {
+                        volume_percent: 100,
+                        muted: false,
+                    }],
+                )
+                .unwrap();
+
+            store.update_connection_volume("mic", "pipe-deck-mic", 40).unwrap();
+            store.update_connection_mute("mic", "pipe-deck-mic", true).unwrap();
+
+            let mic_effects = store.connection_effects("mic", "pipe-deck-mic").unwrap();
+            assert_eq!(
+                mic_effects,
+                vec![ConnectionEffectKind::Volume {
+                    volume_percent: 40,
+                    muted: true
+                }]
+            );
+
+            // The other connection's effect is untouched.
+            let spotify_effects = store
+                .connection_effects("stream-spotify", "pipe-deck-mic")
+                .unwrap();
+            assert_eq!(
+                spotify_effects,
+                vec![ConnectionEffectKind::Volume {
+                    volume_percent: 100,
+                    muted: false
+                }]
+            );
+        });
+    }
+
+    #[test]
+    fn setting_empty_effects_removes_the_entry_rather_than_persisting_a_bare_vec() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            store
+                .set_connection_effects(
+                    "mic",
+                    "pipe-deck-mic",
+                    vec![ConnectionEffectKind::Volume {
+                        volume_percent: 100,
+                        muted: false,
+                    }],
+                )
+                .unwrap();
+
+            store.set_connection_effects("mic", "pipe-deck-mic", Vec::new()).unwrap();
+
+            assert!(store.all_connection_effects().unwrap().is_empty());
         });
     }
 }

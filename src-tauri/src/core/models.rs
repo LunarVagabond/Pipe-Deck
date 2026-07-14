@@ -113,6 +113,27 @@ pub struct Link {
     pub id: String,
     pub source_id: String,
     pub target_id: String,
+    /// Effects attached to this specific connection (issue #105), independent
+    /// of either endpoint's own volume. Read-back only — populated from a live
+    /// backing feed sink, not user-editable directly on this struct; empty
+    /// when the connection has no attached effect.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<ConnectionEffectKind>,
+}
+
+/// One effect attached to a specific routing connection (source->target pair),
+/// independent of either endpoint's own volume. Only `Volume` exists today;
+/// `kind` is tagged so more can be added later without a breaking format change.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind")]
+pub enum ConnectionEffectKind {
+    #[serde(rename = "volume")]
+    Volume {
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -387,6 +408,19 @@ pub struct AppConfig {
     pub virtual_devices: Vec<VirtualDeviceSpec>,
     #[serde(default)]
     pub plugins: std::collections::HashMap<String, PluginEntry>,
+    /// Per-connection effects (issue #105), keyed by
+    /// `"{source_system_name}->{target_system_name}"` (see
+    /// `connection_effect_key`) — system names are the stable identifier used
+    /// for persistence elsewhere in this file (e.g. `MixSourceSpec`), since
+    /// runtime `Link`/device ids aren't stable across PipeWire restarts.
+    #[serde(default)]
+    pub connection_effects: std::collections::HashMap<String, Vec<ConnectionEffectKind>>,
+}
+
+/// Stable persistence key for a connection's effects, keyed by system names
+/// (not runtime ids) so it survives PipeWire restarts/config reloads.
+pub fn connection_effect_key(source_system_name: &str, target_system_name: &str) -> String {
+    format!("{source_system_name}->{target_system_name}")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

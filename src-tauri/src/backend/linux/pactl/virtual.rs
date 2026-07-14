@@ -355,6 +355,63 @@ pub fn gc_feed_sinks_for_mix_pairs(
     Ok(())
 }
 
+/// Feed sink name for a per-connection gain effect between any two system
+/// names (issue #105/#107) — a distinct `pipe-deck-connfeed-` prefix, not
+/// `pipe-deck-feed-`, so these sinks never collide with `gc_feed_sinks`'s
+/// bare-per-virtual-input scan or `gc_feed_sinks_for_mix_pairs`'s scan; each
+/// GC pass only ever looks at its own prefix.
+pub fn feed_sink_name_for_connection(source_system_name: &str, target_system_name: &str) -> String {
+    let source_slug = slugify_for_feed_name(source_system_name);
+    let target_slug = slugify_for_feed_name(target_system_name);
+    format!("pipe-deck-connfeed-{source_slug}-{target_slug}")
+}
+
+pub fn ensure_feed_sink_for_connection(
+    source_system_name: &str,
+    target_system_name: &str,
+    target_label: &str,
+) -> Result<String, BackendError> {
+    let feed_name = feed_sink_name_for_connection(source_system_name, target_system_name);
+    if sink_exists(&feed_name)? {
+        return Ok(feed_name);
+    }
+    create_null_sink(&feed_name, &feed_sink_description(target_label))?;
+    Ok(feed_name)
+}
+
+pub fn remove_feed_sink_for_connection(
+    source_system_name: &str,
+    target_system_name: &str,
+) -> Result<(), BackendError> {
+    let feed_name = feed_sink_name_for_connection(source_system_name, target_system_name);
+    let _ = pw_link::disconnect_sink_monitor(&feed_name);
+    if let Some(module_id) = find_module_id_by_sink_name(&feed_name)? {
+        unload_module(&module_id)?;
+    }
+    Ok(())
+}
+
+/// Removes any per-connection feed sink not in `keep_pairs`. Call after every
+/// connection-effects apply, mirroring `gc_feed_sinks_for_mix_pairs`.
+pub fn gc_feed_sinks_for_connections(
+    keep_pairs: &std::collections::HashSet<(String, String)>,
+) -> Result<(), BackendError> {
+    let keep_names: std::collections::HashSet<String> = keep_pairs
+        .iter()
+        .map(|(source, target)| feed_sink_name_for_connection(source, target))
+        .collect();
+
+    for (module_id, feed_name) in list_modules_for_sink_prefix("pipe-deck-connfeed-")? {
+        if keep_names.contains(&feed_name) {
+            continue;
+        }
+        let _ = pw_link::disconnect_sink_monitor(&feed_name);
+        unload_module(&module_id)?;
+    }
+
+    Ok(())
+}
+
 pub(crate) fn ensure_feed_sink_for_virtual_input(
     virtual_input_system_name: &str,
     label: &str,
@@ -538,6 +595,30 @@ mod tests {
         assert!(is_per_pair_mix_feed_sink("mic-alsa_input.headset", &known_slugs));
         assert!(!is_per_pair_mix_feed_sink("mic", &known_slugs));
         assert!(!is_per_pair_mix_feed_sink("some-other-thing", &known_slugs));
+    }
+
+    #[test]
+    fn connection_feed_sink_name_uses_a_distinct_prefix_from_mix_pairs() {
+        // Regression guard for issue #107: connection-effect feed sinks must
+        // never share a naming prefix with mix-pair feed sinks, otherwise
+        // `gc_feed_sinks_for_mix_pairs`/`gc_feed_sinks_for_connections` (or
+        // the bare `gc_feed_sinks` per-virtual-input scan) could tear down
+        // the other feature's sinks.
+        let mix_name = feed_sink_name_for_mix_pair("pipe-deck-mic", "alsa_input.headset");
+        let connection_name = feed_sink_name_for_connection("alsa_input.headset", "pipe-deck-mic");
+
+        assert!(mix_name.starts_with("pipe-deck-feed-"));
+        assert!(connection_name.starts_with("pipe-deck-connfeed-"));
+        assert_ne!(mix_name, connection_name);
+    }
+
+    #[test]
+    fn connection_feed_sink_name_is_stable_and_order_dependent() {
+        let forward = feed_sink_name_for_connection("app-stream-1", "alsa_output.speakers");
+        let reverse = feed_sink_name_for_connection("alsa_output.speakers", "app-stream-1");
+
+        assert_eq!(forward, feed_sink_name_for_connection("app-stream-1", "alsa_output.speakers"));
+        assert_ne!(forward, reverse);
     }
 
     #[test]

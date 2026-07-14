@@ -1,3 +1,4 @@
+mod connection_effects_ops;
 mod effects_ops;
 mod graph_sync;
 mod mixer_ops;

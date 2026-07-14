@@ -1,6 +1,6 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, Link, MixSource, MixSourceSpec, RuntimeGraph, SinkMode,
-    Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
+    ConnectionEffectKind, Device, DeviceDirection, DeviceKind, Link, MixSource, MixSourceSpec,
+    RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -157,63 +157,75 @@ impl MockAudioBackend {
                     id: "link-discord-chat".into(),
                     source_id: "stream-discord".into(),
                     target_id: "sink-chat".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-spotify-music".into(),
                     source_id: "stream-spotify".into(),
                     target_id: "sink-music".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-steam-game".into(),
                     source_id: "stream-steam".into(),
                     target_id: "sink-game".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-firefox-browser".into(),
                     source_id: "stream-firefox".into(),
                     target_id: "sink-browser".into(),
+                    effects: Vec::new(),
                 },
                 // Virtual sinks → outputs
                 Link {
                     id: "link-chat-headphones".into(),
                     source_id: "sink-chat".into(),
                     target_id: "sink-headphones".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-music-headphones".into(),
                     source_id: "sink-music".into(),
                     target_id: "sink-headphones".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-music-stream".into(),
                     source_id: "sink-music".into(),
                     target_id: "sink-stream-output".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-game-headphones".into(),
                     source_id: "sink-game".into(),
                     target_id: "sink-headphones".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-browser-speakers".into(),
                     source_id: "sink-browser".into(),
                     target_id: "sink-speakers".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-stream-mix-output".into(),
                     source_id: "sink-stream-mix".into(),
                     target_id: "sink-stream-output".into(),
+                    effects: Vec::new(),
                 },
                 // Capture path
                 Link {
                     id: "link-obs-mic".into(),
                     source_id: "stream-obs".into(),
                     target_id: "source-mic-filtered".into(),
+                    effects: Vec::new(),
                 },
                 Link {
                     id: "link-mic-filtered".into(),
                     source_id: "source-mic".into(),
                     target_id: "source-mic-filtered".into(),
+                    effects: Vec::new(),
                 },
             ],
             data_source: "mock".into(),
@@ -244,6 +256,45 @@ fn mock_device(
         current_targets: Vec::new(),
         mix_sources: Vec::new(),
     }
+}
+
+/// Resolves a runtime device/stream id to the stable system name used for
+/// connection-effect lookups — mirrors `connection_effects::resolve_source`'s
+/// device-or-stream fallback, but by id only (no stream/device distinction
+/// needed once a link already exists).
+fn system_name_for_id(devices: &[Device], streams: &[Stream], id: &str) -> Option<String> {
+    devices
+        .iter()
+        .find(|device| device.id == id)
+        .map(|device| device.system_name.clone())
+        .or_else(|| {
+            streams
+                .iter()
+                .find(|stream| stream.id == id)
+                .map(|stream| stream.system_name.clone().unwrap_or_else(|| stream.id.clone()))
+        })
+}
+
+/// Every `(source_id, target_id)` pair in `graph.links` whose resolved
+/// system names match — computed up front so callers can then mutate
+/// `graph.links` without holding an immutable borrow of `graph.devices`/
+/// `graph.streams` at the same time.
+fn matching_link_ids(
+    graph: &RuntimeGraph,
+    source_system_name: &str,
+    target_system_name: &str,
+) -> std::collections::HashSet<(String, String)> {
+    graph
+        .links
+        .iter()
+        .filter(|link| {
+            system_name_for_id(&graph.devices, &graph.streams, &link.source_id).as_deref()
+                == Some(source_system_name)
+                && system_name_for_id(&graph.devices, &graph.streams, &link.target_id).as_deref()
+                    == Some(target_system_name)
+        })
+        .map(|link| (link.source_id.clone(), link.target_id.clone()))
+        .collect()
 }
 
 impl AudioBackend for MockAudioBackend {
@@ -447,6 +498,95 @@ impl AudioBackend for MockAudioBackend {
 
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
         crate::backend::linux::graph_enrich::apply_device_aliases(devices);
+    }
+
+    fn add_connection_effect(
+        &self,
+        _graph: &RuntimeGraph,
+        source_id: &str,
+        target_device_id: &str,
+    ) -> Result<(String, String), BackendError> {
+        let mut graph = self.lock();
+        let source_system_name = graph
+            .devices
+            .iter()
+            .find(|device| device.id == source_id)
+            .map(|device| device.system_name.clone())
+            .or_else(|| {
+                graph
+                    .streams
+                    .iter()
+                    .find(|stream| stream.id == source_id)
+                    .map(|stream| stream.system_name.clone().unwrap_or_else(|| stream.id.clone()))
+            })
+            .ok_or_else(|| BackendError::Message(format!("connection source not found: {source_id}")))?;
+        let target_system_name = graph
+            .devices
+            .iter()
+            .find(|device| device.id == target_device_id)
+            .map(|device| device.system_name.clone())
+            .ok_or_else(|| BackendError::Message(format!("target device not found: {target_device_id}")))?;
+
+        let Some(link) = graph
+            .links
+            .iter_mut()
+            .find(|link| link.source_id == source_id && link.target_id == target_device_id)
+        else {
+            return Err(BackendError::Message(format!(
+                "no existing connection from {source_id} to {target_device_id}"
+            )));
+        };
+        if !link
+            .effects
+            .iter()
+            .any(|effect| matches!(effect, ConnectionEffectKind::Volume { .. }))
+        {
+            link.effects.push(ConnectionEffectKind::Volume {
+                volume_percent: 100,
+                muted: false,
+            });
+        }
+
+        Ok((source_system_name, target_system_name))
+    }
+
+    fn remove_connection_effect(&self, source_system_name: &str, target_system_name: &str) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let matching_ids = matching_link_ids(&graph, source_system_name, target_system_name);
+        for link in graph.links.iter_mut() {
+            if matching_ids.contains(&(link.source_id.clone(), link.target_id.clone())) {
+                link.effects.clear();
+            }
+        }
+        Ok(())
+    }
+
+    fn set_connection_volume(&self, source_system_name: &str, target_system_name: &str, percent: u8) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let matching_ids = matching_link_ids(&graph, source_system_name, target_system_name);
+        for link in graph.links.iter_mut() {
+            if matching_ids.contains(&(link.source_id.clone(), link.target_id.clone())) {
+                for effect in link.effects.iter_mut() {
+                    let ConnectionEffectKind::Volume { volume_percent, .. } = effect;
+                    *volume_percent = percent;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn set_connection_mute(&self, source_system_name: &str, target_system_name: &str, muted: bool) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let matching_ids = matching_link_ids(&graph, source_system_name, target_system_name);
+        for link in graph.links.iter_mut() {
+            if matching_ids.contains(&(link.source_id.clone(), link.target_id.clone())) {
+                for effect in link.effects.iter_mut() {
+                    let ConnectionEffectKind::Volume { muted: link_muted, .. } = effect;
+                    *link_muted = muted;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError> {
