@@ -222,6 +222,7 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
         dry_run: false,
         mock_graph_only: false,
         limit_to_identities: None,
+        backend: &adapter,
     };
     adapter.apply_graph_routing(&mut graph, &ctx);
     Ok(())

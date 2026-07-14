@@ -149,6 +149,14 @@ impl AudioBackend for LinuxPipeWireBackend {
         graph_enrich::apply_device_aliases(devices);
         graph_enrich::apply_device_levels(devices);
     }
+
+    fn monitor_routes_for_source(&self, source_system_name: &str) -> Vec<String> {
+        crate::backend::linux::pw_link::list_all_monitor_routes_for_source(source_system_name)
+    }
+
+    fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, target_is_input: bool) -> bool {
+        crate::backend::linux::pw_link::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_input)
+    }
 }
 
 fn notify_graph_listeners(

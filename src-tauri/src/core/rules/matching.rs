@@ -4,7 +4,7 @@ use crate::core::models::{
 };
 use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::CandidateRule;
-use crate::backend::linux::pw_link;
+use crate::backend::AudioBackend;
 use regex::Regex;
 use std::collections::HashSet;
 
@@ -323,6 +323,7 @@ fn persisted_rule_display_name() -> String {
 pub(crate) fn actual_device_target_system_names(
     graph: &RuntimeGraph,
     source: &crate::core::models::Device,
+    backend: &dyn AudioBackend,
 ) -> HashSet<String> {
     let from_graph: HashSet<String> = source
         .resolved_targets()
@@ -339,7 +340,8 @@ pub(crate) fn actual_device_target_system_names(
         return from_graph;
     }
 
-    pw_link::list_all_monitor_routes_for_source(&source.system_name)
+    backend
+        .monitor_routes_for_source(&source.system_name)
         .into_iter()
         .collect()
 }
@@ -348,12 +350,13 @@ pub(crate) fn device_matches_rule(
     graph: &RuntimeGraph,
     source: &crate::core::models::Device,
     rule: &DeviceRouteRule,
+    backend: &dyn AudioBackend,
 ) -> bool {
     let expected: HashSet<String> = rule.target_system_names_resolved().into_iter().collect();
     if expected.is_empty() {
         return true;
     }
-    actual_device_target_system_names(graph, source) == expected
+    actual_device_target_system_names(graph, source, backend) == expected
 }
 
 #[cfg(test)]

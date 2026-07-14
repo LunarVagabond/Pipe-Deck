@@ -85,6 +85,7 @@ impl CoreEngine {
             &self.graph,
             &mut self.device_manual_overrides,
             &config.routing_rules.device_rules,
+            self.adapter.as_ref(),
         );
 
         rules::detect_external_manual_overrides(
@@ -97,6 +98,7 @@ impl CoreEngine {
             &self.graph,
             &mut self.device_manual_overrides,
             &config.routing_rules.device_rules,
+            self.adapter.as_ref(),
         );
 
         let ctx = ApplyRulesContext {
@@ -105,6 +107,7 @@ impl CoreEngine {
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
             limit_to_identities: None,
+            backend: self.adapter.as_ref(),
         };
         self.adapter.apply_graph_routing(&mut self.graph, &ctx);
     }
@@ -151,6 +154,7 @@ impl CoreEngine {
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
             limit_to_identities: Some(&new_identities),
+            backend: self.adapter.as_ref(),
         };
         let _ = rules::apply_routing_rules_with_explanations(&mut self.graph, &ctx);
 

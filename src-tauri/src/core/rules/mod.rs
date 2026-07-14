@@ -10,7 +10,7 @@ pub use migration::*;
 
 use std::collections::HashSet;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct ApplyRulesContext<'a> {
     pub manual_overrides: &'a HashSet<crate::core::stream_identity::StreamIdentityKey>,
     pub device_manual_overrides: &'a HashSet<String>,
@@ -18,6 +18,11 @@ pub struct ApplyRulesContext<'a> {
     pub mock_graph_only: bool,
     /// When set, only streams with these identity keys are eligible for apply.
     pub limit_to_identities: Option<&'a HashSet<crate::core::stream_identity::StreamIdentityKey>>,
+    /// Live routing-state fallback for rule matching (e.g. monitor-route
+    /// discovery when `RuntimeGraph.current_targets` is stale/missing) — see
+    /// `core/rules/matching.rs::actual_device_target_system_names` and
+    /// `core/rules/evaluation.rs::apply_device_rules`.
+    pub backend: &'a dyn crate::backend::AudioBackend,
 }
 
 #[derive(Debug, Clone)]

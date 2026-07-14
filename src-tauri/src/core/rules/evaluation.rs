@@ -11,7 +11,6 @@ use crate::core::rules::matching::{
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_display_label, stream_identity_key};
 use crate::backend::BackendError;
-use crate::backend::linux::pw_link;
 use std::collections::HashSet;
 
 pub fn evaluate_stream_route(
@@ -214,13 +213,13 @@ fn apply_device_rules(
             }
             let target_ids: Vec<String> = target_devices.iter().map(|device| device.id.clone()).collect();
             let already = if source.is_multi_sink() {
-                device_matches_rule(graph, source, rule)
+                device_matches_rule(graph, source, rule, ctx.backend)
             } else if let Some(target) = target_devices.first() {
                 source
                     .current_target
                     .as_ref()
                     .is_some_and(|id| id == &target.id)
-                    || pw_link::is_sink_monitor_routed_to(
+                    || ctx.backend.is_routed_to(
                         &source.system_name,
                         &target.system_name,
                         target.direction == DeviceDirection::Input,
@@ -644,12 +643,14 @@ mod tests {
         );
         let mut limit = HashSet::new();
         limit.insert(discord_key);
+        let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
             device_manual_overrides: &HashSet::new(),
             dry_run: true,
             mock_graph_only: true,
             limit_to_identities: Some(&limit),
+            backend: &backend,
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("simulate");
         let discord = graph.streams.iter().find(|s| s.app_name == "Discord").unwrap();

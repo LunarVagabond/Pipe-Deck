@@ -3,6 +3,7 @@ use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::evaluation::evaluate_stream_route;
 use crate::core::rules::matching::device_matches_rule;
 use crate::core::stream_identity::{identity_matches, stream_identity_key};
+use crate::backend::AudioBackend;
 use std::collections::HashSet;
 
 pub fn should_track_manual_override(
@@ -55,6 +56,7 @@ pub fn detect_external_device_manual_overrides(
     graph: &RuntimeGraph,
     overrides: &mut HashSet<String>,
     device_rules: &[DeviceRouteRule],
+    backend: &dyn AudioBackend,
 ) {
     for rule in device_rules {
         let Some(source) = find_device_by_system_name(graph, &rule.source_system_name) else {
@@ -63,11 +65,11 @@ pub fn detect_external_device_manual_overrides(
         if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
             continue;
         }
-        let actual = crate::core::rules::matching::actual_device_target_system_names(graph, source);
+        let actual = crate::core::rules::matching::actual_device_target_system_names(graph, source, backend);
         if actual.is_empty() {
             continue;
         }
-        if !device_matches_rule(graph, source, rule) {
+        if !device_matches_rule(graph, source, rule, backend) {
             overrides.insert(source.id.clone());
         }
     }
@@ -77,6 +79,7 @@ pub fn reconcile_device_manual_overrides(
     graph: &RuntimeGraph,
     overrides: &mut HashSet<String>,
     device_rules: &[DeviceRouteRule],
+    backend: &dyn AudioBackend,
 ) {
     let stale: Vec<String> = overrides
         .iter()
@@ -90,7 +93,7 @@ pub fn reconcile_device_manual_overrides(
             else {
                 return true;
             };
-            device_matches_rule(graph, source, rule)
+            device_matches_rule(graph, source, rule, backend)
         })
         .cloned()
         .collect();
@@ -297,7 +300,8 @@ mod tests {
             target_system_names: Vec::new(),
         }];
         let mut overrides = HashSet::new();
-        detect_external_device_manual_overrides(&graph, &mut overrides, &device_rules);
+        let backend = crate::backend::mock::MockAudioBackend::new();
+        detect_external_device_manual_overrides(&graph, &mut overrides, &device_rules, &backend);
         assert!(overrides.contains("virtual-chat"));
     }
 }

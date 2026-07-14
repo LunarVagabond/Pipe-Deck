@@ -69,6 +69,19 @@ pub trait AudioBackend: Send + Sync {
     fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError>;
     fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError>;
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]);
+
+    // Live routing-state queries used only as rule-matching fallbacks when
+    // `RuntimeGraph`'s own `current_targets`/`current_target` are stale or
+    // missing (see core/rules/matching.rs, core/rules/evaluation.rs). A
+    // graph-derived answer is always tried first by the caller; these exist
+    // for the rare case a live re-check is genuinely needed.
+    fn monitor_routes_for_source(&self, _source_system_name: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn is_routed_to(&self, _source_system_name: &str, _target_system_name: &str, _target_is_input: bool) -> bool {
+        false
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
@@ -165,4 +178,12 @@ impl AudioBackend for EmptyAudioBackend {
     }
 
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
+
+    fn monitor_routes_for_source(&self, _source_system_name: &str) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn is_routed_to(&self, _source_system_name: &str, _target_system_name: &str, _target_is_input: bool) -> bool {
+        false
+    }
 }
