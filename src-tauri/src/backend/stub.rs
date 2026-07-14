@@ -65,6 +65,18 @@ impl AudioBackend for StubBackend {
         ))
     }
 
+    fn route_stream(&self, _graph: &RuntimeGraph, _stream_id: &str, _target_device_id: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn route_device(&self, _graph: &RuntimeGraph, _source_device_id: &str, _target_device_ids: &[String]) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
     fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
 
     fn apply_user_cleared_routes(

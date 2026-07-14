@@ -30,17 +30,15 @@ pub trait AudioBackend: Send + Sync {
     fn set_stream_volume(&self, graph: &RuntimeGraph, stream_id: &str, percent: u8) -> Result<(), BackendError>;
     fn set_stream_mute(&self, graph: &RuntimeGraph, stream_id: &str, muted: bool) -> Result<(), BackendError>;
 
-    // Routing: clearing a stream's route back to default. `route_stream`/
-    // `route_device` (create/change a route) stay engine-side today,
-    // reached via `graph_routing`/`graph_sync` reconciliation rather than a
-    // single-link trait call — see docs/Decisions.md PD-019 and issue #68
-    // for why that reconciliation logic isn't collapsed into this trait yet.
+    // Routing: set or clear a single stream/device route.
     fn clear_stream_target(
         &self,
         graph: &RuntimeGraph,
         stream_id: &str,
         previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError>;
+    fn route_stream(&self, graph: &RuntimeGraph, stream_id: &str, target_device_id: &str) -> Result<(), BackendError>;
+    fn route_device(&self, graph: &RuntimeGraph, source_device_id: &str, target_device_ids: &[String]) -> Result<(), BackendError>;
 
     // Graph/routing reconciliation. These stay call-granularity-agnostic on
     // purpose (see PD-019 and issue #68): the Linux impl internally discovers
@@ -150,6 +148,14 @@ impl AudioBackend for EmptyAudioBackend {
         _stream_id: &str,
         _previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn route_stream(&self, _graph: &RuntimeGraph, _stream_id: &str, _target_device_id: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn route_device(&self, _graph: &RuntimeGraph, _source_device_id: &str, _target_device_ids: &[String]) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 

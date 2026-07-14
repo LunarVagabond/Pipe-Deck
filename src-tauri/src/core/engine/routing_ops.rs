@@ -1,12 +1,8 @@
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceRouteIntent, RoutingIntent};
+use crate::core::models::ApplyResult;
 use crate::core::rules;
-use crate::core::routing::{
-    apply_device_route_intent, apply_routing_intent, capture_routing_snapshot,
-    restore_routing_snapshot,
-};
+use crate::core::routing::capture_routing_snapshot;
 
-use super::mock::{apply_mock_device_route, apply_mock_routing, apply_mock_snapshot};
 use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
@@ -22,18 +18,11 @@ impl CoreEngine {
         }
         let snapshot = capture_routing_snapshot(&self.graph);
         let resolved_target = self.resolve_device_id(target_device_id);
-        let intent = RoutingIntent {
-            stream_id: stream_id.to_string(),
-            target_device_id: Some(resolved_target.clone()),
-            target_device_ids: Vec::new(),
-        };
 
-        let apply_result = if self.graph.data_source == "mock" {
-            apply_mock_routing(&mut self.graph, &intent)
-        } else {
-            apply_routing_intent(&self.graph, &intent)
-                .map_err(|error| EngineError::Routing(error.to_string()))
-        };
+        let apply_result = self
+            .adapter
+            .route_stream(&self.graph, stream_id, &resolved_target)
+            .map_err(|error| EngineError::Routing(error.to_string()));
 
         if let Err(error) = apply_result {
             let message = error.to_string();
@@ -44,7 +33,7 @@ impl CoreEngine {
             });
         }
 
-        if let Some(stream) = self.graph.streams.iter().find(|s| s.id == intent.stream_id) {
+        if let Some(stream) = self.graph.streams.iter().find(|s| s.id == stream_id) {
             if let Some(target) = self
                 .graph
                 .devices
@@ -55,12 +44,10 @@ impl CoreEngine {
             }
         }
 
-        self.sync_manual_override_for_ids(&intent.stream_id, &resolved_target);
+        self.sync_manual_override_for_ids(stream_id, &resolved_target);
 
         self.rollback_stack.push(snapshot);
-        if self.graph.data_source != "mock" {
-            self.refresh_graph()?;
-        }
+        self.refresh_graph()?;
         Ok(ApplyResult {
             success: true,
             message: None,
@@ -100,18 +87,12 @@ impl CoreEngine {
             .iter()
             .map(|id| self.resolve_device_id(id))
             .collect();
-        let intent = DeviceRouteIntent {
-            source_device_id: self.resolve_device_id(source_device_id),
-            target_device_id: resolved_targets.first().cloned(),
-            target_device_ids: resolved_targets.clone(),
-        };
+        let resolved_source = self.resolve_device_id(source_device_id);
 
-        let apply_result = if self.graph.data_source == "mock" {
-            apply_mock_device_route(&mut self.graph, &intent)
-        } else {
-            apply_device_route_intent(&self.graph, &intent)
-                .map_err(|error| EngineError::Routing(error.to_string()))
-        };
+        let apply_result = self
+            .adapter
+            .route_device(&self.graph, &resolved_source, &resolved_targets)
+            .map_err(|error| EngineError::Routing(error.to_string()));
 
         if let Err(error) = apply_result {
             let message = error.to_string();
@@ -126,7 +107,7 @@ impl CoreEngine {
             .graph
             .devices
             .iter()
-            .find(|device| device.id == intent.source_device_id)
+            .find(|device| device.id == resolved_source)
         {
             let targets: Vec<_> = resolved_targets
                 .iter()
@@ -134,12 +115,10 @@ impl CoreEngine {
                 .collect();
             if targets.is_empty() {
                 let _ = crate::core::routing_rules::clear_device_route_rule(source);
-                self.cleared_device_routes
-                    .insert(intent.source_device_id.clone());
+                self.cleared_device_routes.insert(resolved_source.clone());
             } else {
                 let _ = crate::core::routing_rules::save_device_route_rule(source, &targets);
-                self.cleared_device_routes
-                    .remove(&intent.source_device_id);
+                self.cleared_device_routes.remove(&resolved_source);
             }
         }
 
@@ -148,7 +127,7 @@ impl CoreEngine {
                 .graph
                 .devices
                 .iter_mut()
-                .find(|device| device.id == intent.source_device_id)
+                .find(|device| device.id == resolved_source)
             {
                 device.current_target = None;
                 device.current_targets.clear();
@@ -156,9 +135,7 @@ impl CoreEngine {
         }
 
         self.rollback_stack.push(snapshot);
-        if self.graph.data_source != "mock" {
-            self.refresh_graph()?;
-        }
+        self.refresh_graph()?;
         Ok(ApplyResult {
             success: true,
             message: None,
@@ -183,23 +160,10 @@ impl CoreEngine {
             return Err(EngineError::Routing(format!("stream not found: {stream_id}")));
         };
 
-        let apply_result: Result<(), EngineError> = if self.graph.data_source == "mock" {
-            let Some(stream) = self
-                .graph
-                .streams
-                .iter_mut()
-                .find(|stream| stream.id == stream_id)
-            else {
-                return Err(EngineError::Routing(format!("stream not found: {stream_id}")));
-            };
-            stream.current_target = None;
-            stream.current_targets.clear();
-            Ok(())
-        } else {
-            self.adapter
-                .clear_stream_target(&self.graph, stream_id, previous_target_device_id)
-                .map_err(|error| EngineError::Routing(error.to_string()))
-        };
+        let apply_result: Result<(), EngineError> = self
+            .adapter
+            .clear_stream_target(&self.graph, stream_id, previous_target_device_id)
+            .map_err(|error| EngineError::Routing(error.to_string()));
 
         if let Err(error) = apply_result {
             let message = error.to_string();
@@ -224,15 +188,7 @@ impl CoreEngine {
         }
 
         self.rollback_stack.push(snapshot);
-        if self.graph.data_source != "mock" {
-            self.refresh_graph()?;
-        } else {
-            self.adapter.apply_user_cleared_routes(
-                &mut self.graph,
-                &self.cleared_stream_routes,
-                &self.cleared_device_routes,
-            );
-        }
+        self.refresh_graph()?;
         Ok(ApplyResult {
             success: true,
             message: None,
@@ -248,12 +204,24 @@ impl CoreEngine {
             });
         };
 
-        let restore_result = if self.graph.data_source == "mock" {
-            apply_mock_snapshot(&mut self.graph, &snapshot)
-        } else {
-            restore_routing_snapshot(&self.graph, &snapshot)
-                .map_err(|error| EngineError::Routing(error.to_string()))
-        };
+        let restore_result: Result<(), EngineError> = (|| {
+            for intent in &snapshot.stream_intents {
+                let target = intent
+                    .target_device_id
+                    .as_ref()
+                    .or_else(|| intent.target_device_ids.first())
+                    .ok_or_else(|| EngineError::Routing("routing intent has no target".into()))?;
+                self.adapter
+                    .route_stream(&self.graph, &intent.stream_id, target)
+                    .map_err(|error| EngineError::Routing(error.to_string()))?;
+            }
+            for intent in &snapshot.device_intents {
+                self.adapter
+                    .route_device(&self.graph, &intent.source_device_id, &intent.target_ids())
+                    .map_err(|error| EngineError::Routing(error.to_string()))?;
+            }
+            Ok(())
+        })();
 
         if let Err(error) = restore_result {
             let message = error.to_string();
@@ -264,9 +232,7 @@ impl CoreEngine {
             });
         }
 
-        if self.graph.data_source != "mock" {
-            self.refresh_graph()?;
-        }
+        self.refresh_graph()?;
         Ok(ApplyResult {
             success: true,
             message: None,

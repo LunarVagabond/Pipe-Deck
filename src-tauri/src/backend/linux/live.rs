@@ -116,6 +116,26 @@ impl AudioBackend for LinuxPipeWireBackend {
         crate::backend::linux::pactl::clear_stream_target(graph, stream_id, previous_target_device_id)
     }
 
+    fn route_stream(&self, graph: &RuntimeGraph, stream_id: &str, target_device_id: &str) -> Result<(), BackendError> {
+        let intent = crate::core::models::RoutingIntent {
+            stream_id: stream_id.to_string(),
+            target_device_id: Some(target_device_id.to_string()),
+            target_device_ids: Vec::new(),
+        };
+        crate::core::routing::apply_routing_intent(graph, &intent)
+            .map_err(|error| BackendError::Message(error.to_string()))
+    }
+
+    fn route_device(&self, graph: &RuntimeGraph, source_device_id: &str, target_device_ids: &[String]) -> Result<(), BackendError> {
+        let intent = crate::core::models::DeviceRouteIntent {
+            source_device_id: source_device_id.to_string(),
+            target_device_id: target_device_ids.first().cloned(),
+            target_device_ids: target_device_ids.to_vec(),
+        };
+        crate::core::routing::apply_device_route_intent(graph, &intent)
+            .map_err(|error| BackendError::Message(error.to_string()))
+    }
+
     fn sync_live_routing_graph(&self, graph: &mut RuntimeGraph) {
         graph_routing::sync_live_routing_graph(graph);
     }

@@ -5,14 +5,27 @@ use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
 use std::collections::HashSet;
+use std::sync::Mutex;
 
-/// Static sample graph for development until real PipeWire enumeration lands.
-/// Data is stable — no simulated changes or background polling.
-pub struct MockAudioBackend;
+/// Holds a mutable in-memory graph seeded from the static sample data, so
+/// mixer/routing/virtual-mic-mix mutations actually persist across a
+/// `fetch_graph()` call the way a real backend's live state would — unlike
+/// the original stateless mock, which returned a fresh copy of the sample
+/// data on every call and relied on `CoreEngine`'s own
+/// `data_source == "mock"` branches to fake persistence in-place.
+pub struct MockAudioBackend {
+    graph: Mutex<RuntimeGraph>,
+}
 
 impl MockAudioBackend {
     pub fn new() -> Self {
-        Self
+        Self {
+            graph: Mutex::new(Self::sample_graph()),
+        }
+    }
+
+    fn lock(&self) -> std::sync::MutexGuard<'_, RuntimeGraph> {
+        self.graph.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn sample_graph() -> RuntimeGraph {
@@ -203,7 +216,7 @@ fn mock_device(
 
 impl AudioBackend for MockAudioBackend {
     fn fetch_graph(&self) -> Result<RuntimeGraph, BackendError> {
-        Ok(Self::sample_graph())
+        Ok(self.lock().clone())
     }
 
     fn subscribe(&self, _listener: GraphListener) -> Result<(), BackendError> {
@@ -211,44 +224,106 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    // Mutation for the mock data source happens in `CoreEngine`'s own
-    // `data_source == "mock"` branches today (see `core/engine/mock.rs`),
-    // which short-circuit before ever calling the adapter — these are
-    // unreachable no-ops until that mock state is consolidated onto this
-    // backend (tracked as a later step of issue #68).
-    fn set_device_volume(&self, _graph: &RuntimeGraph, _device_id: &str, _percent: u8) -> Result<(), BackendError> {
+    fn set_device_volume(&self, _graph: &RuntimeGraph, device_id: &str, percent: u8) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let device = graph
+            .devices
+            .iter_mut()
+            .find(|device| device.id == device_id)
+            .ok_or_else(|| BackendError::Message(format!("device not found: {device_id}")))?;
+        device.volume_percent = Some(percent.min(100));
         Ok(())
     }
 
-    fn set_device_mute(&self, _graph: &RuntimeGraph, _device_id: &str, _muted: bool) -> Result<(), BackendError> {
+    fn set_device_mute(&self, _graph: &RuntimeGraph, device_id: &str, muted: bool) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let device = graph
+            .devices
+            .iter_mut()
+            .find(|device| device.id == device_id)
+            .ok_or_else(|| BackendError::Message(format!("device not found: {device_id}")))?;
+        device.muted = Some(muted);
         Ok(())
     }
 
-    fn set_stream_volume(&self, _graph: &RuntimeGraph, _stream_id: &str, _percent: u8) -> Result<(), BackendError> {
+    fn set_stream_volume(&self, _graph: &RuntimeGraph, stream_id: &str, percent: u8) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let stream = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+            .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
+        stream.volume_percent = Some(percent.min(100));
         Ok(())
     }
 
-    fn set_stream_mute(&self, _graph: &RuntimeGraph, _stream_id: &str, _muted: bool) -> Result<(), BackendError> {
+    fn set_stream_mute(&self, _graph: &RuntimeGraph, stream_id: &str, muted: bool) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let stream = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+            .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
+        stream.muted = Some(muted);
         Ok(())
     }
 
     fn clear_stream_target(
         &self,
         _graph: &RuntimeGraph,
-        _stream_id: &str,
+        stream_id: &str,
         _previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let stream = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+            .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
+        stream.current_target = None;
+        stream.current_targets.clear();
+        Ok(())
+    }
+
+    fn route_stream(&self, _graph: &RuntimeGraph, stream_id: &str, target_device_id: &str) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        if !graph.devices.iter().any(|device| device.id == target_device_id) {
+            return Err(BackendError::Message(format!("target device not found: {target_device_id}")));
+        }
+        let stream = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+            .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
+        stream.current_target = Some(target_device_id.to_string());
+        stream.current_targets.clear();
+        Ok(())
+    }
+
+    fn route_device(&self, _graph: &RuntimeGraph, source_device_id: &str, target_device_ids: &[String]) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        if !graph.devices.iter().any(|device| device.id == source_device_id) {
+            return Err(BackendError::Message(format!("source device not found: {source_device_id}")));
+        }
+        for target_id in target_device_ids {
+            if !graph.devices.iter().any(|device| device.id == *target_id) {
+                return Err(BackendError::Message(format!("target device not found: {target_id}")));
+            }
+        }
+        let device = graph
+            .devices
+            .iter_mut()
+            .find(|device| device.id == source_device_id)
+            .expect("source device presence checked above");
+        device.current_targets = target_device_ids.to_vec();
+        device.current_target = target_device_ids.first().cloned();
         Ok(())
     }
 
     // The mock sample graph has no real pactl/pw-link session behind it, so
     // reconciliation that requires live PipeWire queries is a deliberate
     // no-op rather than shelling out to system tools with nothing meaningful
-    // to report. `apply_user_cleared_routes` and the alias half of
-    // `apply_device_aliases_and_levels` are pure in-memory graph/config
-    // operations with no such dependency, so they still run for real —
-    // `routing_ops::clear_stream_target`'s mock path and device aliasing
-    // both rely on that actually happening.
+    // to report.
     fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
 
     fn apply_user_cleared_routes(
