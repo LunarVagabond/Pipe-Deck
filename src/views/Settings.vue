@@ -2,9 +2,19 @@
 import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
+import SegmentedControl from "../components/SegmentedControl.vue";
 import { useApplyResult } from "../stores/notices";
 import { useUpdateStatus } from "../stores/updateStatus";
-import type { DaemonStatus, PluginStatus } from "../types/graph";
+import { useTheme } from "../stores/theme";
+import { useDaemonStatus } from "../stores/daemonStatus";
+import type { PluginStatus } from "../types/graph";
+import type { ThemeMode } from "../types/theme";
+
+const THEME_MODE_OPTIONS = [
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+  { value: "system", label: "Follow system" },
+];
 
 type SettingsTab = "general" | "background" | "plugins" | "about";
 
@@ -19,7 +29,7 @@ const activeTab = ref<SettingsTab>("general");
 const restoreOnStartup = ref(true);
 const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
-const daemonStatus = ref<DaemonStatus | null>(null);
+const { daemonStatus, refreshDaemonStatus } = useDaemonStatus();
 const plugins = ref<PluginStatus[]>([]);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
@@ -33,6 +43,19 @@ const {
   checkForUpdatesNow,
   installUpdateNow,
 } = useUpdateStatus();
+const {
+  schemes,
+  mode: themeMode,
+  darkSchemeId,
+  lightSchemeId,
+  resolvedKind,
+  setMode: setThemeMode,
+  setDarkScheme,
+  setLightScheme,
+} = useTheme();
+
+const darkSchemes = computed(() => schemes.value.filter((scheme) => scheme.kind === "dark"));
+const lightSchemes = computed(() => schemes.value.filter((scheme) => scheme.kind === "light"));
 
 const BMC_URL = "https://www.buymeacoffee.com/lunarvagabond";
 const BMC_BUTTON_SRC = "https://cdn.buymeacoffee.com/buttons/v2/default-violet.png";
@@ -78,7 +101,7 @@ async function loadSettings() {
   restoreOnStartup.value = config.preferences?.restore_on_startup ?? true;
   backgroundRestore.value = config.preferences?.background_restore ?? false;
   autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
-  daemonStatus.value = await invoke("get_daemon_status");
+  await refreshDaemonStatus();
   plugins.value = await invoke("list_plugins");
   await ensureAppInfo();
 }
@@ -266,6 +289,67 @@ onMounted(() => {
           @update:model-value="setAutoApplyRules"
         />
       </div>
+
+      <p class="settings-subheading">Appearance</p>
+
+      <div class="settings-row">
+        <div>
+          <p class="settings-row-label">Mode</p>
+          <p class="settings-row-hint">
+            Choose Light or Dark, or follow your system's theme automatically.
+          </p>
+        </div>
+        <SegmentedControl
+          :model-value="themeMode"
+          :options="THEME_MODE_OPTIONS"
+          @update:model-value="(value) => setThemeMode(value as ThemeMode)"
+        />
+      </div>
+
+      <div class="settings-row">
+        <div>
+          <p class="settings-row-label">Dark scheme</p>
+          <p class="settings-row-hint">Used when the app is in Dark mode.</p>
+        </div>
+        <div class="scheme-select-group">
+          <span v-if="resolvedKind === 'dark'" class="scheme-active-badge">Active</span>
+          <select
+            class="scheme-select"
+            :value="darkSchemeId"
+            @change="setDarkScheme(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="scheme in darkSchemes" :key="scheme.id" :value="scheme.id">
+              {{ scheme.name }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <div class="settings-row">
+        <div>
+          <p class="settings-row-label">Light scheme</p>
+          <p class="settings-row-hint">Used when the app is in Light mode.</p>
+        </div>
+        <div class="scheme-select-group">
+          <span v-if="resolvedKind === 'light'" class="scheme-active-badge">Active</span>
+          <select
+            class="scheme-select"
+            :value="lightSchemeId"
+            @change="setLightScheme(($event.target as HTMLSelectElement).value)"
+          >
+            <option v-for="scheme in lightSchemes" :key="scheme.id" :value="scheme.id">
+              {{ scheme.name }}
+            </option>
+          </select>
+        </div>
+      </div>
+
+      <p class="settings-row-hint">
+        Want to design your own? Drop a YAML file in
+        <code>~/.config/pipe-deck/themes/</code> — see the
+        <a href="https://github.com/LunarVagabond/Pipe-Deck/wiki/Theming" target="_blank" rel="noreferrer">Theming docs</a>
+        for the schema.
+      </p>
     </div>
 
     <div

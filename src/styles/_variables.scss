@@ -1,3 +1,11 @@
+// Shorthand for a translucent tint of a theme token, e.g. translucent(--background, 95)
+// instead of repeating `color-mix(in srgb, var(--background) 95%, transparent)` at every
+// call site. Centralizing this also means we only have one place to change if the
+// underlying alpha-blend mechanism (color-mix) ever needs to move to a fallback approach.
+@function translucent($token, $percent) {
+  @return color-mix(in srgb, var(#{$token}) #{$percent}%, transparent);
+}
+
 :root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   font-size: 16px;
@@ -5,11 +13,16 @@
   font-weight: 400;
   color: #e6e9ef;
   background-color: #0b0f14;
+  color-scheme: dark;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 
+  // Built-in fallback palette (Midnight Deck / dark #1) — pre-JS and failure-mode
+  // fallback only. Applied schemes override these via inline styles on :root
+  // at runtime (see src/stores/theme.ts).
+  --background: #0b0f14;
   --surface-1: #131820;
   --surface-2: #1c2330;
   --border: #2a3344;
@@ -18,7 +31,17 @@
   --accent-purple: #7c5cff;
   --accent-teal: #26c3a3;
   --accent-amber: #ffb020;
+  --status-success: #34d399;
+  --status-warning: #fb923c;
+  --status-danger: #f87171;
   --view-padding: 1rem;
   --card-gap: 0.85rem;
   --section-gap: 1.25rem;
+}
+
+// Shared "inset top-edge highlight" used on raised surfaces (cards, panels,
+// inputs) throughout the app — was duplicated as a literal box-shadow value
+// in ~8 places; @extend this instead of repeating the rgba value.
+%inset-highlight {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }

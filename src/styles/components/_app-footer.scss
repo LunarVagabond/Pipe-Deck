@@ -1,3 +1,5 @@
+@use "../variables" as vars;
+
 .app-footer {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -6,7 +8,7 @@
   flex-shrink: 0;
   padding: 0.55rem 1.5rem;
   border-top: 1px solid var(--border);
-  background: rgba(11, 15, 20, 0.95);
+  background: vars.translucent(--background, 95);
   backdrop-filter: blur(8px);
   font-size: 0.78rem;
   color: var(--text-muted);

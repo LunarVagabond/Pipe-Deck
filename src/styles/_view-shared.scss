@@ -1,3 +1,5 @@
+@use "variables" as vars;
+
 .view-header {
   display: flex;
   justify-content: space-between;
@@ -93,8 +95,8 @@
     gap: 1rem;
     padding: 0.6rem 0.75rem;
     border-radius: 0.6rem;
-    background: rgba(11, 15, 20, 0.45);
-    border: 1px solid rgba(255, 255, 255, 0.06);
+    background: vars.translucent(--surface-2, 45);
+    border: 1px solid var(--border);
   }
 }
 

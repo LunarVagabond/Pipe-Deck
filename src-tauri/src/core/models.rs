@@ -175,6 +175,24 @@ pub struct Preferences {
     pub auto_apply_rules: bool,
     #[serde(default)]
     pub sidebar_collapsed: bool,
+    #[serde(default = "default_theme_mode")]
+    pub theme_mode: String,
+    #[serde(default = "default_dark_scheme")]
+    pub dark_scheme: String,
+    #[serde(default = "default_light_scheme")]
+    pub light_scheme: String,
+}
+
+fn default_theme_mode() -> String {
+    "dark".into()
+}
+
+fn default_dark_scheme() -> String {
+    "midnight-deck".into()
+}
+
+fn default_light_scheme() -> String {
+    "paper-deck".into()
 }
 
 impl Default for Preferences {
@@ -185,8 +203,111 @@ impl Default for Preferences {
             background_restore: false,
             auto_apply_rules: true,
             sidebar_collapsed: false,
+            theme_mode: default_theme_mode(),
+            dark_scheme: default_dark_scheme(),
+            light_scheme: default_light_scheme(),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeBase {
+    Light,
+    Dark,
+}
+
+/// A fully-resolved color palette — every field present, no fallbacks left to apply.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemeColors {
+    pub background: String,
+    pub surface_1: String,
+    pub surface_2: String,
+    pub border: String,
+    pub text: String,
+    pub text_muted: String,
+    pub accent_purple: String,
+    pub accent_teal: String,
+    pub accent_amber: String,
+    pub status_success: String,
+    pub status_warning: String,
+    pub status_danger: String,
+}
+
+/// A partial palette as authored by a user — any key left unset falls back to the
+/// built-in default for the scheme's declared `base`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ThemeColorOverrides {
+    #[serde(default)]
+    pub background: Option<String>,
+    #[serde(default)]
+    pub surface_1: Option<String>,
+    #[serde(default)]
+    pub surface_2: Option<String>,
+    #[serde(default)]
+    pub border: Option<String>,
+    #[serde(default)]
+    pub text: Option<String>,
+    #[serde(default)]
+    pub text_muted: Option<String>,
+    #[serde(default)]
+    pub accent_purple: Option<String>,
+    #[serde(default)]
+    pub accent_teal: Option<String>,
+    #[serde(default)]
+    pub accent_amber: Option<String>,
+    #[serde(default)]
+    pub status_success: Option<String>,
+    #[serde(default)]
+    pub status_warning: Option<String>,
+    #[serde(default)]
+    pub status_danger: Option<String>,
+}
+
+impl ThemeColorOverrides {
+    /// Merges these overrides on top of `base`, keeping `base`'s value for anything unset.
+    pub fn resolve(&self, base: &ThemeColors) -> ThemeColors {
+        ThemeColors {
+            background: self.background.clone().unwrap_or_else(|| base.background.clone()),
+            surface_1: self.surface_1.clone().unwrap_or_else(|| base.surface_1.clone()),
+            surface_2: self.surface_2.clone().unwrap_or_else(|| base.surface_2.clone()),
+            border: self.border.clone().unwrap_or_else(|| base.border.clone()),
+            text: self.text.clone().unwrap_or_else(|| base.text.clone()),
+            text_muted: self.text_muted.clone().unwrap_or_else(|| base.text_muted.clone()),
+            accent_purple: self.accent_purple.clone().unwrap_or_else(|| base.accent_purple.clone()),
+            accent_teal: self.accent_teal.clone().unwrap_or_else(|| base.accent_teal.clone()),
+            accent_amber: self.accent_amber.clone().unwrap_or_else(|| base.accent_amber.clone()),
+            status_success: self.status_success.clone().unwrap_or_else(|| base.status_success.clone()),
+            status_warning: self.status_warning.clone().unwrap_or_else(|| base.status_warning.clone()),
+            status_danger: self.status_danger.clone().unwrap_or_else(|| base.status_danger.clone()),
+        }
+    }
+}
+
+/// On-disk shape of a user scheme file under `<config_dir>/themes/*.yaml`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomThemeFile {
+    pub name: String,
+    pub base: ThemeBase,
+    #[serde(default)]
+    pub colors: ThemeColorOverrides,
+}
+
+/// A scheme ready for the frontend to apply — built-in or custom, always fully resolved.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ResolvedScheme {
+    pub id: String,
+    pub name: String,
+    pub kind: ThemeBase,
+    pub source: ThemeSchemeSource,
+    pub colors: ThemeColors,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum ThemeSchemeSource {
+    Builtin,
+    Custom,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -1,3 +1,5 @@
+@use "../variables" as vars;
+
 .settings-view {
   display: flex;
   flex-direction: column;
@@ -26,8 +28,8 @@
   gap: 0.35rem;
   padding: 0.3rem;
   border-radius: 0.75rem;
-  background: rgba(11, 15, 20, 0.72);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: vars.translucent(--background, 72);
+  border: 1px solid var(--border);
   width: fit-content;
 }
 
@@ -54,7 +56,7 @@
     color: var(--text);
     background: rgba(124, 92, 255, 0.18);
     border-color: rgba(124, 92, 255, 0.35);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    @extend %inset-highlight;
   }
 }
 
@@ -109,6 +111,65 @@
   align-items: center;
 }
 
+.settings-subheading {
+  margin: 1.5rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+
+  &:first-of-type {
+    margin-top: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+}
+
+.scheme-select-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.scheme-select {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+
+  // The popup listbox is native chrome outside our styling reach in most
+  // engines; color-scheme (set on :root by src/stores/theme.ts) is what
+  // actually makes it render dark-on-dark/light-on-light instead of
+  // defaulting to a light popup on a dark page. These rules cover the
+  // engines (Firefox) that do honor option styling directly.
+  option {
+    background: var(--surface-2);
+    color: var(--text);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: default;
+  }
+}
+
+.scheme-active-badge {
+  flex-shrink: 0;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid rgba(38, 195, 163, 0.35);
+  background: rgba(38, 195, 163, 0.12);
+  color: var(--accent-teal);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
 .settings-bmc {
   display: inline-flex;
   align-items: center;
@@ -137,7 +198,7 @@
 }
 
 .settings-error {
-  color: #f87171;
+  color: var(--status-danger);
 }
 
 .settings-status-section {
@@ -222,8 +283,8 @@
   flex-shrink: 0;
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: rgba(248, 113, 113, 0.1);
+  border: 1px solid vars.translucent(--status-danger, 35);
+  background: vars.translucent(--status-danger, 10);
   color: #fca5a5;
   font-size: 0.78rem;
   font-weight: 600;
@@ -276,18 +337,18 @@
 }
 
 .update-status-dot--current {
-  background: #34d399;
-  box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.25);
+  background: var(--status-success);
+  box-shadow: 0 0 0 2px vars.translucent(--status-success, 25);
 }
 
 .update-status-dot--outdated {
-  background: #fb923c;
-  box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.25);
+  background: var(--status-warning);
+  box-shadow: 0 0 0 2px vars.translucent(--status-warning, 25);
 }
 
 .update-status-dot--severely_outdated {
-  background: #f87171;
-  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25);
+  background: var(--status-danger);
+  box-shadow: 0 0 0 2px vars.translucent(--status-danger, 25);
 }
 
 .update-status-dot--unknown,
@@ -298,8 +359,8 @@
 }
 
 .update-status-dot--error {
-  background: #f87171;
-  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25);
+  background: var(--status-danger);
+  box-shadow: 0 0 0 2px vars.translucent(--status-danger, 25);
 }
 
 @media (max-width: 640px) {

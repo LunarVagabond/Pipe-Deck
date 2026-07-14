@@ -151,6 +151,24 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_theme_mode(&self, mode: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.theme_mode = mode.to_string();
+        self.save_config(&config)
+    }
+
+    pub fn set_dark_scheme(&self, id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.dark_scheme = id.to_string();
+        self.save_config(&config)
+    }
+
+    pub fn set_light_scheme(&self, id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.light_scheme = id.to_string();
+        self.save_config(&config)
+    }
+
     pub fn virtual_devices(&self) -> Vec<VirtualDeviceSpec> {
         self.load_config()
             .map(|config| config.virtual_devices)
@@ -464,6 +482,37 @@ mod tests {
             let config = store.load_config().unwrap();
             assert!(config.virtual_devices.is_empty());
             assert!(config.preferences.restore_on_startup);
+        });
+    }
+
+    #[test]
+    fn legacy_config_without_theme_fields_deserializes_to_defaults() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "version: 1\npreferences:\n  show_system_streams: false\nprofile_index: []\n",
+            )
+            .unwrap();
+            let config = store.load_config().unwrap();
+            assert_eq!(config.preferences.theme_mode, "dark");
+            assert_eq!(config.preferences.dark_scheme, "midnight-deck");
+            assert_eq!(config.preferences.light_scheme, "paper-deck");
+        });
+    }
+
+    #[test]
+    fn theme_preference_setters_round_trip() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            store.set_theme_mode("system").unwrap();
+            store.set_dark_scheme("copper-dusk").unwrap();
+            store.set_light_scheme("meadow-light").unwrap();
+
+            let preferences = store.preferences();
+            assert_eq!(preferences.theme_mode, "system");
+            assert_eq!(preferences.dark_scheme, "copper-dusk");
+            assert_eq!(preferences.light_scheme, "meadow-light");
         });
     }
 

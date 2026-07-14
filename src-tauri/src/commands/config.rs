@@ -1,4 +1,4 @@
-use crate::config::ConfigStore;
+use crate::config::{ConfigStore, ThemeStore};
 use crate::AppState;
 use tauri::State;
 
@@ -70,5 +70,32 @@ pub fn set_auto_apply_rules(enabled: bool) -> Result<(), String> {
 pub fn set_sidebar_collapsed(collapsed: bool) -> Result<(), String> {
     ConfigStore::new()
         .set_sidebar_collapsed(collapsed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_themes() -> Vec<crate::core::models::ResolvedScheme> {
+    let config_store = ConfigStore::new();
+    ThemeStore::new(config_store.config_dir().clone()).list_schemes()
+}
+
+#[tauri::command]
+pub fn set_theme_mode(mode: String) -> Result<(), String> {
+    ConfigStore::new()
+        .set_theme_mode(&mode)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn set_dark_scheme(id: String) -> Result<(), String> {
+    ConfigStore::new()
+        .set_dark_scheme(&id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn set_light_scheme(id: String) -> Result<(), String> {
+    ConfigStore::new()
+        .set_light_scheme(&id)
         .map_err(|error| error.to_string())
 }

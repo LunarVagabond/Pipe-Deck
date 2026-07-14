@@ -111,6 +111,9 @@ export interface Preferences {
   background_restore?: boolean;
   auto_apply_rules?: boolean;
   sidebar_collapsed?: boolean;
+  theme_mode?: string;
+  dark_scheme?: string;
+  light_scheme?: string;
 }
 
 export interface StreamRouteRule {
