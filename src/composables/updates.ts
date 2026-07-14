@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { fetch } from "@tauri-apps/plugin-http";
 import { check as checkUpdater } from "@tauri-apps/plugin-updater";
 import type { AppInfo, InstallKind, UpdateCheckResult, UpdateStatus } from "../types/app";
 

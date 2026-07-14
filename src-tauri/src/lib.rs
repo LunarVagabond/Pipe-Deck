@@ -27,6 +27,7 @@ pub fn run() {
             tray::show_main_window(app);
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_http::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::app_info::get_app_info,
