@@ -1,3 +1,5 @@
+@use "variables" as vars;
+
 .app-shell {
   position: relative;
   display: grid;
@@ -206,18 +208,18 @@
   background: var(--text-muted);
 
   &--ok {
-    background: #34d399;
-    box-shadow: 0 0 0 2px rgba(52, 211, 153, 0.25);
+    background: var(--status-success);
+    box-shadow: 0 0 0 2px vars.translucent(--status-success, 25);
   }
 
   &--warn {
-    background: #fb923c;
-    box-shadow: 0 0 0 2px rgba(251, 146, 60, 0.25);
+    background: var(--status-warning);
+    box-shadow: 0 0 0 2px vars.translucent(--status-warning, 25);
   }
 
   &--error {
-    background: #f87171;
-    box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.25);
+    background: var(--status-danger);
+    box-shadow: 0 0 0 2px vars.translucent(--status-danger, 25);
   }
 
   &--muted {
@@ -245,7 +247,7 @@
   z-index: 2;
   padding: 0.85rem 1.5rem;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--background) 95%, transparent);
+  background: vars.translucent(--background, 95);
   backdrop-filter: blur(8px);
 }
 

@@ -20,7 +20,8 @@ import { useApplyResult } from "./stores/notices";
 import { useNewDeviceDialog } from "./stores/newDeviceDialog";
 import { useUpdateStatus } from "./stores/updateStatus";
 import { useRuntimeGraph } from "./stores/runtimeGraph";
-import type { AppConfig, AppView, DaemonStatus } from "./types/graph";
+import { useDaemonStatus } from "./stores/daemonStatus";
+import type { AppConfig, AppView } from "./types/graph";
 
 // Only views that actually wire up device creation should show the topbar's
 // "+ New" action — today that's only Routing (via RoutingGraph.vue).
@@ -40,13 +41,13 @@ const navItems = ref<
 ]);
 
 const activeView = ref<AppView>("dashboard");
-const daemonStatusRaw = ref<DaemonStatus | null>(null);
 const sidebarCollapsed = ref(false);
 const { handleApplyResult } = useApplyResult();
 const { openNewDeviceDialog } = useNewDeviceDialog();
 const { updateStatus, updateStatusText, checkForUpdatesNow } = useUpdateStatus();
 const { graph: runtimeGraph, loading: runtimeGraphLoading, error: runtimeGraphError } =
   useRuntimeGraph();
+const { refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass } = useDaemonStatus();
 
 const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
 
@@ -70,18 +71,6 @@ const pipeWireStatusClass = computed(() => {
   return "status-dot--ok";
 });
 
-const restoreAtLoginText = computed(() => {
-  const status = daemonStatusRaw.value;
-  if (!status?.enabled) return "Disabled";
-  return status.running ? "Enabled" : "Enabled (not running)";
-});
-
-const restoreAtLoginClass = computed(() => {
-  const status = daemonStatusRaw.value;
-  if (!status?.enabled) return "status-dot--muted";
-  return status.running ? "status-dot--ok" : "status-dot--warn";
-});
-
 const topbarTitle = computed(() => {
   const item = navItems.value.find((entry) => entry.id === activeView.value);
   return item?.label ?? "Overview";
@@ -98,14 +87,6 @@ provide(navigateKey, (view: AppView) => {
     activeView.value = view;
   }
 });
-
-async function refreshDaemonStatus() {
-  try {
-    daemonStatusRaw.value = await invoke<DaemonStatus>("get_daemon_status");
-  } catch {
-    daemonStatusRaw.value = null;
-  }
-}
 
 async function loadPreferences() {
   try {

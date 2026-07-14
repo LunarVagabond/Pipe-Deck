@@ -1,3 +1,5 @@
+@use "../variables" as vars;
+
 .mixer-strip {
   display: flex;
   flex-direction: column;
@@ -55,7 +57,7 @@
   padding: 0.6rem 0.9rem;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: color-mix(in srgb, var(--background) 55%, transparent);
+  background: vars.translucent(--background, 55);
 }
 
 .mixer-strip .channel.channel-playback {

@@ -44,12 +44,31 @@ function applyToDom() {
   root.setProperty("--accent-purple", colors.accent_purple);
   root.setProperty("--accent-teal", colors.accent_teal);
   root.setProperty("--accent-amber", colors.accent_amber);
+  root.setProperty("--status-success", colors.status_success);
+  root.setProperty("--status-warning", colors.status_warning);
+  root.setProperty("--status-danger", colors.status_danger);
   root.setProperty("color", colors.text);
   root.setProperty("background-color", colors.background);
   // Tells the browser to render native controls (select popups, scrollbars,
   // checkboxes) using a matching palette instead of defaulting to light UA
   // chrome on a dark page (or vice versa) — fixes unreadable native dropdowns.
   root.setProperty("color-scheme", scheme.kind);
+  void applyToWindowChrome(scheme.kind);
+}
+
+// Best-effort: hints the native window (title bar, and on Linux the CSD
+// minimize/maximize/close controls) to render in the matching palette via
+// Tauri's cross-platform Window.setTheme. No-op outside a real Tauri window
+// (plain browser dev, or platforms — e.g. a future mobile port — where the
+// concept of a themeable native title bar doesn't apply), so this is wrapped
+// defensively rather than gated by an explicit OS check.
+async function applyToWindowChrome(kind: ThemeBaseKind) {
+  try {
+    const { getCurrentWindow } = await import("@tauri-apps/api/window");
+    await getCurrentWindow().setTheme(kind);
+  } catch {
+    // Not running inside a Tauri window (e.g. `vite dev` in a browser) — ignore.
+  }
 }
 
 export function useTheme() {
@@ -80,13 +99,15 @@ export function useTheme() {
     applyToDom();
   }
 
+  // These three setters apply instantly and visibly (the whole UI recolors),
+  // so a success toast on top would be redundant noise — only surface a
+  // notice when something actually goes wrong and the change gets rolled back.
   async function setMode(next: ThemeMode) {
     const previous = mode.value;
     mode.value = next;
     applyToDom();
     try {
       await invoke("set_theme_mode", { mode: next });
-      handleApplyResult({ success: true }, "Appearance mode saved");
     } catch (error) {
       mode.value = previous;
       applyToDom();
@@ -103,7 +124,6 @@ export function useTheme() {
     applyToDom();
     try {
       await invoke("set_dark_scheme", { id });
-      handleApplyResult({ success: true }, "Dark scheme saved");
     } catch (error) {
       darkSchemeId.value = previous;
       applyToDom();
@@ -120,7 +140,6 @@ export function useTheme() {
     applyToDom();
     try {
       await invoke("set_light_scheme", { id });
-      handleApplyResult({ success: true }, "Light scheme saved");
     } catch (error) {
       lightSchemeId.value = previous;
       applyToDom();

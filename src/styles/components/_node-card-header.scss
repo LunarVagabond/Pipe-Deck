@@ -1,3 +1,5 @@
+@use "../variables" as vars;
+
 .node-card-header {
   display: flex;
   align-items: flex-start;
@@ -85,14 +87,14 @@
   }
 
   &.delete-btn {
-    color: #f87171;
-    border-color: rgba(248, 113, 113, 0.35);
-    background: rgba(248, 113, 113, 0.08);
+    color: var(--status-danger);
+    border-color: vars.translucent(--status-danger, 35);
+    background: vars.translucent(--status-danger, 8);
 
     &:hover {
       color: #fca5a5;
-      border-color: rgba(248, 113, 113, 0.65);
-      background: rgba(248, 113, 113, 0.16);
+      border-color: vars.translucent(--status-danger, 65);
+      background: vars.translucent(--status-danger, 16);
     }
   }
 }

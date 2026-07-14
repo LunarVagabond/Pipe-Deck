@@ -6,7 +6,8 @@ import SegmentedControl from "../components/SegmentedControl.vue";
 import { useApplyResult } from "../stores/notices";
 import { useUpdateStatus } from "../stores/updateStatus";
 import { useTheme } from "../stores/theme";
-import type { DaemonStatus, PluginStatus } from "../types/graph";
+import { useDaemonStatus } from "../stores/daemonStatus";
+import type { PluginStatus } from "../types/graph";
 import type { ThemeMode } from "../types/theme";
 
 const THEME_MODE_OPTIONS = [
@@ -28,7 +29,7 @@ const activeTab = ref<SettingsTab>("general");
 const restoreOnStartup = ref(true);
 const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
-const daemonStatus = ref<DaemonStatus | null>(null);
+const { daemonStatus, refreshDaemonStatus } = useDaemonStatus();
 const plugins = ref<PluginStatus[]>([]);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
@@ -100,7 +101,7 @@ async function loadSettings() {
   restoreOnStartup.value = config.preferences?.restore_on_startup ?? true;
   backgroundRestore.value = config.preferences?.background_restore ?? false;
   autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
-  daemonStatus.value = await invoke("get_daemon_status");
+  await refreshDaemonStatus();
   plugins.value = await invoke("list_plugins");
   await ensureAppInfo();
 }

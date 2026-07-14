@@ -1,3 +1,5 @@
+@use "../variables" as vars;
+
 .sink-route-picker {
   position: relative;
 
@@ -24,7 +26,7 @@
     background-repeat: no-repeat;
     background-position: right 0.55rem center;
     background-size: 0.85rem;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    @extend %inset-highlight;
     transition:
       border-color 0.15s ease,
       box-shadow 0.15s ease,

@@ -26,6 +26,9 @@ fn midnight_deck() -> ThemeColors {
         accent_purple: "#7c5cff".into(),
         accent_teal: "#26c3a3".into(),
         accent_amber: "#ffb020".into(),
+        status_success: "#34d399".into(),
+        status_warning: "#fb923c".into(),
+        status_danger: "#f87171".into(),
     }
 }
 
@@ -40,6 +43,9 @@ fn copper_dusk() -> ThemeColors {
         accent_purple: "#e0794b".into(),
         accent_teal: "#4bb0a0".into(),
         accent_amber: "#f2c14e".into(),
+        status_success: "#34d399".into(),
+        status_warning: "#fb923c".into(),
+        status_danger: "#f87171".into(),
     }
 }
 
@@ -54,6 +60,9 @@ fn paper_deck() -> ThemeColors {
         accent_purple: "#6b47e6".into(),
         accent_teal: "#12a08a".into(),
         accent_amber: "#d98a00".into(),
+        status_success: "#34d399".into(),
+        status_warning: "#fb923c".into(),
+        status_danger: "#f87171".into(),
     }
 }
 
@@ -68,6 +77,9 @@ fn meadow_light() -> ThemeColors {
         accent_purple: "#2f8f5b".into(),
         accent_teal: "#0e9488".into(),
         accent_amber: "#e08a1e".into(),
+        status_success: "#34d399".into(),
+        status_warning: "#fb923c".into(),
+        status_danger: "#f87171".into(),
     }
 }
 

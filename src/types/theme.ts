@@ -12,6 +12,9 @@ export interface ThemeColors {
   accent_purple: string;
   accent_teal: string;
   accent_amber: string;
+  status_success: string;
+  status_warning: string;
+  status_danger: string;
 }
 
 export interface ResolvedScheme {
