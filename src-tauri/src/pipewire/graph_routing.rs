@@ -132,7 +132,6 @@ pub fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {
 }
 
 fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
-    let routes = pw_link::list_monitor_routes();
     let name_to_id: HashMap<String, String> = graph
         .devices
         .iter()
@@ -148,56 +147,32 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
 
     graph.links.retain(|link| !link.id.starts_with("pwlink-"));
 
-    for (source_name, target_name) in routes {
-        let Some(source_id) = name_to_id.get(&source_name) else {
-            continue;
-        };
-        let Some(target_id) = name_to_id.get(&target_name) else {
-            continue;
-        };
-
-        let source_is_virtual = graph.devices.iter().any(|device| {
-            device.id == *source_id
-                && device.kind == DeviceKind::Virtual
-                && device.direction == DeviceDirection::Output
-        });
-        if !source_is_virtual {
-            continue;
-        }
-
-        if let Some(device) = graph.devices.iter_mut().find(|device| device.id == *source_id) {
-            if device.is_multi_sink() {
-                if !device.current_targets.contains(target_id) {
-                    device.current_targets.push(target_id.clone());
-                }
-                if device.current_target.is_none() {
-                    device.current_target = Some(target_id.clone());
-                }
-            } else {
-                device.current_target = Some(target_id.clone());
-                device.current_targets = vec![target_id.clone()];
-            }
-        }
-
-        graph.links.push(Link {
-            id: format!("pwlink-{source_name}-{target_name}"),
-            source_id: source_id.clone(),
-            target_id: target_id.clone(),
-        });
-    }
-
+    // Every virtual output can fan out to multiple real targets (there is no
+    // PipeWire-level distinction between "multi output" and a plain output
+    // sink), so always discover the full set of live fan-out targets per
+    // device rather than relying on a single (source, target) pair — a sink
+    // genuinely linked to two speakers has two rows in `pw-link -l` for the
+    // same source, and collapsing them loses one.
     for device in &mut graph.devices {
-        if !device.is_multi_sink() {
+        if device.direction != DeviceDirection::Output || device.kind != DeviceKind::Virtual {
             continue;
         }
-        let fan_out_names = pw_link::list_all_monitor_routes_for_source(&device.system_name);
-        let target_ids: Vec<String> = fan_out_names
-            .iter()
-            .filter_map(|name| name_to_id.get(name).cloned())
+        let system_name = device.system_name.clone();
+        let fan_out_names = pw_link::list_all_monitor_routes_for_source(&system_name);
+        let targets: Vec<(String, String)> = fan_out_names
+            .into_iter()
+            .filter_map(|name| name_to_id.get(&name).cloned().map(|id| (name, id)))
             .collect();
-        if !target_ids.is_empty() {
-            device.current_targets = target_ids.clone();
-            device.current_target = target_ids.first().cloned();
+
+        device.current_targets = targets.iter().map(|(_, id)| id.clone()).collect();
+        device.current_target = targets.first().map(|(_, id)| id.clone());
+
+        for (target_name, target_id) in &targets {
+            graph.links.push(Link {
+                id: format!("pwlink-{system_name}-{target_name}"),
+                source_id: device.id.clone(),
+                target_id: target_id.clone(),
+            });
         }
     }
 }

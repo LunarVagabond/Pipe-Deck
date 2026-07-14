@@ -1,5 +1,4 @@
 use crate::pipewire::adapter::AdapterError;
-use std::collections::HashMap;
 use std::process::Command;
 
 const STEREO_MONITOR_SUFFIXES: [(&str, &str); 2] = [(":monitor_FL", ":playback_FL"), (":monitor_FR", ":playback_FR")];
@@ -343,38 +342,6 @@ fn list_capture_links_for_source(capture_source_system_name: &str) -> Vec<(Strin
 
 fn capture_source_name_from_port(port: &str) -> Option<String> {
     port.rsplit_once(':').map(|(name, _port)| name.to_string())
-}
-
-pub fn list_monitor_routes() -> HashMap<String, String> {
-    let output = match Command::new("pw-link").arg("-l").output() {
-        Ok(output) if output.status.success() => output,
-        _ => return HashMap::new(),
-    };
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut routes = HashMap::new();
-    let mut current_target_port: Option<String> = None;
-
-    for line in text.lines() {
-        if let Some(source_port) = line.strip_prefix("  |<- ") {
-            let source_port = source_port.trim();
-            let Some(target_port) = current_target_port.as_deref() else {
-                continue;
-            };
-
-            if let Some((source_name, target_name)) = parse_stereo_route_pair(source_port, target_port) {
-                routes.insert(source_name, target_name);
-            }
-            continue;
-        }
-
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && trimmed.contains(':') {
-            current_target_port = Some(trimmed.to_string());
-        }
-    }
-
-    routes
 }
 
 fn parse_stereo_route_pair(source_port: &str, target_port: &str) -> Option<(String, String)> {
