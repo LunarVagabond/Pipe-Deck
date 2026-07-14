@@ -29,7 +29,7 @@ const activeTab = ref<SettingsTab>("general");
 const restoreOnStartup = ref(true);
 const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
-const { daemonStatus, refreshDaemonStatus } = useDaemonStatus();
+const { daemonStatus, refreshDaemonStatus, lastRunText } = useDaemonStatus();
 const plugins = ref<PluginStatus[]>([]);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
@@ -413,7 +413,7 @@ onMounted(() => {
           </div>
           <div>
             <dt>Last run</dt>
-            <dd>{{ daemonStatus?.last_run ?? "Never" }}</dd>
+            <dd>{{ lastRunText }}</dd>
           </div>
           <div>
             <dt>Devices restored</dt>
