@@ -1,3 +1,4 @@
+pub mod connection_effects;
 pub mod graph_enrich;
 pub mod graph_routing;
 pub mod live;

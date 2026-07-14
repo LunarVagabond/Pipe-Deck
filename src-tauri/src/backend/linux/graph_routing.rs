@@ -1,5 +1,5 @@
 use crate::core::models::{
-    DeviceDirection, DeviceKind, Link, MixSource, RuntimeGraph, StreamDirection,
+    ConnectionEffectKind, DeviceDirection, DeviceKind, Link, MixSource, RuntimeGraph, StreamDirection,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_identity_key, StreamIdentityKey};
@@ -15,6 +15,7 @@ pub(super) fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
     apply_pw_link_device_routes(graph);
     apply_virtual_mic_mix_routes(graph);
     normalize_stream_routing_links(graph);
+    apply_connection_effect_routes(graph);
 
     for stream in &mut graph.streams {
         stream.route_explanation = None;
@@ -240,6 +241,50 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
 
         device.mix_sources = mix_sources;
     }
+}
+
+/// Reads back any live per-connection feed sink (issue #105/#108) for each
+/// already-established `Link` and surfaces its gain in `Link.effects`.
+/// Unlike `apply_virtual_mic_mix_routes`, this doesn't discover topology —
+/// the plain route already exists from the earlier passes in
+/// `sync_live_routing_graph`; this only checks whether that specific
+/// connection also has a `pipe-deck-connfeed-` sink and reflects it. Also
+/// GCs any connfeed sink whose link no longer resolves to a live connection
+/// (e.g. the route was removed without going through `remove_connection_effect`).
+fn apply_connection_effect_routes(graph: &mut RuntimeGraph) {
+    let device_name_by_id: HashMap<String, String> = graph
+        .devices
+        .iter()
+        .map(|device| (device.id.clone(), device.system_name.clone()))
+        .collect();
+    let stream_name_by_id: HashMap<String, String> = graph
+        .streams
+        .iter()
+        .map(|stream| (stream.id.clone(), stream.system_name.clone().unwrap_or_else(|| stream.id.clone())))
+        .collect();
+
+    let mut keep_pairs: HashSet<(String, String)> = HashSet::new();
+
+    for link in graph.links.iter_mut() {
+        let source_name = device_name_by_id
+            .get(&link.source_id)
+            .cloned()
+            .or_else(|| stream_name_by_id.get(&link.source_id).cloned());
+        let target_name = device_name_by_id.get(&link.target_id).cloned();
+        let (Some(source_name), Some(target_name)) = (source_name, target_name) else {
+            continue;
+        };
+
+        let feed_name = pactl::feed_sink_name_for_connection(&source_name, &target_name);
+        if pactl::sink_exists(&feed_name).unwrap_or(false) {
+            let volume_percent = pactl::sink_volume_percent(&feed_name).ok().flatten().unwrap_or(100);
+            let muted = pactl::sink_mute_state(&feed_name).ok().flatten().unwrap_or(false);
+            link.effects = vec![ConnectionEffectKind::Volume { volume_percent, muted }];
+            keep_pairs.insert((source_name, target_name));
+        }
+    }
+
+    let _ = pactl::gc_feed_sinks_for_connections(&keep_pairs);
 }
 
 #[cfg(test)]
