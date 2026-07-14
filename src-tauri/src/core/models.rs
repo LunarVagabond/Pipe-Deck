@@ -229,6 +229,9 @@ pub struct ThemeColors {
     pub accent_purple: String,
     pub accent_teal: String,
     pub accent_amber: String,
+    pub status_success: String,
+    pub status_warning: String,
+    pub status_danger: String,
 }
 
 /// A partial palette as authored by a user — any key left unset falls back to the
@@ -253,6 +256,12 @@ pub struct ThemeColorOverrides {
     pub accent_teal: Option<String>,
     #[serde(default)]
     pub accent_amber: Option<String>,
+    #[serde(default)]
+    pub status_success: Option<String>,
+    #[serde(default)]
+    pub status_warning: Option<String>,
+    #[serde(default)]
+    pub status_danger: Option<String>,
 }
 
 impl ThemeColorOverrides {
@@ -268,6 +277,9 @@ impl ThemeColorOverrides {
             accent_purple: self.accent_purple.clone().unwrap_or_else(|| base.accent_purple.clone()),
             accent_teal: self.accent_teal.clone().unwrap_or_else(|| base.accent_teal.clone()),
             accent_amber: self.accent_amber.clone().unwrap_or_else(|| base.accent_amber.clone()),
+            status_success: self.status_success.clone().unwrap_or_else(|| base.status_success.clone()),
+            status_warning: self.status_warning.clone().unwrap_or_else(|| base.status_warning.clone()),
+            status_danger: self.status_danger.clone().unwrap_or_else(|| base.status_danger.clone()),
         }
     }
 }
