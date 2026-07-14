@@ -53,30 +53,6 @@ test.describe("RoutingGraph edge rendering", () => {
   });
 });
 
-test.describe("RoutingGraph connection-effect edge UI", () => {
-  test.beforeEach(async ({ page }) => {
-    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
-    await page.waitForSelector(".vue-flow__node");
-  });
-
-  test("an edge with a Volume connection effect shows an inline slider", async ({ page }) => {
-    await page.evaluate(() => window.__harness.connectStreamToDevice("stream-1", "dev-out-1"));
-    await expect(page.locator(".vue-flow__edge")).toHaveCount(1);
-
-    // No slider until the connection actually has a Volume effect attached.
-    await expect(page.locator(".routing-graph-edge-volume")).toHaveCount(0);
-
-    await page.evaluate(() => {
-      const link = window.__harness.graph.links[0];
-      link.effects = [{ kind: "volume", volume_percent: 62, muted: false }];
-    });
-
-    const slider = page.locator(".routing-graph-edge-volume");
-    await expect(slider).toHaveCount(1);
-    await expect(slider.locator("span")).toHaveText("62%");
-  });
-});
-
 test.describe("RoutingGraph multi-select drag", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/src/e2e/fixtures/routing-graph-harness.html");

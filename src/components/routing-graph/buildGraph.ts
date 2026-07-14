@@ -10,7 +10,6 @@ import {
 import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
-import type { RoutingEdgeData } from "./collectEdges";
 import { deviceNodeId, streamNodeId } from "./nodeIds";
 import type { GraphGroup } from "./groups";
 
@@ -32,6 +31,11 @@ export interface RoutingGraphNodeData {
   channelType?: "device" | "stream";
   volumePercent?: number;
   muted?: boolean;
+  /** Whether this node can carry the effects list (issue #105's redesign) —
+   * true for virtual devices and streams (audio sources), false for physical
+   * hardware. Hardware still gets a plain volume slider via `channelType`,
+   * it just isn't framed as an effect and can't have more added to it. */
+  supportsEffects?: boolean;
 }
 
 export interface RoutingGraphGroupData {
@@ -64,7 +68,6 @@ export interface BuiltRoutingGraph {
     updatable?: boolean | "source" | "target";
     interactionWidth?: number;
     type?: string;
-    data?: RoutingEdgeData;
   }>;
 }
 
@@ -141,6 +144,8 @@ function streamNodeKind(stream: Stream): RoutingGraphNodeData {
     channelType: stream.volume_percent !== undefined && !stream.is_system ? "stream" : undefined,
     volumePercent: stream.volume_percent,
     muted: stream.muted,
+    // Streams are always audio sources — always effects-capable.
+    supportsEffects: true,
   };
 }
 
@@ -164,6 +169,10 @@ function deviceNodeKind(
     channelType: device.volume_percent !== undefined ? ("device" as const) : undefined,
     volumePercent: device.volume_percent,
     muted: device.muted,
+    // Hardware (physical) devices keep a plain volume slider only — no
+    // effects list. Virtual devices (mixer/mic/virtual outputs) are
+    // effects-capable, same as streams.
+    supportsEffects: device.kind !== "physical",
   };
 
   if (column === "routing") {

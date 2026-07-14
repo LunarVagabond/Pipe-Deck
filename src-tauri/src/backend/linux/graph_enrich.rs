@@ -230,11 +230,18 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
     let inputs = pactl::list_sink_inputs();
 
     for input in inputs {
-        if graph
+        if let Some(index) = graph
             .streams
             .iter()
-            .any(|stream| stream_matches_pactl_input(stream, &input))
+            .position(|stream| stream_matches_pactl_input(stream, &input))
         {
+            // This sink-input already corresponds to a stream pw-dump
+            // discovered directly (the normal case for any live app) — its
+            // volume/mute never gets set otherwise, since that only happens
+            // here or in the synthetic-stream fallback below.
+            let stream = &mut graph.streams[index];
+            stream.volume_percent = input.volume_percent;
+            stream.muted = input.muted;
             continue;
         }
 
@@ -280,6 +287,11 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
                 stream.current_target = Some(target_id);
                 stream.current_targets.clear();
             }
+            // Same fix as merge_pactl_playback_streams: this source-output
+            // already corresponds to a stream pw-dump discovered directly,
+            // so its volume/mute never gets set otherwise.
+            stream.volume_percent = output.volume_percent;
+            stream.muted = output.muted;
             continue;
         }
 

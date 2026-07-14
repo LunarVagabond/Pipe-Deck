@@ -3,6 +3,7 @@ import { computed, inject } from "vue";
 import { Handle, Position } from "@vue-flow/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
+import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
 import { routingGraphActionsKey } from "../composables/routingGraphContext";
@@ -31,9 +32,7 @@ function portTitle(handle: RoutingGraphHandle): string {
 }
 
 function onContextMenu(event: MouseEvent) {
-  const canRenameOrDelete = Boolean(props.data.systemName) && (props.data.editable || props.data.deletable);
-  const connections = actions?.outgoingConnectionsFor(props.data.entityId) ?? [];
-  if (!canRenameOrDelete && connections.length === 0) {
+  if (!props.data.systemName || (!props.data.editable && !props.data.deletable)) {
     return;
   }
   event.preventDefault();
@@ -46,7 +45,6 @@ function onContextMenu(event: MouseEvent) {
     systemName: props.data.systemName,
     editable: Boolean(props.data.editable),
     deletable: Boolean(props.data.deletable),
-    connections,
   });
 }
 
@@ -60,6 +58,9 @@ function onDelete() {
   actions?.deleteDevice(props.data.systemName, props.data.label);
 }
 
+// Plain volume control for hardware (physical) devices — no effects list,
+// no drag handle, just the bare slider that's been here since before any of
+// the effects work (see RoutingGraphNodeEffects.vue for the virtual/stream case).
 const displayVolume = computed(() => {
   if (!props.data.channelType) return 0;
   return pendingVolumes.value[props.data.entityId] ?? props.data.volumePercent ?? 0;
@@ -120,7 +121,15 @@ function onToggleMute() {
         </div>
       </div>
 
-      <div v-if="data.channelType" class="routing-graph-node-mixer nodrag">
+      <RoutingGraphNodeEffects
+        v-if="data.channelType && data.supportsEffects"
+        :channel-type="data.channelType"
+        :entity-id="data.entityId"
+        :label="data.label"
+        :volume-percent="data.volumePercent"
+        :muted="data.muted"
+      />
+      <div v-else-if="data.channelType" class="routing-graph-node-mixer nodrag">
         <button
           type="button"
           class="routing-graph-node-mute"

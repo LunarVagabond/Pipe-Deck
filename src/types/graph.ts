@@ -68,19 +68,10 @@ export interface Stream {
   route_explanation?: RouteExplanation;
 }
 
-/** One effect attached to a specific connection (issue #105), independent of
- * either endpoint's own volume. Tagged on `kind` so more can be added later. */
-export type ConnectionEffectKind = {
-  kind: "volume";
-  volume_percent: number;
-  muted: boolean;
-};
-
 export interface Link {
   id: string;
   source_id: string;
   target_id: string;
-  effects?: ConnectionEffectKind[];
 }
 
 export interface RecentStreamIdentity {

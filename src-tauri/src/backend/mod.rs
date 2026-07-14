@@ -98,19 +98,6 @@ pub trait AudioBackend: Send + Sync {
     fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError>;
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]);
 
-    // Per-connection effects (issue #105) — independent of either endpoint's
-    // own volume. `add_connection_effect` needs the live graph to resolve
-    // whether `source_id` is a device or a stream (streams route through
-    // `pactl move-sink-input`, devices through port-linking), and returns the
-    // resolved `(source_system_name, target_system_name)` pair so callers can
-    // persist against a stable key. Volume/mute only need system names, like
-    // the mix-source methods above, since they act on an already-inserted
-    // feed sink by name.
-    fn add_connection_effect(&self, graph: &RuntimeGraph, source_id: &str, target_device_id: &str) -> Result<(String, String), BackendError>;
-    fn remove_connection_effect(&self, source_system_name: &str, target_system_name: &str) -> Result<(), BackendError>;
-    fn set_connection_volume(&self, source_system_name: &str, target_system_name: &str, percent: u8) -> Result<(), BackendError>;
-    fn set_connection_mute(&self, source_system_name: &str, target_system_name: &str, muted: bool) -> Result<(), BackendError>;
-
     // Virtual device lifecycle. `create_virtual_output`/`create_virtual_input`
     // are for user-initiated new devices, where system_name is derived from
     // the label. `restore_virtual_device` is for config-driven recreation
@@ -253,22 +240,6 @@ impl AudioBackend for EmptyAudioBackend {
     }
 
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
-
-    fn add_connection_effect(&self, _graph: &RuntimeGraph, _source_id: &str, _target_device_id: &str) -> Result<(String, String), BackendError> {
-        Err(BackendError::Message(self.notice.clone()))
-    }
-
-    fn remove_connection_effect(&self, _source_system_name: &str, _target_system_name: &str) -> Result<(), BackendError> {
-        Err(BackendError::Message(self.notice.clone()))
-    }
-
-    fn set_connection_volume(&self, _source_system_name: &str, _target_system_name: &str, _percent: u8) -> Result<(), BackendError> {
-        Err(BackendError::Message(self.notice.clone()))
-    }
-
-    fn set_connection_mute(&self, _source_system_name: &str, _target_system_name: &str, _muted: bool) -> Result<(), BackendError> {
-        Err(BackendError::Message(self.notice.clone()))
-    }
 
     fn monitor_routes_for_source(&self, _source_system_name: &str) -> Vec<String> {
         Vec::new()

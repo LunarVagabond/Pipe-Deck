@@ -183,22 +183,6 @@ impl AudioBackend for LinuxPipeWireBackend {
         graph_enrich::apply_device_levels(devices);
     }
 
-    fn add_connection_effect(&self, graph: &RuntimeGraph, source_id: &str, target_device_id: &str) -> Result<(String, String), BackendError> {
-        crate::backend::linux::connection_effects::add_connection_effect(graph, source_id, target_device_id)
-    }
-
-    fn remove_connection_effect(&self, source_system_name: &str, target_system_name: &str) -> Result<(), BackendError> {
-        crate::backend::linux::connection_effects::remove_connection_effect(source_system_name, target_system_name)
-    }
-
-    fn set_connection_volume(&self, source_system_name: &str, target_system_name: &str, percent: u8) -> Result<(), BackendError> {
-        crate::backend::linux::connection_effects::set_connection_volume(source_system_name, target_system_name, percent)
-    }
-
-    fn set_connection_mute(&self, source_system_name: &str, target_system_name: &str, muted: bool) -> Result<(), BackendError> {
-        crate::backend::linux::connection_effects::set_connection_mute(source_system_name, target_system_name, muted)
-    }
-
     fn monitor_routes_for_source(&self, source_system_name: &str) -> Vec<String> {
         crate::backend::linux::pw_link::list_all_monitor_routes_for_source(source_system_name)
     }

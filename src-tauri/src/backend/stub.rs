@@ -109,30 +109,6 @@ impl AudioBackend for StubBackend {
 
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
 
-    fn add_connection_effect(&self, _graph: &RuntimeGraph, _source_id: &str, _target_device_id: &str) -> Result<(String, String), BackendError> {
-        Err(BackendError::Message(
-            "no audio backend implemented for this platform yet".into(),
-        ))
-    }
-
-    fn remove_connection_effect(&self, _source_system_name: &str, _target_system_name: &str) -> Result<(), BackendError> {
-        Err(BackendError::Message(
-            "no audio backend implemented for this platform yet".into(),
-        ))
-    }
-
-    fn set_connection_volume(&self, _source_system_name: &str, _target_system_name: &str, _percent: u8) -> Result<(), BackendError> {
-        Err(BackendError::Message(
-            "no audio backend implemented for this platform yet".into(),
-        ))
-    }
-
-    fn set_connection_mute(&self, _source_system_name: &str, _target_system_name: &str, _muted: bool) -> Result<(), BackendError> {
-        Err(BackendError::Message(
-            "no audio backend implemented for this platform yet".into(),
-        ))
-    }
-
     fn create_virtual_output(&self, _label: &str, _multi: bool) -> Result<VirtualDeviceResult, BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),

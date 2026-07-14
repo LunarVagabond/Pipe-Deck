@@ -17,8 +17,6 @@ import { Controls } from "@vue-flow/controls";
 import RoutingGraphContextMenu from "./RoutingGraphContextMenu.vue";
 import RoutingGraphNode from "./RoutingGraphNode.vue";
 import RoutingGraphGroupNode from "./RoutingGraphGroupNode.vue";
-import RoutingGraphEdge from "./RoutingGraphEdge.vue";
-import { useConnectionEffects } from "../composables/useConnectionEffects";
 import {
   applyEdgeDisconnect,
   applyRoutingConnection,
@@ -52,7 +50,6 @@ const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
 const { openNewDeviceDialog } = useNewDeviceDialog();
-const { addConnectionEffect, removeConnectionEffect } = useConnectionEffects();
 const vueFlow = useVueFlow();
 
 const edgeUpdatePending = ref<Edge | null>(null);
@@ -110,19 +107,6 @@ const graphActions = {
     const device = props.graph.devices.find((entry) => entry.id === entityId);
     return device?.label ?? entityId;
   },
-  outgoingConnectionsFor(entityId: string) {
-    // A connection effect's target must be a device (a sink) — a capture
-    // route's "target" is the capturing stream itself, which has no gain
-    // mechanism on the backend. Only offer connections that end at a device.
-    return props.graph.links
-      .filter((link) => link.source_id === entityId && props.graph.devices.some((device) => device.id === link.target_id))
-      .map((link) => ({
-        sourceId: link.source_id,
-        targetId: link.target_id,
-        targetLabel: graphActions.labelForEntity(link.target_id),
-        hasVolumeEffect: Boolean(link.effects?.some((effect) => effect.kind === "volume")),
-      }));
-  },
 };
 
 provide(routingGraphActionsKey, graphActions);
@@ -162,7 +146,7 @@ async function removeVirtualDevice(systemName: string, label: string) {
 
 function onContextMenuAction(action: "rename" | "delete") {
   const target = contextMenu.value;
-  if (!target || target.kind !== "node" || !target.systemName) {
+  if (!target || target.kind !== "node") {
     return;
   }
   if (action === "rename") {
@@ -177,40 +161,6 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-function onEdgeContextMenu(payload: EdgeMouseEvent) {
-  const data = payload.edge.data as
-    | { effects?: import("../types/graph").ConnectionEffectKind[]; rawSourceId: string; rawTargetId: string }
-    | undefined;
-  if (!data) return;
-
-  // A connection effect's target must be a device (a sink) — a capture
-  // route's "target" is the capturing stream itself, which the backend has
-  // no gain mechanism for. Don't offer the menu item for those.
-  const targetIsDevice = props.graph.devices.some((device) => device.id === data.rawTargetId);
-  if (!targetIsDevice) return;
-
-  payload.event.preventDefault();
-  const hasVolumeEffect = Boolean(data.effects?.some((effect) => effect.kind === "volume"));
-  contextMenu.value = {
-    kind: "edge",
-    x: (payload.event as MouseEvent).clientX,
-    y: (payload.event as MouseEvent).clientY,
-    sourceId: data.rawSourceId,
-    targetId: data.rawTargetId,
-    hasVolumeEffect,
-  };
-}
-
-function onAddEffectAction(sourceId: string, targetId: string) {
-  contextMenu.value = null;
-  void addConnectionEffect(sourceId, targetId);
-}
-
-function onRemoveEffectAction(sourceId: string, targetId: string) {
-  contextMenu.value = null;
-  void removeConnectionEffect(sourceId, targetId);
-}
-
 function onAddNodeAction(type: "output" | "input") {
   contextMenu.value = null;
   openNewDeviceDialog(type);
@@ -219,11 +169,6 @@ function onAddNodeAction(type: "output" | "input") {
 const nodeTypes = {
   routingNode: markRaw(RoutingGraphNode),
   groupNode: markRaw(RoutingGraphGroupNode),
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any;
-
-const edgeTypes = {
-  connectionEdge: markRaw(RoutingGraphEdge),
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
@@ -530,8 +475,6 @@ onUnmounted(() => {
       @rename="onContextMenuAction('rename')"
       @delete="onContextMenuAction('delete')"
       @add-node="onAddNodeAction"
-      @add-effect="onAddEffectAction"
-      @remove-effect="onRemoveEffectAction"
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas">
@@ -539,7 +482,6 @@ onUnmounted(() => {
         :nodes="nodes"
         :edges="edges"
         :node-types="nodeTypes"
-        :edge-types="edgeTypes"
         :default-edge-options="defaultEdgeOptions"
         :edges-updatable="true"
         :edge-updater-radius="12"
@@ -551,7 +493,6 @@ onUnmounted(() => {
         @edge-update="onEdgeUpdate"
         @edge-update-start="onEdgeUpdateStart"
         @edge-update-end="onEdgeUpdateEnd"
-        @edge-context-menu="onEdgeContextMenu"
         @node-drag-start="onNodeDragStart"
         @node-drag-stop="onNodeDragStop"
         @pane-click="onPaneClick"

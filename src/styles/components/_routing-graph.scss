@@ -375,12 +375,33 @@
   }
 }
 
+// Plain volume row for hardware (physical) devices — no effects list, no
+// drag handle, just the bare slider (see .routing-graph-node-effects below
+// for the virtual-device/stream case).
 .routing-graph-node-mixer {
   display: flex;
   align-items: center;
   gap: 0.4rem;
   padding-top: 0.35rem;
   border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+// A node's effects list — grows vertically as rows are added, one row per
+// attached effect (v1 ships with just "volume", but the list/row shape is
+// built to hold more later). No fixed height anywhere here or on the node
+// itself, so the node's rendered height follows content naturally.
+.routing-graph-node-effects {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.routing-graph-node-effect-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .routing-graph-node-mute {
@@ -432,32 +453,6 @@
 
 .vue-flow__edge.animated path {
   stroke-dasharray: 6 4;
-}
-
-.routing-graph-edge-volume {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.2rem 0.45rem;
-  border-radius: 999px;
-  background: var(--surface-2);
-  border: 1px solid var(--border);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
-  pointer-events: all;
-  font-size: 0.65rem;
-
-  input[type="range"] {
-    width: 4.5rem;
-    accent-color: #3fd0c9;
-    height: 0.8rem;
-  }
-
-  span {
-    flex-shrink: 0;
-    width: 2rem;
-    text-align: right;
-    color: var(--text-muted);
-  }
 }
 
 // Draggable arrow / cable endpoints (visible on hover).

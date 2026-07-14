@@ -10,8 +10,6 @@ const emit = defineEmits<{
   delete: [];
   close: [];
   "add-node": [type: "output" | "input"];
-  "add-effect": [sourceId: string, targetId: string];
-  "remove-effect": [sourceId: string, targetId: string];
 }>();
 </script>
 
@@ -39,31 +37,6 @@ const emit = defineEmits<{
         @click="emit('delete')"
       >
         Delete
-      </button>
-      <template v-if="target.connections.length">
-        <p v-if="target.editable || target.deletable" class="routing-graph-context-menu-label">
-          Connections
-        </p>
-        <button
-          v-for="connection in target.connections"
-          :key="`${connection.sourceId}-${connection.targetId}`"
-          type="button"
-          @click="
-            connection.hasVolumeEffect
-              ? emit('remove-effect', connection.sourceId, connection.targetId)
-              : emit('add-effect', connection.sourceId, connection.targetId)
-          "
-        >
-          {{ connection.hasVolumeEffect ? "Remove" : "Add" }} volume control → {{ connection.targetLabel }}
-        </button>
-      </template>
-    </template>
-    <template v-else-if="target.kind === 'edge'">
-      <button v-if="!target.hasVolumeEffect" type="button" @click="emit('add-effect', target.sourceId, target.targetId)">
-        Add volume control
-      </button>
-      <button v-else type="button" @click="emit('remove-effect', target.sourceId, target.targetId)">
-        Remove volume control
       </button>
     </template>
     <template v-else>
