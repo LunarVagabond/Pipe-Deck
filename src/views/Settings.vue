@@ -33,6 +33,7 @@ const { daemonStatus, refreshDaemonStatus } = useDaemonStatus();
 const plugins = ref<PluginStatus[]>([]);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
+const configPaths = ref<{ configDir: string; profilesDir: string } | null>(null);
 const {
   appInfo,
   updateResult,
@@ -104,6 +105,19 @@ async function loadSettings() {
   await refreshDaemonStatus();
   plugins.value = await invoke("list_plugins");
   await ensureAppInfo();
+  configPaths.value = await invoke("get_config_paths");
+}
+
+async function copyPath(path: string) {
+  try {
+    await navigator.clipboard.writeText(path);
+    handleApplyResult({ success: true }, "Path copied to clipboard.");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
 }
 
 async function runUpdateCheck() {
@@ -478,6 +492,36 @@ onMounted(() => {
             <template v-if="appInfo?.installLabel"> · {{ appInfo.installLabel }}</template>
           </p>
         </div>
+      </div>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Config directory</p>
+          <p class="settings-row-hint">{{ configPaths?.configDir ?? "…" }}</p>
+        </div>
+        <button
+          type="button"
+          class="settings-action-btn"
+          :disabled="!configPaths"
+          @click="copyPath(configPaths!.configDir)"
+        >
+          Copy
+        </button>
+      </div>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Profiles directory</p>
+          <p class="settings-row-hint">{{ configPaths?.profilesDir ?? "…" }}</p>
+        </div>
+        <button
+          type="button"
+          class="settings-action-btn"
+          :disabled="!configPaths"
+          @click="copyPath(configPaths!.profilesDir)"
+        >
+          Copy
+        </button>
       </div>
 
       <div class="settings-row settings-row--static">

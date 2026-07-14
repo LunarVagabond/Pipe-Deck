@@ -35,6 +35,7 @@ pub fn run() {
             commands::app_info::open_url,
             commands::graph::get_runtime_graph,
             commands::config::get_config,
+            commands::config::get_config_paths,
             commands::config::list_profiles,
             commands::config::set_device_alias,
             commands::config::set_show_system_streams,

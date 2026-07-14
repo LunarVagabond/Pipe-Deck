@@ -1,10 +1,27 @@
-use crate::config::{ConfigStore, ThemeStore};
+use crate::config::{ConfigStore, ProfileStore, ThemeStore};
 use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
 pub fn get_config() -> crate::core::models::AppConfig {
     ConfigStore::new().load_config().unwrap_or_else(|_| ConfigStore::default_config())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConfigPaths {
+    config_dir: String,
+    profiles_dir: String,
+}
+
+#[tauri::command]
+pub fn get_config_paths() -> ConfigPaths {
+    let config_store = ConfigStore::new();
+    let profiles_dir = ProfileStore::new(config_store.config_dir().clone()).profiles_dir();
+    ConfigPaths {
+        config_dir: config_store.config_dir().display().to_string(),
+        profiles_dir: profiles_dir.display().to_string(),
+    }
 }
 
 #[tauri::command]
