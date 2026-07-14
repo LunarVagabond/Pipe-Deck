@@ -2,7 +2,10 @@ pub mod linux;
 pub mod mock;
 pub mod stub;
 
-use crate::core::models::RuntimeGraph;
+use crate::core::models::{Device, MixSourceSpec, RuntimeGraph};
+use crate::core::rules::ApplyRulesContext;
+use crate::core::stream_identity::StreamIdentityKey;
+use std::collections::HashSet;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -38,6 +41,34 @@ pub trait AudioBackend: Send + Sync {
         stream_id: &str,
         previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError>;
+
+    // Graph/routing reconciliation. These stay call-granularity-agnostic on
+    // purpose (see PD-019 and issue #68): the Linux impl internally discovers
+    // and reconciles live pw-link/pactl state in one batched pass rather than
+    // one link at a time, and a future backend is free to do the same in
+    // whatever shape its platform's routing APIs need — the trait boundary is
+    // "engine code doesn't name `backend::linux` directly", not "every route
+    // change is one trait call."
+    fn sync_live_routing_graph(&self, graph: &mut RuntimeGraph);
+    fn apply_user_cleared_routes(
+        &self,
+        graph: &mut RuntimeGraph,
+        cleared_streams: &HashSet<StreamIdentityKey>,
+        cleared_devices: &HashSet<String>,
+    );
+    fn apply_graph_routing(&self, graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>);
+
+    // Virtual device mix sources / aliases / levels. Virtual device
+    // create/remove itself stays engine-held via `VirtualDeviceRegistry`
+    // (see core/restore.rs, core/engine/virtual_ops.rs) rather than moving
+    // behind this trait — the registry doesn't just track bookkeeping, it
+    // *is* the Linux creation mechanism, so splitting "system-level create"
+    // from "registry state" isn't a clean boundary without a deeper redesign
+    // than #68 calls for.
+    fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError>;
+    fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError>;
+    fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError>;
+    fn apply_device_aliases_and_levels(&self, devices: &mut [Device]);
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
@@ -108,4 +139,30 @@ impl AudioBackend for EmptyAudioBackend {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
+
+    fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
+
+    fn apply_user_cleared_routes(
+        &self,
+        _graph: &mut RuntimeGraph,
+        _cleared_streams: &HashSet<StreamIdentityKey>,
+        _cleared_devices: &HashSet<String>,
+    ) {
+    }
+
+    fn apply_graph_routing(&self, _graph: &mut RuntimeGraph, _ctx: &ApplyRulesContext<'_>) {}
+
+    fn apply_virtual_mic_mix(&self, _virtual_input: &Device, _mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn set_mix_source_volume(&self, _virtual_input_system_name: &str, _source_system_name: &str, _percent: u8) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn set_mix_source_mute(&self, _virtual_input_system_name: &str, _source_system_name: &str, _muted: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
 }

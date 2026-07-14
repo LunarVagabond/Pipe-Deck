@@ -92,11 +92,11 @@ pub fn apply_pactl_capture_targets(graph: &mut RuntimeGraph) {
 
 /// Refresh volume/mute from pactl. Virtual pipe-deck devices are merged after pw-dump
 /// enumeration, so callers must invoke this again once virtual devices are on the graph.
-pub fn apply_device_levels(devices: &mut [Device]) {
+pub(super) fn apply_device_levels(devices: &mut [Device]) {
     apply_pactl_levels(devices);
 }
 
-pub fn apply_device_aliases(devices: &mut [Device]) {
+pub(in crate::backend) fn apply_device_aliases(devices: &mut [Device]) {
     let aliases = ConfigStore::new().device_aliases();
     for device in devices {
         if let Some(alias) = aliases.get(&device.system_name) {

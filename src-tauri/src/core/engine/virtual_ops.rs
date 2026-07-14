@@ -251,7 +251,8 @@ impl CoreEngine {
             });
         }
 
-        virtual_mic_mix::apply_virtual_mic_mix(&virtual_mic, &mix_source_specs)
+        self.adapter
+            .apply_virtual_mic_mix(&virtual_mic, &mix_source_specs)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         ConfigStore::new()
@@ -371,7 +372,8 @@ impl CoreEngine {
             });
         }
 
-        virtual_mic_mix::set_mix_source_volume(&virtual_mic.system_name, &source.system_name, percent)
+        self.adapter
+            .set_mix_source_volume(&virtual_mic.system_name, &source.system_name, percent)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         let virtual_mic_system_name = virtual_mic.system_name.clone();
@@ -429,7 +431,8 @@ impl CoreEngine {
             });
         }
 
-        virtual_mic_mix::set_mix_source_mute(&virtual_mic.system_name, &source.system_name, muted)
+        self.adapter
+            .set_mix_source_mute(&virtual_mic.system_name, &source.system_name, muted)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         let virtual_mic_system_name = virtual_mic.system_name.clone();
@@ -450,6 +453,7 @@ pub(super) fn merge_virtual_devices(
     graph: &mut RuntimeGraph,
     registry: &VirtualDeviceRegistry,
     device_id_remap: &mut HashMap<String, String>,
+    adapter: &dyn crate::backend::AudioBackend,
 ) {
     let multi_by_name: HashMap<String, bool> = ConfigStore::new()
         .virtual_devices()
@@ -500,8 +504,7 @@ pub(super) fn merge_virtual_devices(
         }
     }
 
-    crate::backend::linux::live::apply_device_aliases(&mut graph.devices);
-    crate::backend::linux::live::apply_device_levels(&mut graph.devices);
+    adapter.apply_device_aliases_and_levels(&mut graph.devices);
 
     for (old_id, new_id) in id_remap {
         device_id_remap.insert(old_id.clone(), new_id.clone());

@@ -1,7 +1,10 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
+    Device, DeviceDirection, DeviceKind, Link, MixSourceSpec, RuntimeGraph, Stream, StreamDirection,
 };
+use crate::core::rules::ApplyRulesContext;
+use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
+use std::collections::HashSet;
 
 /// Static sample graph for development until real PipeWire enumeration lands.
 /// Data is stable — no simulated changes or background polling.
@@ -236,5 +239,46 @@ impl AudioBackend for MockAudioBackend {
         _previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError> {
         Ok(())
+    }
+
+    // The mock sample graph has no real pactl/pw-link session behind it, so
+    // reconciliation that requires live PipeWire queries is a deliberate
+    // no-op rather than shelling out to system tools with nothing meaningful
+    // to report. `apply_user_cleared_routes` and the alias half of
+    // `apply_device_aliases_and_levels` are pure in-memory graph/config
+    // operations with no such dependency, so they still run for real —
+    // `routing_ops::clear_stream_target`'s mock path and device aliasing
+    // both rely on that actually happening.
+    fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
+
+    fn apply_user_cleared_routes(
+        &self,
+        graph: &mut RuntimeGraph,
+        cleared_streams: &HashSet<StreamIdentityKey>,
+        cleared_devices: &HashSet<String>,
+    ) {
+        crate::backend::linux::graph_routing::apply_user_cleared_routes(
+            graph,
+            cleared_streams,
+            cleared_devices,
+        );
+    }
+
+    fn apply_graph_routing(&self, _graph: &mut RuntimeGraph, _ctx: &ApplyRulesContext<'_>) {}
+
+    fn apply_virtual_mic_mix(&self, _virtual_input: &Device, _mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn set_mix_source_volume(&self, _virtual_input_system_name: &str, _source_system_name: &str, _percent: u8) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn set_mix_source_mute(&self, _virtual_input_system_name: &str, _source_system_name: &str, _muted: bool) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
+        crate::backend::linux::graph_enrich::apply_device_aliases(devices);
     }
 }

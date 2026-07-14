@@ -1,5 +1,8 @@
 use super::{AudioBackend, BackendError, GraphListener};
-use crate::core::models::RuntimeGraph;
+use crate::core::models::{Device, MixSourceSpec, RuntimeGraph};
+use crate::core::rules::ApplyRulesContext;
+use crate::core::stream_identity::StreamIdentityKey;
+use std::collections::HashSet;
 
 /// Proof-of-concept second backend: every method fails, but it's a
 /// structurally independent `AudioBackend` implementation that compiles and
@@ -61,4 +64,36 @@ impl AudioBackend for StubBackend {
             "no audio backend implemented for this platform yet".into(),
         ))
     }
+
+    fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
+
+    fn apply_user_cleared_routes(
+        &self,
+        _graph: &mut RuntimeGraph,
+        _cleared_streams: &HashSet<StreamIdentityKey>,
+        _cleared_devices: &HashSet<String>,
+    ) {
+    }
+
+    fn apply_graph_routing(&self, _graph: &mut RuntimeGraph, _ctx: &ApplyRulesContext<'_>) {}
+
+    fn apply_virtual_mic_mix(&self, _virtual_input: &Device, _mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn set_mix_source_volume(&self, _virtual_input_system_name: &str, _source_system_name: &str, _percent: u8) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn set_mix_source_mute(&self, _virtual_input_system_name: &str, _source_system_name: &str, _muted: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
 }

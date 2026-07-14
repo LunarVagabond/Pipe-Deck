@@ -212,7 +212,7 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
     let mut graph = adapter
         .fetch_graph()
         .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-    merge_registry_into_graph(&mut graph, registry);
+    merge_registry_into_graph(&mut graph, registry, &adapter);
 
     let overrides = HashSet::new();
     let device_overrides = HashSet::new();
@@ -223,11 +223,15 @@ pub fn apply_persisted_routes(registry: &Arc<VirtualDeviceRegistry>) -> Result<(
         mock_graph_only: false,
         limit_to_identities: None,
     };
-    crate::backend::linux::live::apply_graph_routing(&mut graph, &ctx);
+    adapter.apply_graph_routing(&mut graph, &ctx);
     Ok(())
 }
 
-pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, registry: &VirtualDeviceRegistry) {
+pub fn merge_registry_into_graph(
+    graph: &mut RuntimeGraph,
+    registry: &VirtualDeviceRegistry,
+    adapter: &dyn AudioBackend,
+) {
     let multi_by_name: std::collections::HashMap<String, bool> = ConfigStore::new()
         .virtual_devices()
         .into_iter()
@@ -266,7 +270,7 @@ pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, registry: &VirtualDev
         }
     }
 
-    crate::backend::linux::live::apply_device_aliases(&mut graph.devices);
+    adapter.apply_device_aliases_and_levels(&mut graph.devices);
 }
 
 pub fn spec_from_create_result(

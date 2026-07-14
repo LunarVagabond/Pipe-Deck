@@ -47,7 +47,7 @@ pub fn apply_virtual_mic_mix(
 
 /// Sets the gain for one already-mixed source, without touching linking —
 /// safe to call at high frequency for a live slider drag.
-pub fn set_mix_source_volume(
+pub(super) fn set_mix_source_volume(
     virtual_input_system_name: &str,
     source_system_name: &str,
     volume_percent: u8,
@@ -59,7 +59,7 @@ pub fn set_mix_source_volume(
 /// Mutes/unmutes one already-mixed source's feed sink directly — no relinking,
 /// so the port connections (and this source's place in the mix) are completely
 /// untouched. This is the mechanism behind "mute without breaking the link".
-pub fn set_mix_source_mute(
+pub(super) fn set_mix_source_mute(
     virtual_input_system_name: &str,
     source_system_name: &str,
     muted: bool,

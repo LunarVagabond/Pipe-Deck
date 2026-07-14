@@ -19,6 +19,7 @@ impl CoreEngine {
             &mut self.graph,
             &self.virtual_registry,
             &mut self.device_id_remap,
+            self.adapter.as_ref(),
         );
         self.sync_live_graph();
         self.finalize_graph_snapshot();
@@ -36,6 +37,7 @@ impl CoreEngine {
             &mut self.graph,
             &self.virtual_registry,
             &mut self.device_id_remap,
+            self.adapter.as_ref(),
         );
         self.sync_live_graph();
         self.finalize_graph_snapshot();
@@ -51,8 +53,8 @@ impl CoreEngine {
     }
 
     fn sync_live_graph(&mut self) {
-        crate::backend::linux::live::sync_live_routing_graph(&mut self.graph);
-        crate::backend::linux::live::apply_user_cleared_routes(
+        self.adapter.sync_live_routing_graph(&mut self.graph);
+        self.adapter.apply_user_cleared_routes(
             &mut self.graph,
             &self.cleared_stream_routes,
             &self.cleared_device_routes,
@@ -104,7 +106,7 @@ impl CoreEngine {
             mock_graph_only: self.graph.data_source == "mock",
             limit_to_identities: None,
         };
-        crate::backend::linux::live::apply_graph_routing(&mut self.graph, &ctx);
+        self.adapter.apply_graph_routing(&mut self.graph, &ctx);
     }
 
     fn apply_rules_for_new_streams(&mut self) {

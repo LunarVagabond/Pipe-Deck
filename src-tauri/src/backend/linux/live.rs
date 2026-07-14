@@ -1,8 +1,12 @@
-use crate::core::models::RuntimeGraph;
+use crate::core::models::{Device, MixSourceSpec, RuntimeGraph};
+use crate::core::rules::ApplyRulesContext;
+use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
 use crate::backend::linux::graph_enrich;
 use crate::backend::linux::graph_routing;
 use crate::backend::linux::pw_dump::{self, PwDumpObject};
+use crate::backend::linux::virtual_mic_mix;
+use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
@@ -110,6 +114,40 @@ impl AudioBackend for LinuxPipeWireBackend {
         previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError> {
         crate::backend::linux::pactl::clear_stream_target(graph, stream_id, previous_target_device_id)
+    }
+
+    fn sync_live_routing_graph(&self, graph: &mut RuntimeGraph) {
+        graph_routing::sync_live_routing_graph(graph);
+    }
+
+    fn apply_user_cleared_routes(
+        &self,
+        graph: &mut RuntimeGraph,
+        cleared_streams: &HashSet<StreamIdentityKey>,
+        cleared_devices: &HashSet<String>,
+    ) {
+        graph_routing::apply_user_cleared_routes(graph, cleared_streams, cleared_devices);
+    }
+
+    fn apply_graph_routing(&self, graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>) {
+        graph_routing::apply_graph_routing(graph, ctx);
+    }
+
+    fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+        virtual_mic_mix::apply_virtual_mic_mix(virtual_input, mix_sources)
+    }
+
+    fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError> {
+        virtual_mic_mix::set_mix_source_volume(virtual_input_system_name, source_system_name, percent)
+    }
+
+    fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError> {
+        virtual_mic_mix::set_mix_source_mute(virtual_input_system_name, source_system_name, muted)
+    }
+
+    fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
+        graph_enrich::apply_device_aliases(devices);
+        graph_enrich::apply_device_levels(devices);
     }
 }
 
@@ -229,8 +267,3 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, BackendError> {
     Ok(graph)
 }
 
-pub use graph_enrich::{apply_device_aliases, apply_device_levels, enrich_graph_from_pactl};
-pub use graph_routing::{
-    apply_graph_routing, apply_user_cleared_routes, normalize_stream_routing_links,
-    sync_live_routing_graph,
-};

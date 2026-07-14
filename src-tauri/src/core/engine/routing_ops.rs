@@ -227,7 +227,7 @@ impl CoreEngine {
         if self.graph.data_source != "mock" {
             self.refresh_graph()?;
         } else {
-            crate::backend::linux::live::apply_user_cleared_routes(
+            self.adapter.apply_user_cleared_routes(
                 &mut self.graph,
                 &self.cleared_stream_routes,
                 &self.cleared_device_routes,

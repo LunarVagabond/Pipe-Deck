@@ -8,7 +8,7 @@ use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
 use std::collections::{HashMap, HashSet};
 
-pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
+pub(super) fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
     gc_feed_sinks(graph);
     apply_pactl_playback_targets(graph);
     apply_pactl_capture_targets(graph);
@@ -22,7 +22,7 @@ pub fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
 }
 
 /// Keep user-cleared routes off the graph even when PipeWire still has an active link.
-pub fn apply_user_cleared_routes(
+pub(in crate::backend) fn apply_user_cleared_routes(
     graph: &mut RuntimeGraph,
     cleared_streams: &HashSet<StreamIdentityKey>,
     cleared_devices: &HashSet<String>,
@@ -57,7 +57,7 @@ pub fn apply_user_cleared_routes(
     normalize_stream_routing_links(graph);
 }
 
-pub fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>) {
+pub(super) fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesContext<'_>) {
     sync_live_routing_graph(graph);
     let _ = crate::core::routing_rules::apply_persisted_routing_rules(graph, ctx);
     apply_pactl_playback_targets(graph);
