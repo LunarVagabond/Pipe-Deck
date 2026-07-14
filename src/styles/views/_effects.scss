@@ -1,3 +1,5 @@
+@use "../components/panel-header" as panel;
+
 .effects-view {
   display: flex;
   flex-direction: column;
@@ -5,13 +7,6 @@
   width: 100%;
   max-width: 100%;
   min-width: 0;
-}
-
-.effects-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
 }
 
 .effects-view .eyebrow {
@@ -142,10 +137,7 @@
 }
 
 .effects-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 1rem;
+  @include panel.panel-header($align: flex-start, $gap: 1rem);
   margin-bottom: 1rem;
 }
 

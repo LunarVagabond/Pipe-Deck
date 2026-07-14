@@ -391,7 +391,7 @@ onMounted(async () => {
 
 <template>
   <div class="rules-view">
-    <header class="rules-header">
+    <header class="rules-header view-header">
       <div class="rules-header-copy">
         <span class="rules-eyebrow">Advanced Routing</span>
         <h2>Auto-routing rules</h2>

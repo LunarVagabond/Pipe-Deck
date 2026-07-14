@@ -26,7 +26,7 @@ const isEmpty = computed(
 
 <template>
   <div class="mixer-view">
-    <header class="mixer-header">
+    <header class="mixer-header view-header">
       <div>
         <p class="eyebrow">Levels and mute</p>
       </div>

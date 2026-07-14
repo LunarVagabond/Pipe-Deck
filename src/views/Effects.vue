@@ -399,7 +399,7 @@ onMounted(() => {
 
 <template>
   <div class="effects-view">
-    <header class="effects-header">
+    <header class="effects-header view-header">
       <div>
         <p class="eyebrow">Virtual device processing</p>
       </div>

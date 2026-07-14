@@ -1,4 +1,5 @@
 @use "../variables" as vars;
+@use "../components/panel-header" as panel;
 
 .rules-view {
   display: grid;
@@ -23,10 +24,6 @@
 }
 
 .rules-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
   flex-wrap: wrap;
   min-width: 0;
 }
@@ -129,10 +126,7 @@
 }
 
 .rules-panel-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 1rem;
+  @include panel.panel-header($align: flex-start, $gap: 1rem);
   margin-bottom: 1rem;
   flex-wrap: wrap;
   min-width: 0;
@@ -449,10 +443,7 @@
 }
 
 .rule-conditions-editor-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.75rem;
+  @include panel.panel-header($align: flex-start, $gap: 0.75rem);
 }
 
 .rule-conditions-editor-header h4 {
@@ -806,10 +797,7 @@
 }
 
 .rules-simulation-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  @include panel.panel-header($align: center, $gap: 0.75rem);
 }
 
 .rules-simulation-header h3 {

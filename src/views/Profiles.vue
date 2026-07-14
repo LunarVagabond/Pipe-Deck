@@ -90,7 +90,7 @@ async function onExport(profileId: string) {
 
 <template>
   <div class="profiles-view">
-    <header class="profiles-header">
+    <header class="profiles-header view-header">
       <div>
         <p class="eyebrow">Desired routing</p>
       </div>

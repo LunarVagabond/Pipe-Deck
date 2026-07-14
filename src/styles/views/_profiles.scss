@@ -1,15 +1,9 @@
 @use "../variables" as vars;
+@use "../components/panel-header" as panel;
 
 .profiles-view {
   display: flex;
   flex-direction: column;
-  gap: 1rem;
-}
-
-.profiles-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
   gap: 1rem;
 }
 
@@ -85,10 +79,7 @@
 }
 
 .profile-drift-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.75rem;
+  @include panel.panel-header($align: center, $gap: 0.75rem);
   margin-bottom: 0.75rem;
 }
 
@@ -146,10 +137,7 @@
 }
 
 .profile-card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 0.5rem;
+  @include panel.panel-header($align: center, $gap: 0.5rem);
 
   h2 {
     margin: 0;

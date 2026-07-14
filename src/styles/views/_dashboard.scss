@@ -1,3 +1,5 @@
+@use "../components/panel-header" as panel;
+
 .dashboard {
   display: flex;
   flex-direction: column;
@@ -55,10 +57,7 @@
 }
 
 .dashboard-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
+  @include panel.panel-header($align: center, $gap: 1rem);
 
   h2 {
     margin: 0;

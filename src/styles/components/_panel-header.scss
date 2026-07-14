@@ -1,0 +1,6 @@
+@mixin panel-header($align: flex-start, $gap: 1rem) {
+  display: flex;
+  justify-content: space-between;
+  align-items: $align;
+  gap: $gap;
+}
