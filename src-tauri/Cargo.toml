@@ -1,6 +1,6 @@
 [package]
 name = "pipe-deck"
-version = "0.0.2"
+version = "0.0.3"
 description = "Linux Audio Control Center"
 authors = ["Pipe Deck Contributors"]
 edition = "2021"
