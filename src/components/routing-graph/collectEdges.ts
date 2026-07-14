@@ -1,4 +1,4 @@
-import type { RuntimeGraph } from "../../types/graph";
+import type { ConnectionEffectKind, RuntimeGraph } from "../../types/graph";
 import {
   columnRank,
   deviceColumn,
@@ -8,6 +8,13 @@ import {
 import { graphEntityExists, handlesForLink } from "./nodePorts";
 import { edgeClassForPort, edgeColorForPorts } from "./portTypes";
 import { deviceNodeId, streamNodeId } from "./nodeIds";
+
+export interface RoutingEdgeData {
+  effects: ConnectionEffectKind[];
+  rawSourceId: string;
+  rawTargetId: string;
+  isBackward: boolean;
+}
 
 export interface BuiltGraphEdge {
   id: string;
@@ -21,6 +28,7 @@ export interface BuiltGraphEdge {
   updatable?: boolean | "source" | "target";
   interactionWidth?: number;
   type?: string;
+  data?: RoutingEdgeData;
 }
 
 function edgeKey(source: string, target: string): string {
@@ -69,6 +77,7 @@ function makeEdge(
   // edge leaving the bottom of one node and entering the top of another.
   // Route those backward connections as an orthogonal smoothstep instead.
   const isBackward = entityColumnRank(graph, sourceId) > entityColumnRank(graph, targetId);
+  const effects = graph.links.find((link) => link.id === linkId)?.effects ?? [];
 
   return {
     id: linkId,
@@ -79,9 +88,10 @@ function makeEdge(
     animated: true,
     updatable: true,
     interactionWidth: 22,
-    type: isBackward ? "smoothstep" : undefined,
+    type: "connectionEdge",
     class: `routing-edge ${edgeClassForPort()}`,
     style: { stroke: edgeColorForPorts(), strokeWidth: "2.5" },
+    data: { effects, rawSourceId: sourceId, rawTargetId: targetId, isBackward },
   };
 }
 

@@ -10,6 +10,7 @@ import {
 import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
+import type { RoutingEdgeData } from "./collectEdges";
 import { deviceNodeId, streamNodeId } from "./nodeIds";
 import type { GraphGroup } from "./groups";
 
@@ -63,6 +64,7 @@ export interface BuiltRoutingGraph {
     updatable?: boolean | "source" | "target";
     interactionWidth?: number;
     type?: string;
+    data?: RoutingEdgeData;
   }>;
 }
 
