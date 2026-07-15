@@ -12,15 +12,18 @@ pub fn get_config() -> crate::core::models::AppConfig {
 pub struct ConfigPaths {
     config_dir: String,
     profiles_dir: String,
+    plugins_dir: String,
 }
 
 #[tauri::command]
 pub fn get_config_paths() -> ConfigPaths {
     let config_store = ConfigStore::new();
     let profiles_dir = ProfileStore::new(config_store.config_dir().clone()).profiles_dir();
+    let plugins_dir = crate::plugins::registry::user_plugins_dir();
     ConfigPaths {
         config_dir: config_store.config_dir().display().to_string(),
         profiles_dir: profiles_dir.display().to_string(),
+        plugins_dir: plugins_dir.display().to_string(),
     }
 }
 

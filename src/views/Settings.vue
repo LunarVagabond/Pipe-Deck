@@ -63,7 +63,7 @@ const sortedPlugins = computed(() => {
   });
 });
 const { handleApplyResult } = useApplyResult();
-const configPaths = ref<{ configDir: string; profilesDir: string } | null>(null);
+const configPaths = ref<{ configDir: string; profilesDir: string; pluginsDir: string } | null>(null);
 const {
   appInfo,
   updateResult,
@@ -494,6 +494,23 @@ onMounted(() => {
         </p>
         <button type="button" class="settings-action-btn" :disabled="busy" @click="rescanPlugins">
           Rescan plugin directories
+        </button>
+      </div>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Plugin directory</p>
+          <p class="settings-row-hint">
+            {{ configPaths?.pluginsDir ?? "…" }} — drop a plugin folder here, then Rescan.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="settings-action-btn"
+          :disabled="!configPaths"
+          @click="copyPath(configPaths!.pluginsDir)"
+        >
+          Copy
         </button>
       </div>
 
