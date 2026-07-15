@@ -3,6 +3,7 @@ import type { Device, RuntimeGraph, Stream } from "../../types/graph";
 import {
   isMultiSink,
   sinksForStream,
+  streamDisplayLabel,
   targetsForVirtualSink,
 } from "../../utils/routingLayout";
 import { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
@@ -42,17 +43,19 @@ export function resolveConnectionAction(
   }
 
   if (!connection.source || !connection.target) {
-    return { error: "Incomplete connection." };
+    return { error: "Drag needs both a source and a target port." };
   }
 
   if (!canConnectPorts(connection.sourceHandle, connection.targetHandle)) {
-    return { error: "Connect an output to an open input slot." };
+    return {
+      error: "Connect an output port to an open input slot — this target's slot is already in use or the wrong direction.",
+    };
   }
 
   const source = parseGraphNodeId(connection.source);
   const target = parseGraphNodeId(connection.target);
   if (!source || !target) {
-    return { error: "Unknown node type." };
+    return { error: "Could not identify one end of this connection — try refreshing the routing view." };
   }
 
   if (source.kind === "stream" && target.kind === "device") {
@@ -67,7 +70,13 @@ export function resolveConnectionAction(
     return resolveDeviceToDevice(graph, source.id, target.id, context);
   }
 
-  return { error: "Streams cannot connect directly to each other." };
+  const sourceStream = findStream(graph, source.id);
+  const targetStream = findStream(graph, target.id);
+  const sourceLabel = sourceStream ? labelFor(sourceStream) : source.id;
+  const targetLabel = targetStream ? labelFor(targetStream) : target.id;
+  return {
+    error: `"${sourceLabel}" and "${targetLabel}" are both application streams — connect a stream to a device instead.`,
+  };
 }
 
 function findStream(graph: RuntimeGraph, streamId: string): Stream | undefined {
@@ -76,6 +85,10 @@ function findStream(graph: RuntimeGraph, streamId: string): Stream | undefined {
 
 function findDevice(graph: RuntimeGraph, deviceId: string): Device | undefined {
   return graph.devices.find((device) => device.id === deviceId);
+}
+
+function labelFor(entity: Stream | Device): string {
+  return "app_name" in entity ? streamDisplayLabel(entity) : entity.label;
 }
 
 /** Soundux-style passthrough: dragging an app's playback stream onto a
@@ -99,12 +112,15 @@ function resolveStreamToDevice(
 
   const allowed = sinksForStream(graph.devices, stream);
   if (!allowed.some((entry) => entry.id === deviceId)) {
-    return { error: "This target is not valid for the stream direction." };
+    const directionWord = stream.direction === "playback" ? "playback output" : "capture input";
+    return {
+      error: `"${labelFor(stream)}" is a ${stream.direction} stream — "${device.label}" doesn't accept that direction. Pick a ${directionWord} instead.`,
+    };
   }
 
   if (isMicPassthroughCandidate(stream, device)) {
     if (stream.current_target === deviceId || stream.current_targets?.includes(deviceId)) {
-      return { error: "This app's audio is already sent to this microphone." };
+      return { error: `"${labelFor(stream)}" is already sending audio to "${device.label}".` };
     }
     return {
       action: {
@@ -156,7 +172,7 @@ function resolveDeviceToDevice(
   if (isMicMixCandidate(source, target)) {
     const existingMix = target.mix_sources ?? [];
     if (existingMix.some((mixSource) => mixSource.device_id === source.id)) {
-      return { error: "This microphone is already mixed into this device." };
+      return { error: `"${source.label}" is already mixed into "${target.label}".` };
     }
     return {
       action: {
@@ -169,11 +185,15 @@ function resolveDeviceToDevice(
 
   const allowed = targetsForVirtualSink(graph.devices, source);
   if (!allowed.some((entry) => entry.id === targetDeviceId)) {
-    return { error: "Virtual sinks can only route to outputs or virtual inputs." };
+    return {
+      error: `"${source.label}" can only route to a physical/virtual output or a virtual input — "${target.label}" isn't one of those.`,
+    };
   }
 
   if (source.kind !== "virtual" || source.direction !== "output") {
-    return { error: "Only virtual output sinks support device-to-device routing." };
+    return {
+      error: `"${source.label}" isn't a virtual output sink, so it can't be routed directly to another device. Drag an application stream instead.`,
+    };
   }
 
   const existing = existingDeviceTargets(source);
@@ -197,7 +217,7 @@ function resolveDeviceToDevice(
 
   if (isMultiSink(source)) {
     if (existing.includes(targetDeviceId)) {
-      return { error: "This output is already connected." };
+      return { error: `"${source.label}" is already routed to "${target.label}".` };
     }
     return {
       action: {
@@ -233,8 +253,11 @@ function resolveEdgeDisconnect(
 
   if (source.kind === "stream" && target.kind === "device") {
     const stream = findStream(graph, source.id);
+    const device = findDevice(graph, target.id);
     if (!stream || stream.current_target !== target.id) {
-      return { error: "Connection not found." };
+      const streamLabel = stream ? labelFor(stream) : source.id;
+      const deviceLabel = device?.label ?? target.id;
+      return { error: `"${streamLabel}" isn't currently routed to "${deviceLabel}" — nothing to disconnect.` };
     }
     return {
       action: {
@@ -247,8 +270,11 @@ function resolveEdgeDisconnect(
 
   if (source.kind === "device" && target.kind === "stream") {
     const stream = findStream(graph, target.id);
+    const device = findDevice(graph, source.id);
     if (!stream || stream.current_target !== source.id) {
-      return { error: "Connection not found." };
+      const streamLabel = stream ? labelFor(stream) : target.id;
+      const deviceLabel = device?.label ?? source.id;
+      return { error: `"${streamLabel}" isn't currently routed to "${deviceLabel}" — nothing to disconnect.` };
     }
     return {
       action: {
@@ -272,7 +298,7 @@ function resolveEdgeDisconnect(
   if (isMicMixCandidate(device, targetDevice)) {
     const existingMix = targetDevice.mix_sources ?? [];
     if (!existingMix.some((mixSource) => mixSource.device_id === device.id)) {
-      return { error: "Connection not found." };
+      return { error: `"${device.label}" isn't currently mixed into "${targetDevice.label}" — nothing to disconnect.` };
     }
     return {
       action: {
@@ -284,13 +310,15 @@ function resolveEdgeDisconnect(
   }
 
   if (device.kind !== "virtual" || device.direction !== "output") {
-    return { error: "Only virtual sink routes can be disconnected from the graph." };
+    return {
+      error: `"${device.label}" isn't a virtual sink route — only virtual-output connections can be dragged off to disconnect them.`,
+    };
   }
 
   const existing = existingDeviceTargets(device);
   const remaining = existing.filter((id) => id !== target.id);
   if (remaining.length === existing.length) {
-    return { error: "Connection not found." };
+    return { error: `"${device.label}" isn't currently routed to "${targetDevice.label}" — nothing to disconnect.` };
   }
 
   return {

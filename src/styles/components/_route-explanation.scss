@@ -39,11 +39,20 @@
   color: var(--text-muted);
 }
 
+.route-explanation-list {
+  margin: 0;
+}
+
 .route-explanation-row {
   display: grid;
   grid-template-columns: 4.5rem 1fr;
   gap: 0.35rem 0.5rem;
   margin-bottom: 0.35rem;
+}
+
+.route-explanation-row dt,
+.route-explanation-row dd {
+  margin: 0;
 }
 
 .route-explanation-row ul {

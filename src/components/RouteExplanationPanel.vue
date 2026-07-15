@@ -10,6 +10,9 @@ const { stream, devices } = defineProps<{
 
 const expanded = ref(false);
 
+const toggleId = computed(() => `route-explanation-toggle-${stream.id}`);
+const detailId = computed(() => `route-explanation-detail-${stream.id}`);
+
 const explanation = computed(() => stream.route_explanation);
 
 const summary = computed(() => {
@@ -53,40 +56,59 @@ function focusRouteSelect() {
 
 <template>
   <div class="route-explanation">
-    <button type="button" class="route-explanation-toggle" @click="expanded = !expanded">
+    <button
+      :id="toggleId"
+      type="button"
+      class="route-explanation-toggle"
+      :aria-expanded="expanded"
+      :aria-controls="detailId"
+      @click="expanded = !expanded"
+    >
       <span class="route-explanation-summary">{{ summary }}</span>
-      <span class="route-explanation-chevron">{{ expanded ? "▾" : "▸" }}</span>
+      <span class="route-explanation-chevron" aria-hidden="true">{{ expanded ? "▾" : "▸" }}</span>
     </button>
 
-    <div v-if="expanded && explanation" class="route-explanation-detail">
-      <div class="route-explanation-row">
-        <span class="route-explanation-label">Status</span>
-        <span>{{ statusLabel }}</span>
-      </div>
+    <div
+      v-if="expanded && explanation"
+      :id="detailId"
+      class="route-explanation-detail"
+      role="region"
+      :aria-labelledby="toggleId"
+    >
+      <dl class="route-explanation-list">
+        <div class="route-explanation-row">
+          <dt class="route-explanation-label">Status</dt>
+          <dd>{{ statusLabel }}</dd>
+        </div>
 
-      <div v-if="explanation.fallback_applied" class="route-explanation-row">
-        <span class="route-explanation-label">Fallback</span>
-        <span class="route-explanation-fallback-badge">Safe-default fallback applied</span>
-      </div>
+        <div v-if="explanation.fallback_applied" class="route-explanation-row">
+          <dt class="route-explanation-label">Fallback</dt>
+          <dd><span class="route-explanation-fallback-badge">Safe-default fallback applied</span></dd>
+        </div>
 
-      <div v-if="explanation.match_reasons.length" class="route-explanation-row">
-        <span class="route-explanation-label">Why</span>
-        <ul>
-          <li v-for="reason in explanation.match_reasons" :key="reason">{{ reason }}</li>
-        </ul>
-      </div>
+        <div v-if="explanation.match_reasons.length" class="route-explanation-row">
+          <dt class="route-explanation-label">Why</dt>
+          <dd>
+            <ul>
+              <li v-for="reason in explanation.match_reasons" :key="reason">{{ reason }}</li>
+            </ul>
+          </dd>
+        </div>
 
-      <div v-if="explanation.skipped_candidates.length" class="route-explanation-row">
-        <span class="route-explanation-label">Skipped</span>
-        <ul>
-          <li
-            v-for="candidate in explanation.skipped_candidates"
-            :key="`${candidate.rule_key}-${candidate.reason}`"
-          >
-            {{ formatRuleLabel(candidate.rule_key) }}: {{ candidate.reason }}
-          </li>
-        </ul>
-      </div>
+        <div v-if="explanation.skipped_candidates.length" class="route-explanation-row">
+          <dt class="route-explanation-label">Skipped</dt>
+          <dd>
+            <ul>
+              <li
+                v-for="candidate in explanation.skipped_candidates"
+                :key="`${candidate.rule_key}-${candidate.reason}`"
+              >
+                {{ formatRuleLabel(candidate.rule_key) }}: {{ candidate.reason }}
+              </li>
+            </ul>
+          </dd>
+        </div>
+      </dl>
 
       <button type="button" class="route-explanation-fix" @click="focusRouteSelect">
         Change route

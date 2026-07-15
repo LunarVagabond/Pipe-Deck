@@ -146,8 +146,9 @@ async function saveDeviceAlias(systemName: string, alias: string) {
     await invoke("set_device_alias", { systemName, alias });
     handleApplyResult({ success: true }, "Device renamed");
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      { success: false, message: `Couldn't rename "${systemName}": ${message}` },
       "",
     );
   }
@@ -167,8 +168,9 @@ async function removeVirtualDevice(systemName: string, label: string) {
     await invoke("remove_virtual_device", { systemName });
     handleApplyResult({ success: true }, "Virtual device removed");
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      { success: false, message: `Couldn't delete "${label}": ${message}` },
       "",
     );
   }

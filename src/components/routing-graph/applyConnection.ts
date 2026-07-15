@@ -73,10 +73,8 @@ export async function applyRoutingConnection(
     }
     return true;
   } catch (error) {
-    onResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
-      "",
-    );
+    const message = error instanceof Error ? error.message : String(error);
+    onResult({ success: false, message: `Couldn't update routing: ${message}` }, "");
     return false;
   }
 }
