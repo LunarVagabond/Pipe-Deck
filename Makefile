@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-e2e clean preview flatpak smoke release docs-sync
+.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview flatpak smoke release docs-sync
 
 NPM ?= npm
 CARGO ?= cargo
@@ -56,12 +56,16 @@ build-frontend: ## Type-check and build the Vue frontend
 build-rust: build-daemon-dev build-cli ## Compile the Rust backend (debug)
 	$(CARGO) build --manifest-path $(TAURI_DIR)/Cargo.toml
 
-check: build-daemon-dev build-cli ## Run frontend and Rust checks without producing bundles
+check: build-daemon-dev build-cli ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
 	$(NPM) run build
+	$(NPM) run test:unit
 	$(CARGO) check --manifest-path $(TAURI_DIR)/Cargo.toml
 
 test: build-daemon-dev build-cli ## Run Rust tests
 	$(CARGO) test --manifest-path $(TAURI_DIR)/Cargo.toml
+
+test-unit: ## Run frontend Vitest unit tests (src/**/*.spec.ts)
+	$(NPM) run test:unit
 
 test-e2e: ## Run frontend Playwright component tests (src/e2e/, needs `npx playwright install chromium` once)
 	$(NPM) run test:e2e

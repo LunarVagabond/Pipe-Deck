@@ -79,8 +79,9 @@ async function undoRouting() {
     handleApplyResult(result, "Routing change undone");
     await refreshCanUndo();
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      { success: false, message: `Couldn't undo the last routing change: ${message}` },
       "",
     );
   }

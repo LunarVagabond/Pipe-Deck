@@ -1,7 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { onMounted, onUnmounted, ref } from "vue";
+import { createTrailingDebouncer } from "../composables/useThrottledGraphUpdates";
 import type { AppConfig, ProfileIndexEntry, RuntimeGraph } from "../types/graph";
+
+// Backend already coalesces PipeWire monitor events before emitting
+// "graph-updated" (up to ~2-5Hz, see live.rs's MONITOR_DEBOUNCE/
+// MAX_COALESCE_WINDOW), but applies every push unconditionally on the
+// frontend. This bounds the resulting Vue reactivity/Vue Flow rebuild rate
+// under sustained churn while staying well under the "reflects within
+// 500ms of a user action" budget (see docs/PipeWire_Design.md).
+const GRAPH_UPDATE_DEBOUNCE_MS = 100;
+const GRAPH_UPDATE_MAX_WAIT_MS = 150;
 
 const emptyGraph = (): RuntimeGraph => ({
   devices: [],
@@ -28,17 +38,25 @@ export function useRuntimeGraph() {
     }
   }
 
+  const scheduleGraphUpdate = createTrailingDebouncer<RuntimeGraph>(
+    (payload) => {
+      graph.value = payload;
+      loading.value = false;
+      error.value = null;
+    },
+    { wait: GRAPH_UPDATE_DEBOUNCE_MS, maxWait: GRAPH_UPDATE_MAX_WAIT_MS },
+  );
+
   onMounted(async () => {
     await refresh();
     unlisten = await listen<RuntimeGraph>("graph-updated", (event) => {
-      graph.value = event.payload;
-      loading.value = false;
-      error.value = null;
+      scheduleGraphUpdate(event.payload);
     });
   });
 
   onUnmounted(() => {
     unlisten?.();
+    scheduleGraphUpdate.cancel();
   });
 
   return { graph, loading, error, refresh };

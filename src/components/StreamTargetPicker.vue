@@ -38,6 +38,7 @@ async function onTargetChange(event: Event) {
   >
     <select
       class="routing-select"
+      aria-label="Change routing target"
       :value="stream.current_target ?? ''"
       @change="onTargetChange"
     >
@@ -64,6 +65,7 @@ async function onTargetChange(event: Event) {
         </span>
         <select
           class="routing-select"
+          aria-label="Change routing target"
           :value="stream.current_target ?? ''"
           @change="onTargetChange"
         >
