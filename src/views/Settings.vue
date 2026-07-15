@@ -577,6 +577,9 @@ onMounted(() => {
               <td>
                 <strong>{{ plugin.name }}</strong>
                 <span class="plugin-meta">v{{ plugin.version }} · {{ plugin.runtime_status }}</span>
+                <span v-if="plugin.disabled_reason" class="plugin-meta plugin-crash-loop-badge">
+                  {{ plugin.disabled_reason }}
+                </span>
               </td>
               <td>{{ plugin.developer ?? "—" }}</td>
               <td class="plugins-repo-cell">

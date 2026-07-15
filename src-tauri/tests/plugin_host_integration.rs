@@ -396,3 +396,74 @@ fn plugin_initialize_failure_surfaces_stderr_tail_in_last_error() {
     assert!(last_error.contains("simulated failure"), "last_error was: {last_error}");
     assert!(last_error.contains("boom: simulated plugin failure"), "last_error was: {last_error}");
 }
+
+#[test]
+fn repeated_rescan_of_a_crashing_plugin_backs_off_instead_of_respawning_immediately(
+) {
+    let bundled_dir = unique_temp_dir("bundled-crash-backoff");
+    write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    engine.initialize_plugins();
+
+    let before = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    let first_error = before.last_error.expect("first failed attempt should record last_error");
+
+    // Rescanning again immediately should hit the backoff window and skip respawning
+    // entirely — `last_errors` (and thus the surfaced message) is untouched by a
+    // skipped attempt, so it stays exactly what the first crash produced.
+    engine.rescan_plugins().unwrap();
+    let after = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    assert_eq!(after.last_error.as_deref(), Some(first_error.as_str()));
+    assert!(after.disabled_reason.is_none(), "should not be disabled after a single crash");
+}
+
+#[test]
+fn plugin_is_disabled_after_max_consecutive_crashes() {
+    let bundled_dir = unique_temp_dir("bundled-crash-disable");
+    write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    engine.initialize_plugins();
+
+    // First rescan attempt already happened via initialize_plugins (1 failure). Rescan
+    // enough more times, sleeping past each short backoff window, to cross the
+    // MAX_CONSECUTIVE_FAILURES threshold.
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        engine.rescan_plugins().unwrap();
+    }
+
+    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    let disabled_reason = failing
+        .disabled_reason
+        .expect("plugin should be disabled after repeated consecutive crashes");
+    assert!(disabled_reason.contains("consecutive crashes"), "reason was: {disabled_reason}");
+}
+
+#[test]
+fn re_enabling_a_disabled_plugin_clears_crash_state_and_retries_immediately() {
+    let bundled_dir = unique_temp_dir("bundled-crash-reenable");
+    write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    engine.initialize_plugins();
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        engine.rescan_plugins().unwrap();
+    }
+    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    assert!(failing.disabled_reason.is_some(), "expected plugin to be disabled going into this test");
+
+    // A user explicitly toggling the plugin off then back on is a deliberate retry and
+    // should not be blocked by leftover crash-loop state.
+    engine.set_plugin_enabled("failing", false).unwrap();
+    let result = engine.set_plugin_enabled("failing", true);
+    assert!(result.is_err(), "the plugin still crashes on init, so re-enabling should still fail");
+
+    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    assert_eq!(
+        failing.disabled_reason, None,
+        "re-enabling should reset crash-loop state even though the retry itself failed"
+    );
+}

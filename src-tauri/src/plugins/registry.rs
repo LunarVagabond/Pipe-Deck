@@ -8,12 +8,34 @@ use crate::plugins::host::PluginProcess;
 use crate::plugins::manifest::{discover_in_dir, DiscoveredPlugin};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
+
+/// Consecutive `start_plugin` failures after which a plugin is disabled outright
+/// (see #102) rather than kept in an endless retry loop.
+const MAX_CONSECUTIVE_FAILURES: u32 = 3;
+const BASE_BACKOFF: Duration = Duration::from_millis(250);
+const MAX_BACKOFF: Duration = Duration::from_secs(5);
+
+fn backoff_for(consecutive_failures: u32) -> Duration {
+    let exponent = consecutive_failures.saturating_sub(1).min(16);
+    BASE_BACKOFF.saturating_mul(1u32 << exponent).min(MAX_BACKOFF)
+}
+
+/// Tracks a plugin's recent crash history so `start_plugin` can back off instead of
+/// respawning a broken plugin in a tight loop (#102).
+#[derive(Default)]
+struct RestartState {
+    consecutive_failures: u32,
+    next_retry_at: Option<Instant>,
+    disabled_reason: Option<String>,
+}
 
 pub struct PluginManager {
     discovered: Vec<DiscoveredPlugin>,
     running: HashMap<String, PluginProcess>,
     last_errors: HashMap<String, String>,
     discovery_errors: Vec<PluginDiscoveryIssue>,
+    restart_state: HashMap<String, RestartState>,
 }
 
 impl PluginManager {
@@ -23,6 +45,7 @@ impl PluginManager {
             running: HashMap::new(),
             last_errors: HashMap::new(),
             discovery_errors: Vec::new(),
+            restart_state: HashMap::new(),
         }
     }
 
@@ -119,6 +142,18 @@ impl PluginManager {
         if self.running.contains_key(plugin_id) {
             return Ok(());
         }
+        if let Some(state) = self.restart_state.get(plugin_id) {
+            if let Some(reason) = &state.disabled_reason {
+                return Err(reason.clone());
+            }
+            if let Some(next_retry_at) = state.next_retry_at {
+                if Instant::now() < next_retry_at {
+                    return Err(format!(
+                        "plugin {plugin_id} is backing off after repeated crashes, retrying later"
+                    ));
+                }
+            }
+        }
         let Some(discovered) = self
             .discovered
             .iter()
@@ -160,10 +195,24 @@ impl PluginManager {
             self.last_errors.insert(plugin_id.to_string(), message.clone());
             audit::log(plugin_id, "initialize", "error", Some(&message));
             let _ = process.child.kill();
+
+            let state = self.restart_state.entry(plugin_id.to_string()).or_default();
+            state.consecutive_failures += 1;
+            state.next_retry_at = Some(Instant::now() + backoff_for(state.consecutive_failures));
+            if state.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                let reason = format!(
+                    "disabled after {} consecutive crashes",
+                    state.consecutive_failures
+                );
+                state.disabled_reason = Some(reason.clone());
+                audit::log(plugin_id, "crash-loop", "error", Some(&reason));
+            }
+
             return Err(message);
         }
 
         self.last_errors.remove(plugin_id);
+        self.restart_state.remove(plugin_id);
         self.running.insert(plugin_id.to_string(), process);
         Ok(())
     }
@@ -185,6 +234,9 @@ impl PluginManager {
         store.save_config(&config).map_err(|error| error.to_string())?;
 
         if enabled {
+            // A user explicitly re-enabling a plugin is a deliberate retry — give it an
+            // immediate attempt regardless of any crash-loop backoff/disabled state (#102).
+            self.restart_state.remove(plugin_id);
             self.start_plugin(plugin_id)?;
         } else {
             self.stop_plugin(plugin_id);
@@ -293,6 +345,10 @@ impl PluginManager {
                     .get(&id)
                     .map(|process| process.ui_panels.clone())
                     .unwrap_or_default();
+                let disabled_reason = self
+                    .restart_state
+                    .get(&id)
+                    .and_then(|state| state.disabled_reason.clone());
                 PluginStatus {
                     id: id.clone(),
                     name: discovered.manifest.name.clone(),
@@ -306,6 +362,7 @@ impl PluginManager {
                     granted_capabilities: entry.granted_capabilities.clone(),
                     runtime_status,
                     last_error: self.last_errors.get(&id).cloned(),
+                    disabled_reason,
                     ui_panels,
                 }
             })
