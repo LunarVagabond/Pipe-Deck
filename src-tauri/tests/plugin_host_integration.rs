@@ -5,7 +5,7 @@
 //!
 //! Mutates global process env (`PIPE_DECK_CONFIG_DIR`, `PIPE_DECK_BUNDLED_PLUGINS`,
 //! `PIPE_DECK_USE_MOCK`) like the rest of the plugin/config suite — run with
-//! `--test-threads=1` if this file flakes when run alongside others (see CLAUDE.md).
+//! `--test-threads=1` if this file flakes when run alongside others.
 
 use pipe_deck_lib::core::engine::CoreEngine;
 use std::fs;

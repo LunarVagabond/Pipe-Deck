@@ -83,7 +83,7 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
 
     // `LADSPA_PATH` is process-global; serialize tests that touch it so they
-    // don't race under the default parallel test runner (see CLAUDE.md).
+    // don't race under the default parallel test runner.
     fn env_lock() -> &'static Mutex<()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
         LOCK.get_or_init(|| Mutex::new(()))
