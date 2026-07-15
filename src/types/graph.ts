@@ -211,6 +211,7 @@ export interface PluginStatus {
   granted_capabilities: string[];
   runtime_status: PluginRuntimeStatus;
   last_error?: string;
+  disabled_reason?: string;
   ui_panels: PluginUiPanel[];
 }
 

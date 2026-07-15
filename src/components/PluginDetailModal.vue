@@ -74,6 +74,9 @@ function isEnforced(capability: string): boolean {
       </div>
 
       <p v-if="plugin.last_error" class="settings-error plugin-dialog-error">{{ plugin.last_error }}</p>
+      <p v-if="plugin.disabled_reason" class="settings-error plugin-dialog-error">
+        {{ plugin.disabled_reason }}. Toggle it off and back on to retry.
+      </p>
 
       <div class="dialog-actions">
         <button type="button" @click="emit('close')">Close</button>
