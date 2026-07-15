@@ -96,7 +96,23 @@ const graphActions = {
     persistGroups();
   },
   ungroup(groupId: string) {
+    const group = groups.value.find((entry) => entry.id === groupId);
+    if (group) {
+      // Members are rendered with a `parentNode`-relative position while
+      // grouped; their saved layout entry may predate grouping or never have
+      // existed (auto-placed nodes). Persist each member's live absolute
+      // position before dropping `parentNode`, otherwise buildRoutingGraph
+      // falls back to disconnected auto-placed lane slots on the next
+      // render and the node visually jumps.
+      for (const memberId of group.memberIds) {
+        const memberNode = vueFlow.findNode(memberId);
+        if (memberNode) {
+          saveNodePosition(memberId, memberNode.computedPosition.x, memberNode.computedPosition.y);
+        }
+      }
+    }
     groups.value = groups.value.filter((entry) => entry.id !== groupId);
+    layoutVersion.value += 1;
     persistGroups();
   },
   labelForEntity(entityId: string) {
@@ -348,31 +364,47 @@ function onNodeDragStop(event: NodeDragEvent) {
   }
   layoutVersion.value += 1;
 
-  // Detach-from-group check only considers the primary grabbed node — a node
-  // landing outside its group's bounds as a side effect of where other
+  // Group membership check only considers the primary grabbed node — a node
+  // landing inside/outside a group's bounds as a side effect of where other
   // multi-selected nodes were relative to the pointer shouldn't silently
-  // detach it on its own.
-  const group = groups.value.find((entry) => entry.memberIds.includes(node.id));
-  if (!group) return;
-
+  // join/detach it on its own.
   const nodeRect = {
     x: node.computedPosition.x,
     y: node.computedPosition.y,
     width: node.dimensions.width,
     height: node.dimensions.height,
   };
-  const groupRect = {
-    x: group.position.x,
-    y: group.position.y,
-    width: group.size.width,
-    height: group.size.height,
-  };
 
-  if (containmentRatio(nodeRect, groupRect) < DETACH_THRESHOLD) {
-    group.memberIds = group.memberIds.filter((id) => id !== node.id);
-    if (group.memberIds.length === 0) {
-      groups.value = groups.value.filter((entry) => entry.id !== group.id);
+  const currentGroup = groups.value.find((entry) => entry.memberIds.includes(node.id));
+  if (currentGroup) {
+    const groupRect = {
+      x: currentGroup.position.x,
+      y: currentGroup.position.y,
+      width: currentGroup.size.width,
+      height: currentGroup.size.height,
+    };
+    if (containmentRatio(nodeRect, groupRect) < DETACH_THRESHOLD) {
+      currentGroup.memberIds = currentGroup.memberIds.filter((id) => id !== node.id);
+      if (currentGroup.memberIds.length === 0) {
+        groups.value = groups.value.filter((entry) => entry.id !== currentGroup.id);
+      }
+      persistGroups();
     }
+    return;
+  }
+
+  // Node isn't in any group yet — dropping it inside an existing group's
+  // bounds adds it as a member (the inverse of the detach check above).
+  const targetGroup = groups.value.find((entry) =>
+    containmentRatio(nodeRect, {
+      x: entry.position.x,
+      y: entry.position.y,
+      width: entry.size.width,
+      height: entry.size.height,
+    }) >= DETACH_THRESHOLD,
+  );
+  if (targetGroup) {
+    targetGroup.memberIds = [...targetGroup.memberIds, node.id];
     persistGroups();
   }
 }
