@@ -6,7 +6,7 @@ use crate::core::models::{
 use crate::plugins::audit;
 use crate::plugins::host::PluginProcess;
 use crate::plugins::manifest::{discover_in_dir, DiscoveredPlugin};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 pub struct PluginManager {
@@ -48,6 +48,29 @@ impl PluginManager {
 
     pub fn discovery_errors(&self) -> Vec<PluginDiscoveryIssue> {
         self.discovery_errors.clone()
+    }
+
+    /// Re-runs discovery and starts any newly-enabled plugins, without requiring a full
+    /// app restart (see #100/#123). Also stops any running process whose plugin directory
+    /// has disappeared since the last scan, so a removed plugin doesn't keep running as
+    /// an orphaned subprocess just because it fell out of `self.discovered`.
+    pub fn rescan(&mut self) -> Result<(), String> {
+        self.discover();
+        self.ensure_bundled_defaults();
+
+        let discovered_ids: HashSet<String> =
+            self.discovered.iter().map(|plugin| plugin.manifest.id.clone()).collect();
+        let orphaned: Vec<String> = self
+            .running
+            .keys()
+            .filter(|id| !discovered_ids.contains(*id))
+            .cloned()
+            .collect();
+        for plugin_id in orphaned {
+            self.stop_plugin(&plugin_id);
+        }
+
+        self.start_enabled()
     }
 
     pub fn ensure_bundled_defaults(&self) {
@@ -204,15 +227,46 @@ impl PluginManager {
                 .map(|entry| entry.granted_capabilities.clone())
                 .unwrap_or_default();
             if let Some(process) = self.running.get_mut(&plugin_id) {
-                if crate::plugins::capabilities::is_granted(&granted, crate::plugins::capabilities::GRAPH_READ) {
-                    if process.notify_graph_updated(graph).is_err() {
-                        let mut message = "graph notification failed".to_string();
-                        if let Some(stderr_tail) = process.stderr_tail() {
-                            message = format!("{message}\nstderr: {stderr_tail}");
-                        }
-                        self.last_errors.insert(plugin_id.clone(), message);
+                if crate::plugins::capabilities::is_granted(&granted, crate::plugins::capabilities::GRAPH_READ)
+                    && process.notify_graph_updated(graph).is_err()
+                {
+                    let mut message = "graph notification failed".to_string();
+                    if let Some(stderr_tail) = process.stderr_tail() {
+                        message = format!("{message}\nstderr: {stderr_tail}");
                     }
-                    process.drain_notifications(&plugin_id, &granted);
+                    self.last_errors.insert(plugin_id.clone(), message);
+                }
+                // Drain unconditionally: incoming plugin->host notifications (e.g.
+                // ui.panel.register) must be processed regardless of which capability
+                // triggered this tick — a plugin without graph.read but with
+                // ui.panel.register would otherwise never get its panel registered.
+                process.drain_notifications(&plugin_id, &granted);
+            }
+        }
+    }
+
+    /// Pushes the active profile's metadata to every running plugin granted
+    /// `profile.read` (see #124), mirroring `push_graph`'s shape/gating.
+    pub fn push_profile(&mut self, profile_id: &str, profile_name: &str, updated: &str) {
+        let store = ConfigStore::new();
+        let config = store.load_config().unwrap_or_else(|_| ConfigStore::default_config());
+        let ids: Vec<String> = self.running.keys().cloned().collect();
+        for plugin_id in ids {
+            let granted = config
+                .plugins
+                .get(&plugin_id)
+                .map(|entry| entry.granted_capabilities.clone())
+                .unwrap_or_default();
+            if !crate::plugins::capabilities::is_granted(&granted, crate::plugins::capabilities::PROFILE_READ) {
+                continue;
+            }
+            if let Some(process) = self.running.get_mut(&plugin_id) {
+                if process.notify_profile_updated(profile_id, profile_name, updated).is_err() {
+                    let mut message = "profile notification failed".to_string();
+                    if let Some(stderr_tail) = process.stderr_tail() {
+                        message = format!("{message}\nstderr: {stderr_tail}");
+                    }
+                    self.last_errors.insert(plugin_id.clone(), message);
                 }
             }
         }
@@ -266,6 +320,30 @@ impl PluginManager {
             }
         }
         panels
+    }
+
+    /// Drains every running plugin's queued `effects.apply` requests (see PD-021). This
+    /// only ever moves requests out of `PluginProcess`-local storage — it does not apply
+    /// them. Applying happens in `CoreEngine::apply_queued_plugin_effect_requests`, the
+    /// only thing in this codebase with a `set_device_effects`/`AudioBackend` reference.
+    pub fn drain_effects_requests(&mut self) -> Vec<(String, crate::core::models::EffectsApplyRequest)> {
+        let mut drained = Vec::new();
+        for (plugin_id, process) in self.running.iter_mut() {
+            while let Some(request) = process.effects_requests.pop_front() {
+                drained.push((plugin_id.clone(), request));
+            }
+        }
+        drained
+    }
+
+    pub fn routing_suggestions(&self) -> Vec<crate::core::models::RoutingSuggestion> {
+        let mut suggestions: Vec<_> = self
+            .running
+            .values()
+            .flat_map(|process| process.routing_suggestions.iter().cloned())
+            .collect();
+        suggestions.sort_by(|left, right| left.received_at.cmp(&right.received_at));
+        suggestions
     }
 
     pub fn shutdown_all(&mut self) {

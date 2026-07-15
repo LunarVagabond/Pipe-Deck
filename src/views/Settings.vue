@@ -39,6 +39,29 @@ const selectedPlugin = computed(
   () => plugins.value.find((plugin) => plugin.id === selectedPluginId.value) ?? null,
 );
 const busy = ref(false);
+
+type PluginSortKey = "name" | "developer" | "repo";
+const pluginSortKey = ref<PluginSortKey>("name");
+const pluginSortDir = ref<"asc" | "desc">("asc");
+
+function setPluginSort(key: PluginSortKey) {
+  if (pluginSortKey.value === key) {
+    pluginSortDir.value = pluginSortDir.value === "asc" ? "desc" : "asc";
+  } else {
+    pluginSortKey.value = key;
+    pluginSortDir.value = "asc";
+  }
+}
+
+const sortedPlugins = computed(() => {
+  const direction = pluginSortDir.value === "asc" ? 1 : -1;
+  const key = pluginSortKey.value;
+  return [...plugins.value].sort((a, b) => {
+    const left = (key === "name" ? a.name : a[key]) ?? "";
+    const right = (key === "name" ? b.name : b[key]) ?? "";
+    return left.localeCompare(right) * direction;
+  });
+});
 const { handleApplyResult } = useApplyResult();
 const configPaths = ref<{ configDir: string; profilesDir: string } | null>(null);
 const {
@@ -193,6 +216,22 @@ async function setBackgroundRestore(enabled: boolean) {
     await loadSettings();
   } catch (error) {
     backgroundRestore.value = !enabled;
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function rescanPlugins() {
+  busy.value = true;
+  try {
+    await invoke("rescan_plugins");
+    await loadSettings();
+    handleApplyResult({ success: true }, "Plugin directories rescanned");
+  } catch (error) {
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
       "",
@@ -449,9 +488,14 @@ onMounted(() => {
       role="tabpanel"
       aria-labelledby="settings-tab-plugins"
     >
-      <p class="settings-panel-lead">
-        Enable extensions and grant the capabilities each plugin requests.
-      </p>
+      <div class="plugins-panel-header">
+        <p class="settings-panel-lead">
+          Enable extensions and grant the capabilities each plugin requests.
+        </p>
+        <button type="button" class="settings-action-btn" :disabled="busy" @click="rescanPlugins">
+          Rescan plugin directories
+        </button>
+      </div>
 
       <p v-if="plugins.length === 0 && discoveryErrors.length === 0" class="settings-hint">
         No plugins discovered.
@@ -479,15 +523,36 @@ onMounted(() => {
           </colgroup>
           <thead>
             <tr>
-              <th>Name</th>
-              <th>Developer</th>
-              <th>Repo</th>
+              <th
+                class="plugins-sortable-th"
+                :aria-sort="pluginSortKey === 'name' ? (pluginSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                @click="setPluginSort('name')"
+              >
+                Name
+                <span v-if="pluginSortKey === 'name'" class="plugins-sort-arrow">{{ pluginSortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+              <th
+                class="plugins-sortable-th"
+                :aria-sort="pluginSortKey === 'developer' ? (pluginSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                @click="setPluginSort('developer')"
+              >
+                Developer
+                <span v-if="pluginSortKey === 'developer'" class="plugins-sort-arrow">{{ pluginSortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
+              <th
+                class="plugins-sortable-th"
+                :aria-sort="pluginSortKey === 'repo' ? (pluginSortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+                @click="setPluginSort('repo')"
+              >
+                Repo
+                <span v-if="pluginSortKey === 'repo'" class="plugins-sort-arrow">{{ pluginSortDir === "asc" ? "▲" : "▼" }}</span>
+              </th>
               <th>Enabled</th>
             </tr>
           </thead>
           <tbody>
             <tr
-              v-for="plugin in plugins"
+              v-for="plugin in sortedPlugins"
               :key="plugin.id"
               class="plugins-table-row"
               @click="openPluginDetail(plugin)"

@@ -1,6 +1,6 @@
-use crate::core::models::RuntimeGraph;
+use crate::core::models::{EffectsApplyRequest, RoutingSuggestion, RuntimeGraph};
 use crate::plugins::audit;
-use crate::plugins::capabilities::{is_granted, UI_PANEL_REGISTER};
+use crate::plugins::capabilities::{is_granted, EFFECTS_MANAGE, ROUTING_SUGGEST, UI_PANEL_REGISTER};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -15,6 +15,9 @@ use thiserror::Error;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
 const STDERR_TAIL_LINES: usize = 20;
+const MAX_STORED_SUGGESTIONS: usize = 50;
+const MAX_QUEUED_EFFECTS_REQUESTS: usize = 10;
+const EFFECTS_APPLY_METHOD: &str = "effects.apply";
 
 #[derive(Debug, Error)]
 pub enum HostError {
@@ -52,6 +55,14 @@ struct RpcNotification {
     params: Option<Value>,
 }
 
+#[derive(Debug, Deserialize)]
+struct RoutingSuggestParams {
+    stream_id: String,
+    target_system_name: String,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
 pub struct PluginProcess {
     pub child: Child,
     stdin: ChildStdin,
@@ -59,6 +70,11 @@ pub struct PluginProcess {
     rx: mpsc::Receiver<String>,
     stderr_tail: Arc<Mutex<VecDeque<String>>>,
     pub ui_panels: Vec<crate::core::models::PluginUiPanel>,
+    pub routing_suggestions: VecDeque<RoutingSuggestion>,
+    /// Queued `effects.apply` requests, applied by `CoreEngine` on its next tick via the
+    /// same `set_device_effects` path first-party UI uses — see PD-021. This struct has
+    /// no reference to `CoreEngine`/`AudioBackend` and never will; it only ever queues.
+    pub effects_requests: VecDeque<EffectsApplyRequest>,
 }
 
 impl PluginProcess {
@@ -116,6 +132,8 @@ impl PluginProcess {
             rx,
             stderr_tail,
             ui_panels: Vec::new(),
+            routing_suggestions: VecDeque::new(),
+            effects_requests: VecDeque::new(),
         })
     }
 
@@ -165,6 +183,20 @@ impl PluginProcess {
         self.notify("graph.updated", params)
     }
 
+    pub fn notify_profile_updated(
+        &mut self,
+        profile_id: &str,
+        profile_name: &str,
+        updated: &str,
+    ) -> Result<(), HostError> {
+        let params = serde_json::json!({
+            "id": profile_id,
+            "name": profile_name,
+            "updated": updated,
+        });
+        self.notify("profile.updated", params)
+    }
+
     pub fn drain_notifications(&mut self, plugin_id: &str, granted: &[String]) {
         while let Ok(line) = self.rx.try_recv() {
             self.handle_line(&line, plugin_id, granted);
@@ -176,13 +208,43 @@ impl PluginProcess {
             return;
         };
         if notification.method == UI_PANEL_REGISTER && is_granted(granted, UI_PANEL_REGISTER) {
-            if let Some(params) = notification.params {
+            if let Some(params) = notification.params.clone() {
                 if let Ok(panel) =
                     serde_json::from_value::<crate::core::models::PluginUiPanel>(params)
                 {
                     self.ui_panels.retain(|entry| entry.id != panel.id);
                     self.ui_panels.push(panel);
                     audit::log(plugin_id, "ui.panel.register", "ok", None);
+                }
+            }
+        }
+        if notification.method == ROUTING_SUGGEST && is_granted(granted, ROUTING_SUGGEST) {
+            if let Some(params) = notification.params.clone() {
+                if let Ok(incoming) = serde_json::from_value::<RoutingSuggestParams>(params) {
+                    let suggestion = RoutingSuggestion {
+                        plugin_id: plugin_id.to_string(),
+                        stream_id: incoming.stream_id.clone(),
+                        target_system_name: incoming.target_system_name.clone(),
+                        reason: incoming.reason.clone(),
+                        received_at: chrono::Utc::now().to_rfc3339(),
+                    };
+                    if self.routing_suggestions.len() == MAX_STORED_SUGGESTIONS {
+                        self.routing_suggestions.pop_front();
+                    }
+                    self.routing_suggestions.push_back(suggestion);
+                    audit::log(plugin_id, "routing.suggest", "ok", Some(&incoming.stream_id));
+                }
+            }
+        }
+        if notification.method == EFFECTS_APPLY_METHOD && is_granted(granted, EFFECTS_MANAGE) {
+            if let Some(params) = notification.params {
+                if let Ok(request) = serde_json::from_value::<EffectsApplyRequest>(params) {
+                    if self.effects_requests.len() == MAX_QUEUED_EFFECTS_REQUESTS {
+                        self.effects_requests.pop_front();
+                    }
+                    let device_id = request.device_id.clone();
+                    self.effects_requests.push_back(request);
+                    audit::log(plugin_id, "effects.apply.queued", "ok", Some(&device_id));
                 }
             }
         }

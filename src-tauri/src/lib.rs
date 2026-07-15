@@ -98,8 +98,10 @@ pub fn run() {
             commands::plugins::set_plugin_enabled,
             commands::plugins::grant_plugin_capabilities,
             commands::plugins::list_plugin_ui_panels,
+            commands::plugins::rescan_plugins,
             commands::plugins::list_plugin_discovery_errors,
             commands::plugins::list_plugin_capability_metadata,
+            commands::plugins::list_plugin_routing_suggestions,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

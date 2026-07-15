@@ -21,6 +21,7 @@ impl CoreEngine {
         if let Ok(mut plugins) = self.plugin_manager.lock() {
             plugins.push_graph(&self.graph);
         }
+        self.apply_queued_plugin_effect_requests();
         Ok(())
     }
 
@@ -33,6 +34,7 @@ impl CoreEngine {
         if let Ok(mut plugins) = self.plugin_manager.lock() {
             plugins.push_graph(&self.graph);
         }
+        self.apply_queued_plugin_effect_requests();
     }
 
     fn finalize_graph_snapshot(&mut self) {

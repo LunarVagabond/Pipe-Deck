@@ -260,6 +260,9 @@ impl CoreEngine {
         store
             .set_active_profile(profile_id)
             .map_err(|error| EngineError::Config(error.to_string()))?;
+        if let Ok(mut plugins) = self.plugin_manager.lock() {
+            plugins.push_profile(&profile.id, &profile.name, &profile.updated);
+        }
         self.rollback_stack.push(snapshot);
         if self.graph.data_source != "mock" {
             self.refresh_graph()?;

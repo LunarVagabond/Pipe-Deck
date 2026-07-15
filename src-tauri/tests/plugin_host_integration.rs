@@ -48,6 +48,99 @@ for line in sys.stdin:
         break
 "#;
 
+const SUGGESTING_PLUGIN_SCRIPT: &str = r#"#!/usr/bin/env python3
+import json, sys
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    message = json.loads(line)
+    method = message.get("method")
+    msg_id = message.get("id")
+    if method == "initialize" and msg_id is not None:
+        send({"jsonrpc": "2.0", "id": msg_id, "result": {"plugin_version": "0.1.0"}})
+        send({
+            "jsonrpc": "2.0",
+            "method": "routing.suggest",
+            "params": {
+                "stream_id": "stream-1",
+                "target_system_name": "pipe-deck-game-mix",
+                "reason": "test suggestion",
+            },
+        })
+        continue
+    if method == "shutdown":
+        if msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+        break
+"#;
+
+const EFFECTS_APPLYING_PLUGIN_SCRIPT: &str = r#"#!/usr/bin/env python3
+import json, sys
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+with open("target-device-id.txt") as f:
+    device_id = f.read().strip()
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    message = json.loads(line)
+    method = message.get("method")
+    msg_id = message.get("id")
+    if method == "initialize" and msg_id is not None:
+        send({"jsonrpc": "2.0", "id": msg_id, "result": {"plugin_version": "0.1.0"}})
+        send({
+            "jsonrpc": "2.0",
+            "method": "effects.apply",
+            "params": {
+                "device_id": device_id,
+                "config": {"eq_bass": 6, "output_gain": -3},
+            },
+        })
+        continue
+    if method == "shutdown":
+        if msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+        break
+"#;
+
+const PROFILE_AWARE_PLUGIN_SCRIPT: &str = r#"#!/usr/bin/env python3
+import json, sys
+
+def send(obj):
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+for line in sys.stdin:
+    line = line.strip()
+    if not line:
+        continue
+    message = json.loads(line)
+    method = message.get("method")
+    msg_id = message.get("id")
+    if method == "initialize" and msg_id is not None:
+        send({"jsonrpc": "2.0", "id": msg_id, "result": {"plugin_version": "0.1.0"}})
+        continue
+    if method == "profile.updated":
+        with open("received-profile.json", "w") as f:
+            json.dump(message.get("params", {}), f)
+        continue
+    if method == "shutdown":
+        if msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+        break
+"#;
+
 const FAILING_PLUGIN_SCRIPT: &str = r#"#!/usr/bin/env python3
 import json, sys
 
@@ -160,6 +253,115 @@ fn plugin_lifecycle_start_and_stop_via_enable_toggle() {
 }
 
 #[test]
+fn rescan_discovers_a_newly_added_plugin_without_a_restart() {
+    let bundled_dir = unique_temp_dir("bundled-rescan-add");
+    write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    engine.initialize_plugins();
+    assert!(!engine.list_plugins().iter().any(|p| p.id == "second"));
+
+    write_plugin(&bundled_dir, "second", &["graph.read"], OK_PLUGIN_SCRIPT);
+    engine.rescan_plugins().unwrap();
+
+    let second = engine.list_plugins().into_iter().find(|p| p.id == "second");
+    let second = second.expect("newly-added plugin should be discovered by rescan");
+    assert_eq!(second.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Running);
+}
+
+#[test]
+fn rescan_stops_an_orphaned_plugin_whose_directory_was_removed() {
+    let bundled_dir = unique_temp_dir("bundled-rescan-remove");
+    write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
+    write_plugin(&bundled_dir, "temp", &["graph.read"], OK_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    engine.initialize_plugins();
+    assert!(engine.list_plugins().iter().any(|p| p.id == "temp"));
+
+    fs::remove_dir_all(bundled_dir.join("temp")).unwrap();
+    engine.rescan_plugins().unwrap();
+
+    let plugins = engine.list_plugins();
+    assert!(!plugins.iter().any(|p| p.id == "temp"));
+    assert!(plugins.iter().any(|p| p.id == "echo"));
+}
+
+#[test]
+fn routing_suggest_capability_captures_plugin_suggestions() {
+    let bundled_dir = unique_temp_dir("bundled-routing-suggest");
+    write_plugin(&bundled_dir, "suggester", &["routing.suggest"], SUGGESTING_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    engine.initialize_plugins();
+    // Let the async stdout-reader thread catch up before draining (see #118's stderr
+    // grace period for the same class of race, just on the stdout side here).
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    engine.refresh_graph().expect("refresh should succeed and drain queued notifications");
+
+    let suggestions = engine.plugin_routing_suggestions();
+    assert_eq!(suggestions.len(), 1, "expected exactly one captured suggestion: {suggestions:?}");
+    assert_eq!(suggestions[0].plugin_id, "suggester");
+    assert_eq!(suggestions[0].stream_id, "stream-1");
+    assert_eq!(suggestions[0].target_system_name, "pipe-deck-game-mix");
+    assert_eq!(suggestions[0].reason.as_deref(), Some("test suggestion"));
+}
+
+#[test]
+fn profile_read_capability_receives_active_profile_metadata_on_start() {
+    let bundled_dir = unique_temp_dir("bundled-profile-read");
+    write_plugin(&bundled_dir, "profile-aware", &["profile.read"], PROFILE_AWARE_PLUGIN_SCRIPT);
+
+    let mut engine = isolated_engine(&bundled_dir);
+    let config_dir = pipe_deck_lib::config::ConfigStore::new().config_dir().clone();
+    pipe_deck_lib::config::profile_store::ProfileStore::new(config_dir)
+        .ensure_default_profile()
+        .expect("should be able to write the default profile fixture");
+
+    engine.initialize_plugins();
+
+    let received_path = bundled_dir.join("profile-aware").join("received-profile.json");
+    let mut content = String::new();
+    for _ in 0..50 {
+        if let Ok(text) = fs::read_to_string(&received_path) {
+            content = text;
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert!(!content.is_empty(), "plugin never received a profile.updated notification");
+    assert!(content.contains("default"), "expected the default profile id in: {content}");
+}
+
+#[test]
+fn effects_manage_capability_applies_a_queued_request_to_a_pipe_deck_device() {
+    let bundled_dir = unique_temp_dir("bundled-effects-manage");
+    let mut engine = isolated_engine(&bundled_dir);
+
+    let virtual_device = engine
+        .create_virtual_output("EffectsTest")
+        .expect("mock backend should support creating a virtual output");
+
+    write_plugin(&bundled_dir, "effector", &["effects.manage"], EFFECTS_APPLYING_PLUGIN_SCRIPT);
+    fs::write(
+        bundled_dir.join("effector").join("target-device-id.txt"),
+        &virtual_device.device_id,
+    )
+    .unwrap();
+
+    engine.initialize_plugins();
+    std::thread::sleep(std::time::Duration::from_millis(30));
+    engine.refresh_graph().expect("refresh should apply the queued effects.apply request");
+
+    let chains = engine.get_effect_chains().expect("effect chains should be readable");
+    let applied = chains
+        .get(&virtual_device.device_id)
+        .expect("effects.apply request should have been applied to the target device");
+    assert_eq!(applied.eq_bass, 6);
+    assert_eq!(applied.output_gain, -3);
+}
+
+#[test]
 fn grant_plugin_capabilities_reflects_granted_vs_requested_and_enforced_flag() {
     let bundled_dir = unique_temp_dir("bundled-capabilities");
     write_plugin(&bundled_dir, "echo", &["graph.read", "profile.read"], OK_PLUGIN_SCRIPT);
@@ -177,10 +379,7 @@ fn grant_plugin_capabilities_reflects_granted_vs_requested_and_enforced_flag() {
     assert_eq!(echo.requested_capabilities, vec!["graph.read", "profile.read"]);
 
     let metadata = engine.plugin_capability_metadata();
-    let graph_read = metadata.iter().find(|c| c.id == "graph.read").unwrap();
-    let profile_read = metadata.iter().find(|c| c.id == "profile.read").unwrap();
-    assert!(graph_read.enforced);
-    assert!(!profile_read.enforced);
+    assert!(metadata.iter().all(|info| info.enforced), "all v1 capabilities should be enforced: {metadata:?}");
 }
 
 #[test]

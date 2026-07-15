@@ -928,3 +928,19 @@ pub struct PluginDiscoveryIssue {
     pub path: String,
     pub message: String,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EffectsApplyRequest {
+    pub device_id: String,
+    pub config: EffectChainConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RoutingSuggestion {
+    pub plugin_id: String,
+    pub stream_id: String,
+    pub target_system_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    pub received_at: String,
+}

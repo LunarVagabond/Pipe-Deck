@@ -12,10 +12,17 @@ pub const ALL: &[&str] = &[
     UI_PANEL_REGISTER,
 ];
 
-/// Capabilities the host actually gates something on today. The other entries in
-/// `ALL` are valid to declare/grant (so manifests validate and Settings can store the
-/// grant), but nothing in the host checks them yet — see #120.
-pub const ENFORCED: &[&str] = &[GRAPH_READ, UI_PANEL_REGISTER];
+/// Capabilities the host actually gates something on today. All five v1 capabilities
+/// are enforced as of PD-021 — `effects.manage` was the last one, implemented via a
+/// queued-request model rather than giving the plugin host a direct `AudioBackend`
+/// reference (see PD-021 in `docs/Decisions.md`).
+pub const ENFORCED: &[&str] = &[
+    GRAPH_READ,
+    UI_PANEL_REGISTER,
+    PROFILE_READ,
+    ROUTING_SUGGEST,
+    EFFECTS_MANAGE,
+];
 
 pub fn is_known(capability: &str) -> bool {
     ALL.contains(&capability)
@@ -76,19 +83,18 @@ mod tests {
     }
 
     #[test]
-    fn only_graph_read_and_ui_panel_register_are_enforced() {
+    fn all_v1_capabilities_are_enforced() {
         assert!(is_enforced(GRAPH_READ));
         assert!(is_enforced(UI_PANEL_REGISTER));
-        assert!(!is_enforced(ROUTING_SUGGEST));
-        assert!(!is_enforced(PROFILE_READ));
-        assert!(!is_enforced(EFFECTS_MANAGE));
+        assert!(is_enforced(ROUTING_SUGGEST));
+        assert!(is_enforced(PROFILE_READ));
+        assert!(is_enforced(EFFECTS_MANAGE));
     }
 
     #[test]
     fn all_metadata_covers_every_known_capability() {
         let metadata = all_metadata();
         assert_eq!(metadata.len(), ALL.len());
-        assert!(metadata.iter().any(|info| info.id == GRAPH_READ && info.enforced));
-        assert!(metadata.iter().any(|info| info.id == EFFECTS_MANAGE && !info.enforced));
+        assert!(metadata.iter().all(|info| info.enforced));
     }
 }

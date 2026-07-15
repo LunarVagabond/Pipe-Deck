@@ -1,5 +1,12 @@
 @use "../variables" as vars;
 
+.plugins-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
 .plugin-meta {
   display: block;
   margin-top: 0.2rem;
@@ -91,6 +98,21 @@
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.plugins-sortable-th {
+  cursor: pointer;
+  user-select: none;
+
+  &:hover {
+    color: var(--text);
+  }
+}
+
+.plugins-sort-arrow {
+  margin-left: 0.3rem;
+  font-size: 0.6rem;
+  color: var(--accent-purple);
 }
 
 .plugins-table-row {

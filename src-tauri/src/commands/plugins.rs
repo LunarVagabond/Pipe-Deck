@@ -46,11 +46,30 @@ pub async fn list_plugin_ui_panels(
 }
 
 #[tauri::command]
+pub async fn rescan_plugins(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
+    let mut engine = state.engine.write().await;
+    engine.rescan_plugins()?;
+    engine.emit_graph_update(&app);
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn list_plugin_discovery_errors(
     state: State<'_, AppState>,
 ) -> Result<Vec<crate::core::models::PluginDiscoveryIssue>, String> {
     let engine = state.engine.read().await;
     Ok(engine.plugin_discovery_errors())
+}
+
+#[tauri::command]
+pub async fn list_plugin_routing_suggestions(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::core::models::RoutingSuggestion>, String> {
+    let engine = state.engine.read().await;
+    Ok(engine.plugin_routing_suggestions())
 }
 
 #[tauri::command]

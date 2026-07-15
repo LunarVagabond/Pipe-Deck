@@ -136,13 +136,17 @@ impl CoreEngine {
     }
 
     pub fn initialize_plugins(&mut self) {
-        if let Ok(mut plugins) = self.plugin_manager.lock() {
+        {
+            let Ok(mut plugins) = self.plugin_manager.lock() else {
+                return;
+            };
             plugins.discover();
             plugins.ensure_bundled_defaults();
-            if let Err(error) = plugins.start_enabled().map_err(|e| e) {
+            if let Err(error) = plugins.start_enabled() {
                 eprintln!("plugin start warning: {error}");
             }
         }
+        self.push_active_profile_to_plugins();
     }
 
     pub fn platform_audio_version(&self) -> Option<String> {
@@ -186,6 +190,76 @@ impl CoreEngine {
             .lock()
             .map(|manager| manager.discovery_errors())
             .unwrap_or_default()
+    }
+
+    pub fn rescan_plugins(&mut self) -> Result<(), String> {
+        {
+            let mut plugins = self
+                .plugin_manager
+                .lock()
+                .map_err(|_| "plugin manager lock poisoned".to_string())?;
+            plugins.rescan()?;
+        }
+        self.push_active_profile_to_plugins();
+        Ok(())
+    }
+
+    pub fn plugin_routing_suggestions(&self) -> Vec<crate::core::models::RoutingSuggestion> {
+        self.plugin_manager
+            .lock()
+            .map(|manager| manager.routing_suggestions())
+            .unwrap_or_default()
+    }
+
+    /// Applies any `effects.apply` requests plugins queued since the last tick, via the
+    /// same `set_device_effects` path first-party UI already uses (device/safety checks
+    /// included) — see PD-021. Called once per graph refresh; never called from inside
+    /// the plugin host itself, which has no reference to `self`/`AudioBackend`.
+    pub fn apply_queued_plugin_effect_requests(&mut self) {
+        let requests: Vec<(String, crate::core::models::EffectsApplyRequest)> = {
+            let Ok(mut plugins) = self.plugin_manager.lock() else {
+                return;
+            };
+            plugins.drain_effects_requests()
+        };
+        for (plugin_id, request) in requests {
+            match self.set_device_effects(&request.device_id, request.config) {
+                Ok(result) if result.success => {
+                    crate::plugins::audit::log(&plugin_id, "effects.apply", "ok", None);
+                }
+                Ok(result) => {
+                    crate::plugins::audit::log(
+                        &plugin_id,
+                        "effects.apply",
+                        "error",
+                        result.message.as_deref(),
+                    );
+                }
+                Err(error) => {
+                    let message = error.to_string();
+                    crate::plugins::audit::log(&plugin_id, "effects.apply", "error", Some(&message));
+                }
+            }
+        }
+    }
+
+    /// Pushes the currently active profile's metadata to every running plugin granted
+    /// `profile.read`. Called after a profile swap and whenever plugins (re)start, so a
+    /// freshly-started plugin doesn't have to wait for the next swap to learn what's active.
+    pub fn push_active_profile_to_plugins(&mut self) {
+        let Some(profile_id) = ConfigStore::new()
+            .load_config()
+            .ok()
+            .and_then(|config| config.active_profile)
+        else {
+            return;
+        };
+        let Ok(profile) = self.get_profile(&profile_id) else {
+            return;
+        };
+        if let Ok(mut plugins) = self.plugin_manager.lock() {
+            plugins.push_profile(&profile.id, &profile.name, &profile.updated);
+        }
     }
 
     pub fn plugin_capability_metadata(&self) -> Vec<crate::core::models::CapabilityInfo> {
