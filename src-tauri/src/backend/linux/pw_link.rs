@@ -1,30 +1,49 @@
 use crate::backend::BackendError;
 use std::process::Command;
 
-const STEREO_MONITOR_SUFFIXES: [(&str, &str); 2] = [(":monitor_FL", ":playback_FL"), (":monitor_FR", ":playback_FR")];
-const STEREO_INPUT_SUFFIXES: [(&str, &str); 2] = [(":monitor_FL", ":input_FL"), (":monitor_FR", ":input_FR")];
-
+/// Links a virtual sink's monitor ports into a target's playback (or, for a
+/// virtual-input target, input) ports.
+///
+/// Ports are discovered rather than assumed to be a stereo FL/FR pair (see
+/// `link_capture_source_to_target_ports` for the same reasoning). A Bluetooth
+/// output in a mono profile (HSP/HFP, as opposed to stereo A2DP) exposes a
+/// single `playback_MONO` port; hardcoding `playback_FL`/`playback_FR` meant
+/// adding such a device to an existing multi-output group failed outright —
+/// and since fan-out previously aborted the whole batch on the first failing
+/// target, this was order-dependent: linking the Bluetooth device *first*
+/// (as the sole target) never hit the stereo-pair code path building a
+/// group, only the mono/stereo cycling below, so it worked, while adding it
+/// *after* a stereo hardware target had already been fanned out did not.
 pub fn link_sink_monitor_to_target(
     source_system_name: &str,
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> Result<(), BackendError> {
-    let suffix_pairs = if target_is_virtual_source {
-        &STEREO_INPUT_SUFFIXES[..]
-    } else {
-        &STEREO_MONITOR_SUFFIXES[..]
-    };
+    let target_port_prefix = if target_is_virtual_source { "input_" } else { "playback_" };
 
-    if monitor_route_matches(source_system_name, target_system_name, suffix_pairs) {
+    let source_ports = output_ports_for(source_system_name);
+    if source_ports.is_empty() {
+        return Err(BackendError::Message(format!(
+            "sink {source_system_name} has no monitor ports"
+        )));
+    }
+
+    let target_ports = target_ports_with_prefix(target_system_name, target_port_prefix);
+    if target_ports.is_empty() {
+        return Err(BackendError::Message(format!(
+            "{target_system_name} has no {target_port_prefix}* ports to route into"
+        )));
+    }
+
+    let desired = pair_capture_ports(&source_ports, &target_ports);
+    if monitor_route_matches(source_system_name, &desired) {
         return Ok(());
     }
 
     disconnect_sink_monitor_route(source_system_name, target_system_name)?;
 
-    for (monitor_suffix, input_suffix) in suffix_pairs {
-        let output_port = format!("{source_system_name}{monitor_suffix}");
-        let input_port = format!("{target_system_name}{input_suffix}");
-        run_pw_link(&["-L", &output_port, &input_port])?;
+    for (output_port, input_port) in &desired {
+        run_pw_link(&["-L", output_port, input_port])?;
     }
 
     Ok(())
@@ -35,62 +54,32 @@ pub fn is_sink_monitor_routed_to(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> bool {
-    let suffix_pairs = if target_is_virtual_source {
-        &STEREO_INPUT_SUFFIXES[..]
-    } else {
-        &STEREO_MONITOR_SUFFIXES[..]
-    };
-    monitor_route_matches(source_system_name, target_system_name, suffix_pairs)
+    let target_port_prefix = if target_is_virtual_source { "input_" } else { "playback_" };
+    let source_ports = output_ports_for(source_system_name);
+    let target_ports = target_ports_with_prefix(target_system_name, target_port_prefix);
+    if source_ports.is_empty() || target_ports.is_empty() {
+        return false;
+    }
+    let desired = pair_capture_ports(&source_ports, &target_ports);
+    monitor_route_matches(source_system_name, &desired)
 }
 
-fn monitor_route_matches(
-    source_system_name: &str,
-    target_system_name: &str,
-    suffix_pairs: &[(&str, &str)],
-) -> bool {
+fn monitor_route_matches(source_system_name: &str, desired: &[(String, String)]) -> bool {
     let existing = list_monitor_links_for_source(source_system_name);
-    suffix_pairs.iter().all(|(monitor_suffix, input_suffix)| {
-        let output_port = format!("{source_system_name}{monitor_suffix}");
-        let input_port = format!("{target_system_name}{input_suffix}");
-        existing
-            .iter()
-            .any(|(output, input)| output == &output_port && input == &input_port)
-    })
+    desired
+        .iter()
+        .all(|(output, input)| existing.iter().any(|(o, i)| o == output && i == input))
 }
 
 pub fn list_all_monitor_routes_for_source(source_system_name: &str) -> Vec<String> {
-    let output = match Command::new("pw-link").arg("-l").output() {
-        Ok(output) if output.status.success() => output,
-        _ => return Vec::new(),
-    };
-
-    let text = String::from_utf8_lossy(&output.stdout);
     let mut targets = Vec::new();
-    let mut current_target_port: Option<String> = None;
-    let prefix = format!("{source_system_name}:");
-
-    for line in text.lines() {
-        if let Some(source_port) = line.strip_prefix("  |<- ") {
-            let source_port = source_port.trim();
-            if source_port.starts_with(&prefix) {
-                if let Some(target_port) = current_target_port.as_deref() {
-                    if let Some((_, target_name)) = parse_stereo_route_pair(source_port, target_port)
-                    {
-                        if !targets.contains(&target_name) {
-                            targets.push(target_name);
-                        }
-                    }
-                }
+    for (_, target_port) in list_monitor_links_for_source(source_system_name) {
+        if let Some(target_name) = capture_source_name_from_port(&target_port) {
+            if !targets.contains(&target_name) {
+                targets.push(target_name);
             }
-            continue;
-        }
-
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && trimmed.contains(':') {
-            current_target_port = Some(trimmed.to_string());
         }
     }
-
     targets
 }
 
@@ -98,19 +87,11 @@ pub fn disconnect_sink_monitor_route(
     source_system_name: &str,
     target_system_name: &str,
 ) -> Result<(), BackendError> {
-    disconnect_stereo_route(source_system_name, target_system_name, &STEREO_MONITOR_SUFFIXES)?;
-    disconnect_stereo_route(source_system_name, target_system_name, &STEREO_INPUT_SUFFIXES)
-}
-
-fn disconnect_stereo_route(
-    source_system_name: &str,
-    target_system_name: &str,
-    suffix_pairs: &[(&str, &str)],
-) -> Result<(), BackendError> {
-    for (source_suffix, target_suffix) in suffix_pairs {
-        let output_port = format!("{source_system_name}{source_suffix}");
-        let input_port = format!("{target_system_name}{target_suffix}");
-        let _ = run_pw_link(&["-d", &output_port, &input_port]);
+    let target_prefix = format!("{target_system_name}:");
+    for (output_port, input_port) in list_monitor_links_for_source(source_system_name) {
+        if input_port.starts_with(&target_prefix) {
+            let _ = run_pw_link(&["-d", &output_port, &input_port]);
+        }
     }
     Ok(())
 }
@@ -344,26 +325,6 @@ fn capture_source_name_from_port(port: &str) -> Option<String> {
     port.rsplit_once(':').map(|(name, _port)| name.to_string())
 }
 
-fn parse_stereo_route_pair(source_port: &str, target_port: &str) -> Option<(String, String)> {
-    parse_route_pair(source_port, target_port, &STEREO_MONITOR_SUFFIXES)
-        .or_else(|| parse_route_pair(source_port, target_port, &STEREO_INPUT_SUFFIXES))
-}
-
-fn parse_route_pair(
-    source_port: &str,
-    target_port: &str,
-    suffix_pairs: &[(&str, &str)],
-) -> Option<(String, String)> {
-    for (source_suffix, target_suffix) in suffix_pairs {
-        if source_port.ends_with(source_suffix) && target_port.ends_with(target_suffix) {
-            let source_name = source_port.strip_suffix(source_suffix)?;
-            let target_name = target_port.strip_suffix(target_suffix)?;
-            return Some((source_name.to_string(), target_name.to_string()));
-        }
-    }
-    None
-}
-
 fn list_monitor_links_for_source(source_system_name: &str) -> Vec<(String, String)> {
     let output = match Command::new("pw-link").arg("-l").output() {
         Ok(output) if output.status.success() => output,
@@ -417,38 +378,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_stereo_route_pair() {
-        let pair = parse_stereo_route_pair(
-            "pipe-deck-asdf:monitor_FL",
-            "alsa_output.pci-0000_01_00.1.hdmi-stereo:playback_FL",
-        );
+    fn extracts_target_system_name_from_a_stereo_playback_port() {
         assert_eq!(
-            pair,
-            Some((
-                "pipe-deck-asdf".into(),
-                "alsa_output.pci-0000_01_00.1.hdmi-stereo".into()
-            ))
+            capture_source_name_from_port("alsa_output.pci-0000_01_00.1.hdmi-stereo:playback_FL"),
+            Some("alsa_output.pci-0000_01_00.1.hdmi-stereo".into())
         );
     }
 
     #[test]
-    fn parses_virtual_source_route_pair() {
-        let pair = parse_stereo_route_pair(
-            "soundux_sink:monitor_FL",
-            "pipe-deck-mic:input_FL",
-        );
+    fn extracts_target_system_name_from_a_mono_bluetooth_playback_port() {
+        // A Bluetooth output in a mono profile (HSP/HFP) exposes a single
+        // playback_MONO port rather than a stereo FL/FR pair.
         assert_eq!(
-            pair,
-            Some(("soundux_sink".into(), "pipe-deck-mic".into()))
+            capture_source_name_from_port("bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO"),
+            Some("bluez_output.AA_BB_CC_DD_EE_FF.1".into())
         );
+    }
+
+    #[test]
+    fn pairs_a_stereo_source_with_a_mono_target_by_cycling() {
+        let source_ports = vec![
+            "pipe-deck-asdf:monitor_FL".to_string(),
+            "pipe-deck-asdf:monitor_FR".to_string(),
+        ];
+        let target_ports = vec!["bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO".to_string()];
+        let pairs = pair_capture_ports(&source_ports, &target_ports);
+        assert_eq!(pairs.len(), 1, "a mono target should only need one link, not two: {pairs:?}");
+        assert_eq!(pairs[0].1, "bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO");
     }
 
     #[test]
     fn missing_route_is_not_considered_linked() {
-        assert!(!monitor_route_matches(
-            "soundux_sink",
-            "pipe-deck-mic",
-            &STEREO_INPUT_SUFFIXES,
-        ));
+        let desired = vec![(
+            "soundux_sink:monitor_FL".to_string(),
+            "pipe-deck-mic:input_FL".to_string(),
+        )];
+        assert!(!monitor_route_matches("soundux_sink", &desired));
     }
 }

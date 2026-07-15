@@ -122,7 +122,10 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
       releaseUrl: RELEASES_PAGE,
       downloadUrl,
       canAutoInstall,
-      error: platformKey && !downloadUrl ? `No update package for ${platformKey}` : undefined,
+      error:
+        platformKey && !downloadUrl
+          ? "No packaged download for this install type yet — use the releases page instead."
+          : undefined,
     };
   } catch (error) {
     return {

@@ -98,6 +98,7 @@ async function onExport(profileId: string) {
         <button
           v-if="activeProfileId"
           type="button"
+          title="Write the dashboard's live routing into this profile file"
           @click="onSave(activeProfileId)"
         >
           Save
@@ -106,6 +107,7 @@ async function onExport(profileId: string) {
           v-if="activeProfileId"
           type="button"
           class="primary"
+          title="Push this profile's saved routes to PipeWire"
           @click="onApply(activeProfileId)"
         >
           Apply
@@ -152,12 +154,24 @@ async function onExport(profileId: string) {
           <button
             v-if="profile.id === activeProfileId"
             type="button"
+            title="Write the dashboard's live routing into this profile file"
             @click="onSave(profile.id)"
           >
             Save
           </button>
-          <button type="button" class="primary" @click="onApply(profile.id)">Apply</button>
-          <button type="button" @click="onApplyAll(profile.id)">
+          <button
+            type="button"
+            class="primary"
+            title="Push this profile's saved routes to PipeWire"
+            @click="onApply(profile.id)"
+          >
+            Apply
+          </button>
+          <button
+            type="button"
+            title="Apply plus recreate virtual devices and restore volumes"
+            @click="onApplyAll(profile.id)"
+          >
             {{ swapConfirmId === profile.id ? "Confirm apply all" : "Apply all" }}
           </button>
         </div>

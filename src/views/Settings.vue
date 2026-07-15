@@ -711,6 +711,7 @@ onMounted(() => {
             <template v-else-if="updateResult?.latestVersion">
               {{ updateStatusText }} —
               latest is v{{ updateResult.latestVersion }}
+              <template v-if="updateResult?.error">({{ updateResult.error }})</template>
             </template>
             <template v-else>
               {{ updateResult?.error ?? "Run a check to compare with the latest release." }}
