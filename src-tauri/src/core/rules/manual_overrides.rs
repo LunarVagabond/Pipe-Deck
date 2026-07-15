@@ -298,6 +298,7 @@ mod tests {
             source_system_name: "pipe-deck-chat".into(),
             target_system_name: Some("alsa-speakers".into()),
             target_system_names: Vec::new(),
+            safeguards: Default::default(),
         }];
         let mut overrides = HashSet::new();
         let backend = crate::backend::mock::MockAudioBackend::new();

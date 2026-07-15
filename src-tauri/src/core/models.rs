@@ -429,6 +429,8 @@ pub struct RouteExplanation {
     pub target_system_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_system_names: Vec<String>,
+    #[serde(default)]
+    pub fallback_applied: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -523,6 +525,8 @@ pub struct DeviceRouteRule {
     pub target_system_name: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_system_names: Vec<String>,
+    #[serde(default)]
+    pub safeguards: RuleSafeguards,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

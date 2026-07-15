@@ -55,6 +55,12 @@ pub fn save_device_route_rule(source: &Device, targets: &[Device]) -> Result<(),
         return Ok(());
     }
     let mut rules = ConfigStore::new().routing_rules();
+    let existing_safeguards = rules
+        .device_rules
+        .iter()
+        .find(|rule| rule.source_system_name == source.system_name)
+        .map(|rule| rule.safeguards.clone())
+        .unwrap_or_default();
     rules
         .device_rules
         .retain(|rule| rule.source_system_name != source.system_name);
@@ -62,6 +68,7 @@ pub fn save_device_route_rule(source: &Device, targets: &[Device]) -> Result<(),
         source_system_name: source.system_name.clone(),
         target_system_name: targets.first().map(|device| device.system_name.clone()),
         target_system_names: targets.iter().map(|device| device.system_name.clone()).collect(),
+        safeguards: existing_safeguards,
     });
     ConfigStore::new()
         .save_routing_rules(&rules)

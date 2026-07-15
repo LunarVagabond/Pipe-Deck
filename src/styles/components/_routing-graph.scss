@@ -99,6 +99,7 @@
 }
 
 .routing-graph-canvas {
+  position: relative;
   flex: 1;
   min-height: 320px;
   border: 1px solid var(--border);
@@ -111,12 +112,23 @@
   }
 }
 
+.routing-graph-drop-slot-overlay {
+  position: absolute;
+  transform-origin: top left;
+  border-radius: 8px;
+  border: 2px dashed var(--accent-purple, #7c5cff);
+  background: rgba(124, 92, 255, 0.12);
+  pointer-events: none;
+  z-index: 5;
+}
+
 .routing-graph-group {
+  --group-color: rgba(255, 255, 255, 0.25);
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border: 1px dashed var(--group-color);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   pointer-events: none;
@@ -129,7 +141,7 @@
   gap: 0.5rem;
   height: 36px;
   padding: 0 0.6rem;
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.2);
+  border-bottom: 1px dashed var(--group-color);
   border-radius: 12px 12px 0 0;
   background: rgba(255, 255, 255, 0.04);
   cursor: grab;
@@ -137,6 +149,50 @@
 
   &:active {
     cursor: grabbing;
+  }
+}
+
+.routing-graph-group-color {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.routing-graph-group-color-swatch {
+  width: 0.85rem;
+  height: 0.85rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 0;
+}
+
+.routing-graph-group-color-popover {
+  position: absolute;
+  top: 130%;
+  left: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.3rem;
+  padding: 0.4rem;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.routing-graph-group-color-option {
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.4);
+  cursor: pointer;
+  padding: 0;
+
+  &:hover {
+    outline: 2px solid rgba(255, 255, 255, 0.6);
+    outline-offset: 1px;
   }
 }
 

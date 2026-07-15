@@ -25,6 +25,7 @@ export interface RouteExplanation {
   action_status: ActionStatus;
   target_system_name?: string;
   target_system_names?: string[];
+  fallback_applied: boolean;
 }
 
 export type SinkMode = "single" | "multi";
@@ -128,6 +129,7 @@ export interface DeviceRouteRule {
   source_system_name: string;
   target_system_name?: string;
   target_system_names?: string[];
+  safeguards: RuleSafeguards;
 }
 
 export interface RoutingRulesConfig {

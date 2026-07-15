@@ -70,3 +70,13 @@
 .route-explanation-fix:hover {
   background: rgba(124, 92, 255, 0.12);
 }
+
+.route-explanation-fallback-badge {
+  display: inline-flex;
+  align-self: start;
+  padding: 0.1rem 0.4rem;
+  border-radius: 0.35rem;
+  border: 1px solid var(--accent-amber);
+  color: var(--accent-amber);
+  font-weight: 600;
+}

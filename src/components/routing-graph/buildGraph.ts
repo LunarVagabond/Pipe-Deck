@@ -41,6 +41,7 @@ export interface RoutingGraphNodeData {
 export interface RoutingGraphGroupData {
   label: string;
   groupId: string;
+  color?: string;
 }
 
 export interface BuiltRoutingGraphNode {
@@ -291,7 +292,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     selectable: true,
     dragHandle: ".group-drag-handle",
     style: { width: `${group.size.width}px`, height: `${group.size.height}px` },
-    data: { label: group.label, groupId: group.id },
+    data: { label: group.label, groupId: group.id, color: group.color },
   }));
 
   // Stable, id-based order: which nodes claim a free auto-layout slot should

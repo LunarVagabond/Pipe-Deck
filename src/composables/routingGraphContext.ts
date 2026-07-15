@@ -24,6 +24,7 @@ export interface RoutingGraphActions {
   renameDevice: (systemName: string, currentLabel: string, alias?: string) => void | Promise<void>;
   deleteDevice: (systemName: string, label: string) => void;
   renameGroup: (groupId: string, label: string) => void;
+  setGroupColor: (groupId: string, color: string) => void;
   ungroup: (groupId: string) => void;
   labelForEntity: (entityId: string) => string;
 }
