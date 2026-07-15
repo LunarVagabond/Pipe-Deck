@@ -324,6 +324,10 @@ impl ConfigStore {
             .map_err(|error| ConfigError::Write(format!("{error}")))?;
         fs::create_dir_all(self.config_dir.join("profiles"))
             .map_err(|error| ConfigError::Write(format!("{error}")))?;
+        // Mirrors profiles/ — a directory the user can browse to and drop a plugin into
+        // (see docs/Plugins.md quick start), same idea as themes/ for custom color schemes.
+        fs::create_dir_all(self.config_dir.join("plugins"))
+            .map_err(|error| ConfigError::Write(format!("{error}")))?;
 
         let profile_store = crate::config::profile_store::ProfileStore::new(self.config_dir.clone());
         profile_store
@@ -468,6 +472,15 @@ mod tests {
         run(&store);
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+    }
+
+    #[test]
+    fn ensure_layout_creates_a_browsable_plugins_directory() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            assert!(store.config_dir().join("plugins").is_dir());
+            assert!(store.config_dir().join("profiles").is_dir());
+        });
     }
 
     #[test]
