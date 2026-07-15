@@ -64,6 +64,11 @@ function focusRouteSelect() {
         <span>{{ statusLabel }}</span>
       </div>
 
+      <div v-if="explanation.fallback_applied" class="route-explanation-row">
+        <span class="route-explanation-label">Fallback</span>
+        <span class="route-explanation-fallback-badge">Safe-default fallback applied</span>
+      </div>
+
       <div v-if="explanation.match_reasons.length" class="route-explanation-row">
         <span class="route-explanation-label">Why</span>
         <ul>
