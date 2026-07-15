@@ -45,8 +45,21 @@ Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are *
 
 ## Requirements
 
-- Linux with **PipeWire** (and PulseAudio compatibility layer where needed)
-- Rust (stable), Node.js 20+ for development builds
+- Linux with **PipeWire** (and PulseAudio compatibility layer where needed) — `pactl`, `pw-link`, and `pw-dump` must be on your `PATH`
+- **Rust** (stable) — via [rustup](https://rustup.rs/)
+- **Node.js 20+** and npm
+- Tauri's Linux system dependencies. On Debian/Ubuntu (also what CI installs):
+
+  ```bash
+  sudo apt-get install -y \
+    libwebkit2gtk-4.1-dev \
+    build-essential \
+    libayatana-appindicator3-dev \
+    librsvg2-dev \
+    patchelf
+  ```
+
+  Other distros: see [Tauri's prerequisites guide](https://tauri.app/start/prerequisites/) for the equivalent packages.
 
 ## Quick start
 
@@ -57,12 +70,16 @@ make install   # first-time setup
 make start     # run desktop app in dev mode
 ```
 
+No PipeWire environment handy? `PIPE_DECK_USE_MOCK=1 make start` runs against a static sample graph instead of live PipeWire — useful for UI work in a VM or container.
+
 ```bash
+make check     # frontend type-check + cargo check
+make test      # Rust unit tests
 make build     # production bundles
 make help      # list all commands
 ```
 
-See [Contributing](.github/CONTRIBUTING.md) for the full contributor workflow.
+Full setup walkthrough: [Getting Started](https://github.com/LunarVagabond/Pipe-Deck/wiki/Getting_Started) on the wiki. Contributor workflow: [Contributing](.github/CONTRIBUTING.md).
 
 ## Documentation
 
@@ -71,6 +88,7 @@ Product and technical docs live in the [GitHub Wiki](https://github.com/LunarVag
 | Section | Contents |
 |---------|----------|
 | [Home / index](https://github.com/LunarVagabond/Pipe-Deck/wiki/Home) | User-facing overview and doc map |
+| [Getting Started](https://github.com/LunarVagabond/Pipe-Deck/wiki/Getting_Started) | Prerequisites, first run, and [Development](https://github.com/LunarVagabond/Pipe-Deck/wiki/Development) codebase layout |
 | [Product](https://github.com/LunarVagabond/Pipe-Deck/wiki/Product_Requirements) | Requirements, roadmap, decisions |
 | [Architecture](https://github.com/LunarVagabond/Pipe-Deck/wiki/System_Architecture) | System and PipeWire design |
 | [Specifications](https://github.com/LunarVagabond/Pipe-Deck/wiki/UI_Spec) | UI, config, plugins, rule engine |
