@@ -22,6 +22,8 @@ Linux audio is powerful but scattered. Routine tasks often mean juggling multipl
 
 Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are **visible, reversible, and safe**.
 
+> Curious why this project exists? Read the [full story](https://github.com/LunarVagabond/Pipe-Deck/wiki/About).
+
 ## Screenshots
 
 > Real app screenshots.

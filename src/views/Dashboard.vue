@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import NodeTypeIcon from "../components/NodeTypeIcon.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { navigateKey } from "../composables/navigation";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
@@ -8,7 +9,7 @@ import { useRuleDraft } from "../stores/ruleDraft";
 import { filterRuntimeGraph } from "../utils/filterGraph";
 import { deviceColumn } from "../utils/routingLayout";
 import { filterRecentlySeen, recentEntryAgo, recentEntryLabel } from "../utils/recentStreams";
-import type { RecentStreamIdentity } from "../types/graph";
+import type { Device, RecentStreamIdentity } from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { config } = useAppConfig();
@@ -92,6 +93,27 @@ async function onToggleSystemStreams(next: boolean) {
 function openRoutingGraph() {
   navigate?.("routing");
 }
+
+// PipeWire/WirePlumber name every node coming off the bluez5 backend
+// "bluez_output.…"/"bluez_input.…" — there's no dedicated field on Device for
+// this, so the naming convention is the only signal available (see #3).
+function isBluetoothDevice(device: Device): boolean {
+  return device.system_name.startsWith("bluez_");
+}
+
+function deviceIconKind(device: Device): string {
+  if (isBluetoothDevice(device)) return "bluetooth";
+  if (device.kind === "virtual") {
+    return device.direction === "input" ? "virtual-input" : "virtual-sink";
+  }
+  return device.direction === "input" ? "input" : "output";
+}
+
+function deviceCategoryLabel(device: Device): string {
+  if (isBluetoothDevice(device)) return "Bluetooth";
+  if (device.kind === "virtual") return "Virtual";
+  return device.direction === "input" ? "Input" : "Output";
+}
 </script>
 
 <template>
@@ -109,7 +131,14 @@ function openRoutingGraph() {
             @update:model-value="onToggleSystemStreams"
           />
         </div>
-        <span class="profile-pill">{{ profileName }}</span>
+        <button
+          type="button"
+          class="profile-pill profile-pill-link"
+          title="Active profile — save or apply changes from the Profiles view"
+          @click="navigate?.('profiles')"
+        >
+          {{ profileName }}
+        </button>
         <button type="button" @click="refresh">Refresh</button>
       </div>
     </header>
@@ -186,8 +215,11 @@ function openRoutingGraph() {
             :key="device.id"
             class="stat-card device-summary-card"
           >
-            <span class="stat-label">{{ device.label }}</span>
-            <span class="node-sub">{{ device.kind }} · {{ device.direction }}</span>
+            <div class="device-summary-header">
+              <NodeTypeIcon :kind="deviceIconKind(device)" class="device-summary-icon" />
+              <span class="stat-label">{{ device.label }}</span>
+            </div>
+            <span class="device-category-badge">{{ deviceCategoryLabel(device) }}</span>
           </article>
         </div>
       </section>

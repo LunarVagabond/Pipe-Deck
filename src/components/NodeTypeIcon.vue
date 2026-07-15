@@ -62,5 +62,17 @@ defineProps<{
       stroke-linecap="round"
       stroke-linejoin="round"
     />
+    <!-- Bluetooth device: classic bluetooth rune -->
+    <path
+      v-else-if="kind === 'bluetooth'"
+      d="M7 8.5 17 15l-5 3.5v-13L17 9 7 15.5"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <!-- Unknown/fallback: neutral dot -->
+    <circle v-else cx="12" cy="12" r="3" fill="currentColor" />
   </svg>
 </template>
