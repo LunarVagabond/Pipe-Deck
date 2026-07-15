@@ -25,11 +25,19 @@ import { buildRoutingGraph, saveNodePosition } from "./routing-graph/buildGraph"
 import { LEGEND_ENTRIES } from "./routing-graph/portTypes";
 import { canConnectPorts } from "./routing-graph/portTypes";
 import {
+  boundsForMembers,
   containmentRatio,
   createGroup,
   loadGroups,
+  MEMBER_GAP,
+  nearestGroupEdge,
+  reflowMembers,
   saveGroups,
   type GraphGroup,
+  type GraphRect,
+  type GroupEdge,
+  type GroupLayoutAxis,
+  type GroupMemberInput,
 } from "./routing-graph/groups";
 import {
   routingGraphActionsKey,
@@ -93,6 +101,12 @@ const graphActions = {
     const group = groups.value.find((entry) => entry.id === groupId);
     if (!group) return;
     group.label = label;
+    persistGroups();
+  },
+  setGroupColor(groupId: string, color: string) {
+    const group = groups.value.find((entry) => entry.id === groupId);
+    if (!group) return;
+    group.color = color;
     persistGroups();
   },
   ungroup(groupId: string) {
@@ -212,7 +226,19 @@ const built = computed(() => {
 // keeps going, splitting the two visually. While a node id is in this set,
 // its live vue-flow position is preserved instead of the freshly built one.
 const draggingNodeIds = ref<Set<string>>(new Set());
-const nodes = computed<Node[]>(() => {
+
+interface DropSlotPreview {
+  groupId: string;
+  axis: GroupLayoutAxis;
+  edge: GroupEdge;
+  /** Absolute canvas position, converted to group-relative when rendered. */
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+}
+const dropSlotPreview = ref<DropSlotPreview | null>(null);
+
+const nodesWithLivePositions = computed<Node[]>(() => {
   if (draggingNodeIds.value.size === 0) {
     return built.value.nodes as Node[];
   }
@@ -221,8 +247,49 @@ const nodes = computed<Node[]>(() => {
       return node;
     }
     const live = vueFlow.findNode(node.id);
-    return live ? { ...node, position: live.computedPosition } : node;
+    if (!live) return node;
+    // A node with `parentNode` set is positioned relative to its parent, not
+    // absolutely — substituting the live *absolute* computedPosition here
+    // (as we do for top-level nodes, so an external graph-updated push mid-
+    // drag can't snap them back) double-counts the group's own offset and
+    // sends grouped members flying away from the cursor. Re-derive the
+    // parent-relative position instead.
+    if (node.parentNode) {
+      const group = groups.value.find((entry) => entry.id === node.parentNode);
+      if (group) {
+        return {
+          ...node,
+          position: {
+            x: live.computedPosition.x - group.position.x,
+            y: live.computedPosition.y - group.position.y,
+          },
+        };
+      }
+    }
+    return { ...node, position: live.computedPosition };
   });
+});
+
+// The drop-slot preview is deliberately NOT injected here as an extra vue-flow
+// node: mutating the array bound to <VueFlow :nodes> on every drag tick (this
+// fires continuously via @node-drag) makes Vue Flow re-reconcile its
+// internally-tracked drag state against the "external" prop on every frame,
+// which stomps on the dragged node's own live position — it stops tracking
+// the cursor and snaps back to its pre-drag spot. Rendered as a plain
+// transformed overlay instead (see dropSlotOverlayStyle), entirely outside
+// vue-flow's controlled nodes array.
+const nodes = computed<Node[]>(() => nodesWithLivePositions.value);
+
+const dropSlotOverlayStyle = computed(() => {
+  const preview = dropSlotPreview.value;
+  if (!preview) return null;
+  const viewport = vueFlow.viewport.value;
+  return {
+    left: `${preview.position.x * viewport.zoom + viewport.x}px`,
+    top: `${preview.position.y * viewport.zoom + viewport.y}px`,
+    width: `${preview.width * viewport.zoom}px`,
+    height: `${preview.height * viewport.zoom}px`,
+  };
 });
 const edges = computed<Edge[]>(() =>
   built.value.edges.map((edge) => ({
@@ -315,6 +382,132 @@ function onDocumentPointerDown(event: PointerEvent) {
 
 const DETACH_THRESHOLD = 0.4;
 
+/** Live position/size of every current member of `group`, from Vue Flow's own state. */
+function groupMemberInputs(group: GraphGroup): GroupMemberInput[] {
+  return group.memberIds
+    .map((id) => {
+      const memberNode = vueFlow.findNode(id);
+      if (!memberNode) return null;
+      return {
+        id,
+        position: { x: memberNode.computedPosition.x, y: memberNode.computedPosition.y },
+        width: memberNode.dimensions.width || 200,
+        height: memberNode.dimensions.height || 80,
+      };
+    })
+    .filter((member): member is GroupMemberInput => member !== null);
+}
+
+/** Shrinks/grows a group's saved bounds to fit its current members' live positions. */
+function resizeGroupToFitMembers(group: GraphGroup) {
+  const members = groupMemberInputs(group);
+  if (members.length === 0) return;
+  const { position, size } = boundsForMembers(members);
+  group.position = position;
+  group.size = size;
+}
+
+/** Re-lays out `group`'s current members along `group.layoutAxis` and persists each new position. */
+function reflowAndSaveGroup(group: GraphGroup) {
+  if (!group.layoutAxis) {
+    resizeGroupToFitMembers(group);
+    return;
+  }
+  const members = groupMemberInputs(group);
+  if (members.length === 0) return;
+  const { positions, bounds } = reflowMembers(group.layoutAxis, members);
+  for (const member of members) {
+    const position = positions[member.id];
+    saveNodePosition(member.id, position.x, position.y);
+  }
+  group.position = bounds.position;
+  group.size = bounds.size;
+}
+
+/** Where a new member would land if inserted at `edge` of `group`, given its current members. */
+function computeSlotPosition(
+  group: GraphGroup,
+  axis: GroupLayoutAxis,
+  edge: GroupEdge,
+  nodeRect: GraphRect,
+): { x: number; y: number } {
+  const members = groupMemberInputs(group);
+  if (members.length === 0) {
+    return { x: group.position.x, y: group.position.y };
+  }
+  if (axis === "row") {
+    const top = Math.min(...members.map((member) => member.position.y));
+    if (edge === "left") {
+      const minX = Math.min(...members.map((member) => member.position.x));
+      return { x: minX - MEMBER_GAP - nodeRect.width, y: top };
+    }
+    const maxX = Math.max(...members.map((member) => member.position.x + member.width));
+    return { x: maxX + MEMBER_GAP, y: top };
+  }
+  const left = Math.min(...members.map((member) => member.position.x));
+  if (edge === "top") {
+    const minY = Math.min(...members.map((member) => member.position.y));
+    return { x: left, y: minY - MEMBER_GAP - nodeRect.height };
+  }
+  const maxY = Math.max(...members.map((member) => member.position.y + member.height));
+  return { x: left, y: maxY + MEMBER_GAP };
+}
+
+/** Finds which group (if any) a loose node dragged to `nodeRect` should join, and at which edge. */
+function findDropTarget(
+  nodeRect: GraphRect,
+): { group: GraphGroup; axis: GroupLayoutAxis; edge: GroupEdge } | null {
+  for (const group of groups.value) {
+    const groupRect = {
+      x: group.position.x,
+      y: group.position.y,
+      width: group.size.width,
+      height: group.size.height,
+    };
+    const edge = nearestGroupEdge(nodeRect, groupRect);
+    if (edge) {
+      const axis: GroupLayoutAxis = edge === "left" || edge === "right" ? "row" : "column";
+      return { group, axis, edge };
+    }
+  }
+  return null;
+}
+
+function commitDirectionalInsert(
+  group: GraphGroup,
+  axis: GroupLayoutAxis,
+  edge: GroupEdge,
+  node: { id: string; dimensions: { width: number; height: number } },
+) {
+  const nodeRect = {
+    x: 0,
+    y: 0,
+    width: node.dimensions.width || 200,
+    height: node.dimensions.height || 80,
+  };
+  const slotPosition = computeSlotPosition(group, axis, edge, nodeRect);
+  const newMember: GroupMemberInput = {
+    id: node.id,
+    position: slotPosition,
+    width: nodeRect.width,
+    height: nodeRect.height,
+  };
+  const existingMembers = groupMemberInputs(group);
+  const prepend = edge === "left" || edge === "top";
+  const orderedMembers = prepend ? [newMember, ...existingMembers] : [...existingMembers, newMember];
+
+  const { positions, bounds } = reflowMembers(axis, orderedMembers);
+  for (const member of orderedMembers) {
+    const position = positions[member.id];
+    saveNodePosition(member.id, position.x, position.y);
+  }
+
+  group.memberIds = orderedMembers.map((member) => member.id);
+  group.layoutAxis = axis;
+  group.position = bounds.position;
+  group.size = bounds.size;
+}
+
 function onNodeDragStart(event: NodeDragEvent) {
   // event.nodes carries every node vue-flow is moving together in this drag
   // (a multi-select drag); fall back to just event.node when it's
@@ -325,6 +518,46 @@ function onNodeDragStart(event: NodeDragEvent) {
     next.add(draggedNode.id);
   }
   draggingNodeIds.value = next;
+  dropSlotPreview.value = null;
+}
+
+function onNodeDrag(event: NodeDragEvent) {
+  const node = event.node;
+  // Directional-insert preview only applies to a single *loose* node (not
+  // already in any group) being dragged toward a group — the detach flow
+  // (onNodeDragStop) already owns the "member being pulled out" case, and a
+  // parented member's `position` is parent-relative, not absolute, so it
+  // can't be fed through the same absolute-rect math below.
+  if (node.type === "groupNode" || node.type === "dropSlotNode" || node.parentNode) {
+    dropSlotPreview.value = null;
+    return;
+  }
+
+  // Unlike `computedPosition` (which vue-flow only resolves at drag-stop for
+  // an un-parented node), `position` tracks the live cursor-driven location
+  // throughout the drag — using computedPosition here left the preview
+  // permanently anchored at the node's pre-drag spot.
+  const nodeRect = {
+    x: node.position.x,
+    y: node.position.y,
+    width: node.dimensions.width,
+    height: node.dimensions.height,
+  };
+  const target = findDropTarget(nodeRect);
+  if (!target) {
+    dropSlotPreview.value = null;
+    return;
+  }
+
+  const slotPosition = computeSlotPosition(target.group, target.axis, target.edge, nodeRect);
+  dropSlotPreview.value = {
+    groupId: target.group.id,
+    axis: target.axis,
+    edge: target.edge,
+    position: slotPosition,
+    width: nodeRect.width,
+    height: nodeRect.height,
+  };
 }
 
 function onNodeDragStop(event: NodeDragEvent) {
@@ -335,6 +568,7 @@ function onNodeDragStop(event: NodeDragEvent) {
     next.delete(id);
   }
   draggingNodeIds.value = next;
+  dropSlotPreview.value = null;
 
   if (node.type === "groupNode") {
     const group = groups.value.find((entry) => entry.id === node.id);
@@ -387,24 +621,20 @@ function onNodeDragStop(event: NodeDragEvent) {
       currentGroup.memberIds = currentGroup.memberIds.filter((id) => id !== node.id);
       if (currentGroup.memberIds.length === 0) {
         groups.value = groups.value.filter((entry) => entry.id !== currentGroup.id);
+      } else {
+        reflowAndSaveGroup(currentGroup);
       }
       persistGroups();
     }
     return;
   }
 
-  // Node isn't in any group yet — dropping it inside an existing group's
-  // bounds adds it as a member (the inverse of the detach check above).
-  const targetGroup = groups.value.find((entry) =>
-    containmentRatio(nodeRect, {
-      x: entry.position.x,
-      y: entry.position.y,
-      width: entry.size.width,
-      height: entry.size.height,
-    }) >= DETACH_THRESHOLD,
-  );
-  if (targetGroup) {
-    targetGroup.memberIds = [...targetGroup.memberIds, node.id];
+  // Node isn't in any group yet — a directional drop near an existing
+  // group's edge (left/right/top/bottom) inserts it there, growing the
+  // group and reflowing members into an aligned row/column.
+  const target = findDropTarget(nodeRect);
+  if (target) {
+    commitDirectionalInsert(target.group, target.axis, target.edge, node);
     persistGroups();
   }
 }
@@ -526,6 +756,7 @@ onUnmounted(() => {
         @edge-update-start="onEdgeUpdateStart"
         @edge-update-end="onEdgeUpdateEnd"
         @node-drag-start="onNodeDragStart"
+        @node-drag="onNodeDrag"
         @node-drag-stop="onNodeDragStop"
         @pane-click="onPaneClick"
         @pane-context-menu="onPaneContextMenu"
@@ -533,6 +764,7 @@ onUnmounted(() => {
         <Background pattern-color="rgba(255,255,255,0.04)" :gap="20" />
         <Controls />
       </VueFlow>
+      <div v-if="dropSlotOverlayStyle" class="routing-graph-drop-slot-overlay" :style="dropSlotOverlayStyle" />
     </div>
   </div>
 </template>

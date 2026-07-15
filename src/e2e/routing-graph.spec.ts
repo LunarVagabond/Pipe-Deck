@@ -134,6 +134,34 @@ test.describe("RoutingGraph grouping", () => {
     await createGroupFromFirstTwoNodes(page);
   });
 
+  test("dragging a member within the group tracks the cursor instead of jumping away", async ({ page }) => {
+    await createGroupFromFirstTwoNodes(page);
+
+    const member = page.locator(".vue-flow__node:not(.vue-flow__node-groupNode)").first();
+    const beforeBox = await member.boundingBox();
+    if (!beforeBox) throw new Error("missing member bounding box");
+
+    const dx = 20;
+    const dy = 15;
+    await page.mouse.move(beforeBox.x + beforeBox.width / 2, beforeBox.y + beforeBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(
+      beforeBox.x + beforeBox.width / 2 + dx,
+      beforeBox.y + beforeBox.height / 2 + dy,
+      { steps: 5 },
+    );
+
+    // Check the position mid-drag (before mouseup) — a member with a stale
+    // absolute/relative position mix jumps away the instant the drag starts,
+    // well before any detach threshold is reached.
+    const midDragBox = await member.boundingBox();
+    await page.mouse.up();
+    if (!midDragBox) throw new Error("missing member bounding box mid-drag");
+
+    expect(Math.abs(midDragBox.x - (beforeBox.x + dx))).toBeLessThan(20);
+    expect(Math.abs(midDragBox.y - (beforeBox.y + dy))).toBeLessThan(20);
+  });
+
   test("dragging a member out of its group leaves it near its pre-drag position, not off-screen", async ({
     page,
   }) => {
@@ -189,7 +217,7 @@ test.describe("RoutingGraph grouping", () => {
     }
   });
 
-  test("dragging a loose node into an existing group's bounds adds it as a member", async ({
+  test("dragging a loose node near a group's right edge inserts it as a member there", async ({
     page,
   }) => {
     await createGroupFromFirstTwoNodes(page);
@@ -199,13 +227,21 @@ test.describe("RoutingGraph grouping", () => {
     const groupBox = await page.locator(".vue-flow__node-groupNode").boundingBox();
     if (!looseBox || !groupBox) throw new Error("missing bounding boxes");
 
-    const targetX = groupBox.x + groupBox.width / 2;
+    // Drop just outside the group's right edge, vertically centered — this
+    // is what should trigger the "insert at right edge" drop-slot preview
+    // and, on release, the actual insertion.
+    const targetX = groupBox.x + groupBox.width + 20;
     const targetY = groupBox.y + groupBox.height / 2;
 
     await page.mouse.move(looseBox.x + looseBox.width / 2, looseBox.y + looseBox.height / 2);
     await page.mouse.down();
     await page.mouse.move(targetX, targetY, { steps: 10 });
+
+    // A live drop-slot preview ghost should appear while hovering the edge.
+    await expect(page.locator(".routing-graph-drop-slot-overlay")).toHaveCount(1);
+
     await page.mouse.up();
+    await expect(page.locator(".routing-graph-drop-slot-overlay")).toHaveCount(0);
 
     // Vue Flow renders every node as a DOM sibling regardless of `parentNode`
     // (it's used for position tracking, not DOM nesting), so membership can't
@@ -224,5 +260,97 @@ test.describe("RoutingGraph grouping", () => {
     expect(memberCenterX).toBeLessThanOrEqual(groupBoxAfter.x + groupBoxAfter.width);
     expect(memberCenterY).toBeGreaterThanOrEqual(groupBoxAfter.y);
     expect(memberCenterY).toBeLessThanOrEqual(groupBoxAfter.y + groupBoxAfter.height);
+
+    // Reflowing into a row can shrink the group's *height* if the original
+    // free-form members happened to be stacked vertically (their height
+    // collapses to a single row once aligned), so area/height aren't
+    // reliable invariants here — but a row with one more member in it is
+    // always at least as wide as before.
+    expect(groupBoxAfter.width).toBeGreaterThan(groupBox.width);
+  });
+
+  test("a member leaving a row-aligned (directionally-inserted) group reflows the remaining members", async ({
+    page,
+  }) => {
+    await createGroupFromFirstTwoNodes(page);
+
+    // Insert the third node at the right edge first, so the group is
+    // row-aligned (layoutAxis: "row") rather than free-form.
+    const looseNode = page.locator(".vue-flow__node:not(.vue-flow__node-groupNode)").nth(2);
+    const looseBox = await looseNode.boundingBox();
+    const groupBoxInit = await page.locator(".vue-flow__node-groupNode").boundingBox();
+    if (!looseBox || !groupBoxInit) throw new Error("missing bounding boxes");
+
+    await page.mouse.move(looseBox.x + looseBox.width / 2, looseBox.y + looseBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(groupBoxInit.x + groupBoxInit.width + 20, groupBoxInit.y + groupBoxInit.height / 2, {
+      steps: 10,
+    });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+
+    const groupBoxWithThree = await page.locator(".vue-flow__node-groupNode").boundingBox();
+    if (!groupBoxWithThree) throw new Error("missing group bounding box with three members");
+
+    // Now drag the (now-aligned) first member far away to detach it.
+    const member = page.locator(".vue-flow__node:not(.vue-flow__node-groupNode)").first();
+    const memberBox = await member.boundingBox();
+    if (!memberBox) throw new Error("missing member bounding box");
+
+    await page.mouse.move(memberBox.x + memberBox.width / 2, memberBox.y + memberBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(memberBox.x + memberBox.width / 2 + 700, memberBox.y + memberBox.height / 2 + 500, {
+      steps: 10,
+    });
+    await page.mouse.up();
+    await page.waitForTimeout(200);
+
+    const groupBoxAfterDetach = await page.locator(".vue-flow__node-groupNode").boundingBox();
+    if (!groupBoxAfterDetach) throw new Error("missing group bounding box after detach");
+
+    // A row with one fewer member is narrower than one with three — the
+    // detached member's old slot was closed up by the reflow rather than
+    // just leaving the bounding box shrink-wrapped around a stale gap.
+    expect(groupBoxAfterDetach.width).toBeLessThan(groupBoxWithThree.width);
+  });
+
+  test("the group shrinks to fit after a member is dragged out", async ({ page }) => {
+    await createGroupFromFirstTwoNodes(page);
+
+    const groupBoxBefore = await page.locator(".vue-flow__node-groupNode").boundingBox();
+    if (!groupBoxBefore) throw new Error("missing group bounding box before detach");
+
+    const member = page.locator(".vue-flow__node:not(.vue-flow__node-groupNode)").first();
+    const memberBox = await member.boundingBox();
+    if (!memberBox) throw new Error("missing member bounding box");
+
+    const dx = 700;
+    const dy = 500;
+    await page.mouse.move(memberBox.x + memberBox.width / 2, memberBox.y + memberBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(memberBox.x + memberBox.width / 2 + dx, memberBox.y + memberBox.height / 2 + dy, {
+      steps: 10,
+    });
+    await page.mouse.up();
+
+    const groupBoxAfter = await page.locator(".vue-flow__node-groupNode").boundingBox();
+    if (!groupBoxAfter) throw new Error("missing group bounding box after detach");
+
+    expect(groupBoxAfter.width * groupBoxAfter.height).toBeLessThan(
+      groupBoxBefore.width * groupBoxBefore.height,
+    );
+  });
+
+  test("picking a group color updates the group panel's border color", async ({ page }) => {
+    await createGroupFromFirstTwoNodes(page);
+
+    const group = page.locator(".vue-flow__node-groupNode .routing-graph-group");
+    await expect(group).toHaveCSS("border-top-color", "rgba(255, 255, 255, 0.25)");
+
+    await page.click(".routing-graph-group-color-swatch");
+    await page.waitForSelector(".routing-graph-group-color-popover");
+    await page.click(".routing-graph-group-color-option");
+
+    await expect(group).not.toHaveCSS("border-top-color", "rgba(255, 255, 255, 0.25)");
   });
 });
