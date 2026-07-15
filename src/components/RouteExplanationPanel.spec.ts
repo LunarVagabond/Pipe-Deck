@@ -56,4 +56,35 @@ describe("RouteExplanationPanel", () => {
     const wrapper = mountPanel();
     expect(wrapper.get(".route-explanation-chevron").attributes("aria-hidden")).toBe("true");
   });
+
+  it("'Change route' focuses the matching data-stream-route-select element", async () => {
+    const select = document.createElement("select");
+    select.setAttribute("data-stream-route-select", "s1");
+    document.body.appendChild(select);
+
+    const stream = makeStream({
+      id: "s1",
+      route_explanation: {
+        source: "authored_rule",
+        match_reasons: [],
+        skipped_candidates: [],
+        action_status: "applied",
+        fallback_applied: false,
+      },
+    });
+    const wrapper = mount(RouteExplanationPanel, {
+      props: { stream, devices: [] },
+      attachTo: document.body,
+    });
+
+    try {
+      await wrapper.get(".route-explanation-toggle").trigger("click");
+      await wrapper.get(".route-explanation-fix").trigger("click");
+
+      expect(document.activeElement).toBe(select);
+    } finally {
+      wrapper.unmount();
+      select.remove();
+    }
+  });
 });
