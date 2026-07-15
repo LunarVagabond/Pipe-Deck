@@ -61,30 +61,50 @@ pub fn apply_sink_targets(
     fan_out_sink(graph, &sink.system_name, target_device_ids)
 }
 
+/// Links `sink_system_name`'s monitor to every target in `target_device_ids`.
+///
+/// Each target is attempted independently and failures are collected rather
+/// than aborting the whole batch on the first `?` — otherwise a single
+/// incompatible target (e.g. one whose port layout `link_sink_monitor_to_target`
+/// can't yet handle) would both leave already-linked targets untouched *and*
+/// skip `prune_stale_fan_out_links` entirely, silently freezing the group in
+/// whatever state it was in before this call.
 pub fn fan_out_sink(
     graph: &RuntimeGraph,
     sink_system_name: &str,
     target_device_ids: &[String],
 ) -> Result<(), BackendError> {
     let mut linked = HashSet::new();
+    let mut errors = Vec::new();
+
     for target_id in target_device_ids {
-        let target = graph
-            .devices
-            .iter()
-            .find(|device| device.id == *target_id)
-            .ok_or_else(|| BackendError::Message(format!("target device not found: {target_id}")))?;
-        validate_fan_out_target(target)?;
+        let Some(target) = graph.devices.iter().find(|device| device.id == *target_id) else {
+            errors.push(format!("target device not found: {target_id}"));
+            continue;
+        };
+        if let Err(error) = validate_fan_out_target(target) {
+            errors.push(format!("{}: {error}", target.label));
+            continue;
+        }
         let target_is_virtual_source =
             target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
-        pw_link::link_sink_monitor_to_target(
+        match pw_link::link_sink_monitor_to_target(
             sink_system_name,
             &target.system_name,
             target_is_virtual_source,
-        )?;
-        linked.insert(target.system_name.clone());
+        ) {
+            Ok(()) => {
+                linked.insert(target.system_name.clone());
+            }
+            Err(error) => errors.push(format!("{}: {error}", target.label)),
+        }
     }
 
     prune_stale_fan_out_links(sink_system_name, &linked)?;
+
+    if !errors.is_empty() {
+        return Err(BackendError::Message(errors.join("; ")));
+    }
     Ok(())
 }
 
