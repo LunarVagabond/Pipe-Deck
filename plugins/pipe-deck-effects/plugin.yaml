@@ -5,6 +5,8 @@ api_version: 1
 entry: bin/pipe-deck-effects
 bundled: true
 description: First-party EQ and compressor for Pipe Deck virtual devices
+developer: Pipe Deck
+repo: https://github.com/LunarVagabond/Pipe-Deck
 capabilities:
   - graph.read
   - effects.manage
