@@ -235,46 +235,6 @@
   font-size: 1rem;
 }
 
-.plugin-card {
-  border-top: 1px solid var(--border);
-  padding: 0.85rem 0;
-
-  &:first-of-type {
-    border-top: none;
-    padding-top: 0;
-  }
-}
-
-.plugin-meta {
-  display: block;
-  margin-top: 0.2rem;
-  color: var(--text-muted);
-  font-size: 0.85rem;
-}
-
-.plugin-capabilities {
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border);
-}
-
-.plugin-capabilities-label {
-  margin: 0 0 0.35rem;
-  color: var(--text-muted);
-  font-size: 0.8rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-
-.plugin-capability-row {
-  padding: 0.45rem 0;
-
-  .settings-row-label {
-    font-size: 0.9rem;
-    color: var(--text-muted);
-  }
-}
-
 .settings-row--static {
   align-items: center;
 }

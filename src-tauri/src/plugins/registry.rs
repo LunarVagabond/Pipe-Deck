@@ -1,6 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::{
-    PluginEntry, PluginRuntimeStatus, PluginStatus, PluginUiPanel, RuntimeGraph,
+    PluginDiscoveryIssue, PluginEntry, PluginRuntimeStatus, PluginStatus, PluginUiPanel,
+    RuntimeGraph,
 };
 use crate::plugins::audit;
 use crate::plugins::host::PluginProcess;
@@ -12,6 +13,7 @@ pub struct PluginManager {
     discovered: Vec<DiscoveredPlugin>,
     running: HashMap<String, PluginProcess>,
     last_errors: HashMap<String, String>,
+    discovery_errors: Vec<PluginDiscoveryIssue>,
 }
 
 impl PluginManager {
@@ -20,16 +22,32 @@ impl PluginManager {
             discovered: Vec::new(),
             running: HashMap::new(),
             last_errors: HashMap::new(),
+            discovery_errors: Vec::new(),
         }
     }
 
     pub fn discover(&mut self) {
         let mut all = Vec::new();
+        let mut issues = Vec::new();
         if let Some(bundled) = bundled_plugins_dir() {
-            all.extend(discover_in_dir(&bundled));
+            let (plugins, dir_issues) = discover_in_dir(&bundled);
+            all.extend(plugins);
+            issues.extend(dir_issues);
         }
-        all.extend(discover_in_dir(&user_plugins_dir()));
+        let (plugins, dir_issues) = discover_in_dir(&user_plugins_dir());
+        all.extend(plugins);
+        issues.extend(dir_issues);
+
+        for issue in &issues {
+            audit::log(&issue.path, "discover", "error", Some(&issue.message));
+        }
+
         self.discovered = dedupe_by_id(all);
+        self.discovery_errors = issues;
+    }
+
+    pub fn discovery_errors(&self) -> Vec<PluginDiscoveryIssue> {
+        self.discovery_errors.clone()
     }
 
     pub fn ensure_bundled_defaults(&self) {
@@ -108,7 +126,14 @@ impl PluginManager {
             &granted,
             store.config_dir(),
         ) {
-            let message = error.to_string();
+            // The stderr reader thread runs independently of the RPC round-trip; give it
+            // a brief grace period to catch up before reading the tail, since a plugin
+            // typically writes to stderr just before/around the failure we just observed.
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            let mut message = error.to_string();
+            if let Some(stderr_tail) = process.stderr_tail() {
+                message = format!("{message}\nstderr: {stderr_tail}");
+            }
             self.last_errors.insert(plugin_id.to_string(), message.clone());
             audit::log(plugin_id, "initialize", "error", Some(&message));
             let _ = process.child.kill();
@@ -181,10 +206,11 @@ impl PluginManager {
             if let Some(process) = self.running.get_mut(&plugin_id) {
                 if crate::plugins::capabilities::is_granted(&granted, crate::plugins::capabilities::GRAPH_READ) {
                     if process.notify_graph_updated(graph).is_err() {
-                        self.last_errors.insert(
-                            plugin_id.clone(),
-                            "graph notification failed".into(),
-                        );
+                        let mut message = "graph notification failed".to_string();
+                        if let Some(stderr_tail) = process.stderr_tail() {
+                            message = format!("{message}\nstderr: {stderr_tail}");
+                        }
+                        self.last_errors.insert(plugin_id.clone(), message);
                     }
                     process.drain_notifications(&plugin_id, &granted);
                 }
@@ -219,6 +245,8 @@ impl PluginManager {
                     version: discovered.manifest.version.clone(),
                     description: discovered.manifest.description.clone(),
                     bundled: discovered.manifest.bundled,
+                    developer: discovered.manifest.developer.clone(),
+                    repo: discovered.manifest.repo.clone(),
                     enabled: entry.enabled,
                     requested_capabilities: discovered.manifest.capabilities.clone(),
                     granted_capabilities: entry.granted_capabilities.clone(),

@@ -12,8 +12,38 @@ pub const ALL: &[&str] = &[
     UI_PANEL_REGISTER,
 ];
 
+/// Capabilities the host actually gates something on today. The other entries in
+/// `ALL` are valid to declare/grant (so manifests validate and Settings can store the
+/// grant), but nothing in the host checks them yet — see #120.
+pub const ENFORCED: &[&str] = &[GRAPH_READ, UI_PANEL_REGISTER];
+
 pub fn is_known(capability: &str) -> bool {
     ALL.contains(&capability)
+}
+
+pub fn is_enforced(capability: &str) -> bool {
+    ENFORCED.contains(&capability)
+}
+
+pub fn describe(capability: &str) -> &'static str {
+    match capability {
+        GRAPH_READ => "Receive graph.updated notifications",
+        ROUTING_SUGGEST => "Return route suggestions (no apply)",
+        PROFILE_READ => "Read active profile metadata",
+        EFFECTS_MANAGE => "Manage filter chains on pipe-deck-* devices",
+        UI_PANEL_REGISTER => "Register a nav panel in the host UI",
+        _ => "Unknown capability",
+    }
+}
+
+pub fn all_metadata() -> Vec<crate::core::models::CapabilityInfo> {
+    ALL.iter()
+        .map(|capability| crate::core::models::CapabilityInfo {
+            id: (*capability).to_string(),
+            description: describe(capability).to_string(),
+            enforced: is_enforced(capability),
+        })
+        .collect()
 }
 
 pub fn is_granted(granted: &[String], capability: &str) -> bool {
@@ -43,5 +73,22 @@ mod tests {
     fn rejects_unknown_capability_names_in_grant_check() {
         assert!(!is_known("routing.apply"));
         assert!(is_known("graph.read"));
+    }
+
+    #[test]
+    fn only_graph_read_and_ui_panel_register_are_enforced() {
+        assert!(is_enforced(GRAPH_READ));
+        assert!(is_enforced(UI_PANEL_REGISTER));
+        assert!(!is_enforced(ROUTING_SUGGEST));
+        assert!(!is_enforced(PROFILE_READ));
+        assert!(!is_enforced(EFFECTS_MANAGE));
+    }
+
+    #[test]
+    fn all_metadata_covers_every_known_capability() {
+        let metadata = all_metadata();
+        assert_eq!(metadata.len(), ALL.len());
+        assert!(metadata.iter().any(|info| info.id == GRAPH_READ && info.enforced));
+        assert!(metadata.iter().any(|info| info.id == EFFECTS_MANAGE && !info.enforced));
     }
 }

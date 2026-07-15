@@ -854,6 +854,10 @@ pub struct PluginManifest {
     pub description: Option<String>,
     #[serde(default)]
     pub bundled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub developer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -891,6 +895,10 @@ pub struct PluginStatus {
     pub version: String,
     pub description: Option<String>,
     pub bundled: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub developer: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repo: Option<String>,
     pub enabled: bool,
     pub requested_capabilities: Vec<String>,
     pub granted_capabilities: Vec<String>,
@@ -906,4 +914,17 @@ pub struct PluginUiPanel {
     pub id: String,
     pub title: String,
     pub summary: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CapabilityInfo {
+    pub id: String,
+    pub description: String,
+    pub enforced: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PluginDiscoveryIssue {
+    pub path: String,
+    pub message: String,
 }
