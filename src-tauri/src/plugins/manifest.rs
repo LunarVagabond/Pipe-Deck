@@ -1,4 +1,4 @@
-use crate::core::models::PluginManifest;
+use crate::core::models::{PluginDiscoveryIssue, PluginManifest};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -67,11 +67,16 @@ pub fn validate_manifest(
     Ok(())
 }
 
-pub fn discover_in_dir(dir: &Path) -> Vec<DiscoveredPlugin> {
+/// Scans `dir` for plugin subdirectories. Directories with no `plugin.yaml` are not
+/// an error (an empty/stray folder is normal) and are skipped silently; a `plugin.yaml`
+/// that exists but fails to load/validate is a real problem and is reported back as a
+/// `PluginDiscoveryIssue` instead of being dropped on the floor (see #119).
+pub fn discover_in_dir(dir: &Path) -> (Vec<DiscoveredPlugin>, Vec<PluginDiscoveryIssue>) {
     let mut plugins = Vec::new();
+    let mut issues = Vec::new();
     let entries = match fs::read_dir(dir) {
         Ok(entries) => entries,
-        Err(_) => return plugins,
+        Err(_) => return (plugins, issues),
     };
 
     for entry in entries.flatten() {
@@ -83,8 +88,15 @@ pub fn discover_in_dir(dir: &Path) -> Vec<DiscoveredPlugin> {
         if !manifest_path.exists() {
             continue;
         }
-        let Ok(manifest) = load_manifest(&manifest_path) else {
-            continue;
+        let manifest = match load_manifest(&manifest_path) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                issues.push(PluginDiscoveryIssue {
+                    path: root.display().to_string(),
+                    message: error.to_string(),
+                });
+                continue;
+            }
         };
         let entry_path = root.join(&manifest.entry);
         plugins.push(DiscoveredPlugin {
@@ -95,7 +107,7 @@ pub fn discover_in_dir(dir: &Path) -> Vec<DiscoveredPlugin> {
     }
 
     plugins.sort_by(|left, right| left.manifest.id.cmp(&right.manifest.id));
-    plugins
+    (plugins, issues)
 }
 
 #[cfg(test)]
@@ -114,6 +126,8 @@ mod tests {
             capabilities: vec!["graph.read".into()],
             description: None,
             bundled: false,
+            developer: None,
+            repo: None,
         };
         let error = validate_manifest(&manifest, None).unwrap_err();
         assert!(error.to_string().contains("unsupported api_version"));
@@ -136,6 +150,22 @@ capabilities:
         fs::write(dir.join("plugin.yaml"), yaml).unwrap();
         let manifest = load_manifest(&dir.join("plugin.yaml")).unwrap();
         assert_eq!(manifest.id, "echo");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn discover_in_dir_reports_malformed_manifest_as_an_issue_not_a_silent_skip() {
+        let dir = std::env::temp_dir().join(format!("pipe-deck-discover-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(dir.join("broken-plugin")).unwrap();
+        fs::write(dir.join("broken-plugin/plugin.yaml"), b"not: [valid yaml for a manifest").unwrap();
+        fs::create_dir_all(dir.join("empty-dir")).unwrap();
+
+        let (plugins, issues) = discover_in_dir(&dir);
+        assert!(plugins.is_empty());
+        assert_eq!(issues.len(), 1);
+        assert!(issues[0].path.ends_with("broken-plugin"));
+
         let _ = fs::remove_dir_all(&dir);
     }
 }

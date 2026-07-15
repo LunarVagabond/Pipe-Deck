@@ -3,15 +3,18 @@ use crate::plugins::audit;
 use crate::plugins::capabilities::{is_granted, UI_PANEL_REGISTER};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const STDERR_TAIL_LINES: usize = 20;
 
 #[derive(Debug, Error)]
 pub enum HostError {
@@ -54,6 +57,7 @@ pub struct PluginProcess {
     stdin: ChildStdin,
     next_id: u64,
     rx: mpsc::Receiver<String>,
+    stderr_tail: Arc<Mutex<VecDeque<String>>>,
     pub ui_panels: Vec<crate::core::models::PluginUiPanel>,
 }
 
@@ -63,7 +67,7 @@ impl PluginProcess {
             .current_dir(working_dir)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .spawn()
             .map_err(|error| HostError::Spawn(error.to_string()))?;
 
@@ -75,6 +79,10 @@ impl PluginProcess {
             .stdout
             .take()
             .ok_or_else(|| HostError::Spawn("stdout unavailable".into()))?;
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| HostError::Spawn("stderr unavailable".into()))?;
 
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
@@ -86,14 +94,40 @@ impl PluginProcess {
             }
         });
 
+        let stderr_tail = Arc::new(Mutex::new(VecDeque::with_capacity(STDERR_TAIL_LINES)));
+        let stderr_tail_writer = stderr_tail.clone();
+        thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().map_while(Result::ok) {
+                if let Ok(mut tail) = stderr_tail_writer.lock() {
+                    if tail.len() == STDERR_TAIL_LINES {
+                        tail.pop_front();
+                    }
+                    tail.push_back(line);
+                }
+            }
+        });
+
         audit::log(plugin_id, "spawn", "ok", None);
         Ok(Self {
             child,
             stdin,
             next_id: 1,
             rx,
+            stderr_tail,
             ui_panels: Vec::new(),
         })
+    }
+
+    /// Joined tail of the plugin's stderr output (most recent lines only), or `None`
+    /// if the plugin hasn't written anything to stderr. Used to enrich error messages
+    /// that would otherwise be a bare RPC/timeout string (see #118).
+    pub fn stderr_tail(&self) -> Option<String> {
+        let tail = self.stderr_tail.lock().ok()?;
+        if tail.is_empty() {
+            return None;
+        }
+        Some(tail.iter().cloned().collect::<Vec<_>>().join("\n"))
     }
 
     pub fn initialize(
@@ -113,13 +147,16 @@ impl PluginProcess {
     }
 
     pub fn shutdown(&mut self, plugin_id: &str) {
-        let _ = self.request(
-            "shutdown",
-            serde_json::json!({}),
-        );
+        let rpc_result = self.request("shutdown", serde_json::json!({}));
         let _ = self.child.kill();
         let _ = self.child.wait();
-        audit::log(plugin_id, "shutdown", "ok", None);
+
+        if rpc_result.is_err() {
+            let detail = self.stderr_tail();
+            audit::log(plugin_id, "shutdown", "error", detail.as_deref());
+        } else {
+            audit::log(plugin_id, "shutdown", "ok", None);
+        }
     }
 
     pub fn notify_graph_updated(&mut self, graph: &RuntimeGraph) -> Result<(), HostError> {

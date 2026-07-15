@@ -44,3 +44,19 @@ pub async fn list_plugin_ui_panels(
         .map(|(_, panel)| panel)
         .collect())
 }
+
+#[tauri::command]
+pub async fn list_plugin_discovery_errors(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::core::models::PluginDiscoveryIssue>, String> {
+    let engine = state.engine.read().await;
+    Ok(engine.plugin_discovery_errors())
+}
+
+#[tauri::command]
+pub async fn list_plugin_capability_metadata(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::core::models::CapabilityInfo>, String> {
+    let engine = state.engine.read().await;
+    Ok(engine.plugin_capability_metadata())
+}

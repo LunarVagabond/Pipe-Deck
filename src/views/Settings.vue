@@ -3,11 +3,12 @@ import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
+import PluginDetailModal from "../components/PluginDetailModal.vue";
 import { useApplyResult } from "../stores/notices";
 import { useUpdateStatus } from "../stores/updateStatus";
 import { useTheme } from "../stores/theme";
 import { useDaemonStatus } from "../stores/daemonStatus";
-import type { PluginStatus } from "../types/graph";
+import type { CapabilityInfo, PluginDiscoveryIssue, PluginStatus } from "../types/graph";
 import type { ThemeMode } from "../types/theme";
 
 const THEME_MODE_OPTIONS = [
@@ -31,6 +32,12 @@ const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
 const { daemonStatus, refreshDaemonStatus, lastRunText } = useDaemonStatus();
 const plugins = ref<PluginStatus[]>([]);
+const capabilityMetadata = ref<CapabilityInfo[]>([]);
+const discoveryErrors = ref<PluginDiscoveryIssue[]>([]);
+const selectedPluginId = ref<string | null>(null);
+const selectedPlugin = computed(
+  () => plugins.value.find((plugin) => plugin.id === selectedPluginId.value) ?? null,
+);
 const busy = ref(false);
 const { handleApplyResult } = useApplyResult();
 const configPaths = ref<{ configDir: string; profilesDir: string } | null>(null);
@@ -104,6 +111,8 @@ async function loadSettings() {
   autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
   await refreshDaemonStatus();
   plugins.value = await invoke("list_plugins");
+  capabilityMetadata.value = await invoke("list_plugin_capability_metadata");
+  discoveryErrors.value = await invoke("list_plugin_discovery_errors");
   await ensureAppInfo();
   configPaths.value = await invoke("get_config_paths");
 }
@@ -232,6 +241,14 @@ async function toggleCapability(plugin: PluginStatus, capability: string, grante
   } finally {
     busy.value = false;
   }
+}
+
+function openPluginDetail(plugin: PluginStatus) {
+  selectedPluginId.value = plugin.id;
+}
+
+function closePluginDetail() {
+  selectedPluginId.value = null;
 }
 
 onMounted(() => {
@@ -436,39 +453,84 @@ onMounted(() => {
         Enable extensions and grant the capabilities each plugin requests.
       </p>
 
-      <p v-if="plugins.length === 0" class="settings-hint">No plugins discovered.</p>
+      <p v-if="plugins.length === 0 && discoveryErrors.length === 0" class="settings-hint">
+        No plugins discovered.
+      </p>
 
-      <div v-for="plugin in plugins" :key="plugin.id" class="plugin-card">
-        <div class="settings-row">
-          <div>
-            <strong>{{ plugin.name }}</strong>
-            <span class="plugin-meta">v{{ plugin.version }} · {{ plugin.runtime_status }}</span>
-            <p v-if="plugin.description" class="settings-row-hint">{{ plugin.description }}</p>
-          </div>
-          <ToggleSwitch
-            :model-value="plugin.enabled"
-            :disabled="busy"
-            @update:model-value="(enabled) => togglePlugin(plugin, enabled)"
-          />
-        </div>
-        <div v-if="plugin.requested_capabilities.length > 0" class="plugin-capabilities">
-          <p class="plugin-capabilities-label">Capabilities</p>
-          <div
-            v-for="capability in plugin.requested_capabilities"
-            :key="capability"
-            class="settings-row plugin-capability-row"
-          >
-            <p class="settings-row-label">{{ capability }}</p>
-            <ToggleSwitch
-              :model-value="plugin.granted_capabilities.includes(capability)"
-              :disabled="busy || !plugin.enabled"
-              :show-state-labels="false"
-              @update:model-value="(granted) => toggleCapability(plugin, capability, granted)"
-            />
-          </div>
-        </div>
-        <p v-if="plugin.last_error" class="settings-error">{{ plugin.last_error }}</p>
+      <div v-if="discoveryErrors.length > 0" class="plugin-discovery-warning">
+        <p class="plugin-discovery-warning-label">
+          {{ discoveryErrors.length }}
+          plugin director{{ discoveryErrors.length === 1 ? "y" : "ies" }} failed to load
+        </p>
+        <ul>
+          <li v-for="issue in discoveryErrors" :key="issue.path">
+            <code>{{ issue.path }}</code> — {{ issue.message }}
+          </li>
+        </ul>
       </div>
+
+      <div v-if="plugins.length > 0" class="plugins-table-wrap">
+        <table class="plugins-table">
+          <colgroup>
+            <col class="plugins-col-name" />
+            <col class="plugins-col-developer" />
+            <col class="plugins-col-repo" />
+            <col class="plugins-col-toggle" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Developer</th>
+              <th>Repo</th>
+              <th>Enabled</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="plugin in plugins"
+              :key="plugin.id"
+              class="plugins-table-row"
+              @click="openPluginDetail(plugin)"
+            >
+              <td>
+                <strong>{{ plugin.name }}</strong>
+                <span class="plugin-meta">v{{ plugin.version }} · {{ plugin.runtime_status }}</span>
+              </td>
+              <td>{{ plugin.developer ?? "—" }}</td>
+              <td class="plugins-repo-cell">
+                <a
+                  v-if="plugin.repo"
+                  :href="plugin.repo"
+                  target="_blank"
+                  rel="noreferrer"
+                  @click.stop
+                >
+                  {{ plugin.repo }}
+                </a>
+                <span v-else>—</span>
+              </td>
+              <td class="plugins-toggle-cell" @click.stop>
+                <ToggleSwitch
+                  :model-value="plugin.enabled"
+                  :disabled="busy"
+                  :show-state-labels="false"
+                  @update:model-value="(enabled) => togglePlugin(plugin, enabled)"
+                />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <PluginDetailModal
+        v-if="selectedPlugin"
+        :plugin="selectedPlugin"
+        :capability-metadata="capabilityMetadata"
+        :busy="busy"
+        @close="closePluginDetail"
+        @toggle-enabled="(enabled) => togglePlugin(selectedPlugin!, enabled)"
+        @toggle-capability="(capability, granted) => toggleCapability(selectedPlugin!, capability, granted)"
+      />
 
       <p class="settings-footnote">Audit log: ~/.local/state/pipe-deck/plugin-audit.jsonl</p>
     </div>

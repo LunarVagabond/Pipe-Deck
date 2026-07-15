@@ -181,6 +181,17 @@ impl CoreEngine {
             .unwrap_or_default()
     }
 
+    pub fn plugin_discovery_errors(&self) -> Vec<crate::core::models::PluginDiscoveryIssue> {
+        self.plugin_manager
+            .lock()
+            .map(|manager| manager.discovery_errors())
+            .unwrap_or_default()
+    }
+
+    pub fn plugin_capability_metadata(&self) -> Vec<crate::core::models::CapabilityInfo> {
+        crate::plugins::capabilities::all_metadata()
+    }
+
     pub fn shutdown_plugins(&mut self) {
         if let Ok(mut manager) = self.plugin_manager.lock() {
             manager.shutdown_all();

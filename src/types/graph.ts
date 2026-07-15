@@ -204,12 +204,25 @@ export interface PluginStatus {
   version: string;
   description?: string;
   bundled: boolean;
+  developer?: string;
+  repo?: string;
   enabled: boolean;
   requested_capabilities: string[];
   granted_capabilities: string[];
   runtime_status: PluginRuntimeStatus;
   last_error?: string;
   ui_panels: PluginUiPanel[];
+}
+
+export interface CapabilityInfo {
+  id: string;
+  description: string;
+  enforced: boolean;
+}
+
+export interface PluginDiscoveryIssue {
+  path: string;
+  message: string;
 }
 
 export interface RoutingIntent {
