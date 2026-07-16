@@ -54,6 +54,8 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
             if node_name.contains(".monitor")
                 || node_name.starts_with("pipe-deck-feed-")
                 || node_name.starts_with("pipe-deck-")
+                || node_name.starts_with("effect_output.")
+                || node_name.starts_with("effect_input.")
             {
                 continue;
             }
@@ -497,6 +499,44 @@ mod tests {
 
         let graph = normalize(&objects);
         assert!(graph.devices.is_empty());
+    }
+
+    #[test]
+    fn effect_output_and_input_plumbing_nodes_are_hidden_from_the_graph() {
+        // PD-020/PD-024's swap-by-identity mechanism creates a second,
+        // differently-named PipeWire node (`effect_output.*`/`effect_input.*`)
+        // alongside the device's own persisted identity. That node is internal
+        // plumbing, never a real user-facing device — it must never show up
+        // as its own box on the routing graph, the same way `pipe-deck-feed-*`
+        // feed sinks already don't.
+        let objects = vec![
+            PwDumpObject {
+                id: 10,
+                object_type: "PipeWire:Interface:Node".into(),
+                info: Some(serde_json::json!({
+                    "props": {
+                        "media.class": "Audio/Sink",
+                        "node.name": "effect_output.pipe-deck-mixer",
+                        "node.description": "Pipe Deck Effects - pipe-deck-mixer",
+                    }
+                })),
+            },
+            PwDumpObject {
+                id: 11,
+                object_type: "PipeWire:Interface:Node".into(),
+                info: Some(serde_json::json!({
+                    "props": {
+                        "media.class": "Audio/Sink",
+                        "node.name": "effect_input.pipe-deck-mic",
+                        "node.description": "Pipe Deck Effects - pipe-deck-mic",
+                    }
+                })),
+            },
+        ];
+
+        let graph = normalize(&objects);
+        assert!(graph.devices.is_empty());
+        assert!(graph.streams.is_empty());
     }
 
     #[test]
