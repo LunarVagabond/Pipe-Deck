@@ -1,5 +1,5 @@
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage};
 use crate::pipewire::fx_capability::{self, FxCapabilities};
 use crate::pipewire::fx_validate::{self, PreflightResult};
 use crate::pipewire::{filter_chain, pipewire_restart, pw_cli};
@@ -100,6 +100,61 @@ impl CoreEngine {
             success: true,
             message: None,
         })
+    }
+
+    /// PD-025: node-scoped effects UI entry point. Appends `stage` to the
+    /// device's chain and applies immediately — there is no separate
+    /// "enable live effects" step anymore; the deliberate act of adding a
+    /// stage via the Routing graph/Mixer/Effects-page UI *is* the explicit
+    /// action PD-017 requires before a restart-carrying apply.
+    pub fn add_effect_stage(&mut self, device_id: &str, stage: EffectStage) -> Result<ApplyResult, EngineError> {
+        let mut config = self.effect_chain_for(device_id)?;
+        config.stages.push(stage);
+        self.apply_effect_chain_structural(device_id, &config)
+    }
+
+    /// Removes the stage matching `stage_id`. If no stages remain (and no
+    /// dynamics stage is enabled), fully reverts the device via
+    /// `remove_effect_chain_structural` rather than applying an empty chain.
+    pub fn remove_effect_stage(&mut self, device_id: &str, stage_id: &str) -> Result<ApplyResult, EngineError> {
+        let mut config = self.effect_chain_for(device_id)?;
+        config.stages.retain(|stage| stage.id() != stage_id);
+        if config.is_active() {
+            self.apply_effect_chain_structural(device_id, &config)
+        } else {
+            self.remove_effect_chain_structural(device_id)
+        }
+    }
+
+    /// Reorders `stages` to match `ordered_stage_ids` and re-applies.
+    /// Nothing to visibly demonstrate with only one stage kind in v1, but
+    /// the plumbing needs to exist now so a second stage kind doesn't need
+    /// another backend rewrite.
+    pub fn reorder_effect_stages(
+        &mut self,
+        device_id: &str,
+        ordered_stage_ids: &[String],
+    ) -> Result<ApplyResult, EngineError> {
+        let mut config = self.effect_chain_for(device_id)?;
+        let mut reordered = Vec::with_capacity(config.stages.len());
+        for id in ordered_stage_ids {
+            if let Some(index) = config.stages.iter().position(|stage| stage.id() == id) {
+                reordered.push(config.stages.remove(index));
+            }
+        }
+        // Any stage not named in `ordered_stage_ids` (shouldn't happen from
+        // a well-behaved caller) keeps its relative place at the end rather
+        // than silently vanishing.
+        reordered.append(&mut config.stages);
+        config.stages = reordered;
+        self.apply_effect_chain_structural(device_id, &config)
+    }
+
+    fn effect_chain_for(&self, device_id: &str) -> Result<EffectChainConfig, EngineError> {
+        let chains = ConfigStore::new()
+            .effect_chains()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+        Ok(chains.get(device_id).cloned().unwrap_or_default())
     }
 
     /// Structural Apply: the rare, explicit, restart-carrying path — writes a
@@ -592,7 +647,15 @@ mod live_tests {
 
         let device_id = created.device_id.clone();
         let config = EffectChainConfig {
-            eq_bass: 6,
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 6,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
             ..Default::default()
         };
 
@@ -651,7 +714,15 @@ mod live_tests {
         }
 
         let config = EffectChainConfig {
-            eq_bass: 6,
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 6,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
             ..Default::default()
         };
 
@@ -729,7 +800,15 @@ mod live_tests {
         }
 
         let config = EffectChainConfig {
-            eq_bass: 6,
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 6,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
             ..Default::default()
         };
         if let Err(error) = engine.apply_effect_chain_structural(&device_id, &config) {
@@ -748,7 +827,15 @@ mod live_tests {
         // pw-cli enum-params that the running node's control value actually
         // changed (not just that the command didn't error).
         let updated_config = EffectChainConfig {
-            eq_bass: -4,
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: -4,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
             ..Default::default()
         };
         if let Err(error) = engine.set_effect_chain_live_params(&device_id, &updated_config) {

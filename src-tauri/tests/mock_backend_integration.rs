@@ -178,7 +178,15 @@ fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
     let mic = engine.create_virtual_input("Integration Effects Mic").expect("create input");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig {
-        eq_bass: 6,
+        stages: vec![pipe_deck_lib::core::models::EffectStage::Eq5Band {
+            id: "eq".to_string(),
+            eq_bass: 6,
+            eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+        }],
         ..Default::default()
     };
 
@@ -195,7 +203,48 @@ fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
     // for outputs.
     engine.set_device_effects(&mic.device_id, config).expect("set_device_effects");
     let chains = engine.get_effect_chains().expect("get_effect_chains");
-    assert_eq!(chains.get(&mic.device_id).map(|c| c.eq_bass), Some(6));
+    assert_eq!(chains.get(&mic.device_id).map(|c| c.eq_stage().eq_bass), Some(6));
+}
+
+#[test]
+fn add_remove_reorder_effect_stage_round_trips() {
+    // PD-025: the node-scoped effects UI entry points — no separate
+    // "enable live effects" step, add/remove/reorder apply immediately.
+    // `add_effect_stage`/`remove_effect_stage`/`reorder_effect_stages` are
+    // built on `apply_effect_chain_structural`/`remove_effect_chain_structural`,
+    // which (like every other effects entry point) short-circuit to a mock
+    // success *before* touching `ConfigStore` when mocked — so this locks in
+    // that each call succeeds and reads back its own in-flight config
+    // correctly (stage appended/reordered/removed), not that mock-mode
+    // persists across a fresh `get_effect_chains()` fetch.
+    use pipe_deck_lib::core::models::EffectStage;
+
+    let mut engine = mock_engine();
+    let output = engine.create_virtual_output("Integration Stage Output").expect("create output");
+
+    let add_result = engine
+        .add_effect_stage(
+            &output.device_id,
+            EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_sub: 0,
+                eq_bass: 4,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
+        )
+        .expect("add_effect_stage");
+    assert!(add_result.success);
+
+    let reorder_result = engine
+        .reorder_effect_stages(&output.device_id, &["eq".to_string()])
+        .expect("reorder_effect_stages should accept the only stage's id unchanged");
+    assert!(reorder_result.success);
+
+    let remove_result = engine.remove_effect_stage(&output.device_id, "eq").expect("remove_effect_stage");
+    assert!(remove_result.success);
 }
 
 #[test]

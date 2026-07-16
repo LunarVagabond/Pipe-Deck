@@ -493,7 +493,15 @@ mod live_tests {
             .expect("create disposable test device");
 
         let config = crate::core::models::EffectChainConfig {
-            eq_bass: 5,
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 5,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
             ..Default::default()
         };
         engine

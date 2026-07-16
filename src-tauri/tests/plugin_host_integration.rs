@@ -104,7 +104,7 @@ for line in sys.stdin:
             "method": "effects.apply",
             "params": {
                 "device_id": device_id,
-                "config": {"eq_bass": 6, "output_gain": -3},
+                "config": {"stages": [{"kind": "eq5band", "id": "eq", "eq_bass": 6, "output_gain": -3}]},
             },
         })
         continue
@@ -357,8 +357,8 @@ fn effects_manage_capability_applies_a_queued_request_to_a_pipe_deck_device() {
     let applied = chains
         .get(&virtual_device.device_id)
         .expect("effects.apply request should have been applied to the target device");
-    assert_eq!(applied.eq_bass, 6);
-    assert_eq!(applied.output_gain, -3);
+    assert_eq!(applied.eq_stage().eq_bass, 6);
+    assert_eq!(applied.eq_stage().output_gain, -3);
 }
 
 #[test]

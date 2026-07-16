@@ -668,25 +668,90 @@ where
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-pub struct EffectChainConfig {
-    /// Sub bass (~60 Hz).
-    #[serde(default)]
+/// One addable/removable/reorderable unit in a device's effect chain.
+/// `id` is a stable, client-generated identifier used as the Vue `:key` for
+/// reorder/remove — not derived from the stage's kind or contents, so
+/// reordering/removing survives value edits.
+///
+/// v1 ships exactly one variant. Compressor/limiter/noise gate stay as
+/// standalone `EffectChainConfig` fields (see below), not stages — they're
+/// unconditionally blocked by `fx_validate::preflight` until a real backing
+/// plugin exists (#86/#18), so there's no functional stage-kind shape to
+/// design for them yet; promoting them into `stages` is deferred to whenever
+/// one is actually unblocked.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind")]
+pub enum EffectStage {
+    #[serde(rename = "eq5band")]
+    Eq5Band {
+        id: String,
+        /// Sub bass (~60 Hz).
+        #[serde(default)]
+        eq_sub: i32,
+        /// Bass (~150 Hz). Legacy configs may use `eq_low`.
+        #[serde(default, alias = "eq_low")]
+        eq_bass: i32,
+        #[serde(default)]
+        eq_mid: i32,
+        /// Treble (~4 kHz).
+        #[serde(default)]
+        eq_treble: i32,
+        /// Air / presence (~10 kHz). Legacy configs may use `eq_high`.
+        #[serde(default, alias = "eq_high")]
+        eq_air: i32,
+        /// Master trim in dB (-12..+12).
+        #[serde(default)]
+        output_gain: i32,
+    },
+}
+
+impl Default for EffectStage {
+    fn default() -> Self {
+        EffectStage::Eq5Band {
+            id: "eq".to_string(),
+            eq_sub: 0,
+            eq_bass: 0,
+            eq_mid: 0,
+            eq_treble: 0,
+            eq_air: 0,
+            output_gain: 0,
+        }
+    }
+}
+
+impl EffectStage {
+    pub fn kind(&self) -> &'static str {
+        match self {
+            EffectStage::Eq5Band { .. } => "eq5band",
+        }
+    }
+
+    pub fn id(&self) -> &str {
+        match self {
+            EffectStage::Eq5Band { id, .. } => id,
+        }
+    }
+}
+
+/// Flattened EQ params for a chain's `Eq5Band` stage (if any) — the shape
+/// `pipewire::fx_validate`'s conf/live-param rendering actually needs,
+/// independent of `stages`' ordering/id bookkeeping. "No stage" renders as
+/// all-neutral values (`Default`), same as a present-but-all-zero stage.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EqStageParams {
     pub eq_sub: i32,
-    /// Bass (~150 Hz). Legacy configs may use `eq_low`.
-    #[serde(default, alias = "eq_low")]
     pub eq_bass: i32,
-    #[serde(default)]
     pub eq_mid: i32,
-    /// Treble (~4 kHz).
-    #[serde(default)]
     pub eq_treble: i32,
-    /// Air / presence (~10 kHz). Legacy configs may use `eq_high`.
-    #[serde(default, alias = "eq_high")]
     pub eq_air: i32,
-    /// Master trim in dB (-12..+12).
-    #[serde(default)]
     pub output_gain: i32,
+}
+
+#[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
+pub struct EffectChainConfig {
+    /// Ordered, addable/removable/reorderable. v1: 0 or 1 `Eq5Band` entries.
+    #[serde(default)]
+    pub stages: Vec<EffectStage>,
     #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
     pub compressor: DynamicsStage,
     #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
@@ -704,21 +769,110 @@ pub struct EffectChainConfig {
     pub bypassed: bool,
 }
 
+/// Accepts either the current `{ stages: [...], ... }` shape or a pre-PD-025
+/// config with flat `eq_sub`/`eq_bass`/.../`output_gain` fields at the top
+/// level — synthesizing a single `Eq5Band` stage (deterministic id `"eq"`,
+/// since v1 only ever has zero or one) from the legacy fields so existing
+/// saved profiles keep loading with no manual migration step, the same
+/// established pattern as `deserialize_mix_source_specs`/
+/// `deserialize_dynamics_stage` in this file.
+impl<'de> Deserialize<'de> for EffectChainConfig {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct OnDisk {
+            #[serde(default)]
+            stages: Vec<EffectStage>,
+            #[serde(default)]
+            eq_sub: i32,
+            #[serde(default, alias = "eq_low")]
+            eq_bass: i32,
+            #[serde(default)]
+            eq_mid: i32,
+            #[serde(default)]
+            eq_treble: i32,
+            #[serde(default, alias = "eq_high")]
+            eq_air: i32,
+            #[serde(default)]
+            output_gain: i32,
+            #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
+            compressor: DynamicsStage,
+            #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
+            limiter: DynamicsStage,
+            #[serde(default, deserialize_with = "deserialize_dynamics_stage")]
+            noise_gate: DynamicsStage,
+            #[serde(default)]
+            bypassed: bool,
+        }
+
+        let raw = OnDisk::deserialize(deserializer)?;
+        let legacy_eq_active = raw.eq_sub != 0
+            || raw.eq_bass != 0
+            || raw.eq_mid != 0
+            || raw.eq_treble != 0
+            || raw.eq_air != 0
+            || raw.output_gain != 0;
+
+        let stages = if !raw.stages.is_empty() {
+            raw.stages
+        } else if legacy_eq_active {
+            vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_sub: raw.eq_sub,
+                eq_bass: raw.eq_bass,
+                eq_mid: raw.eq_mid,
+                eq_treble: raw.eq_treble,
+                eq_air: raw.eq_air,
+                output_gain: raw.output_gain,
+            }]
+        } else {
+            Vec::new()
+        };
+
+        Ok(EffectChainConfig {
+            stages,
+            compressor: raw.compressor,
+            limiter: raw.limiter,
+            noise_gate: raw.noise_gate,
+            bypassed: raw.bypassed,
+        })
+    }
+}
+
 impl EffectChainConfig {
     /// Whether this chain has any non-default settings worth persisting.
     /// Deliberately independent of `bypassed` — bypassing mutes the chain's
     /// effect on audio without discarding its configured settings, so a
     /// bypassed-but-configured chain still counts as active here.
     pub fn is_active(&self) -> bool {
-        self.compressor.enabled
-            || self.limiter.enabled
-            || self.noise_gate.enabled
-            || self.eq_sub != 0
-            || self.eq_bass != 0
-            || self.eq_mid != 0
-            || self.eq_treble != 0
-            || self.eq_air != 0
-            || self.output_gain != 0
+        self.compressor.enabled || self.limiter.enabled || self.noise_gate.enabled || !self.stages.is_empty()
+    }
+
+    /// The chain's `Eq5Band` stage, flattened — "no stage" is treated the
+    /// same as a present-but-neutral one by every caller.
+    // `find_map` looks unnecessary with only one `EffectStage` variant today,
+    // but this is deliberately shaped to keep working once a second variant
+    // exists (see `EffectStage`'s doc comment) — `.map().next()` would need
+    // rewriting again at that point instead of just adding a match arm.
+    #[allow(clippy::unnecessary_find_map)]
+    pub fn eq_stage(&self) -> EqStageParams {
+        self.stages
+            .iter()
+            .find_map(|stage| match stage {
+                EffectStage::Eq5Band {
+                    eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain, ..
+                } => Some(EqStageParams {
+                    eq_sub: *eq_sub,
+                    eq_bass: *eq_bass,
+                    eq_mid: *eq_mid,
+                    eq_treble: *eq_treble,
+                    eq_air: *eq_air,
+                    output_gain: *output_gain,
+                }),
+            })
+            .unwrap_or_default()
     }
 }
 
