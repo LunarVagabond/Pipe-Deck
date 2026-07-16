@@ -2,7 +2,30 @@ use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph};
 use crate::backend::BackendError;
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
+use crate::pipewire::filter_chain;
 use std::collections::HashSet;
+
+/// A virtual output currently hosting live effects (PD-020) has its
+/// identity pinned to the *capture* side — `system_name`'s own "monitor"
+/// port only ever carries the raw, pre-processing signal now, since the
+/// processed audio leaves via the separately-named `effect_output.*` node
+/// instead (see `pipewire::filter_chain`/`core::engine::effects_ops`).
+/// Every caller that fans this device's audio out to a target must resolve
+/// through this first — linking straight to `system_name`'s monitor while
+/// effects are live bypasses the effect chain entirely (the target hears
+/// unprocessed audio), and on a source that's ALSO already correctly linked
+/// via `effect_output.*`, doing so on top of that means the target hears
+/// both the raw and the processed signal mixed together. Checked against
+/// live port state (not persisted config) because that's the only source of
+/// truth for whether the swap has actually happened yet.
+pub fn effective_fan_out_source(system_name: &str) -> String {
+    let effect_output_name = filter_chain::effect_output_name_for_device(system_name);
+    if pw_link::has_output_ports(&effect_output_name) {
+        effect_output_name
+    } else {
+        system_name.to_string()
+    }
+}
 
 pub fn apply_stream_to_sink(
     graph: &RuntimeGraph,
@@ -29,8 +52,17 @@ pub fn apply_sink_targets(
         ));
     }
 
+    if would_create_cycle(graph, sink_device_id, target_device_ids) {
+        return Err(BackendError::Message(format!(
+            "routing \"{}\" here would create a cycle",
+            sink.label
+        )));
+    }
+
+    let link_source = effective_fan_out_source(&sink.system_name);
+
     if target_device_ids.is_empty() {
-        return prune_stale_fan_out_links(&sink.system_name, &HashSet::new());
+        return prune_stale_fan_out_links(&link_source, &HashSet::new());
     }
 
     if target_device_ids.len() == 1 && !sink.is_multi_sink() {
@@ -48,20 +80,22 @@ pub fn apply_sink_targets(
         let target_is_virtual_source =
             target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
         pw_link::link_sink_monitor_to_target(
-            &sink.system_name,
+            &link_source,
             &target.system_name,
             target_is_virtual_source,
         )?;
         let mut allowed = HashSet::new();
         allowed.insert(target.system_name.clone());
-        prune_stale_fan_out_links(&sink.system_name, &allowed)?;
+        prune_stale_fan_out_links(&link_source, &allowed)?;
         return Ok(());
     }
 
     fan_out_sink(graph, &sink.system_name, target_device_ids)
 }
 
-/// Links `sink_system_name`'s monitor to every target in `target_device_ids`.
+/// Links `sink_system_name`'s monitor to every target in `target_device_ids`
+/// — or, if `sink_system_name` currently hosts live effects, the processed
+/// `effect_output.*` node instead (see `effective_fan_out_source`).
 ///
 /// Each target is attempted independently and failures are collected rather
 /// than aborting the whole batch on the first `?` — otherwise a single
@@ -74,6 +108,7 @@ pub fn fan_out_sink(
     sink_system_name: &str,
     target_device_ids: &[String],
 ) -> Result<(), BackendError> {
+    let sink_system_name = &effective_fan_out_source(sink_system_name);
     let mut linked = HashSet::new();
     let mut errors = Vec::new();
 
@@ -119,6 +154,38 @@ pub fn prune_stale_fan_out_links(
         }
     }
     Ok(())
+}
+
+fn targets_of(device: &Device) -> Vec<String> {
+    if !device.current_targets.is_empty() {
+        device.current_targets.clone()
+    } else if let Some(target) = &device.current_target {
+        vec![target.clone()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Walks the already-persisted routing graph forward from each proposed
+/// target to see whether it can already reach back to `sink_device_id` —
+/// i.e. whether applying this fan-out would close a loop (A -> B -> A).
+/// Only virtual-output -> virtual-output chaining can introduce cycles, so
+/// this only needs to follow existing sink targets, not stream routing.
+fn would_create_cycle(graph: &RuntimeGraph, sink_device_id: &str, target_device_ids: &[String]) -> bool {
+    let mut stack: Vec<String> = target_device_ids.to_vec();
+    let mut visited: HashSet<String> = HashSet::new();
+    while let Some(current) = stack.pop() {
+        if current == sink_device_id {
+            return true;
+        }
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if let Some(device) = graph.devices.iter().find(|entry| entry.id == current) {
+            stack.extend(targets_of(device));
+        }
+    }
+    false
 }
 
 fn validate_fan_out_target(device: &Device) -> Result<(), BackendError> {
@@ -235,5 +302,28 @@ mod tests {
         let error = apply_sink_targets(&graph, "hw", &["node-2".into()])
             .expect_err("physical device cannot fan out");
         assert!(error.to_string().contains("virtual output sinks"));
+    }
+
+    #[test]
+    fn rejects_fan_out_that_would_create_a_cycle() {
+        let mut submix = sample_sink("submix", false);
+        let mut master = sample_sink("master", false);
+        master.current_target = Some("submix".into());
+        submix.current_target = None;
+
+        let graph = RuntimeGraph {
+            devices: vec![submix, master],
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "mock".into(),
+            notice: None,
+            ..Default::default()
+        };
+
+        // "master" already routes to "submix"; routing "submix" back to
+        // "master" would close the loop.
+        let error = apply_sink_targets(&graph, "submix", &["master".into()])
+            .expect_err("cycle must be rejected");
+        assert!(error.to_string().contains("cycle"));
     }
 }

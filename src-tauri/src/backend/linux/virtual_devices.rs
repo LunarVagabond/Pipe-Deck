@@ -1,3 +1,4 @@
+use crate::config::ConfigStore;
 use crate::core::models::{Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::backend::BackendError;
 use crate::backend::linux::pactl;
@@ -6,6 +7,9 @@ use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Debug)]
 pub struct VirtualDeviceEntry {
+    /// Empty when this device isn't backed by a module in the *main*
+    /// session's module table — see `discover_from_pactl`'s config-backfill
+    /// pass. Never assume this is non-empty before unloading by it.
     pub module_id: String,
     pub device_id: String,
     pub system_name: String,
@@ -47,6 +51,43 @@ impl VirtualDeviceRegistry {
                     direction: module.direction,
                     multi: module.multi,
                 });
+        }
+
+        // `list_pipe_deck_modules` only sees modules loaded into the *main*
+        // session's own module table. A device currently hosting live
+        // effects is backed by `module-filter-chain`, loaded into the
+        // separate `filter-chain.service` PipeWire instance (PD-017/PD-020)
+        // — its sink is exported into and visible from the main session,
+        // but the module itself never appears in `pactl list modules
+        // short`, so the loop above can never find it. Left unhandled, this
+        // device silently drops out of the registry the moment it's rebuilt
+        // from scratch (a process restart, since `discover_from_pactl` only
+        // ever *adds* entries, never removes ones already in memory) —
+        // taking every routing edge into or out of it with it, and any
+        // downstream target still feeding into it ends up mis-attributed to
+        // whatever's now first to answer for that name. Backfill from
+        // persisted config (the one place that still remembers this device
+        // exists) for any entry that isn't already accounted for but whose
+        // sink/source is confirmed still live.
+        for spec in ConfigStore::new().virtual_devices() {
+            let system_name = format!("pipe-deck-{}", spec.slug);
+            if devices.contains_key(&system_name) {
+                continue;
+            }
+            if !pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
+                continue;
+            }
+            devices.insert(
+                system_name.clone(),
+                VirtualDeviceEntry {
+                    module_id: String::new(),
+                    device_id: spec.id,
+                    system_name,
+                    label: spec.label,
+                    direction: spec.direction,
+                    multi: spec.multi,
+                },
+            );
         }
 
         Ok(())

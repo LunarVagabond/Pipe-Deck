@@ -153,7 +153,7 @@ function isMicMixCandidate(source: Device, target: Device): boolean {
   return (
     (sourceIsPhysicalMic || sourceIsVirtualOutput) &&
     target.kind === "virtual" &&
-    target.direction !== "duplex"
+    target.direction === "input"
   );
 }
 
@@ -186,7 +186,7 @@ function resolveDeviceToDevice(
   const allowed = targetsForVirtualSink(graph.devices, source);
   if (!allowed.some((entry) => entry.id === targetDeviceId)) {
     return {
-      error: `"${source.label}" can only route to a physical/virtual output or a virtual input — "${target.label}" isn't one of those.`,
+      error: `"${source.label}" can only route to a physical output, another virtual output, or a virtual input — "${target.label}" isn't one of those.`,
     };
   }
 

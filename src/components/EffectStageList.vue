@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref } from "vue";
 import { useEffectChain } from "../composables/useEffectChain";
-import type { Eq5BandStage } from "../types/graph";
+import { emptyEq5BandStage } from "../types/graph";
+import type { EffectStage, Eq5BandStage } from "../types/graph";
 
 const props = withDefaults(
   defineProps<{
@@ -44,6 +45,16 @@ function stageLabel(stage: Eq5BandStage): string {
 function onSliderInput(stage: Eq5BandStage, key: keyof Omit<Eq5BandStage, "kind" | "id">, event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
   scheduleStageUpdate(props.deviceId, { ...stage, [key]: value });
+}
+
+/** Resets one stage's parameters back to their defaults in place — same
+ * stage, same position in the chain, just neutral values. Keyed by kind so
+ * a future second `EffectStage` variant is a one-line addition here rather
+ * than a rewrite. */
+function resetStage(stage: EffectStage) {
+  if (stage.kind === "eq5band") {
+    scheduleStageUpdate(props.deviceId, emptyEq5BandStage(stage.id));
+  }
 }
 
 function hasEq5Band(): boolean {
@@ -122,6 +133,9 @@ function onDrop(targetStageId: string) {
           />
           <span class="effect-stage-slider-value">{{ stage[band.key] }}</span>
         </label>
+        <button type="button" class="effect-stage-reset" @click="resetStage(stage)">
+          Reset to default
+        </button>
       </div>
     </div>
 

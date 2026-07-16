@@ -3,7 +3,14 @@
 // call site. Centralizing this also means we only have one place to change if the
 // underlying alpha-blend mechanism (color-mix) ever needs to move to a fallback approach.
 @function translucent($token, $percent) {
-  @return color-mix(in srgb, var(#{$token}) #{$percent}%, transparent);
+  // `#{$percent}%` (string interpolation immediately followed by a literal
+  // `%`) compiles to "98 %" with a stray space on this Sass toolchain,
+  // which makes color-mix()'s percentage argument invalid CSS and silently
+  // drops the entire background/box-shadow declaration using it — every
+  // translucent() call site was affected, not just one component.
+  // `$percent * 1%` produces a real Sass percentage value instead, which
+  // stringifies correctly with no space.
+  @return color-mix(in srgb, var(#{$token}) #{$percent * 1%}, transparent);
 }
 
 :root {

@@ -215,7 +215,10 @@ export function targetsForVirtualSink(devices: Device[], device: Device): Device
     if (candidate.kind === "physical" && candidate.direction === "output") {
       return true;
     }
-    return candidate.kind === "virtual" && candidate.direction === "input";
+    if (candidate.kind === "virtual" && candidate.direction === "input") {
+      return true;
+    }
+    return candidate.kind === "virtual" && candidate.direction === "output";
   });
 }
 

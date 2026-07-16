@@ -118,6 +118,29 @@ fn virtual_device_create_remove_cycle_leaves_no_residue() {
 }
 
 #[test]
+fn virtual_output_can_chain_into_another_virtual_output() {
+    let mut engine = mock_engine();
+
+    let submix = engine.create_virtual_output("Submix").expect("create submix");
+    let master = engine.create_virtual_output("Master Mix").expect("create master mix");
+
+    let result = engine.set_device_targets(&submix.device_id, std::slice::from_ref(&master.device_id)).unwrap();
+    assert!(result.success, "{:?}", result.message);
+    engine.refresh_graph().unwrap();
+
+    let chained = engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .find(|d| d.id == submix.device_id)
+        .unwrap();
+    assert_eq!(chained.current_targets, vec![master.device_id.clone()]);
+
+    engine.remove_virtual_device(&submix.system_name).unwrap();
+    engine.remove_virtual_device(&master.system_name).unwrap();
+}
+
+#[test]
 fn device_alias_rename_is_visible_after_refresh() {
     let mut engine = mock_engine();
     let output = engine.create_virtual_output("Original Label").expect("create output");
