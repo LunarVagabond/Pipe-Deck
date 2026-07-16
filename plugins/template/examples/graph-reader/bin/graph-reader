@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Worked-example Pipe Deck plugin: read the runtime graph snapshot.
+
+This goes one step beyond the bare echo template (`plugins/template/`): it
+takes the *one* capability that template already requests — `graph.read` —
+and actually does something with it. Every time the host pushes a
+`graph.updated` notification, this plugin parses the snapshot and writes a
+short, human-readable summary of the current routing to **stderr**.
+
+Why this is a good first worked example
+---------------------------------------
+* It uses exactly one RPC method meaningfully (`graph.updated`), so it needs
+  exactly one capability (`graph.read`). That is the "minimal capability set"
+  the Plugin Review Checklist asks for — nothing is requested that isn't used.
+* `graph.updated` is the first runtime signal every plugin receives, so it is
+  the natural "hello, graph" step after the initialize/shutdown handshake.
+* It demonstrates the host -> plugin *notification* direction (a message with
+  no `id`, to which the plugin must NOT reply), which the echo scaffold never
+  shows.
+
+Transport rules you must respect (see docs/specs/Plugin_API.md)
+---------------------------------------------------------------
+* The protocol is JSON-RPC 2.0, one JSON object per line, over stdin/stdout.
+* **stdout is reserved for JSON-RPC.** The host parses every stdout line as a
+  request response or a notification; printing anything else there corrupts
+  the channel. So all human-facing logging in this example goes to **stderr**,
+  which the host captures as a diagnostic tail (see `PluginProcess::spawn`).
+* A message WITH an `id` is a request and expects a reply with the same `id`.
+  A message WITHOUT an `id` is a notification — handle it, but never reply.
+
+Run it headlessly without the app
+---------------------------------
+The host's `graph.updated` params are exactly a serialized runtime graph, so
+you can exercise this plugin by piping the same JSON a mock graph would carry:
+
+    printf '%s\n' \
+      '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"api_version":1}}' \
+      '{"jsonrpc":"2.0","method":"graph.updated","params":{"data_source":"mock","devices":[{"id":"sink-chat","label":"Chat","kind":"virtual","direction":"output"}],"streams":[{"id":"stream-discord","app_name":"Discord","direction":"playback","current_target":"sink-chat"}],"links":[]}}' \
+      '{"jsonrpc":"2.0","id":2,"method":"shutdown"}' \
+      | ./bin/graph-reader
+
+stdout carries only the two JSON-RPC replies (to initialize and shutdown);
+the graph summary appears on stderr.
+"""
+
+import json
+import sys
+
+
+def send(obj):
+    """Write one JSON-RPC message to stdout. Reserved for protocol traffic."""
+    sys.stdout.write(json.dumps(obj) + "\n")
+    sys.stdout.flush()
+
+
+def log(message):
+    """Write a human-readable line to stderr (safe: not parsed as JSON-RPC)."""
+    sys.stderr.write(message + "\n")
+    sys.stderr.flush()
+
+
+def summarize_graph(graph):
+    """Read the graph snapshot and log a short routing summary.
+
+    `graph` is the `params` of a `graph.updated` notification — a runtime graph
+    with `devices`, `streams` and `links` arrays plus a `data_source` string.
+    We read defensively with `.get(...)` and sane defaults so a schema tweak or
+    a partial snapshot degrades to a shorter summary instead of a crash (the
+    "handles malformed RPC without crashing" checklist item).
+    """
+    devices = graph.get("devices", [])
+    streams = graph.get("streams", [])
+    links = graph.get("links", [])
+    data_source = graph.get("data_source", "unknown")
+
+    log(
+        f"graph.updated: source={data_source} "
+        f"devices={len(devices)} streams={len(streams)} links={len(links)}"
+    )
+
+    # A small, concrete read of the snapshot: where is each playback stream
+    # currently routed? This is the kind of state a real routing plugin would
+    # inspect before deciding whether to send a `routing.suggest` notification.
+    for stream in streams:
+        if stream.get("direction") != "playback":
+            continue
+        name = stream.get("app_name", stream.get("id", "<unknown>"))
+        target = stream.get("current_target") or "<unrouted>"
+        log(f"  playback stream {name!r} -> {target}")
+
+
+def main():
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            # Ignore anything that isn't a JSON message rather than crashing —
+            # a hung/dead plugin would get killed by the host and drop routing
+            # diagnostics with it.
+            continue
+
+        method = message.get("method")
+        msg_id = message.get("id")
+
+        # Request: handshake. Reply with the same id and advertise readiness.
+        if method == "initialize" and msg_id is not None:
+            send({
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {"plugin_version": "0.1.0", "status": "ready"},
+            })
+            continue
+
+        # Notification (no id): the host pushed a fresh graph snapshot.
+        # Read it, log a summary, and DO NOT reply.
+        if method == "graph.updated":
+            summarize_graph(message.get("params", {}))
+            continue
+
+        # Request: clean shutdown. Acknowledge (if it carried an id) and exit.
+        if method == "shutdown":
+            if msg_id is not None:
+                send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+            break
+
+        # Any other request gets a benign ack so the host never blocks on us;
+        # any other notification is simply ignored.
+        if msg_id is not None:
+            send({"jsonrpc": "2.0", "id": msg_id, "result": {"status": "ok"}})
+
+
+if __name__ == "__main__":
+    main()

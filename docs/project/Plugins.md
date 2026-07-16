@@ -13,6 +13,8 @@ Plugins run in isolated subprocesses and communicate via JSON-RPC 2.0 over stdin
 3. Implement the entry binary (Python, Rust, or any language with stdio JSON)
 4. Enable the plugin in **Settings → Plugins** and approve capabilities
 
+New to the plugin API? The [template walkthrough](../../plugins/template/README.md) explains the minimal scaffold and a heavily-commented worked example (`graph-reader`) that reads the runtime graph snapshot via the `graph.updated` method — with a headless test command you can run without the app.
+
 ## Capability reference (v1)
 
 | Capability | Use | Enforced today |
