@@ -112,6 +112,40 @@ fn check_range(label: &str, value: i32, range: (i32, i32), blocking_reasons: &mu
 /// that must be explicitly linked onward (see `pipewire::filter_chain`).
 pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
+    let effect_output_name = format!("effect_output.{device_system_name}");
+    render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
+}
+
+/// Capture-direction variant for virtual **input** (mic) devices (PD-024).
+///
+/// The roles are reversed from `render_conf`: raw audio (already summed in
+/// via the existing mic-mix feed-sink mechanism) arrives at a differently
+/// named inlet, `effect_input.{device_system_name}`, so `device_system_name`
+/// itself can stay pinned to the *processed* output side instead — apps that
+/// already selected this device as their mic keep working across the swap
+/// with no reselection, the same "same node identity persists across a
+/// Structural Apply" property `render_conf` already relies on for outputs.
+/// `device_system_name` gets `media.class = Audio/Source/Virtual` so it
+/// keeps presenting as a normal selectable microphone.
+pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig) -> String {
+    let node_description = format!("Pipe Deck Effects - {device_system_name}");
+    let effect_input_name = format!("effect_input.{device_system_name}");
+    render_filter_chain_conf(
+        &node_description,
+        &effect_input_name,
+        device_system_name,
+        Some("Audio/Source/Virtual"),
+        config,
+    )
+}
+
+fn render_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    config: &EffectChainConfig,
+) -> String {
     // Bypassed means "keep the chain loaded but pass audio through
     // unprocessed" — bake that in as neutral values here so the initial
     // Structural Apply already matches what `live_params` would push right
@@ -122,6 +156,9 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     let eq_mid = if config.bypassed { 0 } else { config.eq_mid };
     let eq_treble = if config.bypassed { 0 } else { config.eq_treble };
     let eq_air = if config.bypassed { 0 } else { config.eq_air };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
 
     format!(
         r#"# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.
@@ -151,12 +188,12 @@ context.modules = [
             audio.channels = 2
             audio.position = [ FL FR ]
             capture.props = {{
-                node.name   = "{device_system_name}"
+                node.name   = "{capture_name}"
                 media.class = Audio/Sink
             }}
             playback.props = {{
-                node.name    = "effect_output.{device_system_name}"
-                node.passive = true
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
             }}
         }}
     }}
@@ -384,6 +421,49 @@ mod tests {
             assert!(
                 rendered.contains(&format!("name = {node_name} ")),
                 "render_conf is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_conf_capture_pins_device_name_to_the_processed_output_side() {
+        let config = EffectChainConfig {
+            eq_bass: 6,
+            ..Default::default()
+        };
+        let rendered = render_conf_capture("pipe-deck-mic", &config);
+        assert!(rendered.contains(r#"node.name    = "pipe-deck-mic""#));
+        assert!(rendered.contains(r#"node.name   = "effect_input.pipe-deck-mic""#));
+        assert!(rendered.contains("media.class  = Audio/Source/Virtual"));
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+        assert!(!rendered.to_lowercase().contains("acompressor"));
+    }
+
+    #[test]
+    fn render_conf_capture_is_deterministic_for_idempotence_checks() {
+        let config = EffectChainConfig {
+            eq_sub: 2,
+            ..Default::default()
+        };
+        assert_eq!(
+            render_conf_capture("pipe-deck-mic", &config),
+            render_conf_capture("pipe-deck-mic", &config)
+        );
+    }
+
+    #[test]
+    fn live_params_control_names_match_render_conf_capture_node_names() {
+        let config = EffectChainConfig {
+            eq_bass: 6,
+            output_gain: 0,
+            ..Default::default()
+        };
+        let rendered = render_conf_capture("pipe-deck-mic", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_conf_capture is missing a node for live param {name:?}"
             );
         }
     }

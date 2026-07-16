@@ -189,6 +189,15 @@ pub fn sink_exists(name: &str) -> Result<bool, BackendError> {
     Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
 
+/// The source-direction counterpart to `sink_exists` — used to confirm a
+/// virtual input device (backed by `module-null-sink` with
+/// `media.class=Audio/Source/Virtual`, see `create_virtual_source`) has
+/// (re)appeared after a Structural Apply swap (PD-024).
+pub fn source_exists(name: &str) -> Result<bool, BackendError> {
+    let output = run_pactl(&["list", "sources", "short"])?;
+    Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
+}
+
 pub fn create_null_sink(name: &str, description: &str) -> Result<String, BackendError> {
     let props = description_module_args(description);
     let output = run_pactl(&[

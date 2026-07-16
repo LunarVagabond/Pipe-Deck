@@ -102,6 +102,7 @@ function normalizeChain(chain: EffectChainConfig): EffectChainConfig {
 function isEffectsDevice(device: Device): boolean {
   return (
     device.kind === "virtual" &&
+    device.direction !== "duplex" &&
     device.system_name.startsWith("pipe-deck-") &&
     !device.system_name.startsWith("pipe-deck-feed-") &&
     !device.system_name.startsWith("pipe-deck-split-")
@@ -409,8 +410,9 @@ onMounted(() => {
     </header>
 
     <p class="effects-help">
-      Five-band EQ and dynamics settings are saved for profiles. Enable live effects on a device
-      to actually process its audio — see the status banner below for each device's current state.
+      Five-band EQ and dynamics settings are saved for profiles, for both virtual outputs and
+      virtual input (mic) devices. Enable live effects on a device to actually process its audio —
+      see the status banner below for each device's current state.
     </p>
 
     <p v-if="isMockData" class="notice-banner mock">
@@ -423,7 +425,7 @@ onMounted(() => {
     <p v-if="showBlockingLoader" class="status">Loading devices…</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
     <p v-else-if="isEmpty" class="status">
-      No Pipe Deck virtual devices available. Create a virtual output from + New first.
+      No Pipe Deck virtual devices available. Create a virtual output or virtual input from + New first.
     </p>
 
     <template v-else>

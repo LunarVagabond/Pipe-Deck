@@ -165,6 +165,40 @@ fn virtual_mic_mix_add_and_volume_adjust() {
 }
 
 #[test]
+fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
+    // PD-024: effects extend from virtual output-only to virtual input
+    // (mic) devices too. Structural apply/remove short-circuit to a mock
+    // success without touching real PipeWire, but this locks in that the
+    // direction-aware guard in `apply_effect_chain_structural`/
+    // `remove_effect_chain_structural` accepts an Input-direction device at
+    // all (previously only `DeviceDirection::Output` was permitted), and
+    // that the persisted chain round-trips through `get_effect_chains` the
+    // same way it already does for outputs.
+    let mut engine = mock_engine();
+    let mic = engine.create_virtual_input("Integration Effects Mic").expect("create input");
+
+    let config = pipe_deck_lib::core::models::EffectChainConfig {
+        eq_bass: 6,
+        ..Default::default()
+    };
+
+    engine
+        .apply_effect_chain_structural(&mic.device_id, &config)
+        .expect("apply_effect_chain_structural should succeed for a virtual input device");
+    engine
+        .remove_effect_chain_structural(&mic.device_id)
+        .expect("remove_effect_chain_structural should succeed for a virtual input device");
+
+    // `set_device_effects` (the persist-only path `Effects.vue` uses before
+    // live effects are ever enabled) must round-trip through
+    // `get_effect_chains` for an input device the same way it already does
+    // for outputs.
+    engine.set_device_effects(&mic.device_id, config).expect("set_device_effects");
+    let chains = engine.get_effect_chains().expect("get_effect_chains");
+    assert_eq!(chains.get(&mic.device_id).map(|c| c.eq_bass), Some(6));
+}
+
+#[test]
 fn engine_reinitializes_cleanly_against_a_fresh_backend_instance() {
     // Roughly simulates an app restart in mock mode: a brand new CoreEngine
     // (and therefore a brand new MockAudioBackend) must still produce a
