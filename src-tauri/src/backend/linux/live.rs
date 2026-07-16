@@ -21,7 +21,7 @@ const MONITOR_DEBOUNCE: Duration = Duration::from_millis(200);
 // Under sustained high-churn (many streams appearing/disappearing rapidly),
 // events never go quiet long enough for the debounce window alone to fire —
 // this caps how long a burst can coalesce before we force a refresh anyway,
-// so routing changes still surface promptly (see PipeWire_Design.md).
+// so routing changes still surface promptly (see docs/architecture/PipeWire_Design.md).
 const MAX_COALESCE_WINDOW: Duration = Duration::from_millis(400);
 
 pub struct LinuxPipeWireBackend {

@@ -34,7 +34,7 @@ Open work lives in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/is
 gh issue list
 ```
 
-Product direction and acceptance criteria remain in [`docs/Roadmap.md`](../docs/Roadmap.md). Completed history is in git; do not maintain a separate backlog file in the repo.
+Product direction and acceptance criteria remain in [`docs/product/Roadmap.md`](../docs/product/Roadmap.md). Completed history is in git; do not maintain a separate backlog file in the repo.
 
 ## Commits And Pull Requests
 
@@ -126,7 +126,6 @@ Current targets include:
 | `make preview` | Preview the built frontend assets |
 | `make flatpak` | Build the Flatpak package locally |
 | `make smoke` | Run install and compile smoke checks |
-| `make docs-sync` | Init (if needed) and pull latest wiki into the `docs/` submodule, committing the pointer update |
 | `make clean` | Remove build artifacts |
 | `make release VER=<x.y.z>` | Maintainer-only: version bump + tag + release; not part of the standard contributor loop |
 | `make help` | List every available target with its one-line description |
@@ -134,6 +133,14 @@ Current targets include:
 Set `PIPE_DECK_USE_MOCK=1` only when you need the static sample graph (e.g. UI work without PipeWire).
 
 When introducing a new developer-facing command (for example lint, format, or packaging), add a documented Make target in the root `Makefile` and mention it here if it is part of the standard workflow.
+
+### Known Dev-Environment Warnings
+
+`Xlib: extension "DRI2" missing on display ":1"` — a WebKitGTK/X11 warning, not a Pipe Deck bug. It appears when the webview's GPU-accelerated compositing path probes for a DRI2 GLX extension the X server doesn't expose (common in VMs, nested/remote X sessions, or software-only graphics stacks). It's cosmetic stderr noise and doesn't affect functionality. If it's distracting, run with software compositing instead of disabling it repo-wide (which would degrade contributors with working GPU acceleration):
+
+```bash
+WEBKIT_DISABLE_COMPOSITING_MODE=1 make start
+```
 
 ## Frontend Styling
 
@@ -165,12 +172,14 @@ When adding a new view or component with custom styling, create or extend the ma
 
 ## Where To Contribute
 
-- Product direction: [Product Requirements](https://github.com/LunarVagabond/Pipe-Deck/wiki/Product_Requirements), [Roadmap](https://github.com/LunarVagabond/Pipe-Deck/wiki/Roadmap), [Decisions](https://github.com/LunarVagabond/Pipe-Deck/wiki/Decisions)
-- Architecture: [System Architecture](https://github.com/LunarVagabond/Pipe-Deck/wiki/System_Architecture), [PipeWire Design](https://github.com/LunarVagabond/Pipe-Deck/wiki/PipeWire_Design)
-- Specifications: [UI Spec](https://github.com/LunarVagabond/Pipe-Deck/wiki/UI_Spec), [Plugin API](https://github.com/LunarVagabond/Pipe-Deck/wiki/Plugin_API), [Config Spec](https://github.com/LunarVagabond/Pipe-Deck/wiki/Config_Spec)
-- Contributor process: this file, and the rest of the [wiki's Project section](https://github.com/LunarVagabond/Pipe-Deck/wiki/Home)
+- New here? Start at [Getting Started](../docs/project/Getting_Started.md) for prerequisites, clone, and first run.
+- Codebase layout and dev workflow: [Development](../docs/project/Development.md)
+- Product direction: [Product Requirements](../docs/product/Product_Requirements.md), [Roadmap](../docs/product/Roadmap.md), [Decisions](../docs/architecture/Decisions.md)
+- Architecture: [System Architecture](../docs/architecture/System_Architecture.md), [PipeWire Design](../docs/architecture/PipeWire_Design.md)
+- Specifications: [UI Spec](../docs/specs/UI_Spec.md), [Plugin API](../docs/specs/Plugin_API.md), [Config Spec](../docs/specs/Config_Spec.md)
+- Contributor process: this file, and the rest of [`docs/README.md`](../docs/README.md)
 
-All of the above live in the GitHub Wiki (the `docs/` git submodule at the repo root). When editing wiki pages, keep [Home](../docs/Home.md), [`_Sidebar.md`](../docs/_Sidebar.md), and [`_Footer.md`](../docs/_Footer.md) in sync and follow the flat, extensionless link convention in [Wiki publishing](https://github.com/LunarVagabond/Pipe-Deck/wiki/Wiki) — GitHub's wiki page routing does not reliably serve pages nested in subdirectories, so every wiki page lives at the wiki root.
+`docs/` is a normal, PR-able part of this repo, organized into `specs/`, `architecture/`, `product/`, and `project/` subfolders — edit it the same way as any other change.
 
 ## Code Of Conduct
 

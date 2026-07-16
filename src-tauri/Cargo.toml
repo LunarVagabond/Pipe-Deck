@@ -40,7 +40,7 @@ tauri-plugin-http = "2.5.9"
 # Only for the #141 research spike (examples/filter_chain_spike.rs), gated
 # behind the `spike` feature below — never a dependency of the shipped app
 # or of `cargo build`/`cargo test`/`cargo check` without that feature. See
-# docs/Decisions.md PD-017/PD-025/PD-026 and issue #141 for why: this is a
+# docs/architecture/Decisions.md PD-017/PD-025/PD-026 and issue #141 for why: this is a
 # throwaway prototype to check feasibility of a native, zero-restart
 # alternative to the current conf.d + systemctl restart flow, not yet an
 # approved architecture change, and pulls in a new native build-time

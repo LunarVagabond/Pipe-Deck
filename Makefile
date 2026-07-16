@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview flatpak smoke release docs-sync
+.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview flatpak smoke release
 
 NPM ?= npm
 CARGO ?= cargo
@@ -82,15 +82,6 @@ flatpak: ## Build Flatpak package locally
 
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
-
-docs-sync: ## Init (if needed) and pull latest wiki into docs/ submodule, committing the pointer update
-	git submodule update --init --remote --merge docs
-	@if ! git diff --quiet docs; then \
-		git add docs && git commit -m "docs: sync wiki submodule to $$(git -C docs rev-parse --short HEAD)"; \
-		echo "docs: submodule pointer updated"; \
-	else \
-		echo "docs: already up to date"; \
-	fi
 
 .PHONY: release
 ## Update version files, commit, then create a release tag.

@@ -256,7 +256,7 @@ export function emptyDynamicsStage(): DynamicsStage {
  * a stable, client-generated identifier (used as the Vue `:key` for
  * reorder/remove) — generate one with `crypto.randomUUID()` when adding a
  * new stage. v1 ships exactly one kind, `eq5band`, bundling all 6 sliders
- * (5 bands + output gain trim) as one unit — see PD-025 in Decisions.md.
+ * (5 bands + output gain trim) as one unit — see PD-025 in docs/architecture/Decisions.md.
  */
 export interface Eq5BandStage {
   kind: "eq5band";

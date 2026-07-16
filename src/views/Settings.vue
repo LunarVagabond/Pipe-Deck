@@ -417,7 +417,7 @@ onMounted(() => {
       <p class="settings-row-hint">
         Want to design your own? Drop a YAML file in
         <code>~/.config/pipe-deck/themes/</code> — see the
-        <a href="https://github.com/LunarVagabond/Pipe-Deck/wiki/Theming" target="_blank" rel="noreferrer">Theming docs</a>
+        <a href="https://github.com/LunarVagabond/Pipe-Deck/blob/main/docs/specs/Theming.md" target="_blank" rel="noreferrer">Theming docs</a>
         for the schema.
       </p>
     </div>
