@@ -731,6 +731,108 @@ mod live_tests {
         remove_result.expect("remove_effect_chain_structural should revert cleanly");
     }
 
+    /// Regression for the exact live-session bug report behind PD-026's
+    /// follow-up fixes: bus A fans out to a physical output directly *and*
+    /// to bus B; bus B carries a live effect chain and routes to a second
+    /// physical output. Adjusting/reapplying B's effects must never make A's
+    /// direct physical-output leg carry the processed signal (the old
+    /// `try_apply_structural` downstream-relink bug), and B's own fan-out
+    /// must go out through `effect_output.*`, never B's raw monitor in
+    /// addition to it (the old `split_sink` effects-unaware fan-out bug) —
+    /// otherwise the physical target ends up hearing raw+processed audio
+    /// mixed together, or the effect audibly "leaks" onto an unrelated leg.
+    #[test]
+    #[ignore]
+    fn effects_on_a_chained_bus_do_not_leak_onto_an_unrelated_fan_out_leg() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let physical_outputs: Vec<_> = engine
+            .runtime_graph()
+            .devices
+            .iter()
+            .filter(|d| d.kind == DeviceKind::Physical && d.direction == DeviceDirection::Output)
+            .map(|d| (d.id.clone(), d.system_name.clone()))
+            .collect();
+        assert!(
+            physical_outputs.len() >= 2,
+            "this live test needs at least two real physical outputs to exercise the chained fan-out; found {}",
+            physical_outputs.len()
+        );
+        let (leg_a_target_id, leg_a_target_name) = physical_outputs[0].clone();
+        let (leg_b_target_id, leg_b_target_name) = physical_outputs[1].clone();
+
+        let bus_a = engine.create_virtual_output("Pipe Deck Live Chain Test A").expect("create bus A");
+        let bus_b = engine.create_virtual_output("Pipe Deck Live Chain Test B").expect("create bus B");
+
+        let cleanup = |engine: &mut CoreEngine| {
+            let _ = engine.remove_virtual_device(&bus_a.system_name);
+            let _ = engine.remove_virtual_device(&bus_b.system_name);
+        };
+
+        // A fans out directly to physical leg A *and* into bus B.
+        match engine.set_device_targets(&bus_a.device_id, &[leg_a_target_id.clone(), bus_b.device_id.clone()]) {
+            Ok(result) if result.success => {}
+            other => {
+                cleanup(&mut engine);
+                panic!("failed to fan bus A out to leg A + bus B: {other:?}");
+            }
+        }
+        // B routes onward to physical leg B.
+        match engine.set_device_route(&bus_b.device_id, &leg_b_target_id) {
+            Ok(result) if result.success => {}
+            other => {
+                cleanup(&mut engine);
+                panic!("failed to route bus B to leg B: {other:?}");
+            }
+        }
+
+        let config = EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 6,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        };
+        if let Err(error) = engine.apply_effect_chain_structural(&bus_b.device_id, &config) {
+            cleanup(&mut engine);
+            panic!("structural apply on bus B failed: {error}");
+        }
+
+        let effect_output_name = filter_chain::effect_output_name_for_device(&bus_b.system_name);
+        let effect_output_targets: std::collections::HashSet<_> =
+            pw_link::list_all_monitor_routes_for_source(&effect_output_name).into_iter().collect();
+        let bus_b_raw_targets: std::collections::HashSet<_> =
+            pw_link::list_all_monitor_routes_for_source(&bus_b.system_name).into_iter().collect();
+        let bus_a_targets: std::collections::HashSet<_> =
+            pw_link::list_all_monitor_routes_for_source(&bus_a.system_name).into_iter().collect();
+
+        cleanup(&mut engine);
+
+        assert!(
+            effect_output_targets.contains(&leg_b_target_name),
+            "bus B's processed output should feed leg B; got {effect_output_targets:?}"
+        );
+        assert!(
+            bus_b_raw_targets.is_empty(),
+            "bus B's raw (pre-effect) monitor must not be linked to anything once effects are live \
+             — the target would hear the unprocessed signal mixed in with the processed one; \
+             found {bus_b_raw_targets:?}"
+        );
+        assert!(
+            !bus_a_targets.contains(&effect_output_name) && !effect_output_targets.contains(&leg_a_target_name),
+            "bus A's own direct fan-out leg to leg A must never end up carrying bus B's processed \
+             signal — bus A targets: {bus_a_targets:?}, effect_output targets: {effect_output_targets:?}"
+        );
+    }
+
     /// PD-024: the same round trip as
     /// `apply_effect_chain_structural_round_trips_on_a_real_pipewire_session`,
     /// but for a virtual **input** (mic) device — confirms the capture-
