@@ -198,6 +198,38 @@ fn apply_device_rules(
         return Ok(());
     }
 
+    // A single linear pass isn't enough once virtual outputs can chain into
+    // other virtual outputs (PD-026): if rule A wants device X routed into Y
+    // and rule B (evaluated later in the same pass) wants Y routed into Z,
+    // X's pass sees Y's *stale, not-yet-updated* `current_target` (whatever
+    // it was before this refresh) rather than Y's true end state. If that
+    // stale value happens to point back toward X, `apply_sink_targets`'s
+    // cycle guard (`split_sink::would_create_cycle`) reports a false-positive
+    // cycle and silently drops X's route for this pass — the route was never
+    // actually cyclic, only the mid-pass snapshot looked that way. Repeating
+    // the pass until nothing changes (bounded by the rule count, since each
+    // full pass can resolve at least one more link in any dependency chain)
+    // lets a later rule's now-correct target be visible to an earlier one on
+    // the next iteration, without changing behavior for the common
+    // single-rule-per-refresh case (which converges in one pass either way).
+    let max_passes = device_rules.len().max(1);
+    for _ in 0..max_passes {
+        let mut changed = false;
+        apply_device_rules_pass(graph, device_rules, ctx, &mut changed);
+        if !changed {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_device_rules_pass(
+    graph: &mut RuntimeGraph,
+    device_rules: &[DeviceRouteRule],
+    ctx: &ApplyRulesContext<'_>,
+    changed: &mut bool,
+) {
     for rule in device_rules {
         if let Some(source) = find_device_by_system_name(graph, &rule.source_system_name) {
             if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
@@ -232,6 +264,9 @@ fn apply_device_rules(
                                 if let Some(device) =
                                     graph.devices.iter_mut().find(|device| device.id == source_id)
                                 {
+                                    if device.current_targets != vec![fallback_id.clone()] {
+                                        *changed = true;
+                                    }
                                     device.current_targets = vec![fallback_id.clone()];
                                     device.current_target = Some(fallback_id);
                                 }
@@ -271,14 +306,15 @@ fn apply_device_rules(
                     .iter_mut()
                     .find(|device| device.id == source_id)
                 {
+                    if device.current_targets != target_ids {
+                        *changed = true;
+                    }
                     device.current_targets = target_ids.clone();
                     device.current_target = target_ids.first().cloned();
                 }
             }
         }
     }
-
-    Ok(())
 }
 
 pub fn simulate_rules(

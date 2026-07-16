@@ -255,6 +255,30 @@ impl CoreEngine {
             .filter_map(|id| self.graph.devices.iter().find(|d| &d.id == id).cloned())
             .collect();
 
+        // Output-direction-only: any OTHER virtual output currently chained
+        // into this one (PD-026 — virtual outputs can route into another
+        // virtual output as a submix/bus) must be re-linked after the module
+        // swap too, same as this device's own downstream targets. The swap
+        // destroys and recreates this device's sink node, which silently
+        // severs any raw pw-link an upstream device's monitor already held
+        // into it; nothing about `try_apply_structural` below knows to
+        // restore an *incoming* device-level route on its own, only this
+        // device's own outgoing ones (`downstream_targets`) and its stream
+        // sink-inputs (`held_sink_inputs`).
+        let upstream_sources: Vec<(String, Vec<String>)> = if is_input {
+            Vec::new()
+        } else {
+            self.graph
+                .devices
+                .iter()
+                .filter(|other| other.id != device.id)
+                .filter_map(|other| {
+                    let targets = other.resolved_targets();
+                    targets.contains(&device.id).then(|| (other.id.clone(), targets))
+                })
+                .collect()
+        };
+
         // Input-direction-only: whatever's currently monitor-linked into this
         // device's `input_*` ports (mic-mix feed sinks, or the single feed
         // sink generic routing uses) must be captured *before* the module
@@ -291,6 +315,9 @@ impl CoreEngine {
             } else {
                 let _ = pactl::create_null_sink(&device.system_name, &device.label);
                 let _ = crate::core::routing::apply_sink_targets(&self.graph, &device.id, &downstream_target_ids);
+                for (upstream_id, upstream_targets) in &upstream_sources {
+                    let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
+                }
             }
             for index in &held_sink_inputs {
                 let _ = pactl::move_sink_input_to_sink_name(*index, &device.system_name);
@@ -300,6 +327,10 @@ impl CoreEngine {
             return Err(EngineError::Adapter(format!(
                 "effects apply failed and was rolled back to no effects: {error}"
             )));
+        }
+
+        for (upstream_id, upstream_targets) in &upstream_sources {
+            let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
         }
 
         for index in &held_sink_inputs {
@@ -542,6 +573,7 @@ impl CoreEngine {
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         let effect_output_name = filter_chain::effect_output_name_for_device(&device.system_name);
+        let mut allowed_targets = std::collections::HashSet::new();
         for target in downstream_targets {
             let is_virtual_input = target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
             let result = if is_virtual_input {
@@ -553,7 +585,17 @@ impl CoreEngine {
                 "effects sink came up but could not be re-linked to {}: {error}",
                 target.label
             )))?;
+            allowed_targets.insert(target.system_name.clone());
         }
+        // A prior Structural Apply's downstream targets may no longer match
+        // this one (a target was removed from the bus, or was only ever
+        // there because of the mis-tracked-device bug this device may be
+        // recovering from — see the registry backfill in
+        // `virtual_devices.rs::discover_from_pactl`) — without this, a link
+        // to a target that's no longer wanted stays live forever, since
+        // node identity persisting across a Structural Apply (PD-020) means
+        // nothing else ever tears it down.
+        let _ = crate::backend::linux::split_sink::prune_stale_fan_out_links(&effect_output_name, &allowed_targets);
 
         Ok(())
     }
