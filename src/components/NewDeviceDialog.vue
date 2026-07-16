@@ -91,7 +91,7 @@ async function createVirtual() {
           >
             <NodeTypeIcon kind="virtual-sink" />
             <span class="new-device-type-card-title">Output</span>
-            <span class="new-device-type-card-sub">Apps play into it, you route it onward</span>
+            <span class="new-device-type-card-sub">Apps play into it, you route it onward — even into another output, to build a submix</span>
           </button>
           <button
             type="button"
