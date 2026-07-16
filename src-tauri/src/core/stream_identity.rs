@@ -97,6 +97,14 @@ pub fn parse_window_class(props: &serde_json::Map<String, serde_json::Value>) ->
     None
 }
 
+/// Strips a reverse-DNS prefix from a Wayland `application.id`-style value
+/// (e.g. "org.mozilla.firefox" -> "firefox"), so rules authored against
+/// short X11-style class names still match. Returns `None` when the value
+/// has no dot-separated prefix to strip.
+pub fn short_window_class(value: &str) -> Option<&str> {
+    value.rsplit('.').next().filter(|short| *short != value)
+}
+
 fn prop_str(props: &serde_json::Map<String, serde_json::Value>, key: &str) -> String {
     props
         .get(key)
@@ -161,5 +169,17 @@ mod tests {
             parse_window_class(props.as_object().expect("props object")).as_deref(),
             Some("firefox")
         );
+    }
+
+    #[test]
+    fn short_window_class_strips_reverse_dns_prefix() {
+        assert_eq!(short_window_class("org.mozilla.firefox"), Some("firefox"));
+        assert_eq!(short_window_class("org.gnome.Nautilus"), Some("Nautilus"));
+    }
+
+    #[test]
+    fn short_window_class_none_when_no_prefix_to_strip() {
+        assert_eq!(short_window_class("firefox"), None);
+        assert_eq!(short_window_class(""), None);
     }
 }
