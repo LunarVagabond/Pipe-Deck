@@ -63,16 +63,61 @@ impl MockAudioBackend {
     fn sample_graph() -> RuntimeGraph {
         RuntimeGraph {
             devices: vec![
-                mock_device("sink-chat", "Chat", DeviceKind::Virtual, DeviceDirection::Output),
-                mock_device("sink-music", "Music", DeviceKind::Virtual, DeviceDirection::Output),
-                mock_device("sink-game", "Game", DeviceKind::Virtual, DeviceDirection::Output),
-                mock_device("sink-browser", "Browser", DeviceKind::Virtual, DeviceDirection::Output),
-                mock_device("sink-stream-mix", "Stream Mix", DeviceKind::Virtual, DeviceDirection::Output),
+                // `current_target`/`current_targets` below mirror the `links` list further
+                // down verbatim — the port/handle-assignment code in
+                // `nodePorts.ts::computeDeviceConnections` reads these fields (via
+                // `deviceTargetIds`), not `graph.links` directly, so leaving them unset
+                // (as `mock_device()` defaults them) makes Vue Flow unable to find the
+                // named output handle and fall back to anchoring the edge at the node's
+                // top — a real edge with no correct port, sample-data-only bug that a
+                // live PipeWire graph never hits since these fields come from actual
+                // routing state there.
+                mock_device_routed(
+                    "sink-chat",
+                    "Chat",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Output,
+                    &["sink-headphones"],
+                ),
+                mock_device_routed(
+                    "sink-music",
+                    "Music",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Output,
+                    &["sink-headphones", "sink-stream-output"],
+                ),
+                mock_device_routed(
+                    "sink-game",
+                    "Game",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Output,
+                    &["sink-headphones"],
+                ),
+                mock_device_routed(
+                    "sink-browser",
+                    "Browser",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Output,
+                    &["sink-speakers"],
+                ),
+                mock_device_routed(
+                    "sink-stream-mix",
+                    "Stream Mix",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Output,
+                    &["sink-stream-output"],
+                ),
                 mock_device("sink-headphones", "Headphones", DeviceKind::Physical, DeviceDirection::Output),
                 mock_device("sink-speakers", "Speakers", DeviceKind::Physical, DeviceDirection::Output),
                 mock_device("sink-stream-output", "Stream Output", DeviceKind::Virtual, DeviceDirection::Output),
                 mock_device("source-mic", "Microphone", DeviceKind::Physical, DeviceDirection::Input),
-                mock_device("source-mic-filtered", "Mic (Filtered)", DeviceKind::Virtual, DeviceDirection::Input),
+                mock_device_with_mix_sources(
+                    "source-mic-filtered",
+                    "Mic (Filtered)",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Input,
+                    &["source-mic"],
+                ),
             ],
             streams: vec![
                 Stream {
@@ -204,11 +249,16 @@ impl MockAudioBackend {
                     source_id: "sink-stream-mix".into(),
                     target_id: "sink-stream-output".into(),
                 },
-                // Capture path
+                // Capture path — source is the device feeding the mic-filtered audio out
+                // to OBS's capture input, not the other way around; this must match the
+                // direction `stream-obs.current_target` and `handlesForStream`/
+                // `computeDeviceConnections` already encode, or neither edge endpoint
+                // resolves to a real handle on either node (see the sibling comment on
+                // `sample_graph`'s devices list).
                 Link {
                     id: "link-obs-mic".into(),
-                    source_id: "stream-obs".into(),
-                    target_id: "source-mic-filtered".into(),
+                    source_id: "source-mic-filtered".into(),
+                    target_id: "stream-obs".into(),
                 },
                 Link {
                     id: "link-mic-filtered".into(),
@@ -243,6 +293,45 @@ fn mock_device(
         current_target: None,
         current_targets: Vec::new(),
         mix_sources: Vec::new(),
+    }
+}
+
+/// Same as `mock_device`, but with `current_target`/`current_targets` set —
+/// for virtual-sink devices whose fan-out the `links` list below also
+/// describes; keep the two in sync (see the comment on `sample_graph`).
+fn mock_device_routed(
+    id: &str,
+    label: &str,
+    kind: DeviceKind,
+    direction: DeviceDirection,
+    targets: &[&str],
+) -> Device {
+    Device {
+        current_target: targets.first().map(|target| (*target).into()),
+        current_targets: targets.iter().map(|target| (*target).into()).collect(),
+        ..mock_device(id, label, kind, direction)
+    }
+}
+
+/// Same as `mock_device`, but with `mix_sources` set — for a virtual input
+/// device whose mic-mix merge the `links` list below also describes.
+fn mock_device_with_mix_sources(
+    id: &str,
+    label: &str,
+    kind: DeviceKind,
+    direction: DeviceDirection,
+    source_device_ids: &[&str],
+) -> Device {
+    Device {
+        mix_sources: source_device_ids
+            .iter()
+            .map(|device_id| MixSource {
+                device_id: (*device_id).into(),
+                volume_percent: 100,
+                muted: false,
+            })
+            .collect(),
+        ..mock_device(id, label, kind, direction)
     }
 }
 

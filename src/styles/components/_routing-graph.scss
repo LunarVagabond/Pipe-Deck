@@ -255,6 +255,15 @@
     min-width: 260px;
     max-width: 340px;
   }
+
+  // Live processing dims to a dashed, lower-opacity border once bypassed —
+  // distinct from a plain unprocessed node (no border change at all) so
+  // "was live, now paused" doesn't read the same as "never had effects".
+  &.routing-graph-node--effects-bypassed {
+    .routing-graph-node-effects {
+      opacity: 0.6;
+    }
+  }
   border: 1px solid var(--border);
   background: vars.translucent(--background, 92);
   display: flex;
@@ -522,6 +531,53 @@
 
   &:hover {
     background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+// Bypass toggle — same icon-button language as .routing-graph-node-mute so
+// the two read as siblings, but its own accent (amber, not red) so "bypassed"
+// never gets mistaken for "muted" at a glance.
+.routing-graph-node-bypass {
+  flex-shrink: 0;
+  width: 1.3rem;
+  height: 1.3rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 0.65rem;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+
+  &.active {
+    background: rgba(255, 176, 32, 0.15);
+    color: #ffb020;
+  }
+
+  &:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+}
+
+// Effects-state badge next to the node icon: a small filled dot for "live"
+// (teal, matches the volume slider's accent) vs. an outlined dot for
+// "bypassed" (amber, matches .routing-graph-node-bypass) — distinguishable
+// even for anyone not hovering for the tooltip.
+.routing-graph-node-effects-badge {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  margin-left: -0.15rem;
+
+  &--live {
+    background: #3fd0c9;
+  }
+
+  &--bypassed {
+    background: transparent;
+    border: 1.5px solid #ffb020;
   }
 }
 
