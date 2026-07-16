@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useMixerControls } from "../composables/useMixerControls";
+import { useEffectChain } from "../composables/useEffectChain";
 import EffectStageList from "./EffectStageList.vue";
 
 const props = defineProps<{
@@ -17,6 +18,18 @@ const props = defineProps<{
 }>();
 
 const { pendingVolumes, clampVolume, scheduleChannelVolume, toggleChannelMute } = useMixerControls();
+const { chainFor, setBypassed } = useEffectChain();
+
+/** Nothing to bypass without at least one stage — omit the control entirely
+ * rather than show it disabled (Effects.vue disables it instead, but this
+ * compact node view has no room to explain why a button doesn't do anything). */
+const hasStagesToBypass = computed(() => Boolean(props.deviceId) && chainFor(props.deviceId!).stages.length > 0);
+const isBypassed = computed(() => Boolean(props.deviceId) && chainFor(props.deviceId!).bypassed);
+
+function onToggleBypass() {
+  if (!props.deviceId) return;
+  void setBypassed(props.deviceId, !isBypassed.value);
+}
 
 /**
  * Volume is backed directly by the node's own real device/stream volume
@@ -64,6 +77,17 @@ function onToggleMute() {
         @input="onVolumeInput"
       />
       <span class="routing-graph-node-volume-label">{{ displayVolume }}%</span>
+      <button
+        v-if="hasStagesToBypass"
+        type="button"
+        class="routing-graph-node-bypass"
+        :class="{ active: isBypassed }"
+        :aria-label="isBypassed ? 'Resume effects processing' : 'Bypass effects'"
+        title="Keeps your effect chain configured but stops it from affecting audio — nothing is removed."
+        @click="onToggleBypass"
+      >
+        {{ isBypassed ? "⏸" : "▶" }}
+      </button>
     </div>
     <EffectStageList v-if="deviceId" :device-id="deviceId" compact />
   </div>

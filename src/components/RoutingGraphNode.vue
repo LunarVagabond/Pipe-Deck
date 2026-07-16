@@ -23,10 +23,20 @@ function existingStageKindsFor(deviceId: string): string[] {
   return chainFor(deviceId).stages.map((stage) => stage.kind);
 }
 
-const hasEffectStages = computed(() => {
-  if (props.data.channelType !== "device") return false;
-  return chainFor(props.data.entityId).stages.length > 0;
+/** Tri-state so "effects live" and "effects bypassed" read as visually and
+ * textually distinct at a glance, not just a width change (see #153). */
+const effectsState = computed<"none" | "live" | "bypassed">(() => {
+  if (props.data.channelType !== "device") return "none";
+  const chain = chainFor(props.data.entityId);
+  if (chain.stages.length === 0) return "none";
+  return chain.bypassed ? "bypassed" : "live";
 });
+
+const hasEffectStages = computed(() => effectsState.value !== "none");
+
+const effectsBadgeTitle = computed(() =>
+  effectsState.value === "live" ? "Effects live" : effectsState.value === "bypassed" ? "Effects bypassed" : "",
+);
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
 const outHandles = computed(() =>
@@ -127,7 +137,13 @@ function onToggleMute() {
 <template>
   <div
     class="routing-graph-node nopan"
-    :class="[data.nodeClass, { 'routing-graph-node--has-effects': hasEffectStages }]"
+    :class="[
+      data.nodeClass,
+      {
+        'routing-graph-node--has-effects': hasEffectStages,
+        'routing-graph-node--effects-bypassed': effectsState === 'bypassed',
+      },
+    ]"
     @contextmenu="onContextMenu"
   >
     <div v-if="inHandles.length" class="routing-graph-node-ports routing-graph-node-ports--in">
@@ -160,6 +176,13 @@ function onToggleMute() {
           :style="{ background: data.accent }"
         />
         <NodeTypeIcon :kind="data.nodeClass" class="routing-graph-node-icon" />
+        <span
+          v-if="effectsState !== 'none'"
+          class="routing-graph-node-effects-badge"
+          :class="`routing-graph-node-effects-badge--${effectsState}`"
+          :title="effectsBadgeTitle"
+          :aria-label="effectsBadgeTitle"
+        />
         <div class="routing-graph-node-copy">
           <NodeCardHeader
             v-if="data.systemName"
