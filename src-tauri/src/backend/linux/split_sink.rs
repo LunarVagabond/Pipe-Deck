@@ -29,6 +29,13 @@ pub fn apply_sink_targets(
         ));
     }
 
+    if would_create_cycle(graph, sink_device_id, target_device_ids) {
+        return Err(BackendError::Message(format!(
+            "routing \"{}\" here would create a cycle",
+            sink.label
+        )));
+    }
+
     if target_device_ids.is_empty() {
         return prune_stale_fan_out_links(&sink.system_name, &HashSet::new());
     }
@@ -119,6 +126,38 @@ pub fn prune_stale_fan_out_links(
         }
     }
     Ok(())
+}
+
+fn targets_of(device: &Device) -> Vec<String> {
+    if !device.current_targets.is_empty() {
+        device.current_targets.clone()
+    } else if let Some(target) = &device.current_target {
+        vec![target.clone()]
+    } else {
+        Vec::new()
+    }
+}
+
+/// Walks the already-persisted routing graph forward from each proposed
+/// target to see whether it can already reach back to `sink_device_id` —
+/// i.e. whether applying this fan-out would close a loop (A -> B -> A).
+/// Only virtual-output -> virtual-output chaining can introduce cycles, so
+/// this only needs to follow existing sink targets, not stream routing.
+fn would_create_cycle(graph: &RuntimeGraph, sink_device_id: &str, target_device_ids: &[String]) -> bool {
+    let mut stack: Vec<String> = target_device_ids.to_vec();
+    let mut visited: HashSet<String> = HashSet::new();
+    while let Some(current) = stack.pop() {
+        if current == sink_device_id {
+            return true;
+        }
+        if !visited.insert(current.clone()) {
+            continue;
+        }
+        if let Some(device) = graph.devices.iter().find(|entry| entry.id == current) {
+            stack.extend(targets_of(device));
+        }
+    }
+    false
 }
 
 fn validate_fan_out_target(device: &Device) -> Result<(), BackendError> {
@@ -235,5 +274,28 @@ mod tests {
         let error = apply_sink_targets(&graph, "hw", &["node-2".into()])
             .expect_err("physical device cannot fan out");
         assert!(error.to_string().contains("virtual output sinks"));
+    }
+
+    #[test]
+    fn rejects_fan_out_that_would_create_a_cycle() {
+        let mut submix = sample_sink("submix", false);
+        let mut master = sample_sink("master", false);
+        master.current_target = Some("submix".into());
+        submix.current_target = None;
+
+        let graph = RuntimeGraph {
+            devices: vec![submix, master],
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "mock".into(),
+            notice: None,
+            ..Default::default()
+        };
+
+        // "master" already routes to "submix"; routing "submix" back to
+        // "master" would close the loop.
+        let error = apply_sink_targets(&graph, "submix", &["master".into()])
+            .expect_err("cycle must be rejected");
+        assert!(error.to_string().contains("cycle"));
     }
 }
