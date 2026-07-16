@@ -15,7 +15,7 @@ pub const ALL: &[&str] = &[
 /// Capabilities the host actually gates something on today. All five v1 capabilities
 /// are enforced as of PD-021 — `effects.manage` was the last one, implemented via a
 /// queued-request model rather than giving the plugin host a direct `AudioBackend`
-/// reference (see PD-021 in `docs/Decisions.md`).
+/// reference (see PD-021 in `docs/architecture/Decisions.md`).
 pub const ENFORCED: &[&str] = &[
     GRAPH_READ,
     UI_PANEL_REGISTER,

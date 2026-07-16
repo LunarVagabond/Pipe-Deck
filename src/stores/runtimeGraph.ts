@@ -9,7 +9,7 @@ import type { AppConfig, ProfileIndexEntry, RuntimeGraph } from "../types/graph"
 // MAX_COALESCE_WINDOW), but applies every push unconditionally on the
 // frontend. This bounds the resulting Vue reactivity/Vue Flow rebuild rate
 // under sustained churn while staying well under the "reflects within
-// 500ms of a user action" budget (see docs/PipeWire_Design.md).
+// 500ms of a user action" budget (see docs/architecture/PipeWire_Design.md).
 const GRAPH_UPDATE_DEBOUNCE_MS = 100;
 const GRAPH_UPDATE_MAX_WAIT_MS = 150;
 

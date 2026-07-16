@@ -11,7 +11,7 @@
 //!
 //!     cargo run --example filter_chain_spike --features spike
 //!
-//! See docs/Decisions.md PD-017/PD-025/PD-026 and issue #141 for context.
+//! See docs/architecture/Decisions.md PD-017/PD-025/PD-026 and issue #141 for context.
 //! PD-017 already ruled out two easier paths: `pactl load-module
 //! module-filter-chain` (not exposed via the Pulse compat layer) and
 //! `pw-cli load-module` (only loads into pw-cli's own throwaway local

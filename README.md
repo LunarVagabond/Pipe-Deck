@@ -22,7 +22,7 @@ Linux audio is powerful but scattered. Routine tasks often mean juggling multipl
 
 Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are **visible, reversible, and safe**.
 
-> Curious why this project exists? Read the [full story](https://github.com/LunarVagabond/Pipe-Deck/wiki/About).
+> Curious why this project exists? Read the [full story](docs/product/About.md).
 
 ## Screenshots
 
@@ -30,7 +30,7 @@ Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are *
 
 | Dashboard | Mixer | Routing |
 |-----------|-------|---------|
-| ![Dashboard — live audio graph](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/dashboard.png) | ![Mixer — per-app levels and mute](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/mixer.png) | ![Routing — application to output](https://raw.githubusercontent.com/wiki/LunarVagabond/Pipe-Deck/images/routing.png) |
+| ![Dashboard — live audio graph](docs/images/dashboard.png) | ![Mixer — per-app levels and mute](docs/images/mixer.png) | ![Routing — application to output](docs/images/routing.png) |
 
 ## Features
 
@@ -79,20 +79,20 @@ make build     # production bundles
 make help      # list all commands
 ```
 
-Full setup walkthrough: [Getting Started](https://github.com/LunarVagabond/Pipe-Deck/wiki/Getting_Started) on the wiki. Contributor workflow: [Contributing](.github/CONTRIBUTING.md).
+Full setup walkthrough: [Getting Started](docs/project/Getting_Started.md). Contributor workflow: [Contributing](.github/CONTRIBUTING.md).
 
 ## Documentation
 
-Product and technical docs live in the [GitHub Wiki](https://github.com/LunarVagabond/Pipe-Deck/wiki). The `docs/` directory is a git submodule pointing at the wiki repo.
+Product and technical docs live in [`docs/`](docs/README.md), organized by section.
 
 | Section | Contents |
 |---------|----------|
-| [Home / index](https://github.com/LunarVagabond/Pipe-Deck/wiki/Home) | User-facing overview and doc map |
-| [Getting Started](https://github.com/LunarVagabond/Pipe-Deck/wiki/Getting_Started) | Prerequisites, first run, and [Development](https://github.com/LunarVagabond/Pipe-Deck/wiki/Development) codebase layout |
-| [Product](https://github.com/LunarVagabond/Pipe-Deck/wiki/Product_Requirements) | Requirements, roadmap, decisions |
-| [Architecture](https://github.com/LunarVagabond/Pipe-Deck/wiki/System_Architecture) | System and PipeWire design |
-| [Specifications](https://github.com/LunarVagabond/Pipe-Deck/wiki/UI_Spec) | UI, config, plugins, rule engine |
-| [Project](https://github.com/LunarVagabond/Pipe-Deck/wiki/Contributing) | Packaging, plugins, [Releasing](https://github.com/LunarVagabond/Pipe-Deck/wiki/Release) — see [Contributing](.github/CONTRIBUTING.md) for the contributor workflow |
+| [Docs index](docs/README.md) | User-facing overview and doc map |
+| [Getting Started](docs/project/Getting_Started.md) | Prerequisites, first run, and [Development](docs/project/Development.md) codebase layout |
+| [Product](docs/product/Product_Requirements.md) | Requirements, roadmap, decisions |
+| [Architecture](docs/architecture/System_Architecture.md) | System and PipeWire design |
+| [Specifications](docs/specs/UI_Spec.md) | UI, config, plugins, rule engine |
+| [Project](docs/project/Development.md) | Packaging, plugins, [Releasing](docs/project/Release.md) — see [Contributing](.github/CONTRIBUTING.md) for the contributor workflow |
 
 Open work is tracked in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues). List locally with `gh issue list`.
 
@@ -113,7 +113,7 @@ Every feature must pass one question:
 
 > Does this make Linux audio easier to understand and manage?
 
-If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Plugin authors](https://github.com/LunarVagabond/Pipe-Deck/wiki/Plugins) should read the [Plugin API](https://github.com/LunarVagabond/Pipe-Deck/wiki/Plugin_API).
+If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Plugin authors](docs/project/Plugins.md) should read the [Plugin API](docs/specs/Plugin_API.md).
 
 ## License
 
