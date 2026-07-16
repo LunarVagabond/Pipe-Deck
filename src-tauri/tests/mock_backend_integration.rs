@@ -124,7 +124,7 @@ fn virtual_output_can_chain_into_another_virtual_output() {
     let submix = engine.create_virtual_output("Submix").expect("create submix");
     let master = engine.create_virtual_output("Master Mix").expect("create master mix");
 
-    let result = engine.set_device_targets(&submix.device_id, &[master.device_id.clone()]).unwrap();
+    let result = engine.set_device_targets(&submix.device_id, std::slice::from_ref(&master.device_id)).unwrap();
     assert!(result.success, "{:?}", result.message);
     engine.refresh_graph().unwrap();
 

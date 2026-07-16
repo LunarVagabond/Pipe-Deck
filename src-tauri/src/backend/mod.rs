@@ -2,7 +2,7 @@ pub mod linux;
 pub mod mock;
 pub mod stub;
 
-use crate::core::models::{Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
+use crate::core::models::{Device, DeviceDirection, EffectChainConfig, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
@@ -136,6 +136,71 @@ pub trait AudioBackend: Send + Sync {
     fn platform_audio_version(&self) -> Option<String> {
         None
     }
+
+    // --- Design sketch only (issue #141) — NOT wired into any call site yet. ---
+    //
+    // These four methods are the shape a native, zero-restart effects
+    // mechanism would take once #141's research spike
+    // (`examples/filter_chain_spike.rs`) is promoted to a real
+    // implementation: `pw_context_load_module`/`pw_impl_module_destroy`
+    // (or the equivalent SPA node-creation API) called directly from a
+    // long-running process, replacing the conf.d-write +
+    // `systemctl restart filter-chain.service` flow
+    // `core/engine/effects_ops.rs` uses today. Default bodies below return
+    // `not implemented` so adding this doesn't require touching
+    // `MockAudioBackend`, `StubBackend`, or `LinuxPipeWireBackend` — no
+    // backend implements these yet.
+    //
+    // Landing this for real would also close a pre-existing boundary gap:
+    // `core/engine/effects_ops.rs` currently calls
+    // `backend::linux::{pactl, pw_link, virtual_mic_mix}` directly instead
+    // of through `self.adapter`, which is exactly the shortcut the trait
+    // boundary (issue #68) exists to prevent. Routing effects through these
+    // methods instead would fix that at the same time, not as a separate
+    // follow-up.
+    //
+    // Open questions the spike flagged that a real implementation still
+    // needs to answer: process-wide `pw::init()`/`deinit()` lifecycle
+    // ownership (the spike hit a real crash getting this wrong — see its
+    // doc comment), and whether RSS growth across many load/unload cycles
+    // is a genuine leak or one-time warmup (only checked over 5 cycles).
+
+    /// Load a filter-chain-equivalent effect chain onto a device, replacing
+    /// whatever chain (if any) is already live for it. Returns the
+    /// downstream-linkable node name the caller should route onward — the
+    /// spike confirmed the processed output side never auto-links anywhere.
+    fn load_effect_chain(&self, _device_system_name: &str, _config: &EffectChainConfig) -> Result<String, BackendError> {
+        Err(BackendError::Message("load_effect_chain: not implemented (see issue #141)".into()))
+    }
+
+    /// Unload a previously loaded chain, restoring the device's plain
+    /// pre-effects node identity.
+    fn unload_effect_chain(&self, _device_system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message("unload_effect_chain: not implemented (see issue #141)".into()))
+    }
+
+    /// Push updated stage parameters (EQ gain, bypass, ...) to an
+    /// already-loaded chain without reloading it — the in-process
+    /// equivalent of today's `pw_cli::set_params` live-slider path.
+    fn set_effect_chain_live_params(&self, _device_system_name: &str, _config: &EffectChainConfig) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_effect_chain_live_params: not implemented (see issue #141)".into()))
+    }
+
+    /// Whether this backend can host live effects at all, and via which
+    /// mechanism — lets the UI/preflight distinguish "native, zero-restart"
+    /// from "conf.d + restart" from "unsupported" without a hardcoded
+    /// backend-name check.
+    fn effect_chain_capabilities(&self) -> EffectChainHostingCapability {
+        EffectChainHostingCapability::Unsupported
+    }
+}
+
+/// See the `AudioBackend` design-sketch methods above (issue #141) — not
+/// referenced by any call site yet.
+pub enum EffectChainHostingCapability {
+    Unsupported,
+    RestartBased,
+    NativeZeroRestart,
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
