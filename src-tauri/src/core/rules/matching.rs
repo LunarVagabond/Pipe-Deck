@@ -109,7 +109,7 @@ pub fn stream_matches_authored_rule(stream: &Stream, rule: &Rule) -> Option<Vec<
                 let Some(window_class) = &stream.window_class else {
                     return None;
                 };
-                if window_class != value {
+                if !window_class_matches(window_class, value) {
                     return None;
                 }
                 reasons.push(format!("window_class == {value}"));
@@ -199,6 +199,28 @@ pub(crate) fn collect_missing_metadata_skips(
 
 fn eq_ignore_ascii_case(left: &str, right: &str) -> bool {
     left.eq_ignore_ascii_case(right)
+}
+
+/// Compares a stream's reported `window_class` against a rule's configured
+/// value, tolerant of case and of the reverse-DNS `application.id` form
+/// Wayland compositors report in place of a true X11 `WM_CLASS` (e.g. a
+/// stream's `org.mozilla.firefox` matches a rule authored against
+/// `firefox`, and vice versa).
+fn window_class_matches(window_class: &str, rule_value: &str) -> bool {
+    if eq_ignore_ascii_case(window_class, rule_value) {
+        return true;
+    }
+    if let Some(short) = crate::core::stream_identity::short_window_class(window_class) {
+        if eq_ignore_ascii_case(short, rule_value) {
+            return true;
+        }
+    }
+    if let Some(short) = crate::core::stream_identity::short_window_class(rule_value) {
+        if eq_ignore_ascii_case(window_class, short) {
+            return true;
+        }
+    }
+    false
 }
 
 fn stream_matches_identity(stream: &Stream, value: &str) -> bool {
@@ -507,6 +529,33 @@ mod tests {
         let mut stream = sample_stream("Firefox", None, None);
         stream.window_class = Some("firefox".into());
         let rule = window_class_rule("firefox");
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn window_class_condition_matches_case_insensitively() {
+        let mut stream = sample_stream("Firefox", None, None);
+        stream.window_class = Some("Firefox".into());
+        let rule = window_class_rule("firefox");
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn window_class_condition_matches_reverse_dns_application_id() {
+        let mut stream = sample_stream("Firefox", None, None);
+        stream.window_class = Some("org.mozilla.firefox".into());
+        let rule = window_class_rule("firefox");
+
+        assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn window_class_condition_matches_when_rule_uses_full_reverse_dns_id() {
+        let mut stream = sample_stream("Firefox", None, None);
+        stream.window_class = Some("firefox".into());
+        let rule = window_class_rule("org.mozilla.firefox");
 
         assert!(stream_matches_authored_rule(&stream, &rule).is_some());
     }
