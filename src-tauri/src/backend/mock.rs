@@ -249,11 +249,16 @@ impl MockAudioBackend {
                     source_id: "sink-stream-mix".into(),
                     target_id: "sink-stream-output".into(),
                 },
-                // Capture path
+                // Capture path — source is the device feeding the mic-filtered audio out
+                // to OBS's capture input, not the other way around; this must match the
+                // direction `stream-obs.current_target` and `handlesForStream`/
+                // `computeDeviceConnections` already encode, or neither edge endpoint
+                // resolves to a real handle on either node (see the sibling comment on
+                // `sample_graph`'s devices list).
                 Link {
                     id: "link-obs-mic".into(),
-                    source_id: "stream-obs".into(),
-                    target_id: "source-mic-filtered".into(),
+                    source_id: "source-mic-filtered".into(),
+                    target_id: "stream-obs".into(),
                 },
                 Link {
                     id: "link-mic-filtered".into(),
