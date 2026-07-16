@@ -237,6 +237,34 @@
   }
 }
 
+.mixer-strip .effects-disclosure {
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 6px;
+  padding: 0.2rem 0.5rem;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--text-muted);
+
+  &.active {
+    border-color: var(--accent-purple);
+    color: var(--text);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.28);
+  }
+}
+
+.mixer-strip .channel-effects {
+  width: 100%;
+  margin-top: 0.15rem;
+  padding: 0.4rem 0 0 1.2rem;
+  border-top: 1px solid var(--border);
+}
+
 .mixer-strip .mix-sources {
   display: flex;
   flex-direction: column;

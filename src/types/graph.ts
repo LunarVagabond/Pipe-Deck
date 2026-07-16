@@ -251,22 +251,47 @@ export function emptyDynamicsStage(): DynamicsStage {
   return { enabled: false, threshold_db: 0, ratio_x10: 0, attack_ms: 0, release_ms: 0 };
 }
 
-export interface EffectChainConfig {
+/**
+ * One addable/removable/reorderable unit in a device's effect chain. `id` is
+ * a stable, client-generated identifier (used as the Vue `:key` for
+ * reorder/remove) — generate one with `crypto.randomUUID()` when adding a
+ * new stage. v1 ships exactly one kind, `eq5band`, bundling all 6 sliders
+ * (5 bands + output gain trim) as one unit — see PD-025 in Decisions.md.
+ */
+export interface Eq5BandStage {
+  kind: "eq5band";
+  id: string;
   eq_sub: number;
   eq_bass: number;
   eq_mid: number;
   eq_treble: number;
   eq_air: number;
   output_gain: number;
+}
+
+export type EffectStage = Eq5BandStage;
+
+export interface EffectChainConfig {
+  /** Ordered, addable/removable/reorderable. v1: 0 or 1 `eq5band` entries. */
+  stages: EffectStage[];
   compressor: DynamicsStage;
   limiter: DynamicsStage;
   noise_gate: DynamicsStage;
   /** Keeps the chain configured but passes audio through unprocessed. */
   bypassed: boolean;
-  /** @deprecated use eq_bass */
-  eq_low?: number;
-  /** @deprecated use eq_air */
-  eq_high?: number;
+}
+
+export function emptyEq5BandStage(id: string): Eq5BandStage {
+  return {
+    kind: "eq5band",
+    id,
+    eq_sub: 0,
+    eq_bass: 0,
+    eq_mid: 0,
+    eq_treble: 0,
+    eq_air: 0,
+    output_gain: 0,
+  };
 }
 
 export interface FxCapabilities {
