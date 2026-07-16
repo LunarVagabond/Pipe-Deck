@@ -445,8 +445,21 @@ impl CoreEngine {
         if is_input {
             pactl::create_virtual_source(&device.system_name, &device.label)
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
+            // The recreated source isn't necessarily queryable the instant
+            // `pactl load-module` returns — without this wait, the mic-feed
+            // relink below could silently fail against a not-yet-registered
+            // node (no error surfaced, since relinking uses port discovery
+            // that just finds nothing yet), leaving the mic mix broken.
+            filter_chain::wait_for_source(&device.system_name, Duration::from_secs(5))
+                .map_err(|error| EngineError::Adapter(error.to_string()))?;
         } else {
             pactl::create_null_sink(&device.system_name, &device.label)
+                .map_err(|error| EngineError::Adapter(error.to_string()))?;
+            // Same reasoning as above, for the sink-input move-back: without
+            // waiting for the recreated sink to actually register, moving
+            // held streams off the holding sink can silently fail, leaving
+            // audio stuck there indefinitely with no error surfaced.
+            filter_chain::wait_for_sink(&device.system_name, Duration::from_secs(5))
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
         }
 
