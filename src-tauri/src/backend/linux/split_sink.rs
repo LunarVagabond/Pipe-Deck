@@ -18,7 +18,7 @@ use std::collections::HashSet;
 /// both the raw and the processed signal mixed together. Checked against
 /// live port state (not persisted config) because that's the only source of
 /// truth for whether the swap has actually happened yet.
-fn effective_fan_out_source(system_name: &str) -> String {
+pub fn effective_fan_out_source(system_name: &str) -> String {
     let effect_output_name = filter_chain::effect_output_name_for_device(system_name);
     if pw_link::has_output_ports(&effect_output_name) {
         effect_output_name

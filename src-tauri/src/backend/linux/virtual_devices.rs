@@ -74,11 +74,7 @@ impl VirtualDeviceRegistry {
             if devices.contains_key(&system_name) {
                 continue;
             }
-            let exists = match spec.direction {
-                DeviceDirection::Input => pactl::source_exists(&system_name).unwrap_or(false),
-                _ => pactl::sink_exists(&system_name).unwrap_or(false),
-            };
-            if !exists {
+            if !pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
                 continue;
             }
             devices.insert(

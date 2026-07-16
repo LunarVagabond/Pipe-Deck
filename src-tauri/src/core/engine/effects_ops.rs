@@ -806,6 +806,34 @@ mod live_tests {
             panic!("structural apply on bus B failed: {error}");
         }
 
+        // Regression for the Routing graph's "no arrow drawn to an
+        // effects-active node's target, even though the audio is genuinely
+        // connected" bug: current_target/current_targets is what the
+        // frontend draws edges from, and it used to get rediscovered purely
+        // from bus B's own raw monitor on every live refresh — which,
+        // correctly, carries nothing once effects are live — silently
+        // wiping the field back to empty on every single refresh even
+        // though bus B was still really routed via effect_output.*. Refresh
+        // several times in a row and confirm it stays populated instead of
+        // flickering/collapsing to None.
+        for _ in 0..3 {
+            engine.refresh_graph().expect("repeated refresh should succeed");
+            let current_target = engine
+                .runtime_graph()
+                .devices
+                .iter()
+                .find(|d| d.id == bus_b.device_id)
+                .expect("bus B should still be present in the graph")
+                .current_target
+                .clone();
+            if current_target.as_deref() != Some(leg_b_target_id.as_str()) {
+                cleanup(&mut engine);
+                panic!(
+                    "bus B's current_target should survive a live refresh while effects are active; got {current_target:?}"
+                );
+            }
+        }
+
         let effect_output_name = filter_chain::effect_output_name_for_device(&bus_b.system_name);
         let effect_output_targets: std::collections::HashSet<_> =
             pw_link::list_all_monitor_routes_for_source(&effect_output_name).into_iter().collect();

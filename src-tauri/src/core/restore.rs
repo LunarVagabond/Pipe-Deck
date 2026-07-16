@@ -87,7 +87,7 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
 
     for spec in &config.virtual_devices {
         let system_name = format!("pipe-deck-{}", spec.slug);
-        if module_by_name.contains_key(&system_name) {
+        if module_by_name.contains_key(&system_name) || pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
             result.adopted.push(system_name);
             continue;
         }
@@ -177,7 +177,7 @@ pub fn restore_profile_virtual_devices(
             continue;
         };
         let system_name = format!("pipe-deck-{}", spec.slug);
-        if present.contains(&system_name) {
+        if present.contains(&system_name) || pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
             result.adopted.push(system_name);
             continue;
         }

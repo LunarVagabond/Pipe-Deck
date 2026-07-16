@@ -185,6 +185,27 @@ fn is_per_pair_mix_feed_sink(feed_sink_rest: &str, known_slugs: &std::collection
         .any(|slug| feed_sink_rest.starts_with(&format!("{slug}-")))
 }
 
+/// True if a `pipe-deck-*` virtual device with this `system_name` is
+/// currently live, whether or not it's currently backed by a module in the
+/// *main* session's module table. `list_pipe_deck_modules`/module-based
+/// presence checks (used by `core::restore` and
+/// `VirtualDeviceRegistry::discover_from_pactl`) can never see a device
+/// currently hosting live effects — its `module-filter-chain` module is
+/// loaded into the separate `filter-chain.service` PipeWire instance
+/// (PD-017/PD-020), never into the module table `pactl list modules`
+/// inspects — even though its sink/source is genuinely live and visible.
+/// Left unchecked, every caller that used only a module-scan presence check
+/// concluded such a device didn't exist and created a *second*, plain
+/// null-sink with the same `system_name` right alongside it — two real
+/// PipeWire nodes sharing one name, which makes every name-prefix-based
+/// port lookup (`pw_link.rs`) ambiguous between them.
+pub fn pipe_deck_device_is_live(system_name: &str, direction: DeviceDirection) -> bool {
+    match direction {
+        DeviceDirection::Input => source_exists(system_name).unwrap_or(false),
+        _ => sink_exists(system_name).unwrap_or(false),
+    }
+}
+
 pub fn sink_exists(name: &str) -> Result<bool, BackendError> {
     let output = run_pactl(&["list", "sinks", "short"])?;
     Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))

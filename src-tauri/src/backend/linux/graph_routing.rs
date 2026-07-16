@@ -6,6 +6,7 @@ use crate::core::stream_identity::{stream_identity_key, StreamIdentityKey};
 use crate::backend::linux::graph_enrich::{apply_pactl_capture_targets, apply_pactl_playback_targets};
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
+use crate::backend::linux::split_sink::effective_fan_out_source;
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
@@ -158,7 +159,15 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
             continue;
         }
         let system_name = device.system_name.clone();
-        let fan_out_names = pw_link::list_all_monitor_routes_for_source(&system_name);
+        // A device currently hosting live effects routes its real audio out
+        // through `effect_output.*`, not its own raw monitor (see
+        // `split_sink::effective_fan_out_source`) — querying the raw name
+        // here for such a device finds nothing (by design, since nothing
+        // should be linked there once effects are live) and would silently
+        // wipe `current_target`/`current_targets` back to empty on every
+        // refresh, even though the device is genuinely still routed.
+        let link_source = effective_fan_out_source(&system_name);
+        let fan_out_names = pw_link::list_all_monitor_routes_for_source(&link_source);
         let targets: Vec<(String, String)> = fan_out_names
             .into_iter()
             .filter_map(|name| name_to_id.get(&name).cloned().map(|id| (name, id)))
