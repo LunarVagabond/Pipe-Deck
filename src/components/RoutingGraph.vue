@@ -21,7 +21,9 @@ import {
   applyEdgeDisconnect,
   applyRoutingConnection,
 } from "./routing-graph/applyConnection";
-import { buildRoutingGraph, saveNodePosition } from "./routing-graph/buildGraph";
+import { nodeIdsForLink } from "./routing-graph/connectionRules";
+import { buildRoutingGraph, parseGraphNodeId, saveNodePosition } from "./routing-graph/buildGraph";
+import type { RoutingGraphHandle } from "./routing-graph/buildGraph";
 import { LEGEND_ENTRIES } from "./routing-graph/portTypes";
 import { canConnectPorts } from "./routing-graph/portTypes";
 import {
@@ -136,6 +138,18 @@ const graphActions = {
     }
     const device = props.graph.devices.find((entry) => entry.id === entityId);
     return device?.label ?? entityId;
+  },
+  async disconnectPort(nodeId: string, handle: RoutingGraphHandle) {
+    if (handle.empty || !handle.connectedId) return;
+    const parsed = parseGraphNodeId(nodeId);
+    if (!parsed) return;
+
+    const { source, target } =
+      handle.type === "source"
+        ? { source: parsed.id, target: handle.connectedId }
+        : { source: handle.connectedId, target: parsed.id };
+    const ids = nodeIdsForLink(props.graph, source, target);
+    await applyEdgeDisconnect(props.graph, { source: ids.source, target: ids.target }, handleApplyResult);
   },
 };
 
@@ -314,6 +328,28 @@ watch(
   },
   { deep: true },
 );
+
+// Announces the click-to-connect pickup step for keyboard/screen-reader users.
+// Vue Flow's own click-connect state (`connectionClickStartHandle`) already
+// drives the connect itself (see RoutingGraphNode.vue's Enter/Space handler,
+// which just synthesizes a click on the focused port) — this only narrates
+// the otherwise-silent "port picked up, waiting for a target" step; the
+// eventual connect/disconnect outcome is already announced via the existing
+// notices toast (`NoticeStack.vue`'s aria-live region).
+const keyboardConnectMessage = ref("");
+watch(vueFlow.connectionClickStartHandle, (handle) => {
+  if (!handle) {
+    keyboardConnectMessage.value = "";
+    return;
+  }
+  const parsed = parseGraphNodeId(handle.nodeId);
+  const label = parsed ? graphActions.labelForEntity(parsed.id) : handle.nodeId;
+  // A connection can be picked up from either end — Vue Flow resolves which
+  // side is the actual source/target once the second port is chosen.
+  const direction = handle.type === "source" ? "output" : "input";
+  const nextDirection = handle.type === "source" ? "an input" : "an output";
+  keyboardConnectMessage.value = `Picked up ${label} ${direction} port. Tab to ${nextDirection} port and press Enter to connect, or press Escape to cancel.`;
+});
 
 function isValidConnection(connection: Connection) {
   // Vue Flow reuses this callback both for a live user drag (a bare Connection,
@@ -648,6 +684,12 @@ function isTypingTarget(target: EventTarget | null): boolean {
 }
 
 async function onWindowKeydown(event: KeyboardEvent) {
+  if (event.key === "Escape" && vueFlow.connectionClickStartHandle.value) {
+    event.preventDefault();
+    vueFlow.connectionClickStartHandle.value = null;
+    return;
+  }
+
   if (event.key.toLowerCase() !== "g" || event.metaKey || event.ctrlKey || event.altKey) {
     return;
   }
@@ -721,6 +763,7 @@ onUnmounted(() => {
 
 <template>
   <div class="routing-graph-shell">
+    <div class="routing-graph-live-region" aria-live="polite">{{ keyboardConnectMessage }}</div>
     <div class="routing-graph-legend" aria-label="Connection color legend">
       <span class="routing-graph-legend-title">Output connects to input</span>
       <div class="routing-graph-legend-items">
@@ -730,7 +773,8 @@ onUnmounted(() => {
         </span>
         <span class="routing-graph-legend-hint">
           Drag wire ends off a port to disconnect · Shift+drag to select multiple nodes · Press G to group ·
-          Right-click empty space to add a node
+          Right-click empty space to add a node · Tab to a port and press Enter to connect it, Delete to
+          disconnect it, Escape to cancel
         </span>
       </div>
     </div>

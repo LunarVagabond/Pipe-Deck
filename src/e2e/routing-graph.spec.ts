@@ -53,6 +53,66 @@ test.describe("RoutingGraph edge rendering", () => {
   });
 });
 
+test.describe("RoutingGraph keyboard connect", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
+    await page.waitForSelector(".vue-flow__node");
+  });
+
+  test("a port is keyboard-focusable and Enter arms Vue Flow's click-to-connect state on it", async ({
+    page,
+  }) => {
+    const outputPort = page.locator(".routing-graph-handle.source").first();
+    await outputPort.focus();
+    await expect(outputPort).toBeFocused();
+
+    await page.keyboard.press("Enter");
+    await expect(outputPort).toHaveClass(/connecting/);
+  });
+
+  test("Escape cancels a picked-up port", async ({ page }) => {
+    const outputPort = page.locator(".routing-graph-handle.source").first();
+    await outputPort.focus();
+    await page.keyboard.press("Enter");
+    await expect(outputPort).toHaveClass(/connecting/);
+
+    await page.keyboard.press("Escape");
+    await expect(outputPort).not.toHaveClass(/connecting/);
+  });
+
+  test("pressing Enter again on the same picked-up port cancels it", async ({ page }) => {
+    const outputPort = page.locator(".routing-graph-handle.source").first();
+    await outputPort.focus();
+    await page.keyboard.press("Enter");
+    await expect(outputPort).toHaveClass(/connecting/);
+
+    await page.keyboard.press("Enter");
+    await expect(outputPort).not.toHaveClass(/connecting/);
+  });
+
+  test("Enter on a picked-up output port, then Enter on a compatible input port, completes the click-connect sequence", async ({
+    page,
+  }) => {
+    const outputPort = page.locator(".routing-graph-handle.source").first();
+    const inputPort = page.locator(".routing-graph-handle.target.is-empty").first();
+
+    await outputPort.focus();
+    await page.keyboard.press("Enter");
+    await expect(outputPort).toHaveClass(/connecting/);
+
+    await inputPort.focus();
+    await page.keyboard.press("Enter");
+
+    // This harness has no live Tauri runtime, so the resulting `invoke()`
+    // call can't actually apply the route — but Vue Flow always clears its
+    // armed click-connect state once a second click resolves (valid or not),
+    // so seeing it clear here proves the keyboard Enter on the input port
+    // reached Vue Flow's own connect-completion handling, the same path a
+    // mouse click on the port would take.
+    await expect(outputPort).not.toHaveClass(/connecting/);
+  });
+});
+
 test.describe("RoutingGraph multi-select drag", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/src/e2e/fixtures/routing-graph-harness.html");

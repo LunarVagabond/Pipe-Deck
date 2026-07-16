@@ -153,6 +153,12 @@
   position: relative;
   z-index: 1;
   background: transparent;
+  border-radius: 999px;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.28);
+  }
 }
 
 .mixer-strip .level-wrap {
@@ -178,6 +184,11 @@
   &:hover {
     color: var(--text);
     background: rgba(255, 255, 255, 0.05);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.28);
   }
 }
 
@@ -218,6 +229,11 @@
 
   &.active {
     border-color: var(--accent-amber);
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.28);
   }
 }
 
@@ -267,6 +283,11 @@
   &.active {
     border-color: var(--accent-amber);
   }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(124, 92, 255, 0.28);
+  }
 }
 
 .mixer-strip .mix-source-name {
@@ -283,6 +304,12 @@
   min-width: 4rem;
   accent-color: var(--accent-teal);
   cursor: pointer;
+  border-radius: 999px;
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px rgba(38, 195, 163, 0.28);
+  }
 }
 
 .mixer-strip .mix-source-level {
