@@ -23,21 +23,21 @@ pub struct PreflightResult {
 pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> PreflightResult {
     let mut warnings = Vec::new();
     let mut blocking_reasons = Vec::new();
+    let eq = config.eq_stage();
 
     for (label, value) in [
-        ("Sub band", config.eq_sub),
-        ("Bass band", config.eq_bass),
-        ("Mid band", config.eq_mid),
-        ("Treble band", config.eq_treble),
-        ("Air band", config.eq_air),
+        ("Sub band", eq.eq_sub),
+        ("Bass band", eq.eq_bass),
+        ("Mid band", eq.eq_mid),
+        ("Treble band", eq.eq_treble),
+        ("Air band", eq.eq_air),
     ] {
         check_range(label, value, EQ_GAIN_RANGE_DB, &mut blocking_reasons);
     }
-    check_range("Output gain", config.output_gain, OUTPUT_GAIN_RANGE_DB, &mut blocking_reasons);
+    check_range("Output gain", eq.output_gain, OUTPUT_GAIN_RANGE_DB, &mut blocking_reasons);
 
-    let has_eq_or_gain =
-        config.eq_sub != 0 || config.eq_bass != 0 || config.eq_mid != 0 || config.eq_treble != 0
-            || config.eq_air != 0 || config.output_gain != 0;
+    let has_eq_or_gain = eq.eq_sub != 0 || eq.eq_bass != 0 || eq.eq_mid != 0 || eq.eq_treble != 0
+        || eq.eq_air != 0 || eq.output_gain != 0;
     if has_eq_or_gain && !capabilities.builtin_eq {
         blocking_reasons.push(
             "EQ/gain requires PipeWire's builtin filter-chain module, which was not found on this system"
@@ -112,16 +112,54 @@ fn check_range(label: &str, value: i32, range: (i32, i32), blocking_reasons: &mu
 /// that must be explicitly linked onward (see `pipewire::filter_chain`).
 pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
+    let effect_output_name = format!("effect_output.{device_system_name}");
+    render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
+}
+
+/// Capture-direction variant for virtual **input** (mic) devices (PD-024).
+///
+/// The roles are reversed from `render_conf`: raw audio (already summed in
+/// via the existing mic-mix feed-sink mechanism) arrives at a differently
+/// named inlet, `effect_input.{device_system_name}`, so `device_system_name`
+/// itself can stay pinned to the *processed* output side instead — apps that
+/// already selected this device as their mic keep working across the swap
+/// with no reselection, the same "same node identity persists across a
+/// Structural Apply" property `render_conf` already relies on for outputs.
+/// `device_system_name` gets `media.class = Audio/Source/Virtual` so it
+/// keeps presenting as a normal selectable microphone.
+pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig) -> String {
+    let node_description = format!("Pipe Deck Effects - {device_system_name}");
+    let effect_input_name = format!("effect_input.{device_system_name}");
+    render_filter_chain_conf(
+        &node_description,
+        &effect_input_name,
+        device_system_name,
+        Some("Audio/Source/Virtual"),
+        config,
+    )
+}
+
+fn render_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    config: &EffectChainConfig,
+) -> String {
     // Bypassed means "keep the chain loaded but pass audio through
     // unprocessed" — bake that in as neutral values here so the initial
     // Structural Apply already matches what `live_params` would push right
     // after, rather than briefly applying the real values first.
-    let gain_mult = if config.bypassed { 1.0 } else { db_to_linear_mult(config.output_gain) };
-    let eq_sub = if config.bypassed { 0 } else { config.eq_sub };
-    let eq_bass = if config.bypassed { 0 } else { config.eq_bass };
-    let eq_mid = if config.bypassed { 0 } else { config.eq_mid };
-    let eq_treble = if config.bypassed { 0 } else { config.eq_treble };
-    let eq_air = if config.bypassed { 0 } else { config.eq_air };
+    let eq = config.eq_stage();
+    let gain_mult = if config.bypassed { 1.0 } else { db_to_linear_mult(eq.output_gain) };
+    let eq_sub = if config.bypassed { 0 } else { eq.eq_sub };
+    let eq_bass = if config.bypassed { 0 } else { eq.eq_bass };
+    let eq_mid = if config.bypassed { 0 } else { eq.eq_mid };
+    let eq_treble = if config.bypassed { 0 } else { eq.eq_treble };
+    let eq_air = if config.bypassed { 0 } else { eq.eq_air };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
 
     format!(
         r#"# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.
@@ -151,12 +189,12 @@ context.modules = [
             audio.channels = 2
             audio.position = [ FL FR ]
             capture.props = {{
-                node.name   = "{device_system_name}"
+                node.name   = "{capture_name}"
                 media.class = Audio/Sink
             }}
             playback.props = {{
-                node.name    = "effect_output.{device_system_name}"
-                node.passive = true
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
             }}
         }}
     }}
@@ -211,20 +249,21 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
         ];
     }
 
+    let eq = config.eq_stage();
     vec![
-        ("eq_sub:Gain".to_string(), f64::from(config.eq_sub)),
-        ("eq_bass:Gain".to_string(), f64::from(config.eq_bass)),
-        ("eq_mid:Gain".to_string(), f64::from(config.eq_mid)),
-        ("eq_treble:Gain".to_string(), f64::from(config.eq_treble)),
-        ("eq_air:Gain".to_string(), f64::from(config.eq_air)),
-        ("out_gain:Mult".to_string(), db_to_linear_mult(config.output_gain)),
+        ("eq_sub:Gain".to_string(), f64::from(eq.eq_sub)),
+        ("eq_bass:Gain".to_string(), f64::from(eq.eq_bass)),
+        ("eq_mid:Gain".to_string(), f64::from(eq.eq_mid)),
+        ("eq_treble:Gain".to_string(), f64::from(eq.eq_treble)),
+        ("eq_air:Gain".to_string(), f64::from(eq.eq_air)),
+        ("out_gain:Mult".to_string(), db_to_linear_mult(eq.output_gain)),
     ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::DynamicsStage;
+    use crate::core::models::{DynamicsStage, EffectStage};
 
     fn capabilities(builtin_eq: bool) -> FxCapabilities {
         FxCapabilities {
@@ -235,12 +274,27 @@ mod tests {
         }
     }
 
+    /// Builds a chain with a single `Eq5Band` stage — the shape most tests
+    /// in this module need, without repeating the `stages: vec![...]`
+    /// boilerplate at every call site.
+    fn eq_chain(eq_sub: i32, eq_bass: i32, eq_mid: i32, eq_treble: i32, eq_air: i32, output_gain: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            }],
+            ..Default::default()
+        }
+    }
+
     #[test]
     fn accepts_in_range_eq_when_builtin_present() {
-        let config = EffectChainConfig {
-            eq_bass: 3,
-            ..Default::default()
-        };
+        let config = eq_chain(0, 3, 0, 0, 0, 0);
         let result = preflight(&config, &capabilities(true));
         assert!(result.ok);
         assert!(result.blocking_reasons.is_empty());
@@ -248,10 +302,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_eq_gain() {
-        let config = EffectChainConfig {
-            eq_bass: 40,
-            ..Default::default()
-        };
+        let config = eq_chain(0, 40, 0, 0, 0, 0);
         let result = preflight(&config, &capabilities(true));
         assert!(!result.ok);
         assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Bass band")));
@@ -259,10 +310,7 @@ mod tests {
 
     #[test]
     fn rejects_eq_when_builtin_filter_chain_module_missing() {
-        let config = EffectChainConfig {
-            eq_bass: 3,
-            ..Default::default()
-        };
+        let config = eq_chain(0, 3, 0, 0, 0, 0);
         let result = preflight(&config, &capabilities(false));
         assert!(!result.ok);
         assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
@@ -317,11 +365,7 @@ mod tests {
 
     #[test]
     fn render_conf_never_contains_ffmpeg_or_acompressor() {
-        let config = EffectChainConfig {
-            eq_bass: 6,
-            output_gain: -3,
-            ..Default::default()
-        };
+        let config = eq_chain(0, 6, 0, 0, 0, -3);
         let rendered = render_conf("pipe-deck-game", &config);
         assert!(!rendered.to_lowercase().contains("ffmpeg"));
         assert!(!rendered.to_lowercase().contains("acompressor"));
@@ -331,10 +375,7 @@ mod tests {
 
     #[test]
     fn render_conf_is_deterministic_for_idempotence_checks() {
-        let config = EffectChainConfig {
-            eq_sub: 2,
-            ..Default::default()
-        };
+        let config = eq_chain(2, 0, 0, 0, 0, 0);
         assert_eq!(
             render_conf("pipe-deck-mic", &config),
             render_conf("pipe-deck-mic", &config)
@@ -344,11 +385,8 @@ mod tests {
     #[test]
     fn bypass_pushes_neutral_live_params_regardless_of_configured_values() {
         let config = EffectChainConfig {
-            eq_bass: 6,
-            eq_treble: -8,
-            output_gain: 4,
             bypassed: true,
-            ..Default::default()
+            ..eq_chain(0, 6, 0, -8, 0, 4)
         };
         for (name, value) in live_params(&config) {
             if name == "out_gain:Mult" {
@@ -362,9 +400,8 @@ mod tests {
     #[test]
     fn bypass_bakes_neutral_values_into_the_initial_structural_apply_too() {
         let config = EffectChainConfig {
-            eq_bass: 6,
             bypassed: true,
-            ..Default::default()
+            ..eq_chain(0, 6, 0, 0, 0, 0)
         };
         let rendered = render_conf("pipe-deck-game", &config);
         assert!(rendered.contains("\"Gain\" = 0"));
@@ -373,17 +410,46 @@ mod tests {
 
     #[test]
     fn live_params_control_names_match_render_conf_node_names() {
-        let config = EffectChainConfig {
-            eq_bass: 6,
-            output_gain: 0,
-            ..Default::default()
-        };
+        let config = eq_chain(0, 6, 0, 0, 0, 0);
         let rendered = render_conf("pipe-deck-game", &config);
         for (name, _value) in live_params(&config) {
             let node_name = name.split(':').next().unwrap();
             assert!(
                 rendered.contains(&format!("name = {node_name} ")),
                 "render_conf is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn render_conf_capture_pins_device_name_to_the_processed_output_side() {
+        let config = eq_chain(0, 6, 0, 0, 0, 0);
+        let rendered = render_conf_capture("pipe-deck-mic", &config);
+        assert!(rendered.contains(r#"node.name    = "pipe-deck-mic""#));
+        assert!(rendered.contains(r#"node.name   = "effect_input.pipe-deck-mic""#));
+        assert!(rendered.contains("media.class  = Audio/Source/Virtual"));
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+        assert!(!rendered.to_lowercase().contains("acompressor"));
+    }
+
+    #[test]
+    fn render_conf_capture_is_deterministic_for_idempotence_checks() {
+        let config = eq_chain(2, 0, 0, 0, 0, 0);
+        assert_eq!(
+            render_conf_capture("pipe-deck-mic", &config),
+            render_conf_capture("pipe-deck-mic", &config)
+        );
+    }
+
+    #[test]
+    fn live_params_control_names_match_render_conf_capture_node_names() {
+        let config = eq_chain(0, 6, 0, 0, 0, 0);
+        let rendered = render_conf_capture("pipe-deck-mic", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_conf_capture is missing a node for live param {name:?}"
             );
         }
     }

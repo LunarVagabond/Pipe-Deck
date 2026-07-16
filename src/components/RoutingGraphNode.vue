@@ -6,6 +6,7 @@ import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
+import { useEffectChain } from "../composables/useEffectChain";
 import { routingGraphActionsKey } from "../composables/routingGraphContext";
 
 const props = defineProps<{
@@ -16,6 +17,16 @@ const actions = inject(routingGraphActionsKey, null);
 const nodeId = useNodeId();
 const { pendingVolumes, clampVolume, scheduleChannelVolume, toggleChannelMute } =
   useMixerControls();
+const { chainFor } = useEffectChain();
+
+function existingStageKindsFor(deviceId: string): string[] {
+  return chainFor(deviceId).stages.map((stage) => stage.kind);
+}
+
+const hasEffectStages = computed(() => {
+  if (props.data.channelType !== "device") return false;
+  return chainFor(props.data.entityId).stages.length > 0;
+});
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
 const outHandles = computed(() =>
@@ -68,6 +79,7 @@ function onContextMenu(event: MouseEvent) {
   }
   event.preventDefault();
   event.stopPropagation();
+  const deviceId = props.data.channelType === "device" ? props.data.entityId : undefined;
   actions?.openMenu({
     kind: "node",
     x: event.clientX,
@@ -76,6 +88,9 @@ function onContextMenu(event: MouseEvent) {
     systemName: props.data.systemName,
     editable: Boolean(props.data.editable),
     deletable: Boolean(props.data.deletable),
+    deviceId,
+    supportsEffects: props.data.supportsEffects,
+    existingStageKinds: deviceId ? existingStageKindsFor(deviceId) : [],
   });
 }
 
@@ -110,7 +125,11 @@ function onToggleMute() {
 </script>
 
 <template>
-  <div class="routing-graph-node nopan" :class="data.nodeClass" @contextmenu="onContextMenu">
+  <div
+    class="routing-graph-node nopan"
+    :class="[data.nodeClass, { 'routing-graph-node--has-effects': hasEffectStages }]"
+    @contextmenu="onContextMenu"
+  >
     <div v-if="inHandles.length" class="routing-graph-node-ports routing-graph-node-ports--in">
       <div
         v-for="handle in inHandles"
@@ -163,6 +182,7 @@ function onToggleMute() {
         :label="data.label"
         :volume-percent="data.volumePercent"
         :muted="data.muted"
+        :device-id="data.channelType === 'device' ? data.entityId : undefined"
       />
       <div v-else-if="data.channelType" class="routing-graph-node-mixer nodrag">
         <button

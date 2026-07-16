@@ -165,6 +165,89 @@ fn virtual_mic_mix_add_and_volume_adjust() {
 }
 
 #[test]
+fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
+    // PD-024: effects extend from virtual output-only to virtual input
+    // (mic) devices too. Structural apply/remove short-circuit to a mock
+    // success without touching real PipeWire, but this locks in that the
+    // direction-aware guard in `apply_effect_chain_structural`/
+    // `remove_effect_chain_structural` accepts an Input-direction device at
+    // all (previously only `DeviceDirection::Output` was permitted), and
+    // that the persisted chain round-trips through `get_effect_chains` the
+    // same way it already does for outputs.
+    let mut engine = mock_engine();
+    let mic = engine.create_virtual_input("Integration Effects Mic").expect("create input");
+
+    let config = pipe_deck_lib::core::models::EffectChainConfig {
+        stages: vec![pipe_deck_lib::core::models::EffectStage::Eq5Band {
+            id: "eq".to_string(),
+            eq_bass: 6,
+            eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+        }],
+        ..Default::default()
+    };
+
+    engine
+        .apply_effect_chain_structural(&mic.device_id, &config)
+        .expect("apply_effect_chain_structural should succeed for a virtual input device");
+    engine
+        .remove_effect_chain_structural(&mic.device_id)
+        .expect("remove_effect_chain_structural should succeed for a virtual input device");
+
+    // `set_device_effects` (the persist-only path `Effects.vue` uses before
+    // live effects are ever enabled) must round-trip through
+    // `get_effect_chains` for an input device the same way it already does
+    // for outputs.
+    engine.set_device_effects(&mic.device_id, config).expect("set_device_effects");
+    let chains = engine.get_effect_chains().expect("get_effect_chains");
+    assert_eq!(chains.get(&mic.device_id).map(|c| c.eq_stage().eq_bass), Some(6));
+}
+
+#[test]
+fn add_remove_reorder_effect_stage_round_trips() {
+    // PD-025: the node-scoped effects UI entry points — no separate
+    // "enable live effects" step, add/remove/reorder apply immediately.
+    // `add_effect_stage`/`remove_effect_stage`/`reorder_effect_stages` are
+    // built on `apply_effect_chain_structural`/`remove_effect_chain_structural`,
+    // which (like every other effects entry point) short-circuit to a mock
+    // success *before* touching `ConfigStore` when mocked — so this locks in
+    // that each call succeeds and reads back its own in-flight config
+    // correctly (stage appended/reordered/removed), not that mock-mode
+    // persists across a fresh `get_effect_chains()` fetch.
+    use pipe_deck_lib::core::models::EffectStage;
+
+    let mut engine = mock_engine();
+    let output = engine.create_virtual_output("Integration Stage Output").expect("create output");
+
+    let add_result = engine
+        .add_effect_stage(
+            &output.device_id,
+            EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_sub: 0,
+                eq_bass: 4,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
+        )
+        .expect("add_effect_stage");
+    assert!(add_result.success);
+
+    let reorder_result = engine
+        .reorder_effect_stages(&output.device_id, &["eq".to_string()])
+        .expect("reorder_effect_stages should accept the only stage's id unchanged");
+    assert!(reorder_result.success);
+
+    let remove_result = engine.remove_effect_stage(&output.device_id, "eq").expect("remove_effect_stage");
+    assert!(remove_result.success);
+}
+
+#[test]
 fn engine_reinitializes_cleanly_against_a_fresh_backend_instance() {
     // Roughly simulates an app restart in mock mode: a brand new CoreEngine
     // (and therefore a brand new MockAudioBackend) must still produce a

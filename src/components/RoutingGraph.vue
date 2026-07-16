@@ -46,6 +46,7 @@ import {
   type RoutingGraphMenuTarget,
 } from "../composables/routingGraphContext";
 import { useApplyResult } from "../stores/notices";
+import { useEffectChain } from "../composables/useEffectChain";
 import { useConfirm } from "../stores/confirm";
 import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 import { usePrompt } from "../stores/prompt";
@@ -57,6 +58,7 @@ const props = defineProps<{
 }>();
 
 const { handleApplyResult } = useApplyResult();
+const { addEq5BandStage } = useEffectChain();
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
 const { openNewDeviceDialog } = useNewDeviceDialog();
@@ -151,6 +153,10 @@ const graphActions = {
     const ids = nodeIdsForLink(props.graph, source, target);
     await applyEdgeDisconnect(props.graph, { source: ids.source, target: ids.target }, handleApplyResult);
   },
+  async addEffectStage(deviceId: string) {
+    contextMenu.value = null;
+    await addEq5BandStage(deviceId);
+  },
 };
 
 provide(routingGraphActionsKey, graphActions);
@@ -210,6 +216,18 @@ function onPaneContextMenu(event: MouseEvent) {
 function onAddNodeAction(type: "output" | "input") {
   contextMenu.value = null;
   openNewDeviceDialog(type);
+}
+
+function onAddEffectAction(kind: string) {
+  const target = contextMenu.value;
+  if (!target || target.kind !== "node" || !target.deviceId) {
+    return;
+  }
+  // Only one effect kind exists today (PD-025); the menu already filters to
+  // what's actually attachable, so `kind` is accepted for forward
+  // compatibility with a second kind rather than branched on yet.
+  void kind;
+  void graphActions.addEffectStage(target.deviceId);
 }
 
 const nodeTypes = {
@@ -783,6 +801,7 @@ onUnmounted(() => {
       @rename="onContextMenuAction('rename')"
       @delete="onContextMenuAction('delete')"
       @add-node="onAddNodeAction"
+      @add-effect="onAddEffectAction"
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas">

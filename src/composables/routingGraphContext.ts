@@ -9,6 +9,13 @@ export interface RoutingGraphNodeMenuTarget {
   systemName: string;
   editable: boolean;
   deletable: boolean;
+  /** Present only for a device node (not a stream) that's effects-capable —
+   * gates the "+ Effect" menu entry. See `core/engine/effects_ops.rs`'s
+   * `is_pipe_deck_device` guard for why streams/physical devices never get
+   * this even if `supportsEffects` looked true on the graph node itself. */
+  deviceId?: string;
+  supportsEffects?: boolean;
+  existingStageKinds?: string[];
 }
 
 export interface RoutingGraphPaneMenuTarget {
@@ -31,6 +38,9 @@ export interface RoutingGraphActions {
   /** Keyboard equivalent of dragging a wire end off a port: disconnects the
    * one link `handle` represents. No-op if `handle` isn't a live connection. */
   disconnectPort: (nodeId: string, handle: RoutingGraphHandle) => void | Promise<void>;
+  /** PD-025: adds a 5-Band EQ stage to `deviceId` and applies immediately —
+   * no separate confirm step. */
+  addEffectStage: (deviceId: string) => void | Promise<void>;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

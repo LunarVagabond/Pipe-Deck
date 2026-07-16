@@ -72,6 +72,12 @@
     color: var(--text-muted);
   }
 
+  .routing-graph-context-menu-separator {
+    margin: 0.3rem 0.2rem;
+    border: none;
+    border-top: 1px solid var(--border);
+  }
+
   button {
     display: block;
     width: 100%;
@@ -241,6 +247,14 @@
   min-width: 210px;
   max-width: 260px;
   border-radius: 10px;
+
+  // Widened once the node has at least one attached effect stage — the
+  // compact EQ sliders/labels need more room than the base node width
+  // allows, or they read as cramped (see EffectStageList's --compact rules).
+  &.routing-graph-node--has-effects {
+    min-width: 260px;
+    max-width: 340px;
+  }
   border: 1px solid var(--border);
   background: vars.translucent(--background, 92);
   display: flex;

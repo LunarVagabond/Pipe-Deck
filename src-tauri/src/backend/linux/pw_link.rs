@@ -222,6 +222,15 @@ pub fn has_output_ports(system_name: &str) -> bool {
     !output_ports_for(system_name).is_empty()
 }
 
+/// Whether `pw-link -i` currently reports any input port for `system_name` —
+/// the counterpart to `has_output_ports`, used to confirm a capture-direction
+/// effects inlet (`effect_input.*`) has registered its ports before wiring
+/// the mic-mix feed into it.
+pub fn has_input_ports(system_name: &str) -> bool {
+    let prefix = format!("{system_name}:");
+    list_ports("-i").into_iter().any(|port| port.starts_with(&prefix))
+}
+
 fn target_ports_with_prefix(system_name: &str, port_prefix: &str) -> Vec<String> {
     let prefix = format!("{system_name}:{port_prefix}");
     list_ports("-i")

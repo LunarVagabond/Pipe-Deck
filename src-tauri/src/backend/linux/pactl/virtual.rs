@@ -5,6 +5,7 @@ use crate::backend::linux::pactl::parse::{list_sink_inputs, load_sink_index_name
 use crate::backend::linux::pactl::run_pactl;
 use crate::backend::linux::pw_link;
 use std::collections::HashMap;
+use std::time::{Duration, Instant};
 
 /// Renames the live PipeWire/PulseAudio node backing a primary virtual
 /// device (not a feed sink). Neither `pactl` (this stack's PipeWire-Pulse
@@ -189,6 +190,15 @@ pub fn sink_exists(name: &str) -> Result<bool, BackendError> {
     Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
 
+/// The source-direction counterpart to `sink_exists` — used to confirm a
+/// virtual input device (backed by `module-null-sink` with
+/// `media.class=Audio/Source/Virtual`, see `create_virtual_source`) has
+/// (re)appeared after a Structural Apply swap (PD-024).
+pub fn source_exists(name: &str) -> Result<bool, BackendError> {
+    let output = run_pactl(&["list", "sources", "short"])?;
+    Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
+}
+
 pub fn create_null_sink(name: &str, description: &str) -> Result<String, BackendError> {
     let props = description_module_args(description);
     let output = run_pactl(&[
@@ -368,7 +378,27 @@ pub(crate) fn ensure_feed_sink_for_virtual_input(
     }
 
     create_null_sink(&feed_name, &description)?;
+    // The feed sink can be routinely destroyed and recreated (see
+    // `gc_feed_sinks`, which drops it the moment it has no attached
+    // sink-input, even though its virtual-input target is still around) —
+    // without waiting for the recreated node's monitor ports to actually
+    // register, the caller's immediate `pw_link::link_sink_monitor_to_target`
+    // call finds no monitor ports yet and fails, which is exactly what made
+    // reconnecting a stream to a virtual mic it was previously routed away
+    // from unreliable. Same race already fixed in
+    // `effects_ops.rs::remove_effect_chain_structural`.
+    wait_for_monitor_ports_registered(&feed_name, Duration::from_secs(5));
     Ok(feed_name)
+}
+
+fn wait_for_monitor_ports_registered(name: &str, timeout: Duration) {
+    let start = Instant::now();
+    while start.elapsed() < timeout {
+        if pw_link::has_output_ports(name) {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
 }
 
 fn sync_feed_sink_description(

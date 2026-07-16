@@ -95,6 +95,13 @@ pub fn effect_output_name_for_device(device_system_name: &str) -> String {
     format!("effect_output.{device_system_name}")
 }
 
+/// The raw-audio inlet name for a capture-direction (virtual input/mic)
+/// effect chain (PD-024) — the counterpart to `effect_output_name_for_device`
+/// for the reversed capture template, see `fx_validate::render_conf_capture`.
+pub fn effect_input_name_for_device(device_system_name: &str) -> String {
+    format!("effect_input.{device_system_name}")
+}
+
 /// Polls for a sink named `system_name` to (re)appear after a filter-chain
 /// restart, so Structural Apply can confirm the swap actually took before
 /// re-linking anything downstream.
@@ -129,6 +136,44 @@ pub fn wait_for_effect_output_ports(system_name: &str, timeout: Duration) -> Res
         if start.elapsed() > timeout {
             return Err(BackendError::Message(format!(
                 "{effect_output_name} did not register output ports within {timeout:?} after the effects restart"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+/// Polls for a source named `system_name` to (re)appear after a filter-chain
+/// restart — the capture-direction (virtual input) counterpart to
+/// `wait_for_sink`.
+pub fn wait_for_source(system_name: &str, timeout: Duration) -> Result<(), BackendError> {
+    let start = Instant::now();
+    loop {
+        if pactl::source_exists(system_name).unwrap_or(false) {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(BackendError::Message(format!(
+                "{system_name} did not reappear as a source within {timeout:?} after the effects restart"
+            )));
+        }
+        std::thread::sleep(Duration::from_millis(150));
+    }
+}
+
+/// Polls for the filter-chain's raw-audio inlet (`effect_input.{system_name}`)
+/// to register its input ports after a restart — the capture-direction
+/// counterpart to `wait_for_effect_output_ports`, confirming the inlet is
+/// ready to accept the mic-mix feed relink before it's attempted.
+pub fn wait_for_effect_input_ports(system_name: &str, timeout: Duration) -> Result<(), BackendError> {
+    let effect_input_name = effect_input_name_for_device(system_name);
+    let start = Instant::now();
+    loop {
+        if pw_link::has_input_ports(&effect_input_name) {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(BackendError::Message(format!(
+                "{effect_input_name} did not register input ports within {timeout:?} after the effects restart"
             )));
         }
         std::thread::sleep(Duration::from_millis(150));

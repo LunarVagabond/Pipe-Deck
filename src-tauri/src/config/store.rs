@@ -603,12 +603,15 @@ mod tests {
         with_temp_config(|store| {
             store.ensure_layout().unwrap();
             let chain = EffectChainConfig {
-                eq_sub: 0,
-                eq_bass: 2,
-                eq_mid: -1,
-                eq_treble: 0,
-                eq_air: 0,
-                output_gain: 0,
+                stages: vec![crate::core::models::EffectStage::Eq5Band {
+                    id: "eq".to_string(),
+                    eq_sub: 0,
+                    eq_bass: 2,
+                    eq_mid: -1,
+                    eq_treble: 0,
+                    eq_air: 0,
+                    output_gain: 0,
+                }],
                 compressor: crate::core::models::DynamicsStage {
                     enabled: true,
                     threshold_db: -18,
@@ -645,6 +648,24 @@ mod tests {
             let chain = chains.get("virtual-game").expect("chain present");
             assert!(chain.compressor.enabled);
             assert_eq!(chain.compressor.threshold_db, 0);
+        });
+    }
+
+    #[test]
+    fn legacy_flat_eq_fields_migrate_into_a_single_stage() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "version: 1\nprofile_index: []\nplugins:\n  pipe-deck-effects:\n    enabled: true\n    config:\n      chains:\n        virtual-game:\n          eq_bass: 6\n          output_gain: -3\n",
+            )
+            .unwrap();
+            let chains = store.effect_chains().expect("load chains");
+            let chain = chains.get("virtual-game").expect("chain present");
+            assert_eq!(chain.stages.len(), 1);
+            let eq = chain.eq_stage();
+            assert_eq!(eq.eq_bass, 6);
+            assert_eq!(eq.output_gain, -3);
         });
     }
 

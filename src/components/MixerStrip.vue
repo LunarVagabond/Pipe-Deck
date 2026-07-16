@@ -2,6 +2,7 @@
 import { computed, nextTick, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
+import EffectStageList from "./EffectStageList.vue";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
@@ -27,6 +28,21 @@ const {
 } = useMixerControls();
 const { confirm } = useConfirm();
 const pendingVolumes = ref<Record<string, number>>({});
+const expandedEffectsIds = ref<Set<string>>(new Set());
+
+function supportsEffects(channel: MixerChannel): boolean {
+  return channel.channelType === "device" && channel.kind !== "physical";
+}
+
+function toggleEffectsPanel(channel: MixerChannel) {
+  const next = new Set(expandedEffectsIds.value);
+  if (next.has(channel.id)) {
+    next.delete(channel.id);
+  } else {
+    next.add(channel.id);
+  }
+  expandedEffectsIds.value = next;
+}
 const editingVolumeId = ref<string | null>(null);
 const volumeDraft = ref("");
 const volumeInputRef = ref<HTMLInputElement | null>(null);
@@ -324,6 +340,17 @@ async function removeVirtual(channel: MixerChannel) {
                 >
                   {{ channel.muted ? "🔇" : "🔊" }}
                 </button>
+
+                <button
+                  v-if="supportsEffects(channel)"
+                  type="button"
+                  class="effects-disclosure"
+                  :class="{ active: expandedEffectsIds.has(channel.id) }"
+                  :aria-expanded="expandedEffectsIds.has(channel.id)"
+                  @click="toggleEffectsPanel(channel)"
+                >
+                  Effects ▾
+                </button>
               </div>
 
               <div v-if="channel.mixSources.length > 0" class="mix-sources">
@@ -356,6 +383,10 @@ async function removeVirtual(channel: MixerChannel) {
                     {{ mixSource.muted ? "🔇" : "🔊" }}
                   </button>
                 </div>
+              </div>
+
+              <div v-if="supportsEffects(channel) && expandedEffectsIds.has(channel.id)" class="channel-effects">
+                <EffectStageList :device-id="channel.id" />
               </div>
             </article>
           </div>
