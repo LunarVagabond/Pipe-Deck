@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, inject } from "vue";
-import { Handle, Position } from "@vue-flow/core";
+import { Handle, Position, useNodeId } from "@vue-flow/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
@@ -13,6 +13,7 @@ const props = defineProps<{
 }>();
 
 const actions = inject(routingGraphActionsKey, null);
+const nodeId = useNodeId();
 const { pendingVolumes, clampVolume, scheduleChannelVolume, toggleChannelMute } =
   useMixerControls();
 
@@ -29,6 +30,36 @@ function portTitle(handle: RoutingGraphHandle): string {
     return actions?.labelForEntity(handle.connectedId) ?? "Connected";
   }
   return "";
+}
+
+/** Screen-reader label for a port: what it is, and what (if anything) it's
+ * wired to today — the sighted view conveys the same via `portTitle`'s
+ * hover tooltip plus the port's filled/empty styling. */
+function handleAriaLabel(handle: RoutingGraphHandle): string {
+  const direction = handle.type === "source" ? "output" : "input";
+  if (handle.empty) {
+    return `${props.data.label} ${direction} port, not connected`;
+  }
+  const other = handle.connectedId ? actions?.labelForEntity(handle.connectedId) : undefined;
+  return `${props.data.label} ${direction} port, connected to ${other ?? "another device"}`;
+}
+
+/** Enter/Space triggers the same click Vue Flow's own click-to-connect
+ * handling already listens for (see useHandle in @vue-flow/core) — reusing
+ * that state machine instead of re-implementing connect validation here.
+ * Delete/Backspace on an occupied port is the keyboard equivalent of
+ * dragging a wire end off to disconnect it. */
+function onHandleKeydown(event: KeyboardEvent, handle: RoutingGraphHandle) {
+  if (event.key === "Enter" || event.key === " ") {
+    event.preventDefault();
+    (event.currentTarget as HTMLElement).click();
+    return;
+  }
+  if (event.key === "Delete" || event.key === "Backspace") {
+    if (handle.empty || !handle.connectedId || !nodeId) return;
+    event.preventDefault();
+    void actions?.disconnectPort(nodeId, handle);
+  }
 }
 
 function onContextMenu(event: MouseEvent) {
@@ -94,6 +125,10 @@ function onToggleMute() {
           :position="Position.Left"
           class="routing-graph-handle"
           :class="{ 'is-empty': handle.empty }"
+          tabindex="0"
+          role="button"
+          :aria-label="handleAriaLabel(handle)"
+          @keydown="(event) => onHandleKeydown(event, handle)"
         />
       </div>
     </div>
@@ -166,6 +201,10 @@ function onToggleMute() {
           :position="Position.Right"
           class="routing-graph-handle"
           :class="{ 'is-empty': handle.empty }"
+          tabindex="0"
+          role="button"
+          :aria-label="handleAriaLabel(handle)"
+          @keydown="(event) => onHandleKeydown(event, handle)"
         />
       </div>
     </div>

@@ -1,4 +1,5 @@
 import type { InjectionKey } from "vue";
+import type { RoutingGraphHandle } from "../components/routing-graph/buildGraph";
 
 export interface RoutingGraphNodeMenuTarget {
   kind: "node";
@@ -27,6 +28,9 @@ export interface RoutingGraphActions {
   setGroupColor: (groupId: string, color: string) => void;
   ungroup: (groupId: string) => void;
   labelForEntity: (entityId: string) => string;
+  /** Keyboard equivalent of dragging a wire end off a port: disconnects the
+   * one link `handle` represents. No-op if `handle` isn't a live connection. */
+  disconnectPort: (nodeId: string, handle: RoutingGraphHandle) => void | Promise<void>;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

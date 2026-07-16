@@ -429,6 +429,36 @@
     background: transparent;
     border-color: var(--handle-color, #3fd0c9);
   }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px rgba(0, 0, 0, 0.35),
+      0 0 0 4px rgba(63, 208, 201, 0.65);
+  }
+
+  // Vue Flow's own click-to-connect "armed" state — set on the port a
+  // keyboard/click user just picked up as the connection source.
+  &.connecting {
+    box-shadow:
+      0 0 0 2px rgba(0, 0, 0, 0.35),
+      0 0 14px var(--handle-color, #3fd0c9);
+  }
+}
+
+// Visually hidden but announced by screen readers — narrates the keyboard
+// click-to-connect pickup step, which otherwise has no visual equivalent for
+// assistive tech (see RoutingGraph.vue's keyboardConnectMessage).
+.routing-graph-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 // Plain volume row for hardware (physical) devices — no effects list, no
