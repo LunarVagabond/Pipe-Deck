@@ -4,7 +4,7 @@ Everything you need to get Pipe Deck running from source, whether you're trying 
 
 ## Prerequisites
 
-- **Linux** with **PipeWire** (a Wayland or X11 desktop with PipeWire as the active audio server — check with `pipewire --version`). Pipe Deck shells out to `pactl`, `pw-link`, and `pw-dump`, so these need to be on your `PATH`.
+- **Linux** with **PipeWire** (a Wayland or X11 desktop with PipeWire as the active audio server — check with `pipewire --version`). Pipe Deck shells out to `pactl`, `pw-link`, `pw-dump`, and `pw-cli`, so these need to be on your `PATH`.
 - **Rust** (stable) — install via [rustup](https://rustup.rs/) if you don't already have it.
 - **Node.js 20+** and npm, for the frontend build.
 - **Tauri's Linux system dependencies** — the exact package names vary by distro. On Debian/Ubuntu (also what CI installs):
