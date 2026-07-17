@@ -76,6 +76,62 @@ make flatpak   # local Flatpak build
 WEBKIT_DISABLE_COMPOSITING_MODE=1 make start
 ```
 
+## Troubleshooting
+
+Common day-one failures, and how to collect the details the [bug report template](../../.github/ISSUE_TEMPLATE/bug_report.yml) asks for (Distro, Desktop, PipeWire version).
+
+### `pactl`, `pw-link`, `pw-dump`, or `pw-cli` not found
+
+Pipe Deck shells out to these commands to read and change the PipeWire graph (`pactl` and `pw-link`/`pw-dump` for enumeration and routing, `pw-cli` for the PipeWire version and effects). If any is missing from your `PATH`, enumeration or routing fails. Install the packages that provide them:
+
+| Distro | `pactl` | `pw-link`, `pw-dump`, `pw-cli` |
+|--------|---------|--------------------------------|
+| Debian / Ubuntu | `pulseaudio-utils` | `pipewire-bin` |
+| Fedora | `pulseaudio-utils` | `pipewire-utils` |
+| Arch | `libpulse` | `pipewire` |
+
+Check they resolve:
+
+```bash
+command -v pactl pw-link pw-dump pw-cli
+```
+
+### PipeWire is running but the app shows no devices or streams
+
+Confirm the PipeWire user services are actually up:
+
+```bash
+systemctl --user status pipewire.service pipewire-pulse.service
+```
+
+Both should report `active (running)`. `pactl` talks to the PulseAudio-compatibility layer, so if `pipewire-pulse.service` is down the app can see nothing even while `pipewire.service` itself runs. When the backend can't enumerate the graph, Pipe Deck falls back to an empty graph and shows a "PipeWire unavailable" notice instead of crashing — that notice is the sign to check these services.
+
+### Permission or session-bus errors (SSH, minimal WMs)
+
+PipeWire and `systemctl --user` rely on a user session bus and `XDG_RUNTIME_DIR`. A bare SSH shell or a minimal window manager launched without a proper login session may not provide them, so the commands above fail with permission or bus-connection errors. Run Pipe Deck from a normal graphical login session, or make sure a user systemd/D-Bus session is present (for example via `loginctl enable-linger`, or by launching inside `dbus-run-session`).
+
+### Capturing backend errors for a bug report
+
+Pipe Deck does not write a log file — backend errors are printed to standard error. To capture them, launch from a terminal and watch stderr:
+
+```bash
+make start   # or run the built binary directly from a terminal
+```
+
+To separate a UI bug from a backend or PipeWire problem, run against the mock backend. It serves a static sample graph and never touches PipeWire:
+
+```bash
+PIPE_DECK_USE_MOCK=1 make start
+```
+
+If the problem disappears in mock mode it's in the backend or your PipeWire setup; if it persists it's in the UI.
+
+For the template's **PipeWire version** field, use:
+
+```bash
+pw-cli --version
+```
+
 ## Next steps
 
 - Read [Development](../project/Development.md) for the codebase layout and full `make` target list.
