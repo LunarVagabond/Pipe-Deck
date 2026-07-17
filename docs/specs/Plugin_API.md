@@ -133,6 +133,6 @@ work, not a v1 guarantee.
 
 ## Related
 
-- `docs/Config_Spec.md` — `plugins:` config block
-- `docs/Plugins.md` — contributor guide
-- `docs/Decisions.md` — PD-004, PD-014, PD-015, PD-016
+- `docs/specs/Config_Spec.md` — `plugins:` config block
+- `docs/project/Plugins.md` — contributor guide
+- `docs/architecture/Decisions.md` — PD-004, PD-014, PD-015, PD-016

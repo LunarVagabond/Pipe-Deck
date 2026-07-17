@@ -223,7 +223,7 @@ describe("resolveConnectionAction — connect mode", () => {
     );
     expect(result).toEqual({
       error:
-        '"Virtual Sink" can only route to a physical/virtual output or a virtual input — "Headset Mic" isn\'t one of those.',
+        '"Virtual Sink" can only route to a physical output, another virtual output, or a virtual input — "Headset Mic" isn\'t one of those.',
     });
   });
 
