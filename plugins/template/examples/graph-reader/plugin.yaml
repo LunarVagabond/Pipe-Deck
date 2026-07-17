@@ -1,0 +1,11 @@
+id: graph-reader-example
+name: Graph Reader Example
+version: 0.1.0
+api_version: 1
+entry: bin/graph-reader
+bundled: false
+description: Worked example that reads the runtime graph snapshot and logs a routing summary
+developer: Pipe Deck
+repo: https://github.com/LunarVagabond/Pipe-Deck
+capabilities:
+  - graph.read
