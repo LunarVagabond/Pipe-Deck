@@ -115,6 +115,11 @@ Every feature must pass one question:
 
 If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Plugin authors](docs/project/Plugins.md) should read the [Plugin API](docs/specs/Plugin_API.md).
 
+## Community
+
+- [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) — design questions, proposals, and anything worth keeping searchable
+- [Discord](https://discord.gg/SG23W3BqCn) — casual chat and quick questions
+
 ## License
 
 [MIT](LICENSE)
