@@ -14,7 +14,7 @@ If no, refine or drop the proposal.
 
 ## Questions before you file
 
-For quick questions or a sanity check before opening an issue, drop into [Discord](https://discord.gg/SG23W3BqCn). For anything worth keeping searchable — design discussion, proposals — use [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) instead.
+For quick questions or a sanity check before opening an issue, drop into [Discord](https://discord.gg/SG23W3BqCn) (server name: "Dev Syndicate"). For anything worth keeping searchable — design discussion, proposals — use [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) instead.
 
 ## Contribution Principles
 
