@@ -112,7 +112,6 @@ mod tests {
                 system_name: None,
                 direction: StreamDirection::Playback,
                 current_target: Some("headphones".into()),
-                current_targets: Vec::new(),
                 media_name: None,
                 is_system: false,
                 volume_percent: None,

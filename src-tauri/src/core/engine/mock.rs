@@ -23,7 +23,6 @@ pub(super) fn apply_mock_routing(
         )));
     }
     stream.current_target = Some(target_id.clone());
-    stream.current_targets.clear();
     Ok(())
 }
 
@@ -33,7 +32,6 @@ pub(super) fn apply_mock_snapshot(
 ) -> Result<(), EngineError> {
     for stream in &mut graph.streams {
         stream.current_target = None;
-        stream.current_targets.clear();
     }
     for device in &mut graph.devices {
         device.current_target = None;
@@ -84,7 +82,6 @@ pub(super) fn apply_mock_device_route(
 pub(super) fn apply_mock_profile(graph: &mut RuntimeGraph, profile: &Profile) -> Result<(), EngineError> {
     for stream in &mut graph.streams {
         stream.current_target = None;
-        stream.current_targets.clear();
     }
     for intent in &profile.routing_intents {
         apply_mock_routing(graph, intent)?;

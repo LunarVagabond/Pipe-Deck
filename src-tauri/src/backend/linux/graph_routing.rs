@@ -35,7 +35,6 @@ pub(in crate::backend) fn apply_user_cleared_routes(
     for stream in &mut graph.streams {
         if cleared_streams.contains(&stream_identity_key(stream)) {
             stream.current_target = None;
-            stream.current_targets.clear();
         }
     }
 
@@ -287,7 +286,6 @@ mod tests {
             system_name: Some("Firefox".into()),
             direction: StreamDirection::Playback,
             current_target: target.clone(),
-            current_targets: target.clone().into_iter().collect(),
             media_name: None,
             is_system: false,
             volume_percent: None,
@@ -340,7 +338,6 @@ mod tests {
                 system_name: Some("Firefox".into()),
                 direction: StreamDirection::Playback,
                 current_target: Some("headset".into()),
-                current_targets: Vec::new(),
                 media_name: None,
                 is_system: false,
                 volume_percent: None,

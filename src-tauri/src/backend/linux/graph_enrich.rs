@@ -52,7 +52,6 @@ pub fn apply_pactl_playback_targets(graph: &mut RuntimeGraph) {
             continue;
         };
         stream.current_target = Some(target_id);
-        stream.current_targets.clear();
     }
 }
 
@@ -86,7 +85,6 @@ pub fn apply_pactl_capture_targets(graph: &mut RuntimeGraph) {
             continue;
         };
         stream.current_target = Some(target_id);
-        stream.current_targets.clear();
     }
 }
 
@@ -256,7 +254,6 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
                 .sink_index
                 .and_then(|index| sink_names.get(&index).cloned())
                 .and_then(|sink_name| resolve_playback_target_device_id(graph, &sink_name)),
-            current_targets: Vec::new(),
             media_name: input.media_name.clone(),
             is_system: is_system_stream_name(&input.application_name, &input.node_name),
             volume_percent: None,
@@ -285,7 +282,6 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
             }
             if let Some(target_id) = target_id {
                 stream.current_target = Some(target_id);
-                stream.current_targets.clear();
             }
             // Same fix as merge_pactl_playback_streams: this source-output
             // already corresponds to a stream pw-dump discovered directly,
@@ -303,7 +299,6 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
             system_name: output.node_name.clone(),
             direction: StreamDirection::Capture,
             current_target: target_id,
-            current_targets: Vec::new(),
             media_name: output.media_name.clone(),
             is_system: is_system_stream_name(&output.application_name, &output.node_name),
             volume_percent: None,

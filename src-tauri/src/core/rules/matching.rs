@@ -395,7 +395,6 @@ mod tests {
             system_name: None,
             direction: StreamDirection::Playback,
             current_target: None,
-            current_targets: Vec::new(),
             media_name: media_name.map(str::to_string),
             is_system: false,
             volume_percent: None,
