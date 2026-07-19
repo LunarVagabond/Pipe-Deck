@@ -80,7 +80,15 @@ fn effects_conf_dir() -> Option<PathBuf> {
 /// documented convention), *not* the main `pipewire.conf.d` used by
 /// `effects_conf_dir()` above (that one is legacy-cleanup-only; nothing
 /// current ever writes there).
+///
+/// `PIPE_DECK_FILTER_CHAIN_CONF_DIR` overrides this for tests that need to
+/// exercise a real conf-file precondition check without writing under the
+/// developer's actual `$HOME` — mirrors `PIPE_DECK_CONFIG_DIR`'s role for
+/// `config::store`, just scoped to this one directory.
 pub fn filter_chain_conf_dir() -> Option<PathBuf> {
+    if let Ok(dir) = std::env::var("PIPE_DECK_FILTER_CHAIN_CONF_DIR") {
+        return Some(PathBuf::from(dir));
+    }
     let home = std::env::var("HOME").ok()?;
     Some(PathBuf::from(home).join(".config/pipewire/filter-chain.conf.d"))
 }

@@ -1,15 +1,20 @@
-use crate::core::models::{Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
+use crate::core::models::{Device, DeviceDirection, DeviceKind, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
 use crate::backend::linux::graph_enrich;
 use crate::backend::linux::graph_routing;
+use crate::backend::linux::pactl;
 use crate::backend::linux::pw_dump::{self, PwDumpObject};
+use crate::backend::linux::pw_link;
+use crate::backend::linux::split_sink;
 use crate::backend::linux::virtual_devices::{VirtualDeviceEntry, VirtualDeviceRegistry};
 use crate::backend::linux::virtual_mic_mix;
 use crate::backend::slugify;
+use crate::pipewire::{filter_chain, pipewire_restart};
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
+use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -178,6 +183,10 @@ impl AudioBackend for LinuxPipeWireBackend {
         virtual_mic_mix::set_mix_source_mute(virtual_input_system_name, source_system_name, muted)
     }
 
+    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError> {
+        virtual_mic_mix::disconnect_all_virtual_mic_mixes(virtual_input_system_name)
+    }
+
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
         graph_enrich::apply_device_aliases(devices);
         graph_enrich::apply_device_levels(devices);
@@ -189,6 +198,10 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, target_is_input: bool) -> bool {
         crate::backend::linux::pw_link::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_input)
+    }
+
+    fn device_is_live(&self, system_name: &str, direction: DeviceDirection) -> bool {
+        pactl::pipe_deck_device_is_live(system_name, direction)
     }
 
     fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError> {
@@ -250,6 +263,122 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn platform_audio_version(&self) -> Option<String> {
         query_pipewire_version()
+    }
+
+    fn swap_to_effect_chain(
+        &self,
+        device: &Device,
+        conf_path: &Path,
+        rendered_conf: &str,
+        downstream_targets: &[Device],
+        mic_feeders: &[String],
+    ) -> Result<(), BackendError> {
+        if let Some(dir) = filter_chain::filter_chain_conf_dir() {
+            std::fs::create_dir_all(&dir)
+                .map_err(|error| BackendError::Message(format!("failed to create effects config dir: {error}")))?;
+        }
+
+        if let Some(module_id) = pactl::find_module_id_by_sink_name(&device.system_name)? {
+            pactl::unload_module(&module_id)?;
+        }
+
+        std::fs::write(conf_path, rendered_conf)
+            .map_err(|error| BackendError::Message(format!("failed to write effects config: {error}")))?;
+
+        pipewire_restart::restart_filter_chain_service()?;
+
+        if device.direction == DeviceDirection::Input {
+            filter_chain::wait_for_source(&device.system_name, Duration::from_secs(5))?;
+            filter_chain::wait_for_effect_input_ports(&device.system_name, Duration::from_secs(5))?;
+
+            let effect_input_name = filter_chain::effect_input_name_for_device(&device.system_name);
+            virtual_mic_mix::relink_feeds_to(mic_feeders, &device.system_name, &effect_input_name, false).map_err(
+                |error| {
+                    BackendError::Message(format!(
+                        "effects source came up but its mic-mix feeds could not be re-linked: {error}"
+                    ))
+                },
+            )?;
+
+            return Ok(());
+        }
+
+        filter_chain::wait_for_sink(&device.system_name, Duration::from_secs(5))?;
+        filter_chain::wait_for_effect_output_ports(&device.system_name, Duration::from_secs(5))?;
+
+        let effect_output_name = filter_chain::effect_output_name_for_device(&device.system_name);
+        let mut allowed_targets = HashSet::new();
+        for target in downstream_targets {
+            let is_virtual_input = target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
+            let result = if is_virtual_input {
+                pw_link::link_capture_source_to_virtual_input(&effect_output_name, &target.system_name)
+            } else {
+                pw_link::link_capture_source_to_sink(&effect_output_name, &target.system_name)
+            };
+            result.map_err(|error| {
+                BackendError::Message(format!(
+                    "effects sink came up but could not be re-linked to {}: {error}",
+                    target.label
+                ))
+            })?;
+            allowed_targets.insert(target.system_name.clone());
+        }
+        // See the equivalent comment previously on `try_apply_structural` in
+        // `core/engine/effects_ops.rs`: a prior swap's downstream targets may
+        // no longer match this one, and node identity persisting across a
+        // Structural Apply (PD-020) means nothing else ever tears a stale
+        // link down on its own.
+        let _ = split_sink::prune_stale_fan_out_links(&effect_output_name, &allowed_targets);
+
+        Ok(())
+    }
+
+    fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError> {
+        if device.direction == DeviceDirection::Input {
+            pactl::create_virtual_source(&device.system_name, &device.label)?;
+            if wait_for_node {
+                filter_chain::wait_for_source(&device.system_name, Duration::from_secs(5))?;
+            }
+        } else {
+            pactl::create_null_sink(&device.system_name, &device.label)?;
+            if wait_for_node {
+                filter_chain::wait_for_sink(&device.system_name, Duration::from_secs(5))?;
+            }
+        }
+        Ok(())
+    }
+
+    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<u32>, BackendError> {
+        let held = pactl::sink_input_indices_on(device_system_name);
+        if !held.is_empty() {
+            pactl::ensure_holding_sink()?;
+            for index in &held {
+                let _ = pactl::move_sink_input_to_sink_name(*index, pactl::HOLDING_SINK_NAME);
+            }
+        }
+        Ok(held)
+    }
+
+    fn release_held_sink_inputs(&self, held_indices: &[u32], target_system_name: &str) -> Result<(), BackendError> {
+        for index in held_indices {
+            let _ = pactl::move_sink_input_to_sink_name(*index, target_system_name);
+        }
+        let _ = pactl::remove_holding_sink();
+        Ok(())
+    }
+
+    fn list_mic_feeds(&self, target_system_name: &str, target_is_virtual_source: bool) -> Vec<String> {
+        virtual_mic_mix::list_feeds(target_system_name, target_is_virtual_source)
+    }
+
+    fn relink_mic_feeds(
+        &self,
+        feeders: &[String],
+        from_system_name: &str,
+        to_system_name: &str,
+        to_is_virtual_source: bool,
+    ) -> Result<(), BackendError> {
+        virtual_mic_mix::relink_feeds_to(feeders, from_system_name, to_system_name, to_is_virtual_source)
     }
 }
 

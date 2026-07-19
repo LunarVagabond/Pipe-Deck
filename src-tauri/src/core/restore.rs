@@ -1,7 +1,6 @@
 use crate::config::ConfigStore;
-use crate::core::models::{DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceSpec};
+use crate::core::models::{DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceSpec};
 use crate::backend::AudioBackend;
-use crate::backend::linux::pactl::{self, PactlVirtualModule};
 use crate::backend::slugify;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
@@ -49,9 +48,8 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
         errors: Vec::new(),
     };
 
-    let modules = pactl::list_pipe_deck_modules()
-        .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-    let module_by_name: HashMap<String, PactlVirtualModule> = modules
+    let module_by_name: HashMap<String, VirtualDeviceInfo> = backend
+        .list_virtual_devices()
         .into_iter()
         .map(|module| (module.system_name.clone(), module))
         .collect();
@@ -87,7 +85,7 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
 
     for spec in &config.virtual_devices {
         let system_name = format!("pipe-deck-{}", spec.slug);
-        if module_by_name.contains_key(&system_name) || pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
+        if module_by_name.contains_key(&system_name) || backend.device_is_live(&system_name, spec.direction.clone()) {
             result.adopted.push(system_name);
             continue;
         }
@@ -98,14 +96,14 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
         }
     }
 
-    for (system_name, module) in &module_by_name {
+    for system_name in module_by_name.keys() {
         if configured_names.contains(system_name) {
             continue;
         }
         result.warnings.push(format!(
             "Removing orphaned Pipe Deck module not listed in config: {system_name}"
         ));
-        if let Err(error) = pactl::unload_module(&module.module_id) {
+        if let Err(error) = backend.remove_virtual_device(system_name) {
             result
                 .errors
                 .push(format!("failed to unload orphan {system_name}: {error}"));
@@ -157,9 +155,11 @@ pub fn restore_profile_virtual_devices(
         .map(|spec| (spec.id.clone(), spec.clone()))
         .collect();
 
-    let modules = pactl::list_pipe_deck_modules()
-        .map_err(|error| RestoreError::Adapter(error.to_string()))?;
-    let present: HashSet<String> = modules.into_iter().map(|module| module.system_name).collect();
+    let present: HashSet<String> = backend
+        .list_virtual_devices()
+        .into_iter()
+        .map(|module| module.system_name)
+        .collect();
 
     let mut result = RestoreResult {
         created: Vec::new(),
@@ -177,7 +177,7 @@ pub fn restore_profile_virtual_devices(
             continue;
         };
         let system_name = format!("pipe-deck-{}", spec.slug);
-        if present.contains(&system_name) || pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
+        if present.contains(&system_name) || backend.device_is_live(&system_name, spec.direction.clone()) {
             result.adopted.push(system_name);
             continue;
         }

@@ -147,6 +147,7 @@ mod tests {
 
     #[test]
     fn save_device_route_rule_stores_multiple_targets() {
+        let _guard = crate::config::store::lock_config_dir_env();
         let dir = std::env::temp_dir().join(format!("pipe-deck-rules-{}", std::process::id()));
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &dir);
         let _ = std::fs::remove_dir_all(&dir);
@@ -201,5 +202,6 @@ mod tests {
             vec!["alsa-headphones".to_string(), "alsa-speakers".to_string()]
         );
         let _ = std::fs::remove_dir_all(&dir);
+        std::env::remove_var("PIPE_DECK_CONFIG_DIR");
     }
 }
