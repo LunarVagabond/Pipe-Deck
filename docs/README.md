@@ -40,6 +40,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 - **Packaging:** [Packaging](project/Packaging.md)
 - **Plugins:** [Plugins](project/Plugins.md)
 - **Releasing:** [Release](project/Release.md)
+- **Project organization:** [Project Management](project-management/README.md)
 
 ## Documentation map
 
@@ -69,6 +70,13 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 - [Release process](project/Release.md)
 - [Plugins](project/Plugins.md)
 - [Plugin Review Checklist](specs/Plugin_Review_Checklist.md)
+
+### Project Management
+- [Overview](project-management/README.md)
+- [Issue Workflow](project-management/issue-workflow.md)
+- [Milestones & Releases](project-management/milestones-and-releases.md)
+- [Release Strategy & Cadence](project-management/release-strategy.md)
+- [Contributing Workflow](project-management/contributing-workflow.md)
 
 ## Feature acceptance filter
 

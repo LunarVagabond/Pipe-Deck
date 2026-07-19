@@ -305,6 +305,17 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
   - A design sketch of the `AudioBackend` trait shape this would need — `load_effect_chain`/`unload_effect_chain`/`set_effect_chain_live_params`/`effect_chain_capabilities` — was added to `backend/mod.rs` with default `not implemented` bodies so it requires zero changes to any existing backend. This is documentation of the target shape only; no backend implements it yet, and no call site references it.
 - Rationale: the spike's job was to convert #141 from "does this work at all" to "here's what a real implementation has to handle" — it succeeded at that. The mechanism is more promising than PD-017's earlier finding suggested (a long-running process genuinely can attach nodes to the live session, not just its own local context), but a full implementation is a materially larger effort than "swap one API call for another": it needs a correct library-lifetime story inside a long-running GUI process, a leak-soak test longer than 5 cycles, and — per #141's original scoping — closing the `core/engine/effects_ops.rs` → `backend::linux::*` boundary gap at the same time rather than as an afterthought. None of that is done here; this decision records the spike's findings and closes the "is this worth pursuing further" question with a qualified yes, not the trait implementation itself.
 
+### PD-028 Milestones Are Releases Only; Epics Move to Native Sub-Issues
+
+- Status: Accepted
+- Context: Milestones had been doing two unrelated jobs — tracking releases (e.g. a future `v0.5.0`) and tracking large multi-release roadmap-phase initiatives ("Phase 6 — Consolidation", "Quality & Platform", and similar). This made "what ships next?" hard to answer from the milestone list alone, and predated GitHub's native sub-issue and issue-relationship features, which didn't exist when the milestone-based scheme was set up.
+- Decision:
+  - Milestones are release-only going forward — one per shipped version, holding only issues actually scoped to that release. See `docs/project-management/milestones-and-releases.md`.
+  - The 9 roadmap-phase milestones that previously stood in for epics were each converted to a `[Epic] <name>` issue (label `epic`), with the milestone's description copied verbatim into the Epic body and every issue that was in that milestone (open and closed) re-parented as a native GitHub sub-issue of the new Epic. The original milestones were closed, not deleted, to keep old links resolvable.
+  - Blocks/Blocked-by relationships between historical issues were deliberately **not** auto-migrated (would have required parsing free-text dependency language across ~140 issues); native relationships are documented as a going-forward convention only. See `docs/project-management/issue-workflow.md`.
+  - `.claude/skills/gh-tickets/SKILL.md` was updated to reflect the new model for future ticket triage.
+- Rationale: separating "what ships" (milestone) from "what's the initiative" (epic) lets releases stay short-lived and predictable while initiatives span multiple releases, and uses GitHub's native tooling (sub-issues, relationships) instead of a milestone-based approximation of the same thing. Full detail in `docs/project-management/README.md`.
+
 ## Related Documents
 
 - `docs/Product_Requirements.md`
