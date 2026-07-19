@@ -528,6 +528,18 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        if let Some(device) = graph
+            .devices
+            .iter_mut()
+            .find(|device| device.system_name == virtual_input_system_name)
+        {
+            device.mix_sources.clear();
+        }
+        Ok(())
+    }
+
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
         crate::backend::linux::graph_enrich::apply_device_aliases(devices);
     }

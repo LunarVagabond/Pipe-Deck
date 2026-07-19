@@ -230,7 +230,7 @@ impl CoreEngine {
         }
 
         if self.graph.data_source != "mock" {
-            if let Err(error) = apply_profile_volumes(&self.graph, &profile) {
+            if let Err(error) = apply_profile_volumes(self.adapter.as_ref(), &self.graph, &profile) {
                 let message = error.to_string();
                 self.last_error = Some(message.clone());
                 let _ = restore_routing_snapshot(&self.graph, &snapshot);

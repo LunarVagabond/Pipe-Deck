@@ -183,6 +183,10 @@ impl AudioBackend for LinuxPipeWireBackend {
         virtual_mic_mix::set_mix_source_mute(virtual_input_system_name, source_system_name, muted)
     }
 
+    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError> {
+        virtual_mic_mix::disconnect_all_virtual_mic_mixes(virtual_input_system_name)
+    }
+
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]) {
         graph_enrich::apply_device_aliases(devices);
         graph_enrich::apply_device_levels(devices);
@@ -194,6 +198,10 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, target_is_input: bool) -> bool {
         crate::backend::linux::pw_link::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_input)
+    }
+
+    fn device_is_live(&self, system_name: &str, direction: DeviceDirection) -> bool {
+        pactl::pipe_deck_device_is_live(system_name, direction)
     }
 
     fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError> {

@@ -97,6 +97,11 @@ pub trait AudioBackend: Send + Sync {
     fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError>;
     fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError>;
     fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError>;
+    /// Tears down every mix-source feed into `virtual_input_system_name` —
+    /// used ahead of deleting the virtual input device outright (see
+    /// `virtual_ops::remove_virtual_device`), where there's nothing left to
+    /// preserve a mix relationship with.
+    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError>;
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]);
 
     // Virtual device lifecycle. `create_virtual_output`/`create_virtual_input`
@@ -128,6 +133,14 @@ pub trait AudioBackend: Send + Sync {
     }
 
     fn is_routed_to(&self, _source_system_name: &str, _target_system_name: &str, _target_is_input: bool) -> bool {
+        false
+    }
+
+    /// Whether a pipe-deck-owned sink/source currently exists under
+    /// `system_name` — used by `core/restore.rs` to tell an already-live
+    /// device apart from one that needs recreating. Same fallback
+    /// conventions as the two queries above.
+    fn device_is_live(&self, _system_name: &str, _direction: DeviceDirection) -> bool {
         false
     }
 
@@ -362,6 +375,10 @@ impl AudioBackend for EmptyAudioBackend {
     }
 
     fn set_mix_source_mute(&self, _virtual_input_system_name: &str, _source_system_name: &str, _muted: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn disconnect_all_virtual_mic_mixes(&self, _virtual_input_system_name: &str) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 

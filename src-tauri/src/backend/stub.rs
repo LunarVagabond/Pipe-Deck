@@ -107,6 +107,12 @@ impl AudioBackend for StubBackend {
         ))
     }
 
+    fn disconnect_all_virtual_mic_mixes(&self, _virtual_input_system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
 
     fn create_virtual_output(&self, _label: &str, _multi: bool) -> Result<VirtualDeviceResult, BackendError> {

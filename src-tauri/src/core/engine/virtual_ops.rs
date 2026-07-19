@@ -4,7 +4,6 @@ use crate::core::models::{
     VirtualDeviceResult,
 };
 use crate::core::restore::spec_from_create_result;
-use crate::backend::linux::virtual_mic_mix;
 use std::collections::{HashMap, HashSet};
 
 use super::{CoreEngine, EngineError};
@@ -108,7 +107,7 @@ impl CoreEngine {
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
-            let _ = virtual_mic_mix::disconnect_all_virtual_mic_mixes(system_name);
+            let _ = self.adapter.disconnect_all_virtual_mic_mixes(system_name);
             ConfigStore::new()
                 .remove_virtual_device(system_name)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
