@@ -6,6 +6,7 @@ use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::Mutex;
 
 /// Holds a mutable in-memory graph seeded from the static sample data, so
@@ -601,5 +602,42 @@ impl AudioBackend for MockAudioBackend {
 
     fn platform_audio_version(&self) -> Option<String> {
         Some("1.0.0 (mock)".to_string())
+    }
+
+    fn swap_to_effect_chain(
+        &self,
+        _device: &Device,
+        _conf_path: &Path,
+        _rendered_conf: &str,
+        _downstream_targets: &[Device],
+        _mic_feeders: &[String],
+    ) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<u32>, BackendError> {
+        Ok(Vec::new())
+    }
+
+    fn release_held_sink_inputs(&self, _held_indices: &[u32], _target_system_name: &str) -> Result<(), BackendError> {
+        Ok(())
+    }
+
+    fn list_mic_feeds(&self, _target_system_name: &str, _target_is_virtual_source: bool) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn relink_mic_feeds(
+        &self,
+        _feeders: &[String],
+        _from_system_name: &str,
+        _to_system_name: &str,
+        _to_is_virtual_source: bool,
+    ) -> Result<(), BackendError> {
+        Ok(())
     }
 }

@@ -5,7 +5,6 @@ use crate::core::models::{
 };
 use crate::core::restore::spec_from_create_result;
 use crate::backend::linux::virtual_mic_mix;
-use crate::pipewire::{filter_chain, pipewire_restart};
 use std::collections::{HashMap, HashSet};
 
 use super::{CoreEngine, EngineError};
@@ -89,13 +88,10 @@ impl CoreEngine {
             // A deleted device's live effects conf (if any) must go with it —
             // otherwise it's an orphan that `filter-chain.service` will keep
             // recreating a same-named ghost sink for on every future restart,
-            // long after the device it belonged to is gone.
-            if let Some(conf_path) = filter_chain::conf_path_for_device(system_name) {
-                if conf_path.is_file() {
-                    let _ = std::fs::remove_file(&conf_path);
-                    let _ = pipewire_restart::restart_filter_chain_service();
-                }
-            }
+            // long after the device it belonged to is gone. Best-effort: the
+            // device is about to be destroyed regardless, so a failed conf
+            // cleanup here shouldn't block that.
+            let _ = self.discard_effect_chain_conf(system_name);
             if let Some(device_id) = self
                 .graph
                 .devices

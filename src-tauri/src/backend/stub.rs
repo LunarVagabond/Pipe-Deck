@@ -149,4 +149,51 @@ impl AudioBackend for StubBackend {
             "no audio backend implemented for this platform yet".into(),
         ))
     }
+
+    fn swap_to_effect_chain(
+        &self,
+        _device: &Device,
+        _conf_path: &std::path::Path,
+        _rendered_conf: &str,
+        _downstream_targets: &[Device],
+        _mic_feeders: &[String],
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<u32>, BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn release_held_sink_inputs(&self, _held_indices: &[u32], _target_system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
+    fn list_mic_feeds(&self, _target_system_name: &str, _target_is_virtual_source: bool) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn relink_mic_feeds(
+        &self,
+        _feeders: &[String],
+        _from_system_name: &str,
+        _to_system_name: &str,
+        _to_is_virtual_source: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
 }
