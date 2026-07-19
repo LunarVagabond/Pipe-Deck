@@ -452,16 +452,33 @@ impl ConfigStore {
     }
 }
 
+/// Serializes any test (in this file or elsewhere in the crate) that mutates
+/// the process-wide `PIPE_DECK_CONFIG_DIR` env var via `std::env::set_var`.
+/// `cargo test`'s default parallel runner races concurrent `set_var`/
+/// `remove_var` calls to the same env var across threads, which manifests as
+/// sporadic failures in whichever test happened to read a config dir another
+/// thread was mid-swap on. A `static` declared *inside* a `#[test]` fn only
+/// guards re-entrant calls to that one function (which can't happen — each
+/// test runs once) and provides no cross-test exclusion at all, which is
+/// what let this race through despite every affected test already having its
+/// own (uselessly scoped) lock. This one is crate-level so every caller
+/// shares the same `Mutex`.
+#[cfg(test)]
+pub(crate) fn lock_config_dir_env() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::models::{EffectChainConfig, VirtualDeviceSpec};
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
 
     fn with_temp_config<F: FnOnce(&ConfigStore)>(run: F) {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = super::lock_config_dir_env();
         let temp_dir = std::env::temp_dir().join(format!(
             "pipe-deck-config-test-{}",
             std::process::id()
