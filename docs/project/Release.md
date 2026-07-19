@@ -45,6 +45,8 @@ make release VER=0.2.0
 #   → tag v0.2.0-first-public-beta
 ```
 
+Before touching any files, `make release` runs [`scripts/release-checks.sh`](https://github.com/LunarVagabond/Pipe-Deck/blob/main/scripts/release-checks.sh) (type-check, frontend unit tests, `cargo check`, `cargo test` — same as `make check` + `make test`). If that fails, `make release` aborts immediately with nothing changed — no version bump, no commit, no tag — so a broken build never makes it to a pushed tag in the first place. Run it standalone any time with `make release-checks`. (Not wired into CI yet — this is a local gate only, though the script is written so a workflow could call it later without duplicating the logic.)
+
 `make release` updates:
 
 - `package.json` / `package-lock.json`

@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview flatpak smoke release
+.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview flatpak smoke release release-checks
 
 NPM ?= npm
 CARGO ?= cargo
@@ -83,8 +83,11 @@ flatpak: ## Build Flatpak package locally
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
 
+release-checks: ## Run the pre-release validation gate (type-check, frontend tests, cargo check, cargo test) standalone
+	bash scripts/release-checks.sh
+
 .PHONY: release
-## Update version files, commit, then create a release tag.
+## Run pre-release checks, then update version files, commit, and create a release tag.
 ##
 ## Usage:
 ##   make release VER=0.2.0 TITLE="Some release title"
@@ -92,9 +95,15 @@ smoke: ## Run install and compile smoke checks
 ## - Tag format:
 ##   - If TITLE is provided: v<VER>-<TITLE_SLUG>
 ##   - If TITLE is empty:    v<VER>
+## - Runs scripts/release-checks.sh first; aborts with no changes made if it fails.
 ## - Bumps package.json, Cargo.toml, tauri.conf.json, and AppStream metainfo.
 release:
 	@set -euo pipefail; \
+	echo "release: running pre-release checks (scripts/release-checks.sh)"; \
+	if ! bash scripts/release-checks.sh; then \
+		echo "release: pre-release checks failed — nothing was changed, fix and re-run 'make release'"; \
+		exit 1; \
+	fi; \
 	ver="$(strip $(VER))"; \
 	current_ver="$$(node -p 'require("./package.json").version' 2>/dev/null || true)"; \
 	if [ -z "$$current_ver" ]; then \
