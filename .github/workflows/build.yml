@@ -78,11 +78,28 @@ jobs:
             "${{ steps.version.outputs.tag }}" \
             "${{ steps.version.outputs.version }}"
 
+      - name: Build maintainer checklist for release notes
+        id: checklist
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "checklist<<CHECKLIST_EOF"
+            echo "> **📋 Before publishing — you just built \`${{ steps.version.outputs.tag }}\`:**"
+            echo "> - [ ] Close the milestone for this release (if one exists) now that it's shipping."
+            echo "> - [ ] Create the milestone for whatever ships next, so incoming issues have somewhere to land."
+            echo "> - [ ] Milestone names don't have to be final — rename either one later if the next version number changes. See [Milestones & Releases](https://github.com/LunarVagabond/Pipe-Deck/blob/main/docs/project-management/milestones-and-releases.md)."
+            echo ""
+            echo "---"
+            echo "CHECKLIST_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Pipe Deck ${{ steps.version.outputs.tag }}
+          body: ${{ steps.checklist.outputs.checklist }}
           draft: true
           prerelease: false
           generate_release_notes: true

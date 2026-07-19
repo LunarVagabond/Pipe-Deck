@@ -1,10 +1,10 @@
 # Releasing Pipe Deck
 
-Pipe Deck ships from a **single repo**: [LunarVagabond/Pipe-Deck](https://github.com/LunarVagabond/Pipe-Deck). GitHub Releases hosts install bundles and `latest.json` for in-app update checks.
+Pipe Deck ships from a **single repo**: [LunarVagabond/Pipe-Deck](https://github.com/LunarVagabond/Pipe-Deck). GitHub Releases hosts install bundles and `latest.json` for in-app update checks. This page is the step-by-step for cutting one. For *when* to release (cadence, skip rule, hotfixes) see [Release Strategy](../project-management/release-strategy.md); for what a milestone means see [Milestones & Releases](../project-management/milestones-and-releases.md).
 
 ## One-time setup: updater signing
 
-Release builds sign the AppImage for Tauri’s in-app updater. The **public** key is committed in `src-tauri/tauri.conf.json`. The **private** key must stay secret.
+Release builds sign the AppImage for Tauri's in-app updater. The **public** key is committed in `src-tauri/tauri.conf.json`. The **private** key must stay secret.
 
 ### Generate keys (if you have not already)
 
@@ -28,7 +28,13 @@ Without these secrets, the release job fails when the AppImage `.sig` is missing
 
 ---
 
-## Cut a release (local)
+## Steps to cut a release
+
+### 1. Check the milestone
+
+Before tagging, glance at the release milestone (`gh issue list --milestone "vX.Y.Z"`) — is everything in it actually done or safe to slip? Move anything not shipping to the next milestone (or clear it) before you tag, not after.
+
+### 2. Bump versions and tag
 
 From `main`, with a clean working tree:
 
@@ -37,8 +43,6 @@ From `main`, with a clean working tree:
 make release VER=0.2.0
 # Optional title slug: make release VER=0.2.0 TITLE="First public beta"
 #   → tag v0.2.0-first-public-beta
-
-git push origin main --tags
 ```
 
 `make release` updates:
@@ -50,19 +54,21 @@ git push origin main --tags
 
 Then creates commit `Release <tag>` (if needed) and annotated tag `<tag>`.
 
----
+### 3. Push the tag
 
-## What CI does
+```bash
+git push origin main --tags
+```
 
-Workflow: [`.github/workflows/build.yml`](https://github.com/LunarVagabond/Pipe-Deck/blob/main/.github/workflows/build.yml)
+This is what triggers CI — pushes to `main` without a `v*` tag do **not** build a release.
 
-Runs **only** when a tag matching `v*` is pushed (e.g. after `make release` and `git push origin main --tags`).
+### 4. Let CI build
+
+Workflow: [`.github/workflows/build.yml`](https://github.com/LunarVagabond/Pipe-Deck/blob/main/.github/workflows/build.yml). Runs only on a pushed `v*` tag.
 
 | Event | Job |
 |-------|-----|
 | Push tag `v*` | `release` — build Linux bundles, stage assets, **draft GitHub Release** |
-
-Pushes to `main` and pull requests do **not** trigger CI.
 
 Release assets:
 
@@ -77,17 +83,29 @@ Updater endpoint (same repo):
 https://github.com/LunarVagabond/Pipe-Deck/releases/latest/download/latest.json
 ```
 
----
-
-## Publish the release
+### 5. Review and publish the draft
 
 1. Wait for the **Release** job on the tag push to finish.
 2. Open [GitHub Releases](https://github.com/LunarVagabond/Pipe-Deck/releases).
-3. Open the **draft** for your tag.
-4. Edit title/notes if needed.
-5. Click **Publish release**.
+3. Open the **draft** for your tag. Its notes open with a maintainer checklist (see below) followed by GitHub's auto-generated "What's Changed" list — edit either as needed.
+4. Click **Publish release**.
 
-Until the draft is published, the app’s update check may not see the new version (`/releases/latest` points at the latest **published** release).
+Until the draft is published, the app's update check may not see the new version (`/releases/latest` points at the latest **published** release).
+
+### 6. Close out the milestone
+
+The draft release body includes a checklist reminding you to do this — it's called out separately here because it's easy to skip once the release itself is published:
+
+```bash
+# Close the milestone for the version you just shipped (find its number first)
+gh api repos/LunarVagabond/Pipe-Deck/milestones --jq '.[] | select(.state=="open") | "\(.number)\t\(.title)"'
+gh api -X PATCH repos/LunarVagabond/Pipe-Deck/milestones/<N> -f state=closed
+
+# Create the milestone for whatever ships next
+gh api repos/LunarVagabond/Pipe-Deck/milestones -f title="v0.X.Y" -f state=open -f description="..."
+```
+
+Milestone names don't have to be final — rename either one later (`gh api -X PATCH .../milestones/<N> -f title="..."`) if the next version number ends up different once you actually scope it. See [Milestones & Releases](../project-management/milestones-and-releases.md) for what belongs on a milestone.
 
 ---
 
