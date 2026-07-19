@@ -9,17 +9,45 @@
 
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{DeviceDirection, DeviceKind, MixSource};
+use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
-fn mock_engine() -> CoreEngine {
+static ENV_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// Serializes every test in this file against the others. They all mutate
+/// the same process-wide `PIPE_DECK_CONFIG_DIR`/`PIPE_DECK_USE_MOCK` env
+/// vars (see `tests/plugin_host_integration.rs`'s identical pattern), and
+/// the guard must be held for the whole test — not just this setup call —
+/// since anything the test does afterward (`ConfigStore::new()` inside a
+/// `CoreEngine` method) re-reads the current environment.
+fn lock_env() -> MutexGuard<'static, ()> {
+    ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// `PIPE_DECK_USE_MOCK=1` only fakes the PipeWire graph — `ConfigStore`
+/// still resolves to a real directory unless `PIPE_DECK_CONFIG_DIR` is also
+/// overridden, so without this every test here would read/write the
+/// developer's actual `~/.config/pipe-deck/` instead of an isolated temp
+/// dir.
+fn mock_engine() -> (CoreEngine, MutexGuard<'static, ()>) {
+    let guard = lock_env();
+    let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let config_dir = std::env::temp_dir().join(format!(
+        "pipe-deck-mock-backend-test-config-{}-{n}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&config_dir);
+    std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
     std::env::set_var("PIPE_DECK_USE_MOCK", "1");
     let mut engine = CoreEngine::new();
     engine.refresh_graph().expect("initial refresh should succeed");
-    engine
+    (engine, guard)
 }
 
 #[test]
 fn mixer_mutations_persist_across_refresh() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
     let device_id = engine.runtime_graph().devices[0].id.clone();
     let stream_id = engine.runtime_graph().streams[0].id.clone();
 
@@ -40,7 +68,7 @@ fn mixer_mutations_persist_across_refresh() {
 
 #[test]
 fn stream_routing_set_clear_and_undo_round_trip() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
     let graph = engine.runtime_graph().clone();
     let stream_id = graph.streams[0].id.clone();
     let target_a = graph.devices[1].id.clone();
@@ -76,7 +104,7 @@ fn stream_routing_set_clear_and_undo_round_trip() {
 
 #[test]
 fn device_routing_supports_multi_target_fanout() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
     let graph = engine.runtime_graph().clone();
     let source_id = graph.devices[3].id.clone();
     let targets = vec![graph.devices[1].id.clone(), graph.devices[2].id.clone()];
@@ -89,7 +117,7 @@ fn device_routing_supports_multi_target_fanout() {
 
 #[test]
 fn virtual_device_create_remove_cycle_leaves_no_residue() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
 
     let output = engine.create_virtual_output("Integration Output").expect("create output");
     assert!(engine.runtime_graph().devices.iter().any(|d| d.id == output.device_id));
@@ -119,7 +147,7 @@ fn virtual_device_create_remove_cycle_leaves_no_residue() {
 
 #[test]
 fn virtual_output_can_chain_into_another_virtual_output() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
 
     let submix = engine.create_virtual_output("Submix").expect("create submix");
     let master = engine.create_virtual_output("Master Mix").expect("create master mix");
@@ -142,7 +170,7 @@ fn virtual_output_can_chain_into_another_virtual_output() {
 
 #[test]
 fn device_alias_rename_is_visible_after_refresh() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
     let output = engine.create_virtual_output("Original Label").expect("create output");
 
     engine.apply_device_alias(&output.system_name, "Renamed Label").unwrap();
@@ -154,7 +182,7 @@ fn device_alias_rename_is_visible_after_refresh() {
 
 #[test]
 fn virtual_mic_mix_add_and_volume_adjust() {
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
     let input = engine.create_virtual_input("Integration Mic").expect("create input");
     let physical_source = engine
         .runtime_graph()
@@ -188,16 +216,72 @@ fn virtual_mic_mix_add_and_volume_adjust() {
 }
 
 #[test]
+fn apply_effect_chain_structural_validates_even_in_mock_mode() {
+    // #147: apply_effect_chain_structural no longer short-circuits to a
+    // canned mock success before validation runs — it now always routes
+    // through `self.adapter` (real subprocess calls for
+    // LinuxPipeWireBackend, in-memory no-ops for MockAudioBackend), so the
+    // is_pipe_deck_device guard has to actually fire for a non-pipe-deck
+    // device even under PIPE_DECK_USE_MOCK=1. Before this change, this
+    // would have silently returned a canned success instead.
+    let (mut engine, _guard) = mock_engine();
+    let physical_output = engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .find(|device| device.id == "sink-headphones")
+        .expect("mock sample graph should seed a physical output device")
+        .id
+        .clone();
+
+    let config = pipe_deck_lib::core::models::EffectChainConfig::default();
+    let result = engine.apply_effect_chain_structural(&physical_output, &config);
+    assert!(result.is_err(), "effects on a non-pipe-deck device must be rejected, even in mock mode");
+}
+
+#[test]
+fn remove_effect_chain_structural_runs_the_real_adapter_call_path_in_mock_mode() {
+    // #147: remove_effect_chain_structural's own precondition guard (is
+    // there a live conf file at all?) is a real check, not a mock
+    // short-circuit — so exercising its adapter calls (hold/release sink
+    // inputs, revert-to-plain-device, mic-feed relink) needs a real conf
+    // file to exist first. `PIPE_DECK_FILTER_CHAIN_CONF_DIR` redirects that
+    // check to a temp directory instead of the real $HOME, so this is safe
+    // to run in CI.
+    let temp_dir = std::env::temp_dir().join(format!("pipe-deck-test-filter-chain-{}", std::process::id()));
+    std::fs::create_dir_all(&temp_dir).expect("create temp filter-chain conf dir");
+    std::env::set_var("PIPE_DECK_FILTER_CHAIN_CONF_DIR", &temp_dir);
+
+    let (mut engine, _guard) = mock_engine();
+    let output = engine.create_virtual_output("Integration Remove Path Output").expect("create output");
+
+    let conf_path = temp_dir.join(format!("99-pipe-deck-effects-{}.conf", output.system_name.trim_start_matches("pipe-deck-")));
+    std::fs::write(&conf_path, "# test fixture, not a real filter-chain config\n").expect("write fixture conf file");
+    assert!(conf_path.is_file(), "fixture conf file should exist before remove");
+
+    let result = engine
+        .remove_effect_chain_structural(&output.device_id)
+        .expect("remove_effect_chain_structural should succeed once the adapter calls all no-op successfully");
+    assert!(result.success);
+    assert!(!conf_path.is_file(), "remove_effect_chain_structural should have deleted the conf file");
+
+    std::env::remove_var("PIPE_DECK_FILTER_CHAIN_CONF_DIR");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+}
+
+#[test]
 fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
     // PD-024: effects extend from virtual output-only to virtual input
-    // (mic) devices too. Structural apply/remove short-circuit to a mock
-    // success without touching real PipeWire, but this locks in that the
-    // direction-aware guard in `apply_effect_chain_structural`/
-    // `remove_effect_chain_structural` accepts an Input-direction device at
-    // all (previously only `DeviceDirection::Output` was permitted), and
-    // that the persisted chain round-trips through `get_effect_chains` the
-    // same way it already does for outputs.
-    let mut engine = mock_engine();
+    // (mic) devices too. #147 routes both apply and remove through
+    // `self.adapter` (real subprocess calls for LinuxPipeWireBackend,
+    // in-memory no-ops for MockAudioBackend) rather than a top-of-function
+    // mock short-circuit — this locks in that the direction-aware guard in
+    // `apply_effect_chain_structural`/`remove_effect_chain_structural`
+    // accepts an Input-direction device at all (previously only
+    // `DeviceDirection::Output` was permitted), and that the persisted
+    // chain round-trips through `get_effect_chains` the same way it
+    // already does for outputs.
+    let (mut engine, _guard) = mock_engine();
     let mic = engine.create_virtual_input("Integration Effects Mic").expect("create input");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig {
@@ -234,15 +318,20 @@ fn add_remove_reorder_effect_stage_round_trips() {
     // PD-025: the node-scoped effects UI entry points — no separate
     // "enable live effects" step, add/remove/reorder apply immediately.
     // `add_effect_stage`/`remove_effect_stage`/`reorder_effect_stages` are
-    // built on `apply_effect_chain_structural`/`remove_effect_chain_structural`,
-    // which (like every other effects entry point) short-circuit to a mock
-    // success *before* touching `ConfigStore` when mocked — so this locks in
-    // that each call succeeds and reads back its own in-flight config
-    // correctly (stage appended/reordered/removed), not that mock-mode
-    // persists across a fresh `get_effect_chains()` fetch.
+    // built on `apply_effect_chain_structural`/`remove_effect_chain_structural`.
+    // #147: apply routes through `self.adapter`'s real call path even in
+    // mock mode (MockAudioBackend no-ops rather than short-circuiting);
+    // remove's own precondition guard (no conf file exists, since nothing
+    // in this test writes one) still returns an early success without
+    // reaching the adapter — see
+    // `remove_effect_chain_structural_runs_the_real_adapter_call_path_in_mock_mode`
+    // for a test that does reach it. This test locks in that each call
+    // succeeds and reads back its own in-flight config correctly (stage
+    // appended/reordered/removed), not that mock-mode persists across a
+    // fresh `get_effect_chains()` fetch.
     use pipe_deck_lib::core::models::EffectStage;
 
-    let mut engine = mock_engine();
+    let (mut engine, _guard) = mock_engine();
     let output = engine.create_virtual_output("Integration Stage Output").expect("create output");
 
     let add_result = engine
@@ -275,7 +364,7 @@ fn engine_reinitializes_cleanly_against_a_fresh_backend_instance() {
     // Roughly simulates an app restart in mock mode: a brand new CoreEngine
     // (and therefore a brand new MockAudioBackend) must still produce a
     // usable graph without needing state from a previous instance.
-    let engine = mock_engine();
+    let (engine, _guard) = mock_engine();
     assert!(!engine.runtime_graph().devices.is_empty());
     assert!(!engine.runtime_graph().streams.is_empty());
     let _ = engine.simulate_rules();

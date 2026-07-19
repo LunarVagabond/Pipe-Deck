@@ -1,7 +1,7 @@
 use crate::core::models::{
     DeviceDirection, DeviceKind, DeviceRouteIntent, Profile, RoutingIntent, RuntimeGraph, Stream,
 };
-use crate::backend::BackendError;
+use crate::backend::{AudioBackend, BackendError};
 use crate::backend::linux::split_sink;
 use thiserror::Error;
 
@@ -96,12 +96,13 @@ pub fn restore_routing_snapshot(
 }
 
 pub fn apply_profile_volumes(
+    backend: &dyn AudioBackend,
     graph: &RuntimeGraph,
     profile: &Profile,
 ) -> Result<(), RoutingError> {
     for (device_id, state) in &profile.volume_state {
-        crate::backend::linux::pactl::set_device_volume(device_id, graph, state.volume_percent)?;
-        crate::backend::linux::pactl::set_device_mute(device_id, graph, state.muted)?;
+        backend.set_device_volume(graph, device_id, state.volume_percent)?;
+        backend.set_device_mute(graph, device_id, state.muted)?;
     }
     Ok(())
 }

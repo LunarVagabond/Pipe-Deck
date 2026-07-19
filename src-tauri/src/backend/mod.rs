@@ -6,6 +6,7 @@ use crate::core::models::{Device, DeviceDirection, EffectChainConfig, MixSourceS
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
+use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -96,6 +97,11 @@ pub trait AudioBackend: Send + Sync {
     fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError>;
     fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError>;
     fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError>;
+    /// Tears down every mix-source feed into `virtual_input_system_name` —
+    /// used ahead of deleting the virtual input device outright (see
+    /// `virtual_ops::remove_virtual_device`), where there's nothing left to
+    /// preserve a mix relationship with.
+    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError>;
     fn apply_device_aliases_and_levels(&self, devices: &mut [Device]);
 
     // Virtual device lifecycle. `create_virtual_output`/`create_virtual_input`
@@ -130,12 +136,80 @@ pub trait AudioBackend: Send + Sync {
         false
     }
 
+    /// Whether a pipe-deck-owned sink/source currently exists under
+    /// `system_name` — used by `core/restore.rs` to tell an already-live
+    /// device apart from one that needs recreating. Same fallback
+    /// conventions as the two queries above.
+    fn device_is_live(&self, _system_name: &str, _direction: DeviceDirection) -> bool {
+        false
+    }
+
     // Backing audio-stack version, for display only (Settings/about footer).
     // `None` means "unknown/unavailable" rather than an error — every backend
     // gets this for free unless it overrides it.
     fn platform_audio_version(&self) -> Option<String> {
         None
     }
+
+    // --- Restart-based live effects (issue #147) ---
+    //
+    // The mechanism `core/engine/effects_ops.rs` actually uses today: write a
+    // filter-chain.conf.d drop-in, restart `filter-chain.service`, wait for
+    // the effects-hosted node to reappear, then re-link whatever the device
+    // was routed to/fed by. These are distinct from the four #141 sketch
+    // methods below, which are shaped for a different (native, zero-restart)
+    // mechanism — reusing those names/signatures for this restart-based
+    // mechanism would misrepresent what each backend actually does.
+
+    /// Replaces `try_apply_structural`'s entire body: unloads the device's
+    /// plain pactl module, writes `rendered_conf` to `conf_path`, restarts
+    /// `filter-chain.service`, waits for the effects-hosted node to
+    /// reappear, then re-links either the mic-mix feeders (input direction)
+    /// or `downstream_targets` (output direction) and prunes stale fan-out.
+    fn swap_to_effect_chain(
+        &self,
+        device: &Device,
+        conf_path: &Path,
+        rendered_conf: &str,
+        downstream_targets: &[Device],
+        mic_feeders: &[String],
+    ) -> Result<(), BackendError>;
+
+    /// Reverts a device from an effects-hosted node back to its plain
+    /// pactl null-sink/virtual-source. `wait_for_node` controls whether to
+    /// wait for the recreated node to register before returning — apply's
+    /// rollback path historically doesn't wait, remove's primary path does;
+    /// preserved as a parameter rather than silently unifying the two.
+    fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError>;
+
+    /// Briefly parks any sink-inputs currently playing into
+    /// `device_system_name` on a scratch holding sink, for the duration of
+    /// a module swap. Returns the held sink-input indices for a later
+    /// `release_held_sink_inputs` call. A no-op (empty result) if nothing
+    /// is currently playing into the device.
+    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<u32>, BackendError>;
+
+    /// Moves previously held sink-inputs back onto `target_system_name` and
+    /// tears down the scratch holding sink if nothing else is using it.
+    fn release_held_sink_inputs(&self, held_indices: &[u32], target_system_name: &str) -> Result<(), BackendError>;
+
+    /// Whatever's currently monitor-linked into `target_system_name`'s
+    /// input ports — must be captured before a module swap severs them.
+    /// `target_is_virtual_source` selects the port-prefix convention: `true`
+    /// for a plain virtual input's own `input_*` ports, `false` for a
+    /// filter-chain capture inlet's `playback_*` ports.
+    fn list_mic_feeds(&self, target_system_name: &str, target_is_virtual_source: bool) -> Vec<String>;
+
+    /// Re-points a previously captured feeder list so each one now feeds
+    /// `to_system_name` instead of `from_system_name`. `to_is_virtual_source`
+    /// follows the same port-prefix convention as `list_mic_feeds`.
+    fn relink_mic_feeds(
+        &self,
+        feeders: &[String],
+        from_system_name: &str,
+        to_system_name: &str,
+        to_is_virtual_source: bool,
+    ) -> Result<(), BackendError>;
 
     // --- Design sketch only (issue #141) — NOT wired into any call site yet. ---
     //
@@ -304,6 +378,10 @@ impl AudioBackend for EmptyAudioBackend {
         Err(BackendError::Message(self.notice.clone()))
     }
 
+    fn disconnect_all_virtual_mic_mixes(&self, _virtual_input_system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
 
     fn monitor_routes_for_source(&self, _source_system_name: &str) -> Vec<String> {
@@ -342,6 +420,43 @@ impl AudioBackend for EmptyAudioBackend {
     }
 
     fn set_virtual_device_alias(&self, _system_name: &str, _alias: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn swap_to_effect_chain(
+        &self,
+        _device: &Device,
+        _conf_path: &Path,
+        _rendered_conf: &str,
+        _downstream_targets: &[Device],
+        _mic_feeders: &[String],
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<u32>, BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn release_held_sink_inputs(&self, _held_indices: &[u32], _target_system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn list_mic_feeds(&self, _target_system_name: &str, _target_is_virtual_source: bool) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn relink_mic_feeds(
+        &self,
+        _feeders: &[String],
+        _from_system_name: &str,
+        _to_system_name: &str,
+        _to_is_virtual_source: bool,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 }

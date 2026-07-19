@@ -4,8 +4,10 @@
 //! since the thing under test is the JSON-RPC-over-stdio handshake itself.
 //!
 //! Mutates global process env (`PIPE_DECK_CONFIG_DIR`, `PIPE_DECK_BUNDLED_PLUGINS`,
-//! `PIPE_DECK_USE_MOCK`) like the rest of the plugin/config suite — run with
-//! `--test-threads=1` if this file flakes when run alongside others.
+//! `PIPE_DECK_USE_MOCK`) like the rest of the plugin/config suite — every test
+//! goes through `isolated_engine`, which holds a shared lock for its whole
+//! duration so parallel `cargo test` runs don't race the env vars against
+//! each other (see `lock_env`'s doc comment).
 
 use pipe_deck_lib::core::engine::CoreEngine;
 use std::fs;
@@ -194,18 +196,37 @@ fn write_broken_plugin(bundled_dir: &Path, id: &str) {
     fs::write(root.join("plugin.yaml"), "not: [valid yaml for a manifest").unwrap();
 }
 
+/// Serializes every test in this file against the others. They all mutate
+/// the same process-wide `PIPE_DECK_CONFIG_DIR`/`PIPE_DECK_BUNDLED_PLUGINS`/
+/// `PIPE_DECK_USE_MOCK` env vars, and a plugin subprocess spawned partway
+/// through a test (e.g. `set_plugin_enabled` restarting one) reads whatever
+/// is currently in the environment at spawn time — so the lock has to be
+/// held for the whole test, not just the initial setup call, otherwise a
+/// second thread's `set_var` mid-test can still race a later subprocess
+/// spawn in this one.
+static ENV_LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+
+fn lock_env() -> std::sync::MutexGuard<'static, ()> {
+    ENV_LOCK
+        .get_or_init(|| std::sync::Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Sets up isolated `PIPE_DECK_CONFIG_DIR`/`PIPE_DECK_BUNDLED_PLUGINS` env vars for one
-/// test and returns a fresh, refreshed `CoreEngine`. Each test gets its own temp config
-/// dir and bundled-plugins dir, so tests don't see each other's plugin state even though
-/// the env vars themselves are global process state.
-fn isolated_engine(bundled_dir: &Path) -> CoreEngine {
+/// test and returns a fresh, refreshed `CoreEngine` plus the guard from `lock_env()` —
+/// callers must hold the guard for the rest of the test (see `lock_env`'s doc comment).
+/// Each test gets its own temp config dir and bundled-plugins dir, so tests don't see
+/// each other's plugin state even though the env vars themselves are global process state.
+fn isolated_engine(bundled_dir: &Path) -> (CoreEngine, std::sync::MutexGuard<'static, ()>) {
+    let guard = lock_env();
     let config_dir = unique_temp_dir("config");
     std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
     std::env::set_var("PIPE_DECK_BUNDLED_PLUGINS", bundled_dir);
     std::env::set_var("PIPE_DECK_USE_MOCK", "1");
     let mut engine = CoreEngine::new();
     engine.refresh_graph().expect("initial refresh should succeed");
-    engine
+    (engine, guard)
 }
 
 #[test]
@@ -214,7 +235,7 @@ fn discover_surfaces_malformed_manifest_as_a_discovery_error() {
     write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
     write_broken_plugin(&bundled_dir, "broken");
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
     let issues = engine.plugin_discovery_errors();
@@ -231,7 +252,7 @@ fn plugin_lifecycle_start_and_stop_via_enable_toggle() {
     let bundled_dir = unique_temp_dir("bundled-lifecycle");
     write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
     let plugins = engine.list_plugins();
@@ -257,7 +278,7 @@ fn rescan_discovers_a_newly_added_plugin_without_a_restart() {
     let bundled_dir = unique_temp_dir("bundled-rescan-add");
     write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
     assert!(!engine.list_plugins().iter().any(|p| p.id == "second"));
 
@@ -275,7 +296,7 @@ fn rescan_stops_an_orphaned_plugin_whose_directory_was_removed() {
     write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
     write_plugin(&bundled_dir, "temp", &["graph.read"], OK_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
     assert!(engine.list_plugins().iter().any(|p| p.id == "temp"));
 
@@ -292,7 +313,7 @@ fn routing_suggest_capability_captures_plugin_suggestions() {
     let bundled_dir = unique_temp_dir("bundled-routing-suggest");
     write_plugin(&bundled_dir, "suggester", &["routing.suggest"], SUGGESTING_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
     // Let the async stdout-reader thread catch up before draining (see #118's stderr
     // grace period for the same class of race, just on the stdout side here).
@@ -312,7 +333,7 @@ fn profile_read_capability_receives_active_profile_metadata_on_start() {
     let bundled_dir = unique_temp_dir("bundled-profile-read");
     write_plugin(&bundled_dir, "profile-aware", &["profile.read"], PROFILE_AWARE_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     let config_dir = pipe_deck_lib::config::ConfigStore::new().config_dir().clone();
     pipe_deck_lib::config::profile_store::ProfileStore::new(config_dir)
         .ensure_default_profile()
@@ -336,7 +357,7 @@ fn profile_read_capability_receives_active_profile_metadata_on_start() {
 #[test]
 fn effects_manage_capability_applies_a_queued_request_to_a_pipe_deck_device() {
     let bundled_dir = unique_temp_dir("bundled-effects-manage");
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
 
     let virtual_device = engine
         .create_virtual_output("EffectsTest")
@@ -366,7 +387,7 @@ fn grant_plugin_capabilities_reflects_granted_vs_requested_and_enforced_flag() {
     let bundled_dir = unique_temp_dir("bundled-capabilities");
     write_plugin(&bundled_dir, "echo", &["graph.read", "profile.read"], OK_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
     let echo = engine.list_plugins().into_iter().find(|p| p.id == "echo").unwrap();
@@ -387,7 +408,7 @@ fn plugin_initialize_failure_surfaces_stderr_tail_in_last_error() {
     let bundled_dir = unique_temp_dir("bundled-failing");
     write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
     let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
@@ -403,7 +424,7 @@ fn repeated_rescan_of_a_crashing_plugin_backs_off_instead_of_respawning_immediat
     let bundled_dir = unique_temp_dir("bundled-crash-backoff");
     write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
     let before = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
@@ -423,7 +444,7 @@ fn plugin_is_disabled_after_max_consecutive_crashes() {
     let bundled_dir = unique_temp_dir("bundled-crash-disable");
     write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
     // First rescan attempt already happened via initialize_plugins (1 failure). Rescan
@@ -446,7 +467,7 @@ fn re_enabling_a_disabled_plugin_clears_crash_state_and_retries_immediately() {
     let bundled_dir = unique_temp_dir("bundled-crash-reenable");
     write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
 
-    let mut engine = isolated_engine(&bundled_dir);
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
     for _ in 0..5 {
         std::thread::sleep(std::time::Duration::from_secs(1));

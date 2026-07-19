@@ -669,10 +669,8 @@ mod tests {
     fn limit_to_identities_skips_other_streams() {
         use crate::config::store::ConfigStore;
         use std::fs;
-        use std::sync::{Mutex, OnceLock};
 
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = crate::config::store::lock_config_dir_env();
         let temp_dir = std::env::temp_dir().join(format!(
             "pipe-deck-rules-test-{}",
             std::process::id()
@@ -736,10 +734,8 @@ mod tests {
     fn apply_marks_fallback_applied_when_safe_default_used() {
         use crate::config::store::ConfigStore;
         use std::fs;
-        use std::sync::{Mutex, OnceLock};
 
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = crate::config::store::lock_config_dir_env();
         let temp_dir = std::env::temp_dir().join(format!(
             "pipe-deck-rules-fallback-test-{}",
             std::process::id()
@@ -793,10 +789,8 @@ mod tests {
     fn apply_does_not_mark_fallback_applied_when_target_resolves_directly() {
         use crate::config::store::ConfigStore;
         use std::fs;
-        use std::sync::{Mutex, OnceLock};
 
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        let _guard = LOCK.get_or_init(|| Mutex::new(())).lock().unwrap();
+        let _guard = crate::config::store::lock_config_dir_env();
         let temp_dir = std::env::temp_dir().join(format!(
             "pipe-deck-rules-no-fallback-test-{}",
             std::process::id()
