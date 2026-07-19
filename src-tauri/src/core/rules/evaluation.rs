@@ -169,7 +169,6 @@ pub fn apply_routing_rules_with_explanations(
                 explanation.action_status = ActionStatus::Applied;
                 if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
                     stream_mut.current_target = Some(target_device.id.clone());
-                    stream_mut.current_targets.clear();
                     stream_mut.route_explanation = Some(explanation);
                 }
             }
@@ -384,7 +383,6 @@ mod tests {
             system_name: None,
             direction: StreamDirection::Playback,
             current_target: None,
-            current_targets: Vec::new(),
             media_name: media_name.map(str::to_string),
             is_system: false,
             volume_percent: None,
@@ -633,7 +631,6 @@ mod tests {
             system_name: Some("obs-capture".into()),
             direction: StreamDirection::Capture,
             current_target: None,
-            current_targets: Vec::new(),
             media_name: None,
             is_system: false,
             volume_percent: None,

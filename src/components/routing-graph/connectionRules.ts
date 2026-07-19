@@ -8,6 +8,7 @@ import {
 } from "../../utils/routingLayout";
 import { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
 import { canConnectPorts } from "./portTypes";
+import { isMicMixCandidate, isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
 
 export type RoutingConnectionAction =
   | { type: "stream_target"; streamId: string; targetDeviceId: string }
@@ -91,14 +92,6 @@ function labelFor(entity: Stream | Device): string {
   return "app_name" in entity ? streamDisplayLabel(entity) : entity.label;
 }
 
-/** Soundux-style passthrough: dragging an app's playback stream onto a
- * virtual mic adds the mic as a second destination (duplicated, still
- * playing at its original output too) rather than replacing the stream's
- * target the way every other stream drag does. */
-function isMicPassthroughCandidate(stream: Stream, target: Device): boolean {
-  return stream.direction === "playback" && target.kind === "virtual" && target.direction === "input";
-}
-
 function resolveStreamToDevice(
   graph: RuntimeGraph,
   streamId: string,
@@ -119,7 +112,7 @@ function resolveStreamToDevice(
   }
 
   if (isMicPassthroughCandidate(stream, device)) {
-    if (stream.current_target === deviceId || stream.current_targets?.includes(deviceId)) {
+    if (stream.current_target === deviceId) {
       return { error: `"${labelFor(stream)}" is already sending audio to "${device.label}".` };
     }
     return {
@@ -145,16 +138,6 @@ function existingDeviceTargets(device: Device): string[] {
     return [...device.current_targets];
   }
   return device.current_target ? [device.current_target] : [];
-}
-
-function isMicMixCandidate(source: Device, target: Device): boolean {
-  const sourceIsPhysicalMic = source.kind === "physical" && source.direction === "input";
-  const sourceIsVirtualOutput = source.kind === "virtual" && source.direction === "output";
-  return (
-    (sourceIsPhysicalMic || sourceIsVirtualOutput) &&
-    target.kind === "virtual" &&
-    target.direction === "input"
-  );
 }
 
 function resolveDeviceToDevice(
@@ -190,7 +173,7 @@ function resolveDeviceToDevice(
     };
   }
 
-  if (source.kind !== "virtual" || source.direction !== "output") {
+  if (!isRoutableVirtualOutput(source)) {
     return {
       error: `"${source.label}" isn't a virtual output sink, so it can't be routed directly to another device. Drag an application stream instead.`,
     };
@@ -309,7 +292,7 @@ function resolveEdgeDisconnect(
     };
   }
 
-  if (device.kind !== "virtual" || device.direction !== "output") {
+  if (!isRoutableVirtualOutput(device)) {
     return {
       error: `"${device.label}" isn't a virtual sink route — only virtual-output connections can be dragged off to disconnect them.`,
     };

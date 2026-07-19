@@ -94,8 +94,6 @@ pub struct Stream {
     pub direction: StreamDirection,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_target: Option<String>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub current_targets: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub media_name: Option<String>,
     #[serde(default)]
@@ -561,15 +559,6 @@ impl RoutingIntent {
             return self.target_device_ids.clone();
         }
         self.target_device_id.clone().into_iter().collect()
-    }
-}
-
-impl Stream {
-    pub fn resolved_targets(&self) -> Vec<String> {
-        if !self.current_targets.is_empty() {
-            return self.current_targets.clone();
-        }
-        self.current_target.clone().into_iter().collect()
     }
 }
 

@@ -61,7 +61,6 @@ export interface Stream {
   system_name?: string;
   direction: StreamDirection;
   current_target?: string;
-  current_targets?: string[];
   media_name?: string;
   is_system?: boolean;
   volume_percent?: number;

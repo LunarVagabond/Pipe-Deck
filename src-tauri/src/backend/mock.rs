@@ -133,7 +133,6 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
-                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-spotify".into(),
@@ -148,7 +147,6 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
-                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-steam".into(),
@@ -163,7 +161,6 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
-                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-firefox".into(),
@@ -178,7 +175,6 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
-                    current_targets: Vec::new(),
                 },
                 Stream {
                     id: "stream-obs".into(),
@@ -193,7 +189,6 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
-                    current_targets: Vec::new(),
                 },
             ],
             links: vec![
@@ -402,7 +397,6 @@ impl AudioBackend for MockAudioBackend {
             .find(|stream| stream.id == stream_id)
             .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
         stream.current_target = None;
-        stream.current_targets.clear();
         Ok(())
     }
 
@@ -417,7 +411,6 @@ impl AudioBackend for MockAudioBackend {
             .find(|stream| stream.id == stream_id)
             .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
         stream.current_target = Some(target_device_id.to_string());
-        stream.current_targets.clear();
         Ok(())
     }
 

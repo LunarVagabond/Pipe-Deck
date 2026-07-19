@@ -178,7 +178,6 @@ impl CoreEngine {
 
         if let Some(stream) = self.graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
             stream.current_target = None;
-            stream.current_targets.clear();
         }
 
         if let Some(stream) = self.graph.streams.iter().find(|stream| stream.id == stream_id) {
