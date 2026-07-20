@@ -20,9 +20,11 @@ Linux audio is powerful but scattered. Routine tasks often mean juggling multipl
 | Virtual sinks/sources | `pw-cli`, `module-null-sink` | Guided virtual device workflows |
 | Automation | Custom shell hooks | Rule engine with simulation |
 
-Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are **visible, reversible, and safe**.
+Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are **visible, reversible, and safe**. The goal isn't just power users — it's making Linux audio approachable enough that switching from Windows or Mac doesn't mean giving up on "it just works."
 
 > Curious why this project exists? Read the [full story](docs/product/About.md).
+
+New to Pipe Deck? Start with [Getting Started](docs/product/Getting_Started_Users.md) — install, first launch, and your first route in a few minutes.
 
 ## Screenshots
 

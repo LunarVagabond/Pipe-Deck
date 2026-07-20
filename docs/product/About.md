@@ -8,7 +8,7 @@ I'm a tinkerer by nature, so "nobody's built it yet" reads less like a dead end 
 
 ## What that means for the project
 
-Because Pipe Deck grew out of a real, specific frustration, the guiding question for every feature is still the practical one: **does this make Linux audio easier to understand and manage?** Not "is this technically possible with PipeWire," but "would this have saved me a headache." That's also why the project is open source from day one — if this solved a problem for me, it's a safe bet it solves the same problem for other people who came to Linux expecting audio control to be this straightforward and found it wasn't, yet.
+Because Pipe Deck grew out of a real, specific frustration, the guiding question for every feature is still the practical one: **does this make Linux audio easier to understand and manage?** Not "is this technically possible with PipeWire," but "would this have saved me a headache." That's also why the project is open source from day one — if this solved a problem for me, it's a safe bet it solves the same problem for other people who came to Linux expecting audio control to be this straightforward and found it wasn't, yet. Longer term, that's the bigger goal: Linux audio shouldn't require being a tinkerer to get right — it should work for people who just want their game, stream, or music to sound correct without learning PipeWire internals first.
 
 ## Where it's going
 
