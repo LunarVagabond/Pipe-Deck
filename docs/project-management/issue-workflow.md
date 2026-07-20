@@ -34,7 +34,7 @@ Milestone (release) and Epic (initiative) are **independent axes** — an issue 
 - A feature that's part of a larger initiative but not yet scheduled for a specific release: sub-issue of an Epic, no milestone.
 - A feature that's both part of a larger initiative *and* scheduled to ship in a specific release: sub-issue of the Epic **and** carries that release's milestone at the same time.
 
-Example: an issue improving Flatpak packaging is a sub-issue of `[Epic] Ecosystem & Packaging` (the initiative) and, once it's actually scheduled, also gets the `v0.6.0` milestone (the release) — both at once, not one or the other.
+Example: an issue improving `.rpm` packaging is a sub-issue of `[Epic] Ecosystem & Packaging` (the initiative) and, once it's actually scheduled, also gets the `v0.6.0` milestone (the release) — both at once, not one or the other.
 
 Attaching a sub-issue: the gh CLI in this repo (2.45.0) has no dedicated subcommand for sub-issues, so it's either the web UI's "Add sub-issue" button on the Epic, or `gh api` directly:
 

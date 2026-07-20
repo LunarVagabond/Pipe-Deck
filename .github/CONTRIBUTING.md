@@ -128,7 +128,6 @@ Current targets include:
 | `make test` | Rust tests |
 | `make test-e2e` | Frontend Playwright component tests (`src/e2e/`; run `npx playwright install chromium` once first) |
 | `make preview` | Preview the built frontend assets |
-| `make flatpak` | Build the Flatpak package locally |
 | `make smoke` | Run install and compile smoke checks |
 | `make clean` | Remove build artifacts |
 | `make release VER=<x.y.z>` | Maintainer-only: version bump + tag + release; not part of the standard contributor loop |

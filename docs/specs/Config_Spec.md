@@ -162,7 +162,6 @@ On first run after upgrade, existing `pipe-deck-*` PipeWire modules are migrated
 
 - **Status file:** `~/.local/state/pipe-deck/daemon.json` (`pid`, `last_run`, `last_error`, `devices_restored`)
 - **Safe mode:** if config is missing or corrupt on daemon start, the daemon records the error and exits without modifying PipeWire
-- **Flatpak note:** user systemd background restore may be unavailable in the sandbox; in-app restore on launch remains supported
 
 ## Profile Format (`profiles/<name>.yaml`)
 

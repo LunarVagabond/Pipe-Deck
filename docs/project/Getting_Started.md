@@ -65,7 +65,6 @@ make test      # Rust unit tests + mock-backend integration suite
 
 ```bash
 make build     # .deb / .rpm / AppImage / binary
-make flatpak   # local Flatpak build
 ```
 
 ## Known dev-environment noise

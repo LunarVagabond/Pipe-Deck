@@ -61,7 +61,6 @@ Two guiding rules hold this structure together: the UI never talks to PipeWire d
 - `make test-e2e` — Playwright component tests (`src/e2e/`)
 - `make smoke` — install and compile smoke checks
 - `make build` — production bundles (`.deb`/`.rpm`/AppImage/binary)
-- `make flatpak` — local Flatpak build
 - `PIPE_DECK_USE_MOCK=1 make dev` — run the UI against a static sample graph instead of live PipeWire
 
 Run `make help` for the full, current list — it stays more up to date than any doc.
