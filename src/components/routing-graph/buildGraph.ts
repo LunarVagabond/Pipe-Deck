@@ -15,7 +15,7 @@ import type { GraphGroup } from "./groups";
 
 export type { RoutingGraphHandle };
 
-export type RoutingNodeKind = "stream" | "virtualSink" | "output" | "input";
+export type RoutingNodeKind = "stream" | "captureStream" | "virtualSink" | "output" | "input";
 
 export interface RoutingGraphNodeData {
   label: string;
@@ -73,11 +73,20 @@ export interface BuiltRoutingGraph {
 }
 
 const LAYOUT_KEY = "pipe-deck-routing-layout";
+// Playback streams originate the left-to-right chain (applications → routing
+// → outputs), so they sit in the leftmost lane. Capture streams are the
+// opposite: they're fed BY an input-lane device (a mic, or a filtered virtual
+// mic), so placing them in the same leftmost lane as playback streams forced
+// that connection to run backward across the entire graph — every other lane
+// sat between a capture stream's node and its actual audio source. Giving
+// capture streams their own lane past "input" keeps that connection short and
+// forward-reading instead, without moving or removing any input-lane device.
 const LANE_X: Record<RoutingNodeKind, number> = {
   stream: 40,
   virtualSink: 340,
   output: 640,
   input: 940,
+  captureStream: 1240,
 };
 
 function loadLayout(): Record<string, { x: number; y: number }> {
@@ -137,7 +146,7 @@ function streamNodeKind(stream: Stream): RoutingGraphNodeData {
   return {
     label: streamDisplayLabel(stream),
     subtitle: streamSubtitle(stream),
-    nodeKind: "stream",
+    nodeKind: playback ? "stream" : "captureStream",
     entityId: stream.id,
     accent: streamAccent(stream.id),
     handles: handlesForStream(stream),
@@ -245,6 +254,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     virtualSink: new Set(),
     output: new Set(),
     input: new Set(),
+    captureStream: new Set(),
   };
   // Seed occupied slots from every already-saved position (dragged or previously
   // auto-placed) so a brand new node can't be handed a slot that collides with one.
@@ -253,6 +263,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     else if (position.x === LANE_X.virtualSink) occupiedSlots.virtualSink.add(slotIndexForY(position.y));
     else if (position.x === LANE_X.output) occupiedSlots.output.add(slotIndexForY(position.y));
     else if (position.x === LANE_X.input) occupiedSlots.input.add(slotIndexForY(position.y));
+    else if (position.x === LANE_X.captureStream) occupiedSlots.captureStream.add(slotIndexForY(position.y));
   }
 
   function trackedPositionFor(id: string, kind: RoutingNodeKind): { x: number; y: number } {
@@ -307,7 +318,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     nodes.push({
       id,
       type: "routingNode",
-      ...withGroup(id, trackedPositionFor(id, "stream")),
+      ...withGroup(id, trackedPositionFor(id, data.nodeKind)),
       data,
     });
   }
