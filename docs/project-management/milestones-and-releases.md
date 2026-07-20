@@ -14,6 +14,10 @@ Create a new milestone when a release is actually being scoped — i.e. there's 
 
 The milestones that previously stood in for epics (`Phase 6 — Consolidation`, `Phase 7 — Processing`, `Phase 8 — Advanced Routing`, `Quality & Platform`, `Ecosystem & Packaging`, `Documentation & Process`, `Routing Pipeline Hardening`, `Routing Graph — At-a-Glance Polish`, `Stretch — Cross-Platform Port`) were **closed, not deleted**, as part of the 2026-07-18 restructuring. Closing (rather than deleting) keeps old links resolvable and keeps the milestone's original description intact as a historical record, while removing it from the active-milestone list. Each one's issues are now native sub-issues of the corresponding `[Epic]` issue instead.
 
+## Start date / Target date
+
+Issues on the project board carry two custom date fields, **Start date** and **Target date**. When an issue is milestoned, its Target date should generally fall on or before the milestone's due date — an issue targeted past its own release's due date is a sign either the date needs fixing or the issue belongs in a later milestone instead. These fields are for scheduling within a milestone, not a substitute for one; an unmilestoned issue can still carry dates if there's a rough plan, but don't treat dates alone as committing it to a specific release.
+
 ## Release mechanics
 
 This page is about what a milestone *means* and when to create one. For how a release actually gets cut — version bumps, tagging, CI, signing, publishing — see [`../project/Release.md`](../project/Release.md). For the cadence and policy around *when* releases happen, see [Release Strategy](release-strategy.md).
