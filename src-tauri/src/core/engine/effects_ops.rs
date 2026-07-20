@@ -480,11 +480,21 @@ impl CoreEngine {
             Vec::new()
         };
 
-        self.discard_effect_chain_conf(&device.system_name)?;
-
-        self.adapter
-            .revert_to_plain_device(&device, true)
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        // Both of these can fail (a flaky `filter-chain.service` restart, a
+        // slow-to-reappear plain sink) — unlike `apply_effect_chain_structural`'s
+        // matching rollback branch, an early `?` return here would skip
+        // `release_held_sink_inputs` entirely, permanently stranding whatever
+        // was playing into this device on the `Pipe Deck (temporary hold)`
+        // sink with no visible downstream connection. Always release before
+        // propagating either error, exactly like apply's failure path does.
+        if let Err(error) = self.discard_effect_chain_conf(&device.system_name) {
+            let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
+            return Err(error);
+        }
+        if let Err(error) = self.adapter.revert_to_plain_device(&device, true) {
+            let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
+            return Err(EngineError::Adapter(error.to_string()));
+        }
 
         let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
 
