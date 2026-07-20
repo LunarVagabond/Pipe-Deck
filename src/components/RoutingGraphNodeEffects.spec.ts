@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { mount, flushPromises } from "@vue/test-utils";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import { emptyDynamicsStage, emptyEq5BandStage, type EffectChainConfig } from "../types/graph";
@@ -19,6 +19,7 @@ function chainWithStage(overrides: Partial<EffectChainConfig> = {}): EffectChain
 }
 
 beforeEach(() => {
+  vi.useFakeTimers();
   invokeMock.mockReset();
   invokeMock.mockImplementation((cmd: string) => {
     if (cmd === "get_effect_capabilities") {
@@ -26,6 +27,10 @@ beforeEach(() => {
     }
     return Promise.resolve({ success: true });
   });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("RoutingGraphNodeEffects bypass toggle", () => {
@@ -55,10 +60,11 @@ describe("RoutingGraphNodeEffects bypass toggle", () => {
     await flushPromises();
 
     const button = wrapper.get(".routing-graph-node-bypass");
-    expect(button.classes()).not.toContain("active");
+    expect(button.classes()).not.toContain("bypassed");
     expect(button.attributes("aria-label")).toBe("Bypass effects");
 
     await button.trigger("click");
+    await vi.advanceTimersByTimeAsync(60);
     await flushPromises();
 
     expect(invokeMock).toHaveBeenCalledWith(
@@ -81,7 +87,7 @@ describe("RoutingGraphNodeEffects bypass toggle", () => {
     await flushPromises();
 
     const button = wrapper.get(".routing-graph-node-bypass");
-    expect(button.classes()).toContain("active");
+    expect(button.classes()).toContain("bypassed");
     expect(button.attributes("aria-label")).toBe("Resume effects processing");
   });
 });
