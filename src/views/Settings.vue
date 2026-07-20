@@ -6,7 +6,12 @@ import SegmentedControl from "../components/SegmentedControl.vue";
 import PluginDetailModal from "../components/PluginDetailModal.vue";
 import { useApplyResult } from "../stores/notices";
 import { useUpdateStatus } from "../stores/updateStatus";
-import { useTheme } from "../stores/theme";
+import {
+  DEFAULT_DARK_SCHEME_ID,
+  DEFAULT_LIGHT_SCHEME_ID,
+  DEFAULT_THEME_MODE,
+  useTheme,
+} from "../stores/theme";
 import { useDaemonStatus } from "../stores/daemonStatus";
 import type { CapabilityInfo, PluginDiscoveryIssue, PluginStatus } from "../types/graph";
 import type { ThemeMode } from "../types/theme";
@@ -83,10 +88,17 @@ const {
   setMode: setThemeMode,
   setDarkScheme,
   setLightScheme,
+  resetToDefaults: resetThemeToDefaults,
 } = useTheme();
 
 const darkSchemes = computed(() => schemes.value.filter((scheme) => scheme.kind === "dark"));
 const lightSchemes = computed(() => schemes.value.filter((scheme) => scheme.kind === "light"));
+const isDefaultTheme = computed(
+  () =>
+    themeMode.value === DEFAULT_THEME_MODE &&
+    darkSchemeId.value === DEFAULT_DARK_SCHEME_ID &&
+    lightSchemeId.value === DEFAULT_LIGHT_SCHEME_ID,
+);
 
 const BMC_URL = "https://www.buymeacoffee.com/lunarvagabond";
 const BMC_BUTTON_SRC = "https://cdn.buymeacoffee.com/buttons/v2/default-violet.png";
@@ -412,6 +424,23 @@ onMounted(() => {
             </option>
           </select>
         </div>
+      </div>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Default appearance</p>
+          <p class="settings-row-hint">
+            Restore Follow system, Midnight Deck, and Paper Deck.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="settings-action-btn"
+          :disabled="isDefaultTheme"
+          @click="resetThemeToDefaults"
+        >
+          Reset to default
+        </button>
       </div>
 
       <p class="settings-row-hint">
