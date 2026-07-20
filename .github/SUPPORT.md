@@ -7,11 +7,9 @@ existing issues first to avoid duplicates.
 
 ## Questions and general help
 
-Join the **Dev Syndicate** Discord: https://discord.gg/cHtuCFkRRm
-
-GitHub Discussions isn't set up yet for this repo — until it is, the Discord
-is the best place for usage questions and community chat that don't belong
-in an issue.
+Use [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) for
+usage questions and general chat. For quick back-and-forth, join the **Dev Syndicate**
+Discord: https://discord.gg/cHtuCFkRRm
 
 ## Contributing
 
