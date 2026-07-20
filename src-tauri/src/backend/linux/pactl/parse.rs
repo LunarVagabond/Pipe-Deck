@@ -286,7 +286,10 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
         _ => return Vec::new(),
     };
 
-    let text = String::from_utf8_lossy(&output.stdout);
+    parse_source_outputs_from_text(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn parse_source_outputs_from_text(text: &str) -> Vec<PactlSourceOutput> {
     let mut outputs = Vec::new();
     let mut current_index = None;
     let mut current_object_id = None;
@@ -375,11 +378,30 @@ fn parse_source_outputs() -> Vec<PactlSourceOutput> {
     outputs
 }
 
+/// Extracts the percent value from a pactl `Volume:` line (e.g.
+/// `"Volume: front-left: 65536 / 100% /   0.00 dB, ..."` -> `100`). Each
+/// failure mode below is distinguished with an `eprintln!` (this crate has
+/// no logging dependency — see `pw_link::parse_pw_link_list`'s equivalent
+/// note) rather than uniformly falling through to `None`, so a real pactl
+/// output-format change is visible instead of just quietly reading as "no
+/// volume info".
 pub(crate) fn extract_volume_percent(line: &str) -> Option<u8> {
-    line.split('/')
-        .nth(1)
-        .and_then(|part| part.trim().strip_suffix('%'))
-        .and_then(|value| value.trim().parse().ok())
+    let Some(percent_field) = line.split('/').nth(1) else {
+        eprintln!("pactl Volume line missing the expected '/'-separated percent field: {line:?}");
+        return None;
+    };
+    let trimmed = percent_field.trim();
+    let Some(digits) = trimmed.strip_suffix('%') else {
+        eprintln!("pactl Volume line's percent field has no '%' suffix, format may have changed: {trimmed:?}");
+        return None;
+    };
+    match digits.trim().parse() {
+        Ok(percent) => Some(percent),
+        Err(_) => {
+            eprintln!("pactl Volume line's percent field is not a valid number: {digits:?}");
+            None
+        }
+    }
 }
 
 #[cfg(test)]
@@ -489,5 +511,62 @@ Sink Input #52712
         assert_eq!(inputs[1].index, 52712);
         assert_eq!(inputs[1].object_id, Some(102));
         assert_eq!(inputs[1].sink_index, Some(58));
+    }
+
+    /// Captured (fixture-file) `pactl list sink-inputs`/`list source-outputs`
+    /// output, fed through the actual parsing functions — unlike the inline
+    /// literal above, these live as standalone fixture files under
+    /// `src-tauri/tests/fixtures/` (see `pw_link::tests` for the matching
+    /// `pw-link -l` fixture) so they can be extended with further real-world
+    /// samples without bloating this file.
+    const PACTL_SINK_INPUTS_FIXTURE: &str = include_str!("../../../../tests/fixtures/pactl_list_sink_inputs.txt");
+
+    #[test]
+    fn parses_sink_inputs_fixture_including_volume_and_mute() {
+        let inputs = parse_sink_inputs_from_text(PACTL_SINK_INPUTS_FIXTURE);
+        assert_eq!(inputs.len(), 2);
+
+        assert_eq!(inputs[0].application_name, "Firefox");
+        assert_eq!(inputs[0].volume_percent, Some(100));
+        assert_eq!(inputs[0].muted, Some(false));
+
+        assert_eq!(inputs[1].volume_percent, Some(99));
+        assert_eq!(inputs[1].muted, Some(true));
+    }
+
+    const PACTL_SOURCE_OUTPUTS_FIXTURE: &str =
+        include_str!("../../../../tests/fixtures/pactl_list_source_outputs.txt");
+
+    #[test]
+    fn parses_source_outputs_fixture() {
+        let outputs = parse_source_outputs_from_text(PACTL_SOURCE_OUTPUTS_FIXTURE);
+        assert_eq!(outputs.len(), 1);
+        assert_eq!(outputs[0].application_name, "OBS Studio");
+        assert_eq!(outputs[0].object_id, Some(204));
+        assert_eq!(outputs[0].source_index, Some(41));
+        assert_eq!(outputs[0].volume_percent, Some(100));
+        assert_eq!(outputs[0].muted, Some(false));
+    }
+
+    #[test]
+    fn extract_volume_percent_parses_a_normal_line() {
+        assert_eq!(
+            extract_volume_percent("Volume: front-left: 65536 / 100% /   0.00 dB"),
+            Some(100)
+        );
+        assert_eq!(
+            extract_volume_percent("Volume: front-left: 64860 /  99% /  -0.27 dB"),
+            Some(99)
+        );
+    }
+
+    #[test]
+    fn extract_volume_percent_returns_none_without_panicking_on_format_drift() {
+        // No '/'-separated percent field at all.
+        assert_eq!(extract_volume_percent("Volume: 100%"), None);
+        // Percent field present but missing the '%' suffix.
+        assert_eq!(extract_volume_percent("Volume: front-left: 65536 / 100 /   0.00 dB"), None);
+        // Non-numeric percent field.
+        assert_eq!(extract_volume_percent("Volume: front-left: 65536 / N/A% /   0.00 dB"), None);
     }
 }

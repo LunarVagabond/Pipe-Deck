@@ -40,13 +40,13 @@ pub fn link_sink_monitor_to_target(
         return Ok(());
     }
 
-    disconnect_sink_monitor_route(source_system_name, target_system_name)?;
+    let target_prefix = format!("{target_system_name}:");
+    let existing: Vec<(String, String)> = list_monitor_links_for_source(source_system_name)
+        .into_iter()
+        .filter(|(_, input_port)| input_port.starts_with(&target_prefix))
+        .collect();
 
-    for (output_port, input_port) in &desired {
-        run_pw_link(&["-L", output_port, input_port])?;
-    }
-
-    Ok(())
+    apply_link_diff(&existing, &desired)
 }
 
 pub fn is_sink_monitor_routed_to(
@@ -88,19 +88,15 @@ pub fn disconnect_sink_monitor_route(
     target_system_name: &str,
 ) -> Result<(), BackendError> {
     let target_prefix = format!("{target_system_name}:");
-    for (output_port, input_port) in list_monitor_links_for_source(source_system_name) {
-        if input_port.starts_with(&target_prefix) {
-            let _ = run_pw_link(&["-d", &output_port, &input_port]);
-        }
-    }
-    Ok(())
+    disconnect_links(
+        list_monitor_links_for_source(source_system_name)
+            .into_iter()
+            .filter(|(_, input_port)| input_port.starts_with(&target_prefix)),
+    )
 }
 
 pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), BackendError> {
-    for (output_port, input_port) in list_monitor_links_for_source(source_system_name) {
-        let _ = run_pw_link(&["-d", &output_port, &input_port]);
-    }
-    Ok(())
+    disconnect_links(list_monitor_links_for_source(source_system_name))
 }
 
 /// Mix a hardware capture source into a virtual microphone's sink inputs.
@@ -162,7 +158,11 @@ fn link_capture_source_to_target_ports(
     }
 
     let desired = pair_capture_ports(&source_ports, &target_ports);
-    let existing = list_capture_links_for_source(capture_source_system_name);
+    let target_prefix = format!("{target_system_name}:{target_port_prefix}");
+    let existing: Vec<(String, String)> = list_capture_links_for_source(capture_source_system_name)
+        .into_iter()
+        .filter(|(_, input_port)| input_port.starts_with(&target_prefix))
+        .collect();
 
     let already_linked = desired
         .iter()
@@ -171,13 +171,7 @@ fn link_capture_source_to_target_ports(
         return Ok(());
     }
 
-    disconnect_capture_source_from_target_ports(capture_source_system_name, target_system_name, target_port_prefix)?;
-
-    for (output_port, input_port) in &desired {
-        run_pw_link(&["-L", output_port, input_port])?;
-    }
-
-    Ok(())
+    apply_link_diff(&existing, &desired)
 }
 
 fn disconnect_capture_source_from_target_ports(
@@ -186,12 +180,59 @@ fn disconnect_capture_source_from_target_ports(
     target_port_prefix: &str,
 ) -> Result<(), BackendError> {
     let target_prefix = format!("{target_system_name}:{target_port_prefix}");
-    for (output_port, input_port) in list_capture_links_for_source(capture_source_system_name) {
-        if input_port.starts_with(&target_prefix) {
-            let _ = run_pw_link(&["-d", &output_port, &input_port]);
+    disconnect_links(
+        list_capture_links_for_source(capture_source_system_name)
+            .into_iter()
+            .filter(|(_, input_port)| input_port.starts_with(&target_prefix)),
+    )
+}
+
+/// Reconciles `existing` against `desired` by disconnecting only the pairs
+/// that shouldn't be there anymore and linking only the pairs that are
+/// missing, instead of tearing down every existing link for a target and
+/// relinking the whole desired set unconditionally. The old blind
+/// disconnect-then-relink approach caused an audible dropout on legs that
+/// hadn't actually changed on every reroute, plus a window where a
+/// concurrent `pw-dump` snapshot could catch the target with zero live
+/// links. Both `existing`/`desired` are small (per-target port counts), so
+/// a linear `contains` scan per side is simpler than reaching for a `HashSet`
+/// and no less correct.
+fn apply_link_diff(existing: &[(String, String)], desired: &[(String, String)]) -> Result<(), BackendError> {
+    let to_remove = existing.iter().filter(|pair| !desired.contains(pair)).cloned();
+    disconnect_links(to_remove)?;
+
+    for (output_port, input_port) in desired {
+        let already_present = existing.iter().any(|(o, i)| o == output_port && i == input_port);
+        if !already_present {
+            run_pw_link(&["-L", output_port, input_port])?;
         }
     }
+
     Ok(())
+}
+
+/// Runs `-d` for every `(output_port, input_port)` pair, continuing past
+/// individual failures (a link already gone by the time we get to it isn't
+/// fatal to the rest of the batch) but — unlike the `let _ = run_pw_link(...)`
+/// this replaced — collecting and returning them instead of discarding them,
+/// so a genuine failure (not just "already disconnected") is visible to the
+/// caller rather than silently treated as success.
+fn disconnect_links(links: impl IntoIterator<Item = (String, String)>) -> Result<(), BackendError> {
+    let mut failures = Vec::new();
+    for (output_port, input_port) in links {
+        if let Err(error) = run_pw_link(&["-d", &output_port, &input_port]) {
+            failures.push(format!("{output_port} -> {input_port}: {error}"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(BackendError::Message(format!(
+            "failed to disconnect {} link(s): {}",
+            failures.len(),
+            failures.join("; ")
+        )))
+    }
 }
 
 fn list_ports(flag: &str) -> Vec<String> {
@@ -265,69 +306,22 @@ pub fn list_capture_sources_for_sink(sink_system_name: &str) -> Vec<String> {
 }
 
 fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_prefix: &str) -> Vec<String> {
-    let output = match Command::new("pw-link").arg("-l").output() {
-        Ok(output) if output.status.success() => output,
-        _ => return Vec::new(),
-    };
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut sources = Vec::new();
-    let mut current_target_port: Option<String> = None;
     let target_prefix = format!("{target_system_name}:{target_port_prefix}");
-
-    for line in text.lines() {
-        if let Some(source_port) = line.strip_prefix("  |<- ") {
-            let source_port = source_port.trim();
-            if let Some(target_port) = current_target_port.as_deref() {
-                if target_port.starts_with(&target_prefix) {
-                    if let Some(source_name) = capture_source_name_from_port(source_port) {
-                        if !sources.contains(&source_name) {
-                            sources.push(source_name);
-                        }
-                    }
+    let mut sources = Vec::new();
+    for (source_port, target_port) in run_pw_link_list() {
+        if target_port.starts_with(&target_prefix) {
+            if let Some(source_name) = capture_source_name_from_port(&source_port) {
+                if !sources.contains(&source_name) {
+                    sources.push(source_name);
                 }
             }
-            continue;
-        }
-
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && trimmed.contains(':') {
-            current_target_port = Some(trimmed.to_string());
         }
     }
-
     sources
 }
 
 fn list_capture_links_for_source(capture_source_system_name: &str) -> Vec<(String, String)> {
-    let output = match Command::new("pw-link").arg("-l").output() {
-        Ok(output) if output.status.success() => output,
-        _ => return Vec::new(),
-    };
-
-    let text = String::from_utf8_lossy(&output.stdout);
-    let mut links = Vec::new();
-    let mut current_target_port: Option<String> = None;
-    let prefix = format!("{capture_source_system_name}:");
-
-    for line in text.lines() {
-        if let Some(source_port) = line.strip_prefix("  |<- ") {
-            let source_port = source_port.trim();
-            if source_port.starts_with(&prefix) {
-                if let Some(target_port) = current_target_port.as_deref() {
-                    links.push((source_port.to_string(), target_port.to_string()));
-                }
-            }
-            continue;
-        }
-
-        let trimmed = line.trim();
-        if !trimmed.is_empty() && trimmed.contains(':') {
-            current_target_port = Some(trimmed.to_string());
-        }
-    }
-
-    links
+    links_from_source(capture_source_system_name)
 }
 
 fn capture_source_name_from_port(port: &str) -> Option<String> {
@@ -335,30 +329,81 @@ fn capture_source_name_from_port(port: &str) -> Option<String> {
 }
 
 fn list_monitor_links_for_source(source_system_name: &str) -> Vec<(String, String)> {
+    links_from_source(source_system_name)
+}
+
+/// Every currently-linked `(output_port, input_port)` pair whose output
+/// port belongs to `source_system_name` — the shared implementation behind
+/// `list_capture_links_for_source`/`list_monitor_links_for_source`, kept as
+/// two named call sites for readability (capture-into-target vs
+/// monitor-into-target mean different things to a reader) even though the
+/// underlying lookup is identical.
+fn links_from_source(source_system_name: &str) -> Vec<(String, String)> {
+    let prefix = format!("{source_system_name}:");
+    run_pw_link_list()
+        .into_iter()
+        .filter(|(source_port, _)| source_port.starts_with(&prefix))
+        .collect()
+}
+
+/// Runs `pw-link -l` and parses it via `parse_pw_link_list` — the one
+/// subprocess call site every `list_*` lookup in this file goes through.
+fn run_pw_link_list() -> Vec<(String, String)> {
     let output = match Command::new("pw-link").arg("-l").output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
+    parse_pw_link_list(&String::from_utf8_lossy(&output.stdout))
+}
 
-    let text = String::from_utf8_lossy(&output.stdout);
+/// Parses `pw-link -l` output into every `(output_port, input_port)` pair
+/// it reports. Previously this state machine was hand-duplicated three
+/// times (once per `list_*` lookup), each silently falling through to
+/// "treat as a port header" on any line it didn't recognize — a real format
+/// change (different indentation, arrow characters, an unhandled relation
+/// marker) would have silently misparsed or dropped links with no signal
+/// anywhere. Consolidated here so format-drift detection only needs writing
+/// once: the first line that doesn't fit either the input-link relation or
+/// a port-header shape prints a warning (this crate has no logging
+/// dependency — `eprintln!` is the existing diagnostic convention, see
+/// `backend::mod::create_backend`) instead of being silently absorbed.
+fn parse_pw_link_list(text: &str) -> Vec<(String, String)> {
     let mut links = Vec::new();
     let mut current_target_port: Option<String> = None;
-    let prefix = format!("{source_system_name}:");
+    let mut warned = false;
 
     for line in text.lines() {
         if let Some(source_port) = line.strip_prefix("  |<- ") {
             let source_port = source_port.trim();
-            if source_port.starts_with(&prefix) {
-                if let Some(target_port) = current_target_port.as_deref() {
-                    links.push((source_port.to_string(), target_port.to_string()));
+            match current_target_port.as_deref() {
+                Some(target_port) => links.push((source_port.to_string(), target_port.to_string())),
+                None if !warned => {
+                    eprintln!("pw-link -l: input-link line with no preceding port header, skipping: {line:?}");
+                    warned = true;
                 }
+                None => {}
             }
             continue;
         }
 
+        // Output-direction relation lines (`  |-> `) exist in real `pw-link -l`
+        // output but nothing here has ever needed them — every lookup in this
+        // file only cares about what feeds *into* a target — so they're
+        // recognized and skipped rather than falling through to the
+        // port-header branch and corrupting `current_target_port`.
+        if line.starts_with("  |-> ") {
+            continue;
+        }
+
         let trimmed = line.trim();
-        if !trimmed.is_empty() && trimmed.contains(':') {
+        if trimmed.is_empty() {
+            continue;
+        }
+        if trimmed.contains(':') {
             current_target_port = Some(trimmed.to_string());
+        } else if !warned {
+            eprintln!("pw-link -l: unrecognized line (expected a port name or a relation), skipping: {line:?}");
+            warned = true;
         }
     }
 
@@ -385,6 +430,63 @@ fn run_pw_link(args: &[&str]) -> Result<(), BackendError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Realistic `pw-link -l` output: a stereo hardware target, a mono
+    /// Bluetooth target fed by both channels of a stereo monitor, a mic
+    /// capture feeding a virtual input's two ports from one mono source, an
+    /// output-direction (`|-> `) relation line that should be skipped, and
+    /// a target header with no links under it at all.
+    const PW_LINK_LIST_FIXTURE: &str = include_str!("../../../tests/fixtures/pw_link_list.txt");
+
+    #[test]
+    fn parse_pw_link_list_extracts_every_input_relation_pair() {
+        let links = parse_pw_link_list(PW_LINK_LIST_FIXTURE);
+
+        assert!(links.contains(&(
+            "pipe-deck-game:monitor_FL".to_string(),
+            "alsa_output.pci-0000_01_00.1.hdmi-stereo:playback_FL".to_string()
+        )));
+        assert!(links.contains(&(
+            "pipe-deck-game:monitor_FR".to_string(),
+            "alsa_output.pci-0000_01_00.1.hdmi-stereo:playback_FR".to_string()
+        )));
+        // Mono Bluetooth target fed by both channels of a stereo source.
+        assert!(links.contains(&(
+            "pipe-deck-chat:monitor_FL".to_string(),
+            "bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO".to_string()
+        )));
+        assert!(links.contains(&(
+            "pipe-deck-chat:monitor_FR".to_string(),
+            "bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO".to_string()
+        )));
+        // A mono mic capture cycled across both input ports of a virtual mic.
+        assert!(links.contains(&(
+            "alsa_input.usb-SteelSeries_Arctis_Nova_Pro_Wireless-00.mono-fallback:capture_MONO".to_string(),
+            "pipe-deck-mic:input_FL".to_string()
+        )));
+
+        // The `|-> ` (output-direction) lines must never be mistaken for
+        // `|<- ` input relations or for port headers.
+        assert!(!links.iter().any(|(output, _)| output.starts_with("alsa_output.pci-0000_01_00.1.hdmi-stereo")));
+
+        // A header with no relation lines under it contributes no links.
+        assert!(!links
+            .iter()
+            .any(|(_, input)| input.starts_with("alsa_output.pci-0000_02_00.0.analog-stereo")));
+    }
+
+    #[test]
+    fn parse_pw_link_list_skips_an_input_relation_with_no_preceding_header_without_panicking() {
+        let links = parse_pw_link_list("  |<- orphaned:monitor_FL\n");
+        assert!(links.is_empty());
+    }
+
+    #[test]
+    fn parse_pw_link_list_skips_an_unrecognized_line_without_panicking() {
+        // No colon, not a relation line — format drift, not a crash.
+        let links = parse_pw_link_list("some garbage line\ntarget:playback_FL\n  |<- source:monitor_FL\n");
+        assert_eq!(links, vec![("source:monitor_FL".to_string(), "target:playback_FL".to_string())]);
+    }
 
     #[test]
     fn extracts_target_system_name_from_a_stereo_playback_port() {
