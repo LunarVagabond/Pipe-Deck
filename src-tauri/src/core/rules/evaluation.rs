@@ -248,16 +248,36 @@ fn apply_device_rules_pass(
                     if let Some(fallback_device) = find_safe_default_device(graph, StreamDirection::Playback)
                     {
                         let fallback_id = fallback_device.id.clone();
+                        let fallback_system_name = fallback_device.system_name.clone();
+                        let fallback_is_input = fallback_device.direction == DeviceDirection::Input;
                         if fallback_id != source_id {
                             let routed = if ctx.mock_graph_only {
                                 true
                             } else {
-                                crate::core::routing::apply_sink_targets(
+                                match crate::core::routing::apply_sink_targets(
                                     graph,
                                     &source_id,
                                     std::slice::from_ref(&fallback_id),
-                                )
-                                .is_ok()
+                                ) {
+                                    Ok(()) => {
+                                        if let Err(error) = crate::core::routing::verify_route_applied(
+                                            ctx.backend,
+                                            &source.system_name,
+                                            &fallback_system_name,
+                                            fallback_is_input,
+                                            std::time::Duration::from_millis(750),
+                                        ) {
+                                            eprintln!("device rule fallback route verification failed: {error}");
+                                        }
+                                        true
+                                    }
+                                    Err(error) => {
+                                        eprintln!(
+                                            "device rule fallback route failed for {source_id} -> {fallback_id}: {error}"
+                                        );
+                                        false
+                                    }
+                                }
                             };
                             if routed {
                                 if let Some(device) =
@@ -296,8 +316,26 @@ fn apply_device_rules_pass(
             } else if ctx.mock_graph_only {
                 true
             } else {
-                crate::core::routing::apply_sink_targets(graph, &source_id, &target_ids)
-                    .is_ok()
+                match crate::core::routing::apply_sink_targets(graph, &source_id, &target_ids) {
+                    Ok(()) => {
+                        for target in &target_devices {
+                            if let Err(error) = crate::core::routing::verify_route_applied(
+                                ctx.backend,
+                                &source.system_name,
+                                &target.system_name,
+                                target.direction == DeviceDirection::Input,
+                                std::time::Duration::from_millis(750),
+                            ) {
+                                eprintln!("device rule route verification failed: {error}");
+                            }
+                        }
+                        true
+                    }
+                    Err(error) => {
+                        eprintln!("device rule route failed for {source_id} -> {target_ids:?}: {error}");
+                        false
+                    }
+                }
             };
             if routed {
                 if let Some(device) = graph

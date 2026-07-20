@@ -1,0 +1,13 @@
+Source Output #63102
+	Driver: PipeWire
+	Client: 91
+	Source: 41
+	Mute: no
+	Volume: front-left: 65536 / 100% /   0.00 dB,   front-right: 65536 / 100% /   0.00 dB
+	Properties:
+		application.name = "OBS Studio"
+		application.process.binary = "obs"
+		node.name = "OBS Studio"
+		media.name = "OBS Capture"
+		object.id = "204"
+		object.serial = "63102"

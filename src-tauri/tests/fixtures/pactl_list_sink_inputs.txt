@@ -1,0 +1,27 @@
+Sink Input #51081
+	Driver: PipeWire
+	Client: 87
+	Sink: 120
+	Mute: no
+	Volume: front-left: 65536 / 100% /   0.00 dB,   front-right: 65536 / 100% /   0.00 dB
+	Properties:
+		application.name = "Firefox"
+		application.process.binary = "firefox-bin"
+		node.name = "Firefox"
+		media.name = "(42) CHU - Japanese Samurai Ambience"
+		object.id = "100"
+		object.serial = "51081"
+
+Sink Input #52712
+	Driver: PipeWire
+	Client: 87
+	Sink: 58
+	Mute: yes
+	Volume: front-left: 64860 /  99% /  -0.27 dB,   front-right: 64860 /  99% /  -0.27 dB
+	Properties:
+		application.name = "Firefox"
+		application.process.binary = "firefox-bin"
+		node.name = "Firefox"
+		media.name = "(42) ZEN - Japanese Samurai Ambience"
+		object.id = "102"
+		object.serial = "52712"

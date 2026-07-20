@@ -125,6 +125,39 @@ pub fn apply_sink_targets(
     Ok(())
 }
 
+/// Confirms a route command actually took effect, instead of trusting
+/// whatever the next graph refresh happens to report. Reconciliation today
+/// (`apply_device_rules_pass`) issues `apply_sink_targets` and, on `Ok`,
+/// immediately writes the desired state into the graph model — a route
+/// that silently didn't take (the shell-out equivalent of a fire-and-forget
+/// write, exactly the failure mode behind issue #210) would otherwise go
+/// unnoticed until something else happened to catch the mismatch. Polls
+/// `backend.is_routed_to` (the same primitive `AudioBackend::is_routed_to`
+/// already exposes for the "already correctly routed" check) rather than
+/// re-deriving link state itself. Short timeout by design: this exists to
+/// catch a route that silently didn't take, not to paper over a genuinely
+/// slow/broken PipeWire session.
+pub fn verify_route_applied(
+    backend: &dyn AudioBackend,
+    source_system_name: &str,
+    target_system_name: &str,
+    target_is_input: bool,
+    timeout: std::time::Duration,
+) -> Result<(), RoutingError> {
+    let start = std::time::Instant::now();
+    loop {
+        if backend.is_routed_to(source_system_name, target_system_name, target_is_input) {
+            return Ok(());
+        }
+        if start.elapsed() > timeout {
+            return Err(RoutingError::Message(format!(
+                "{source_system_name} does not appear routed to {target_system_name} after {timeout:?} — the route command may have silently failed"
+            )));
+        }
+        std::thread::sleep(std::time::Duration::from_millis(150));
+    }
+}
+
 pub fn validate_device_route_ids(
     graph: &RuntimeGraph,
     source_device_id: &str,
