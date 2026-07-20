@@ -94,12 +94,29 @@ jobs:
             echo "CHECKLIST_EOF"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Build user feedback footer for release notes
+        id: feedback
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "feedback<<FEEDBACK_EOF"
+            echo "**Found something annoying?** [Open an issue](https://github.com/LunarVagabond/Pipe-Deck/issues/new/choose)."
+            echo "**Have an idea?** [Start a Discussion](https://github.com/LunarVagabond/Pipe-Deck/discussions)."
+            echo "**Want to hang out?** Join [Dev Syndicate on Discord](https://discord.gg/cHtuCFkRRm)."
+            echo ""
+            echo "---"
+            echo "FEEDBACK_EOF"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Publish draft GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Pipe Deck ${{ steps.version.outputs.tag }}
-          body: ${{ steps.checklist.outputs.checklist }}
+          body: |
+            ${{ steps.checklist.outputs.checklist }}
+            ${{ steps.feedback.outputs.feedback }}
           draft: true
           prerelease: false
           generate_release_notes: true
