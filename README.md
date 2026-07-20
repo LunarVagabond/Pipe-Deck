@@ -118,7 +118,7 @@ If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Pl
 ## Community
 
 - [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) — design questions, proposals, and anything worth keeping searchable
-- [Discord](https://discord.gg/SG23W3BqCn) — "Dev Syndicate" server, casual chat and quick questions
+- [Discord](https://discord.gg/cHtuCFkRRm) — "Dev Syndicate" server, casual chat and quick questions
 
 ## License
 
