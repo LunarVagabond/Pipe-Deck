@@ -670,6 +670,83 @@ impl CoreEngine {
         }
     }
 
+    /// Repairs the routing gap left by `daemon::reconcile_live_effects_state`
+    /// (issue #206): after a native-effects daemon crash/restart, that
+    /// function reloads persisted-active chains and restores audio
+    /// processing immediately, but deliberately leaves downstream routing
+    /// (fan-out targets) for it to re-derive elsewhere. There's no
+    /// daemon->GUI push channel to react to that reload directly (the IPC
+    /// socket is request/response only) — so instead this diffs "was each
+    /// active chain's node live as of the last graph refresh" against "is
+    /// it live now", using the GUI's own independent live PipeWire
+    /// subscription, and re-applies the last-known targets the moment a
+    /// chain flips from absent to live again. Called on every graph
+    /// refresh; a no-op whenever nothing has actually transitioned.
+    pub(super) fn reconcile_effect_chain_liveness_after_refresh(&mut self) {
+        if self.graph.data_source == "mock" {
+            return;
+        }
+        let Ok(chains) = ConfigStore::new().effect_chains() else {
+            return;
+        };
+        let active = self.active_effect_chains(&chains);
+
+        for (system_name, _config) in &active {
+            let is_live = native_effect_chain_live(system_name);
+            self.reconcile_one_effect_chain_liveness(system_name, is_live);
+        }
+
+        // Drop bookkeeping for chains no longer active, so it doesn't grow
+        // unbounded and doesn't resurrect stale targets if a system_name is
+        // ever reused by a different device later.
+        let active_names: std::collections::HashSet<&String> = active.iter().map(|(name, _)| name).collect();
+        self.effect_chain_liveness.retain(|name, _| active_names.contains(name));
+        let active_ids: std::collections::HashSet<String> = self
+            .graph
+            .devices
+            .iter()
+            .filter(|device| active_names.contains(&device.system_name))
+            .map(|device| device.id.clone())
+            .collect();
+        self.effect_chain_last_targets.retain(|id, _| active_ids.contains(id));
+    }
+
+    /// Split out from `reconcile_effect_chain_liveness_after_refresh` so the
+    /// transition logic is unit-testable with an explicit `is_live` instead
+    /// of requiring a real native-effects PipeWire session.
+    fn reconcile_one_effect_chain_liveness(&mut self, system_name: &str, is_live: bool) {
+        let Some(device) = self.graph.devices.iter().find(|device| &device.system_name == system_name).cloned()
+        else {
+            return;
+        };
+        // v1 scope: output fan-out only. Mic-mix feeder recovery for input
+        // devices is a real gap too, but needs its own capture-before-swap
+        // treatment (see `apply_effect_chain_structural`'s `mic_feeders`)
+        // rather than reusing this output-shaped diff — left for follow-up.
+        if device.direction != DeviceDirection::Output {
+            return;
+        }
+
+        let was_live = self.effect_chain_liveness.get(system_name).copied().unwrap_or(is_live);
+
+        let current_targets: Vec<String> = if !device.current_targets.is_empty() {
+            device.current_targets.clone()
+        } else {
+            device.current_target.clone().into_iter().collect()
+        };
+        if is_live && !current_targets.is_empty() {
+            self.effect_chain_last_targets.insert(device.id.clone(), current_targets);
+        }
+
+        if is_live && !was_live {
+            if let Some(targets) = self.effect_chain_last_targets.get(&device.id).cloned() {
+                let _ = crate::core::routing::apply_sink_targets(&self.graph, &device.id, &targets);
+            }
+        }
+
+        self.effect_chain_liveness.insert(system_name.to_string(), is_live);
+    }
+
     pub(super) fn active_effect_chains(
         &self,
         chains: &std::collections::HashMap<String, EffectChainConfig>,
@@ -1070,5 +1147,127 @@ mod live_tests {
             Some(-4.0),
             "expected the live-updated eq_bass:Gain to read back as -4.0"
         );
+    }
+}
+
+#[cfg(test)]
+mod effect_chain_liveness_tests {
+    //! Issue #206: unlike `live_tests` above, `reconcile_one_effect_chain_liveness`
+    //! takes an explicit `is_live` rather than reading it from a real
+    //! native-effects PipeWire session, so the transition-detection/bookkeeping
+    //! logic is testable against `MockAudioBackend` without one. The re-link
+    //! it triggers on a reappear goes through `core::routing::apply_sink_targets`
+    //! -> `split_sink::apply_sink_targets`, which — like every other caller of
+    //! that function in this file — shells straight out to real `pw-link`,
+    //! bypassing `AudioBackend`/the mock entirely; that side of it can only be
+    //! verified against a real PipeWire session (see `live_tests` above), so
+    //! these tests assert the decision logic (does it correctly detect the
+    //! transition and retain the right target to reapply) rather than the
+    //! unmockable live-link outcome.
+    use super::*;
+    use crate::core::models::EffectStage;
+
+    fn mock_engine() -> CoreEngine {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-effect-liveness-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+        std::env::set_var("PIPE_DECK_USE_MOCK", "1");
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial refresh");
+        engine
+    }
+
+    #[test]
+    fn reappearing_effect_chain_restores_its_last_known_target() {
+        let _guard = crate::config::store::lock_config_dir_env();
+        let mut engine = mock_engine();
+
+        let output = engine.create_virtual_output("Liveness Test Bus").expect("create output");
+        let target = engine.runtime_graph().devices[0].id.clone();
+        engine.set_device_targets(&output.device_id, std::slice::from_ref(&target)).unwrap();
+        engine
+            .add_effect_stage(
+                &output.device_id,
+                EffectStage::Eq5Band {
+                    id: "eq".to_string(),
+                    eq_sub: 0,
+                    eq_bass: 3,
+                    eq_mid: 0,
+                    eq_treble: 0,
+                    eq_air: 0,
+                    output_gain: 0,
+                },
+            )
+            .expect("add effect stage");
+        engine.refresh_graph().unwrap();
+
+        // Seed liveness bookkeeping as "was live with this target" — the
+        // state a real refresh would have captured before the daemon died.
+        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
+        assert_eq!(
+            engine.effect_chain_last_targets.get(&output.device_id),
+            Some(&vec![target.clone()])
+        );
+
+        // The chain goes down (daemon crash) and its link is gone.
+        engine.set_device_targets(&output.device_id, &[]).unwrap();
+        engine.reconcile_one_effect_chain_liveness(&output.system_name, false);
+        let mid = engine.runtime_graph().devices.iter().find(|d| d.id == output.device_id).unwrap();
+        assert!(mid.current_targets.is_empty());
+
+        // It reappears (daemon recovered and reloaded the chain) — nothing
+        // re-linked it yet, since the daemon can't reach into the GUI's
+        // routing engine. The reconciliation pass must detect this as a
+        // real transition (not the first-ever-seen case, which intentionally
+        // no-ops) and still know the target to restore.
+        assert_eq!(
+            engine.effect_chain_liveness.get(&output.system_name),
+            Some(&false),
+            "sanity: chain should be recorded as down before the reappear"
+        );
+        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
+        assert_eq!(
+            engine.effect_chain_last_targets.get(&output.device_id),
+            Some(&vec![target]),
+            "the last-known target must survive the down period so the reappear has something to restore"
+        );
+        assert_eq!(engine.effect_chain_liveness.get(&output.system_name), Some(&true));
+    }
+
+    #[test]
+    fn liveness_flapping_without_ever_dropping_the_link_does_not_reapply_unnecessarily() {
+        let _guard = crate::config::store::lock_config_dir_env();
+        let mut engine = mock_engine();
+
+        let output = engine.create_virtual_output("Steady Bus").expect("create output");
+        let target = engine.runtime_graph().devices[0].id.clone();
+        engine.set_device_targets(&output.device_id, std::slice::from_ref(&target)).unwrap();
+        engine
+            .add_effect_stage(
+                &output.device_id,
+                EffectStage::Eq5Band {
+                    id: "eq".to_string(),
+                    eq_sub: 0,
+                    eq_bass: 3,
+                    eq_mid: 0,
+                    eq_treble: 0,
+                    eq_air: 0,
+                    output_gain: 0,
+                },
+            )
+            .expect("add effect stage");
+        engine.refresh_graph().unwrap();
+
+        // Staying live across repeated refreshes must not disturb routing.
+        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
+        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
+        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
+        engine.refresh_graph().unwrap();
+
+        let after = engine.runtime_graph().devices.iter().find(|d| d.id == output.device_id).unwrap();
+        assert_eq!(after.current_targets, vec![target]);
     }
 }
