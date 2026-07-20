@@ -381,6 +381,12 @@ impl AudioBackend for LinuxPipeWireBackend {
         virtual_mic_mix::relink_feeds_to(feeders, from_system_name, to_system_name, to_is_virtual_source)
     }
 
+    // `native_host` is not called directly from this file (issue #148,
+    // "daemon-owned" requirement) — the module is still compiled into the
+    // GUI binary (feature gating is build-wide, not per-binary), but only
+    // the daemon binary's `daemon::ipc::server::dispatch` actually invokes
+    // it. This file talks to that daemon process over
+    // `daemon::ipc::client::NativeHostClient` instead.
     #[cfg(feature = "native-effects")]
     fn load_effect_chain(
         &self,
@@ -389,13 +395,15 @@ impl AudioBackend for LinuxPipeWireBackend {
         downstream_targets: &[Device],
         mic_feeders: &[String],
     ) -> Result<String, BackendError> {
+        use crate::daemon::ipc::client::NativeHostClient;
+
         let is_input = device.direction == DeviceDirection::Input;
 
         if let Some(module_id) = pactl::find_module_id_by_sink_name(&device.system_name)? {
             pactl::unload_module(&module_id)?;
         }
 
-        let playback_name = crate::pipewire::native_host::load_chain(&device.system_name, is_input, config)
+        let playback_name = NativeHostClient::load_chain(&device.system_name, is_input, config)
             .map_err(|error| BackendError::Message(error.to_string()))?;
 
         if is_input {
@@ -432,17 +440,24 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     #[cfg(feature = "native-effects")]
     fn unload_effect_chain(&self, device_system_name: &str) -> Result<(), BackendError> {
-        crate::pipewire::native_host::unload_chain(device_system_name).map_err(|error| BackendError::Message(error.to_string()))
+        crate::daemon::ipc::client::NativeHostClient::unload_chain(device_system_name)
+            .map_err(|error| BackendError::Message(error.to_string()))
     }
 
-    /// Native transport is only ever reported when both the `native-effects`
-    /// Cargo feature is compiled in *and* `PIPE_DECK_NATIVE_EFFECTS=1` is set
-    /// at runtime — this double gate is what keeps restart-based effects
-    /// hosting the default even for a locally-built `--features
-    /// native-effects` binary (issue #148, day 1 — see the PD-027 addendum).
+    /// Native transport is only ever reported when the `native-effects`
+    /// Cargo feature is compiled in, `PIPE_DECK_NATIVE_EFFECTS=1` is set at
+    /// runtime, *and* the daemon actually answers a live ping over
+    /// `daemon::ipc` — this triple gate is what keeps restart-based effects
+    /// hosting the default: for a locally-built `--features native-effects`
+    /// binary with the env var unset, and for any user who hasn't enabled
+    /// restore-on-login (the daemon-owned path only exists for that
+    /// persistent-daemon case — see the PD-027 addendum). Any connect/ping
+    /// failure silently falls back to `RestartBased`, never a hard error.
     fn effect_chain_capabilities(&self) -> crate::backend::EffectChainHostingCapability {
         #[cfg(feature = "native-effects")]
-        if std::env::var("PIPE_DECK_NATIVE_EFFECTS").as_deref() == Ok("1") {
+        if std::env::var("PIPE_DECK_NATIVE_EFFECTS").as_deref() == Ok("1")
+            && crate::daemon::ipc::client::NativeHostClient::ping()
+        {
             return crate::backend::EffectChainHostingCapability::NativeZeroRestart;
         }
         crate::backend::EffectChainHostingCapability::RestartBased

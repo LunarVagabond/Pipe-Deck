@@ -9,7 +9,18 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
+#[cfg(feature = "native-effects")]
+pub mod ipc;
+
 const SERVICE_NAME: &str = "pipe-deck-daemon.service";
+/// Bumped whenever `packaging/pipe-deck-daemon.service` changes in a way that
+/// requires reinstalling an already-installed unit rather than just
+/// overwriting the file in place (e.g. the `Type=oneshot` -> `Type=notify`
+/// change for issue #148 — systemd doesn't pick that up from a plain
+/// `daemon-reload` on a unit that's already active under the old type).
+/// Matches the `# pipe-deck-daemon-unit-version: N` comment at the top of the
+/// bundled unit file.
+const CURRENT_UNIT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DaemonStateFile {
@@ -98,8 +109,8 @@ pub fn run() -> i32 {
                     if let Err(error) = restore::apply_persisted_routes(backend.as_ref()) {
                         last_error = Some(error.to_string());
                     } else {
-                        write_status(pid, &started, None, devices_restored);
-                        return 0;
+                        last_error = None;
+                        break;
                     }
                 } else {
                     last_error = Some(result.errors.join("; "));
@@ -121,8 +132,41 @@ pub fn run() -> i32 {
         last_error.as_deref(),
         devices_restored,
     );
+
+    // Native-effects hosting (issue #148): the daemon should come up for
+    // effects hosting regardless of whether restore succeeded — restore
+    // failures don't block a user from attaching a live effect chain. This
+    // never returns in a `native-effects` build unless the socket bind
+    // itself fails; without the feature, this is a no-op and the daemon
+    // exits right after `write_status` as it always has.
+    serve_native_effects_if_enabled();
     0
 }
+
+/// Enters the daemon's long-running phase: notifies `systemd` (`Type=notify`)
+/// that startup is complete, then blocks forever serving native-effects IPC
+/// requests (`ipc::server::run`). A no-op when the feature isn't compiled in
+/// — `run()` just returns 0 immediately as it always has.
+#[cfg(feature = "native-effects")]
+fn serve_native_effects_if_enabled() {
+    reconcile_live_effects_state();
+    let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
+    let _ = ipc::server::run();
+}
+
+#[cfg(not(feature = "native-effects"))]
+fn serve_native_effects_if_enabled() {}
+
+/// Landing spot for re-deriving live-effects state from the currently-live
+/// PipeWire graph after a daemon restart — a native in-memory connection
+/// doesn't survive the daemon dying the way a conf.d file did, so whatever
+/// chains were loaded before this restart are already gone by the time this
+/// runs. Intentionally empty: the reconciliation logic itself is deferred to
+/// a follow-up #148 session (see the PD-027 addendum); this call exists so
+/// that follow-up has an obvious, already-wired-in landing spot rather than
+/// needing to first find where in the daemon startup sequence it belongs.
+#[cfg(feature = "native-effects")]
+fn reconcile_live_effects_state() {}
 
 pub fn daemon_binary_path() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("PIPE_DECK_DAEMON_PATH") {
@@ -167,17 +211,40 @@ pub fn bundled_service_unit() -> String {
     include_str!("../../packaging/pipe-deck-daemon.service").to_string()
 }
 
+/// Parses the `# pipe-deck-daemon-unit-version: N` marker from an installed
+/// unit file's contents, if present. `None` covers both "file doesn't exist"
+/// and "predates the marker entirely" (the original `Type=oneshot` unit) —
+/// both cases need the same reinstall treatment below.
+fn installed_unit_version(contents: &str) -> Option<u32> {
+    contents
+        .lines()
+        .find_map(|line| line.strip_prefix("# pipe-deck-daemon-unit-version:"))
+        .and_then(|value| value.trim().parse().ok())
+}
+
 pub fn install_user_service_unit() -> Result<(), String> {
     let daemon_path = daemon_binary_path()
         .ok_or_else(|| "pipe-deck-daemon binary not found".to_string())?;
     let unit_dir = user_systemd_dir();
     fs::create_dir_all(&unit_dir).map_err(|error| error.to_string())?;
 
+    let unit_path = unit_dir.join(SERVICE_NAME);
+    // The `Type=oneshot` -> `Type=notify` change (issue #148) isn't something
+    // systemd picks up from a plain overwrite + `daemon-reload` on a unit
+    // that's already active under the old type — stop the old unit first so
+    // the new one starts clean under its new `Type=`.
+    if let Ok(existing) = fs::read_to_string(&unit_path) {
+        let needs_reinstall = installed_unit_version(&existing).is_none_or(|version| version < CURRENT_UNIT_VERSION);
+        if needs_reinstall {
+            let _ = run_systemctl(&["disable", "--now", SERVICE_NAME]);
+        }
+    }
+
     let unit = bundled_service_unit().replace(
         "ExecStart=/usr/bin/pipe-deck-daemon",
         &format!("ExecStart={}", daemon_path.display()),
     );
-    fs::write(unit_dir.join(SERVICE_NAME), unit).map_err(|error| error.to_string())?;
+    fs::write(&unit_path, unit).map_err(|error| error.to_string())?;
     run_systemctl(&["daemon-reload"])?;
     Ok(())
 }

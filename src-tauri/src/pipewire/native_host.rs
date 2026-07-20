@@ -23,17 +23,27 @@
 //! tears the library down and lets process exit reclaim everything. See the
 //! PD-027 addendum in `docs/architecture/Decisions.md`.
 //!
-//! ## Daemon ownership (not yet done)
+//! ## Daemon ownership
 //!
-//! Issue #148 calls for this mechanism to be owned by `daemon/`, hidden from
-//! the user, with recovery on daemon restart. Today it runs in-process
-//! inside the GUI (Tauri) binary instead — a deliberate, temporary placement
-//! recorded in the PD-027 addendum, since `daemon/mod.rs` is currently a
-//! `Type=oneshot` restore-and-exit process with no GUI<->daemon IPC. Both the
-//! daemon-owned lifecycle and the resulting recovery-from-live-graph story
-//! are left for a follow-up session.
-// TODO(#148 follow-up): recovery from daemon restart — nothing to recover
-// from yet since there's no daemon ownership this session.
+//! This module is only ever called from the daemon binary
+//! (`daemon::ipc::server::dispatch`), never directly from the GUI (Tauri)
+//! binary — the GUI talks to the daemon over `daemon::ipc::client` instead.
+//! `daemon::mod.rs`'s systemd unit stays running (`Type=notify` +
+//! `Restart=on-failure`) rather than restoring-then-exiting, so this
+//! process-wide connection outlives any single GUI session. This only
+//! covers users who've enabled restore-on-login (persistent daemon
+//! installed/active) — a GUI-spawned, on-demand daemon for everyone else is
+//! separate, not-yet-built work. See the PD-027 addendum in
+//! `docs/architecture/Decisions.md`.
+//!
+//! A native in-memory connection doesn't survive the daemon process dying
+//! the way a conf.d file did — if the daemon crashes or is restarted,
+//! whatever chains were loaded are gone with it. `daemon::reconcile_live_effects_state`
+//! is the landing spot for re-deriving/reloading persisted chains after a
+//! restart, but is currently an empty stub — recovery is not yet
+//! implemented.
+// TODO(#148 follow-up): recovery from daemon restart — nothing recovers yet,
+// see `daemon::reconcile_live_effects_state`.
 
 use crate::core::models::EffectChainConfig;
 use crate::pipewire::{filter_chain, fx_validate};
