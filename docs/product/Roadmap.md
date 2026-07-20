@@ -27,7 +27,7 @@ All roadmap items must improve Linux audio clarity, control, or reliability for 
 - Save, load, and swap YAML profile files.
 - Temporary virtual device workflows.
 - Dashboard-first UX with immediate apply and rollback.
-- Baseline packaging for binary, `.deb`, `.rpm`, and Flatpak.
+- Baseline packaging for binary, `.deb`, and `.rpm`.
 
 ### Implementation Sequence
 
@@ -46,7 +46,7 @@ All roadmap items must improve Linux audio clarity, control, or reliability for 
 - Basic mixer panel with visible level state and mute control.
 - Profile create/load/swap flow backed by separate YAML profile files.
 - Error and recovery messaging for failed routing operations.
-- Packaging pipeline producing binary, `.deb`, `.rpm`, and Flatpak artifacts.
+- Packaging pipeline producing binary, `.deb`, and `.rpm` artifacts.
 
 ### Acceptance Criteria
 
@@ -153,12 +153,11 @@ Delivered:
 - Profile `device_assumptions` captured on save; ordered virtual-device restore on profile swap
 - `pipe-deck-daemon` binary, systemd user unit, Settings UI for background restore management
 - Daemon status file at `~/.local/state/pipe-deck/daemon.json`
-- Packaging: runtime deps, AppStream/desktop files, `make flatpak`, CI smoke + bundle jobs
+- Packaging: runtime deps, AppStream/desktop files, CI smoke + bundle jobs
 
 Explicit carry-over (not Phase 4 blockers):
 
 - apt/rpm repository publishing
-- Flatpak user-systemd background restore (documented limitation)
 - Native PipeWire event subscription (Phase 2 carry-over) → **Phase 6**
 
 **Phases 1–5 milestone gates passed. Phase 6 is active.**
@@ -251,7 +250,6 @@ Explicit carry-over (see Phase 6–7):
 - Tray / system quick controls (Phase 3)
 - `safeguards.fallback_policy` enforcement (Phase 3)
 - apt/rpm repository publishing (Phase 4)
-- Full Flatpak build in CI (Phase 4)
 
 ## Phase 7: First-Party Processing
 

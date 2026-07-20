@@ -48,8 +48,32 @@ tauri-plugin-http = "2.5.9"
 # contributors' environments won't have.
 pipewire = { version = "0.10", optional = true }
 
+# Only for daemon-owned native effects hosting (issue #148), behind the same
+# `native-effects` feature as `pipewire` above. Narrow, single-purpose systemd
+# `sd_notify(3)` integration (needed for `Type=notify` readiness, including
+# correctly targeting systemd's abstract-namespace notify socket) — not a
+# general IPC crate; the actual GUI<->daemon transport stays hand-rolled
+# (Unix domain socket + line-delimited JSON, see `daemon::ipc`) rather than
+# pulling in a dedicated IPC dependency.
+sd-notify = { version = "0.5", optional = true }
+
+# Only for the ephemeral GUI-spawned daemon child process (issue #148, used
+# when the user hasn't enabled restore-on-login, so no persistent daemon is
+# already running). `libc::prctl(PR_SET_PDEATHSIG, ...)` is what makes the
+# kernel guarantee the child dies if the GUI process dies for *any* reason
+# (crash, `kill -9`, OOM-kill), not just a clean quit — no in-app cleanup code
+# can cover a crash, since nothing runs in a dying process. Already resolved
+# transitively via tauri/tokio; declared directly here since Cargo requires
+# that to call it.
+libc = { version = "0.2", optional = true }
+
 [features]
 spike = ["dep:pipewire"]
+# Promotes the #141 spike into a real (still opt-in) module,
+# `src-tauri/src/pipewire/native_host.rs` — see issue #148. Not
+# default-enabled: restart-based effects hosting stays the only mechanism
+# compiled into a normal build.
+native-effects = ["dep:pipewire", "dep:sd-notify", "dep:libc"]
 
 [[example]]
 name = "filter_chain_spike"

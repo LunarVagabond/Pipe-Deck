@@ -119,7 +119,6 @@ Settings → **About** → **Check for updates** reads `latest.json` and picks t
 |--------------|-----------------|
 | AppImage | In-app install via Tauri updater |
 | `.deb` / `.rpm` / binary | Opens the matching download URL |
-| Flatpak | Opens flatpak entry when present in manifest |
 | Dev build (commit hash) | Update check unavailable |
 
 ---

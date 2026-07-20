@@ -91,7 +91,6 @@ Connection lines draw between linked nodes. Authored policies are managed in the
 - **Restore on startup:** Off/On toggle — recreate virtual devices and reapply routes when the app opens (default on).
 - **Background restore:** Off/On toggle — install and enable `pipe-deck-daemon` user systemd service for login-time restore (default off).
 - **Background service status:** enabled state, last run, devices restored, and last error from `daemon.json`.
-- Flatpak installs: background restore may be unavailable; in-app restore remains supported.
 
 ## Route Explanation Labels
 

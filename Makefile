@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview flatpak smoke release release-checks
+.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke release release-checks
 
 NPM ?= npm
 CARGO ?= cargo
@@ -76,9 +76,6 @@ preview: ## Preview the built frontend assets
 clean: ## Remove build artifacts
 	rm -rf dist node_modules/.vite
 	$(CARGO) clean --manifest-path $(TAURI_DIR)/Cargo.toml
-
-flatpak: ## Build Flatpak package locally
-	flatpak-builder --force-clean flatpak/build flatpak/com.pipedeck.PipeDeck.yml
 
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
