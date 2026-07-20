@@ -32,6 +32,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 
 ## Get started
 
+- **Install and start routing:** [Getting Started for Users](product/Getting_Started_Users.md) — install, first launch, and your first route in a few minutes
 - **Run it from source:** [Getting Started](project/Getting_Started.md) — prerequisites, clone, first run
 - **Source & builds:** [github.com/LunarVagabond/Pipe-Deck](https://github.com/LunarVagabond/Pipe-Deck)
 - **Why this exists:** [About](product/About.md)
@@ -46,6 +47,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 ## Documentation map
 
 ### Product
+- [Getting Started (Users)](product/Getting_Started_Users.md)
 - [Product Requirements](product/Product_Requirements.md)
 - [Roadmap](product/Roadmap.md)
 - [Decisions](architecture/Decisions.md)
