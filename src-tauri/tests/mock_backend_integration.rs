@@ -169,6 +169,54 @@ fn virtual_output_can_chain_into_another_virtual_output() {
 }
 
 #[test]
+fn removing_effects_from_a_bus_device_preserves_its_upstream_chain_link() {
+    // Regression: source -> test1 -> test2(effects) -> hardware. Removing
+    // effects from test2 destroys and recreates test2's sink node
+    // (`revert_to_plain_device`), which silently drops the raw pw-link
+    // test1's monitor held into it (PD-026 bus-into-bus). Only test2's own
+    // downstream target (hardware) was being re-linked after removal;
+    // test1 -> test2 needs the same treatment `apply_effect_chain_structural`
+    // already gives this case.
+    use pipe_deck_lib::core::models::EffectStage;
+
+    let (mut engine, _guard) = mock_engine();
+    let test1 = engine.create_virtual_output("test1").expect("create test1");
+    let test2 = engine.create_virtual_output("test2").expect("create test2");
+
+    engine.set_device_targets(&test1.device_id, std::slice::from_ref(&test2.device_id)).unwrap();
+    engine.set_device_targets(&test2.device_id, &["sink-headphones".to_string()]).unwrap();
+    engine.refresh_graph().unwrap();
+
+    engine
+        .add_effect_stage(
+            &test2.device_id,
+            EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_sub: 0,
+                eq_bass: 4,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
+        )
+        .expect("add effects to test2");
+    engine.refresh_graph().unwrap();
+
+    engine.remove_effect_stage(&test2.device_id, "eq").expect("remove effects from test2");
+    engine.refresh_graph().unwrap();
+
+    let test1_after = engine.runtime_graph().devices.iter().find(|d| d.id == test1.device_id).unwrap().clone();
+    let test2_after = engine.runtime_graph().devices.iter().find(|d| d.id == test2.device_id).unwrap().clone();
+    assert_eq!(
+        test1_after.current_targets,
+        vec![test2.device_id.clone()],
+        "test1 -> test2 link must survive removing effects from test2"
+    );
+    assert_eq!(test2_after.current_targets, vec!["sink-headphones".to_string()]);
+}
+
+#[test]
 fn device_alias_rename_is_visible_after_refresh() {
     let (mut engine, _guard) = mock_engine();
     let output = engine.create_virtual_output("Original Label").expect("create output");
@@ -357,6 +405,54 @@ fn add_remove_reorder_effect_stage_round_trips() {
 
     let remove_result = engine.remove_effect_stage(&output.device_id, "eq").expect("remove_effect_stage");
     assert!(remove_result.success);
+}
+
+#[test]
+fn touching_effects_on_one_device_does_not_disturb_another_devices_routing() {
+    // Regression for the "mass re-routing" bug: restarting the shared
+    // filter-chain.service (see `pipewire::pipewire_restart`) reloads every
+    // device's effect chain at once, so `apply_effect_chain_structural`/
+    // `remove_effect_chain_structural` must repair *other* active-chain
+    // devices' links without touching devices that aren't affected at all.
+    // Two virtual outputs, each routed to a different physical sink and each
+    // carrying its own effect chain — adding/removing a stage on one must
+    // leave the other's target exactly where it was.
+    use pipe_deck_lib::core::models::EffectStage;
+
+    let (mut engine, _guard) = mock_engine();
+    let a = engine.create_virtual_output("Effects A").expect("create A");
+    let b = engine.create_virtual_output("Effects B").expect("create B");
+
+    engine.set_device_targets(&a.device_id, &["sink-headphones".to_string()]).unwrap();
+    engine.set_device_targets(&b.device_id, &["sink-speakers".to_string()]).unwrap();
+    engine.refresh_graph().unwrap();
+
+    let eq_stage = |id: &str| EffectStage::Eq5Band {
+        id: id.to_string(),
+        eq_sub: 0,
+        eq_bass: 4,
+        eq_mid: 0,
+        eq_treble: 0,
+        eq_air: 0,
+        output_gain: 0,
+    };
+
+    engine.add_effect_stage(&b.device_id, eq_stage("b-eq")).expect("add effects to B");
+    engine.refresh_graph().unwrap();
+
+    // Touch A: add then remove a stage. Neither should perturb B's routing.
+    engine.add_effect_stage(&a.device_id, eq_stage("a-eq")).expect("add effects to A");
+    engine.refresh_graph().unwrap();
+    let b_after_add = engine.runtime_graph().devices.iter().find(|d| d.id == b.device_id).unwrap().clone();
+    assert_eq!(b_after_add.current_targets, vec!["sink-speakers".to_string()]);
+
+    engine.remove_effect_stage(&a.device_id, "a-eq").expect("remove effects from A");
+    engine.refresh_graph().unwrap();
+    let b_after_remove = engine.runtime_graph().devices.iter().find(|d| d.id == b.device_id).unwrap().clone();
+    assert_eq!(b_after_remove.current_targets, vec!["sink-speakers".to_string()]);
+
+    let a_final = engine.runtime_graph().devices.iter().find(|d| d.id == a.device_id).unwrap().clone();
+    assert_eq!(a_final.current_targets, vec!["sink-headphones".to_string()]);
 }
 
 #[test]

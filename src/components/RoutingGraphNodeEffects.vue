@@ -81,12 +81,12 @@ function onToggleMute() {
         v-if="hasStagesToBypass"
         type="button"
         class="routing-graph-node-bypass"
-        :class="{ active: isBypassed }"
+        :class="{ bypassed: isBypassed }"
         :aria-label="isBypassed ? 'Resume effects processing' : 'Bypass effects'"
         title="Keeps your effect chain configured but stops it from affecting audio — nothing is removed."
         @click="onToggleBypass"
       >
-        {{ isBypassed ? "⏸" : "▶" }}
+        SFX
       </button>
     </div>
     <EffectStageList v-if="deviceId" :device-id="deviceId" compact />

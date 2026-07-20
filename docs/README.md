@@ -38,6 +38,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 - **Contributing:** [`.github/CONTRIBUTING.md`](../.github/CONTRIBUTING.md)
 - **Codebase layout:** [Development](project/Development.md)
 - **Packaging:** [Packaging](project/Packaging.md)
+- **Uninstalling / resetting:** [Uninstall](project/Uninstall.md)
 - **Plugins:** [Plugins](project/Plugins.md)
 - **Releasing:** [Release](project/Release.md)
 - **Project organization:** [Project Management](project-management/README.md)
@@ -67,6 +68,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 
 ### Project
 - [Packaging](project/Packaging.md)
+- [Uninstall](project/Uninstall.md)
 - [Release process](project/Release.md)
 - [Plugins](project/Plugins.md)
 - [Plugin Review Checklist](specs/Plugin_Review_Checklist.md)

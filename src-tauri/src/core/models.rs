@@ -368,8 +368,13 @@ where
         .collect())
 }
 
+fn default_config_version() -> u32 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
+    #[serde(default = "default_config_version")]
     pub version: u32,
     pub active_profile: Option<String>,
     pub profile_index: Vec<ProfileIndexEntry>,

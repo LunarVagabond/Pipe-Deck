@@ -357,6 +357,10 @@ impl CoreEngine {
             let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
         }
 
+        if !native {
+            self.relink_other_active_effect_chains(&device.id);
+        }
+
         let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
 
         ConfigStore::new()
@@ -462,6 +466,26 @@ impl CoreEngine {
             device.current_targets.clone()
         };
 
+        // Output-direction-only: any OTHER virtual output currently chained
+        // into this one (PD-026 — bus-into-bus) must be re-linked after
+        // `revert_to_plain_device` destroys and recreates this device's sink
+        // node, same as `apply_effect_chain_structural`'s matching capture —
+        // see that function's comment for why this can't be discovered after
+        // the swap.
+        let upstream_sources: Vec<(String, Vec<String>)> = if is_input {
+            Vec::new()
+        } else {
+            self.graph
+                .devices
+                .iter()
+                .filter(|other| other.id != device.id)
+                .filter_map(|other| {
+                    let targets = other.resolved_targets();
+                    targets.contains(&device.id).then(|| (other.id.clone(), targets))
+                })
+                .collect()
+        };
+
         let held_sink_inputs = if is_input {
             Vec::new()
         } else {
@@ -511,6 +535,13 @@ impl CoreEngine {
         } else {
             crate::core::routing::apply_sink_targets(&self.graph, &device.id, &downstream_target_ids)
                 .map_err(|error| EngineError::Routing(error.to_string()))?;
+            for (upstream_id, upstream_targets) in &upstream_sources {
+                let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
+            }
+        }
+
+        if !native {
+            self.relink_other_active_effect_chains(&device.id);
         }
 
         ConfigStore::new()
@@ -597,6 +628,45 @@ impl CoreEngine {
                 continue;
             };
             let _ = self.apply_effect_chain_structural(&device_id, config);
+        }
+    }
+
+    /// Repairs collateral link loss caused by `restart_filter_chain_service()`
+    /// (`pipewire::pipewire_restart`): that call restarts the single, shared
+    /// `filter-chain.service` systemd unit, which reloads *every* device's
+    /// conf.d fragment at once (see `filter_chain::filter_chain_conf_dir`) —
+    /// not just the one just touched. Any other device with a live effect
+    /// chain gets its node silently torn down and recreated by the same
+    /// restart, dropping its `pw-link` connections with nothing to restore
+    /// them. Re-links every *other* active-chain device's own downstream
+    /// targets (`exclude_device_id` already had its own re-link handled by
+    /// the caller). Only meaningful for the restart-carrying path — native
+    /// transport (issue #148) never restarts the shared daemon, so nothing
+    /// else is disrupted.
+    fn relink_other_active_effect_chains(&mut self, exclude_device_id: &str) {
+        let Ok(chains) = ConfigStore::new().effect_chains() else {
+            return;
+        };
+        let active = self.active_effect_chains(&chains);
+        for (system_name, _config) in &active {
+            let Some(other) = self
+                .graph
+                .devices
+                .iter()
+                .find(|device| &device.system_name == system_name)
+                .cloned()
+            else {
+                continue;
+            };
+            if other.id == exclude_device_id || other.direction == DeviceDirection::Input {
+                continue;
+            }
+            let downstream_target_ids: Vec<_> = if other.current_targets.is_empty() {
+                other.current_target.clone().into_iter().collect()
+            } else {
+                other.current_targets.clone()
+            };
+            let _ = crate::core::routing::apply_sink_targets(&self.graph, &other.id, &downstream_target_ids);
         }
     }
 
