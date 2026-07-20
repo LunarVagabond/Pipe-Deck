@@ -11,7 +11,8 @@
     "test:e2e": "playwright test --config src/e2e/playwright.config.ts",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "typecheck:e2e": "tsc -p src/e2e/tsconfig.json --noEmit"
+    "typecheck:e2e": "tsc -p src/e2e/tsconfig.json --noEmit",
+    "screenshots": "node scripts/screenshot-app.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
