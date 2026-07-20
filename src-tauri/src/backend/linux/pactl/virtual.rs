@@ -65,6 +65,31 @@ pub fn sink_input_indices_on(system_name: &str) -> Vec<u32> {
         .collect()
 }
 
+/// Retries `pactl move-sink-input` until `sink_input_indices_on(target_system_name)`
+/// confirms the move actually took, or `timeout` elapses. A single fire-and-forget
+/// move call can silently fail if `target_system_name` isn't live as a real sink at
+/// that exact instant — e.g. immediately after a `filter-chain.service` restart or a
+/// plain-sink recreation that's still a beat away from actually completing under
+/// real system load, even though the caller's own shorter wait (`wait_for_sink`,
+/// `restart_filter_chain_service`'s `is-active` poll) already gave up and returned.
+/// Without this retry, audio held on the scratch "Pipe Deck (temporary hold)" sink
+/// during an effects swap can get permanently stranded there — the move was only
+/// ever attempted once, at the one moment the target wasn't ready yet, and nothing
+/// else in the app ever revisits it.
+pub fn move_sink_input_with_retry(index: u32, target_system_name: &str, timeout: Duration) {
+    let start = Instant::now();
+    loop {
+        let _ = super::move_sink_input_to_sink_name(index, target_system_name);
+        if sink_input_indices_on(target_system_name).contains(&index) {
+            return;
+        }
+        if start.elapsed() > timeout {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// A shared scratch sink used to briefly hold an in-use device's playback
 /// streams while its underlying module is swapped out (e.g. for a
 /// Structural Apply), so the swap doesn't just silently fail whatever those

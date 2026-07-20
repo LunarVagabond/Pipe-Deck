@@ -353,15 +353,23 @@ impl AudioBackend for LinuxPipeWireBackend {
         if !held.is_empty() {
             pactl::ensure_holding_sink()?;
             for index in &held {
-                let _ = pactl::move_sink_input_to_sink_name(*index, pactl::HOLDING_SINK_NAME);
+                pactl::move_sink_input_with_retry(*index, pactl::HOLDING_SINK_NAME, Duration::from_secs(5));
             }
         }
         Ok(held)
     }
 
+    /// Moves held sink-inputs back onto `target_system_name`, retrying each move
+    /// for a few seconds rather than a single fire-and-forget attempt — a plain
+    /// sink recreated moments ago by `revert_to_plain_device` (or an
+    /// effects-hosted node reloaded by `swap_to_effect_chain`) can still be a
+    /// beat away from actually being live even after that caller's own shorter
+    /// wait already gave up, and a move attempted at exactly that instant would
+    /// otherwise silently fail with nothing ever retrying it — permanently
+    /// stranding audio on the "Pipe Deck (temporary hold)" sink.
     fn release_held_sink_inputs(&self, held_indices: &[u32], target_system_name: &str) -> Result<(), BackendError> {
         for index in held_indices {
-            let _ = pactl::move_sink_input_to_sink_name(*index, target_system_name);
+            pactl::move_sink_input_with_retry(*index, target_system_name, Duration::from_secs(5));
         }
         let _ = pactl::remove_holding_sink();
         Ok(())
