@@ -12,6 +12,22 @@ use std::time::Duration;
 
 use super::{CoreEngine, EngineError};
 
+/// Whether a native-transport chain (issue #148) is currently loaded for
+/// `system_name` — always `false` when the `native-effects` feature isn't
+/// compiled in, so every native-aware check below degrades to exactly
+/// today's conf-file-based liveness check.
+fn native_effect_chain_live(system_name: &str) -> bool {
+    #[cfg(feature = "native-effects")]
+    {
+        crate::pipewire::native_host::is_loaded(system_name)
+    }
+    #[cfg(not(feature = "native-effects"))]
+    {
+        let _ = system_name;
+        false
+    }
+}
+
 impl CoreEngine {
     pub fn get_effect_chains(&self) -> Result<HashMap<String, EffectChainConfig>, EngineError> {
         ConfigStore::new()
@@ -45,8 +61,8 @@ impl CoreEngine {
         let Some(device) = self.graph.devices.iter().find(|device| device.id == device_id) else {
             return false;
         };
-        filter_chain::conf_path_for_device(&device.system_name)
-            .is_some_and(|path| path.is_file())
+        native_effect_chain_live(&device.system_name)
+            || filter_chain::conf_path_for_device(&device.system_name).is_some_and(|path| path.is_file())
     }
 
     pub fn set_device_effects(
@@ -212,6 +228,14 @@ impl CoreEngine {
 
         let is_input = device.direction == DeviceDirection::Input;
 
+        // Native transport (issue #148) doesn't write a conf.d file at all —
+        // `load_effect_chain` takes `config` directly — so the idempotence
+        // short-circuit below only applies to the restart-based path.
+        let native = matches!(
+            self.adapter.effect_chain_capabilities(),
+            crate::backend::EffectChainHostingCapability::NativeZeroRestart
+        );
+
         let conf_path = filter_chain::conf_path_for_device(&device.system_name)
             .ok_or_else(|| EngineError::Adapter("could not resolve HOME for effects config".to_string()))?;
         let rendered = if is_input {
@@ -220,7 +244,7 @@ impl CoreEngine {
             fx_validate::render_conf(&device.system_name, config)
         };
 
-        if conf_path.is_file() {
+        if !native && conf_path.is_file() {
             if let Ok(existing) = fs::read_to_string(&conf_path) {
                 if existing == rendered {
                     return Ok(ApplyResult {
@@ -294,13 +318,22 @@ impl CoreEngine {
                 .map_err(|error| EngineError::Adapter(error.to_string()))?
         };
 
-        let apply_result =
+        let apply_result = if native {
             self.adapter
-                .swap_to_effect_chain(&device, &conf_path, &rendered, &downstream_targets, &mic_feeders);
+                .load_effect_chain(&device, config, &downstream_targets, &mic_feeders)
+                .map(|_playback_name| ())
+        } else {
+            self.adapter
+                .swap_to_effect_chain(&device, &conf_path, &rendered, &downstream_targets, &mic_feeders)
+        };
 
         if let Err(error) = apply_result {
-            let _ = fs::remove_file(&conf_path);
-            let _ = pipewire_restart::restart_filter_chain_service();
+            if native {
+                let _ = self.adapter.unload_effect_chain(&device.system_name);
+            } else {
+                let _ = fs::remove_file(&conf_path);
+                let _ = pipewire_restart::restart_filter_chain_service();
+            }
             if is_input {
                 let _ = self.adapter.revert_to_plain_device(&device, false);
                 let _ = self
@@ -410,8 +443,9 @@ impl CoreEngine {
 
         let conf_path = filter_chain::conf_path_for_device(&device.system_name)
             .ok_or_else(|| EngineError::Adapter("could not resolve HOME for effects config".to_string()))?;
+        let native = native_effect_chain_live(&device.system_name);
 
-        if !conf_path.is_file() {
+        if !native && !conf_path.is_file() {
             return Ok(ApplyResult {
                 success: true,
                 message: Some("no live effects to remove".to_string()),
@@ -489,11 +523,17 @@ impl CoreEngine {
     /// the device being deleted regardless is not itself a reason to abort).
     /// Returns whether a conf was actually present.
     pub(super) fn discard_effect_chain_conf(&self, system_name: &str) -> Result<bool, EngineError> {
+        // Native transport (issue #148) has no conf.d file to remove — just
+        // destroy its module directly. Best-effort/no-op if nothing is
+        // loaded, mirroring the conf-file branch's own "nothing to do" path.
+        let native_was_live = native_effect_chain_live(system_name);
+        let _ = self.adapter.unload_effect_chain(system_name);
+
         let Some(conf_path) = filter_chain::conf_path_for_device(system_name) else {
-            return Ok(false);
+            return Ok(native_was_live);
         };
         if !conf_path.is_file() {
-            return Ok(false);
+            return Ok(native_was_live);
         }
         fs::remove_file(&conf_path)
             .map_err(|error| EngineError::Adapter(format!("failed to remove effects config: {error}")))?;

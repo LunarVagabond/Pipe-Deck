@@ -146,6 +146,29 @@ fn render_filter_chain_conf(
     playback_media_class: Option<&str>,
     config: &EffectChainConfig,
 ) -> String {
+    let args = render_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, config);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders just the `libpipewire-module-filter-chain` `args` object — the
+/// SPA object literal `pw_context_load_module`'s `args` parameter accepts
+/// directly (see `pipewire::native_host`, issue #148). `render_filter_chain_conf`
+/// wraps this same string in a `context.modules = [...]` block for the
+/// restart-based path's conf.d file; both paths must build the exact same
+/// filter graph so they're indistinguishable to anything downstream.
+fn render_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    config: &EffectChainConfig,
+) -> String {
     // Bypassed means "keep the chain loaded but pass audio through
     // unprocessed" — bake that in as neutral values here so the initial
     // Structural Apply already matches what `live_params` would push right
@@ -162,11 +185,7 @@ fn render_filter_chain_conf(
         .unwrap_or_default();
 
     format!(
-        r#"# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.
-context.modules = [
-    {{ name = libpipewire-module-filter-chain
-        flags = [ nofail ]
-        args = {{
+        r#"{{
             node.description = "{node_description}"
             media.name       = "{node_description}"
             filter.graph = {{
@@ -196,10 +215,29 @@ context.modules = [
                 node.name    = "{playback_name}"
                 node.passive = true{playback_class_line}
             }}
-        }}
-    }}
-]
-"#
+        }}"#
+    )
+}
+
+/// Native-host counterpart to `render_conf` — same filter graph, but as a
+/// bare `args` object suitable for `pw_context_load_module`, not a conf.d
+/// file. See `pipewire::native_host` (issue #148).
+pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) -> String {
+    let node_description = format!("Pipe Deck Effects - {device_system_name}");
+    let effect_output_name = format!("effect_output.{device_system_name}");
+    render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
+}
+
+/// Native-host counterpart to `render_conf_capture` — see `render_module_args`.
+pub fn render_module_args_capture(device_system_name: &str, config: &EffectChainConfig) -> String {
+    let node_description = format!("Pipe Deck Effects - {device_system_name}");
+    let effect_input_name = format!("effect_input.{device_system_name}");
+    render_filter_chain_module_args(
+        &node_description,
+        &effect_input_name,
+        device_system_name,
+        Some("Audio/Source/Virtual"),
+        config,
     )
 }
 

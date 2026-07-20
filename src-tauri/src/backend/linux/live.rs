@@ -380,6 +380,73 @@ impl AudioBackend for LinuxPipeWireBackend {
     ) -> Result<(), BackendError> {
         virtual_mic_mix::relink_feeds_to(feeders, from_system_name, to_system_name, to_is_virtual_source)
     }
+
+    #[cfg(feature = "native-effects")]
+    fn load_effect_chain(
+        &self,
+        device: &Device,
+        config: &crate::core::models::EffectChainConfig,
+        downstream_targets: &[Device],
+        mic_feeders: &[String],
+    ) -> Result<String, BackendError> {
+        let is_input = device.direction == DeviceDirection::Input;
+
+        if let Some(module_id) = pactl::find_module_id_by_sink_name(&device.system_name)? {
+            pactl::unload_module(&module_id)?;
+        }
+
+        let playback_name = crate::pipewire::native_host::load_chain(&device.system_name, is_input, config)
+            .map_err(|error| BackendError::Message(error.to_string()))?;
+
+        if is_input {
+            virtual_mic_mix::relink_feeds_to(mic_feeders, &device.system_name, &playback_name, false).map_err(|error| {
+                BackendError::Message(format!(
+                    "native effects chain loaded but its mic-mix feeds could not be re-linked: {error}"
+                ))
+            })?;
+            return Ok(playback_name);
+        }
+
+        let mut allowed_targets = HashSet::new();
+        for target in downstream_targets {
+            let is_virtual_input = target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
+            let result = if is_virtual_input {
+                pw_link::link_capture_source_to_virtual_input(&playback_name, &target.system_name)
+            } else {
+                pw_link::link_capture_source_to_sink(&playback_name, &target.system_name)
+            };
+            result.map_err(|error| {
+                BackendError::Message(format!(
+                    "native effects chain loaded but could not be re-linked to {}: {error}",
+                    target.label
+                ))
+            })?;
+            allowed_targets.insert(target.system_name.clone());
+        }
+        // See the equivalent comment on `swap_to_effect_chain` above — a
+        // prior load's downstream targets may no longer match this one.
+        let _ = split_sink::prune_stale_fan_out_links(&playback_name, &allowed_targets);
+
+        Ok(playback_name)
+    }
+
+    #[cfg(feature = "native-effects")]
+    fn unload_effect_chain(&self, device_system_name: &str) -> Result<(), BackendError> {
+        crate::pipewire::native_host::unload_chain(device_system_name).map_err(|error| BackendError::Message(error.to_string()))
+    }
+
+    /// Native transport is only ever reported when both the `native-effects`
+    /// Cargo feature is compiled in *and* `PIPE_DECK_NATIVE_EFFECTS=1` is set
+    /// at runtime — this double gate is what keeps restart-based effects
+    /// hosting the default even for a locally-built `--features
+    /// native-effects` binary (issue #148, day 1 — see the PD-027 addendum).
+    fn effect_chain_capabilities(&self) -> crate::backend::EffectChainHostingCapability {
+        #[cfg(feature = "native-effects")]
+        if std::env::var("PIPE_DECK_NATIVE_EFFECTS").as_deref() == Ok("1") {
+            return crate::backend::EffectChainHostingCapability::NativeZeroRestart;
+        }
+        crate::backend::EffectChainHostingCapability::RestartBased
+    }
 }
 
 fn query_pipewire_version() -> Option<String> {

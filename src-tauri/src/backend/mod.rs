@@ -239,16 +239,31 @@ pub trait AudioBackend: Send + Sync {
     // doc comment), and whether RSS growth across many load/unload cycles
     // is a genuine leak or one-time warmup (only checked over 5 cycles).
 
-    /// Load a filter-chain-equivalent effect chain onto a device, replacing
-    /// whatever chain (if any) is already live for it. Returns the
-    /// downstream-linkable node name the caller should route onward — the
-    /// spike confirmed the processed output side never auto-links anywhere.
-    fn load_effect_chain(&self, _device_system_name: &str, _config: &EffectChainConfig) -> Result<String, BackendError> {
+    /// Load a filter-chain-equivalent effect chain onto `device`, replacing
+    /// whatever chain (if any) is already live for it, and re-link onward
+    /// exactly like `swap_to_effect_chain` does: `downstream_targets` for an
+    /// output-direction device, `mic_feeders` for an input-direction one.
+    /// Mirrors `swap_to_effect_chain`'s signature deliberately (this is the
+    /// same operation, native transport underneath) rather than the
+    /// original #141 sketch's narrower one, since this is the first real
+    /// call site wiring it up. Returns the node name actually relinked —
+    /// `effect_output.*` for outputs, `effect_input.*` for inputs — mostly
+    /// useful to callers for logging; the relinking itself is already done
+    /// by the time this returns.
+    fn load_effect_chain(
+        &self,
+        _device: &Device,
+        _config: &EffectChainConfig,
+        _downstream_targets: &[Device],
+        _mic_feeders: &[String],
+    ) -> Result<String, BackendError> {
         Err(BackendError::Message("load_effect_chain: not implemented (see issue #141)".into()))
     }
 
-    /// Unload a previously loaded chain, restoring the device's plain
-    /// pre-effects node identity.
+    /// Unloads a previously loaded chain's native module. Does *not* recreate
+    /// the device's plain pactl sink/source — same division of labor as the
+    /// restart-based path, where that's `revert_to_plain_device`'s job,
+    /// called separately by the caller.
     fn unload_effect_chain(&self, _device_system_name: &str) -> Result<(), BackendError> {
         Err(BackendError::Message("unload_effect_chain: not implemented (see issue #141)".into()))
     }

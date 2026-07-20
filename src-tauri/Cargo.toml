@@ -50,6 +50,11 @@ pipewire = { version = "0.10", optional = true }
 
 [features]
 spike = ["dep:pipewire"]
+# Promotes the #141 spike into a real (still opt-in) module,
+# `src-tauri/src/pipewire/native_host.rs` — see issue #148. Not
+# default-enabled: restart-based effects hosting stays the only mechanism
+# compiled into a normal build.
+native-effects = ["dep:pipewire"]
 
 [[example]]
 name = "filter_chain_spike"
