@@ -2770,6 +2770,7 @@ version = "0.0.5"
 dependencies = [
  "chrono",
  "flate2",
+ "libc",
  "pipewire",
  "regex",
  "sd-notify",
