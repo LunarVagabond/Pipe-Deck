@@ -41,7 +41,7 @@ Pipe Deck is **PipeWire-first**, **Linux-native**, and designed so changes are *
 - **Virtual devices** — Create and manage virtual sinks and sources without low-level commands.
 - **Rules and automation** — Priority-based routing policies with simulation before apply.
 - **Plugin ecosystem** — Extend behavior via isolated JSON-RPC plugins.
-- **Packaging** — Build targets for binary, `.deb`, `.rpm`, and Flatpak.
+- **Packaging** — Build targets for binary, `.deb`, and `.rpm`.
 
 ## Requirements
 
@@ -126,4 +126,6 @@ If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Pl
 
 ---
 
-Enjoying Pipe Deck? Consider [buying me a coffee](https://www.buymeacoffee.com/lunarvagabond) ☕
+Enjoying Pipe Deck? Consider buying me a coffee:
+
+<a href="https://www.buymeacoffee.com/lunarvagabond" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-blue.png" alt="Buy Me a Coffee" style="height: 60px !important;width: 217px !important;" ></a>
