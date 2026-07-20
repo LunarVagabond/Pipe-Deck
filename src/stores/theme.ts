@@ -4,14 +4,15 @@ import { useApplyResult } from "./notices";
 import type { Preferences } from "../types/graph";
 import type { ResolvedScheme, ThemeBaseKind, ThemeMode } from "../types/theme";
 
-const FALLBACK_DARK_ID = "midnight-deck";
-const FALLBACK_LIGHT_ID = "paper-deck";
+export const DEFAULT_DARK_SCHEME_ID = "midnight-deck";
+export const DEFAULT_LIGHT_SCHEME_ID = "paper-deck";
+export const DEFAULT_THEME_MODE: ThemeMode = "system";
 
 // Module-level singleton so Settings and the app boot sequence share one applied theme.
 const schemes = ref<ResolvedScheme[]>([]);
 const mode = ref<ThemeMode>("dark");
-const darkSchemeId = ref(FALLBACK_DARK_ID);
-const lightSchemeId = ref(FALLBACK_LIGHT_ID);
+const darkSchemeId = ref(DEFAULT_DARK_SCHEME_ID);
+const lightSchemeId = ref(DEFAULT_LIGHT_SCHEME_ID);
 const systemPrefersDark = ref(true);
 let mediaQueryAttached = false;
 
@@ -22,7 +23,7 @@ const resolvedKind = computed<ThemeBaseKind>(() => {
 
 const activeScheme = computed<ResolvedScheme | null>(() => {
   const wantedId = resolvedKind.value === "dark" ? darkSchemeId.value : lightSchemeId.value;
-  const fallbackId = resolvedKind.value === "dark" ? FALLBACK_DARK_ID : FALLBACK_LIGHT_ID;
+  const fallbackId = resolvedKind.value === "dark" ? DEFAULT_DARK_SCHEME_ID : DEFAULT_LIGHT_SCHEME_ID;
   return (
     schemes.value.find((scheme) => scheme.id === wantedId) ??
     schemes.value.find((scheme) => scheme.id === fallbackId) ??
@@ -90,8 +91,8 @@ export function useTheme() {
     try {
       const config = await invoke<{ preferences?: Preferences }>("get_config");
       mode.value = (config.preferences?.theme_mode as ThemeMode) ?? "dark";
-      darkSchemeId.value = config.preferences?.dark_scheme ?? FALLBACK_DARK_ID;
-      lightSchemeId.value = config.preferences?.light_scheme ?? FALLBACK_LIGHT_ID;
+      darkSchemeId.value = config.preferences?.dark_scheme ?? DEFAULT_DARK_SCHEME_ID;
+      lightSchemeId.value = config.preferences?.light_scheme ?? DEFAULT_LIGHT_SCHEME_ID;
       schemes.value = await invoke<ResolvedScheme[]>("list_themes");
     } catch {
       // Static _variables.scss dark palette stands as the fallback if theme load fails.
@@ -150,6 +151,12 @@ export function useTheme() {
     }
   }
 
+  async function resetToDefaults() {
+    await setMode(DEFAULT_THEME_MODE);
+    await setDarkScheme(DEFAULT_DARK_SCHEME_ID);
+    await setLightScheme(DEFAULT_LIGHT_SCHEME_ID);
+  }
+
   return {
     schemes,
     mode,
@@ -161,5 +168,6 @@ export function useTheme() {
     setMode,
     setDarkScheme,
     setLightScheme,
+    resetToDefaults,
   };
 }
