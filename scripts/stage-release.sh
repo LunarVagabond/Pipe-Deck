@@ -92,9 +92,9 @@ const manifest = {
       signature: process.argv[3],
       url: process.argv[4],
     },
-    'linux-x86_64-deb': { url: process.argv[5] },
-    'linux-x86_64-rpm': { url: process.argv[6] },
-    'linux-x86_64-binary': { url: process.argv[7] },
+    'linux-x86_64-deb': { signature: '', url: process.argv[5] },
+    'linux-x86_64-rpm': { signature: '', url: process.argv[6] },
+    'linux-x86_64-binary': { signature: '', url: process.argv[7] },
   },
 };
 fs.writeFileSync(process.argv[8], JSON.stringify(manifest, null, 2) + '\n');
