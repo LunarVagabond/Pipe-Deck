@@ -16,6 +16,7 @@ impl CoreEngine {
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
         self.sync_live_graph();
+        self.reconcile_effect_chain_liveness_after_refresh();
         self.finalize_graph_snapshot();
         self.apply_rules_for_new_streams();
         if let Ok(mut plugins) = self.plugin_manager.lock() {
@@ -29,6 +30,7 @@ impl CoreEngine {
         self.graph = graph;
         merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
         self.sync_live_graph();
+        self.reconcile_effect_chain_liveness_after_refresh();
         self.finalize_graph_snapshot();
         self.apply_rules_for_new_streams();
         if let Ok(mut plugins) = self.plugin_manager.lock() {

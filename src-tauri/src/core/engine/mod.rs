@@ -53,6 +53,17 @@ pub struct CoreEngine {
     plugin_manager: Mutex<PluginManager>,
     recent_streams: RecentStreamCache,
     seen_stream_identities: HashSet<StreamIdentityKey>,
+    /// system_name -> was its native effect chain live as of the last graph
+    /// refresh (issue #206). Native-effects-only: the restart-based path's
+    /// liveness never flips independently of a GUI-initiated call, so it
+    /// never trips the reappeared-since-last-refresh check below.
+    effect_chain_liveness: HashMap<String, bool>,
+    /// device_id -> last-known downstream targets while its effect chain
+    /// was live, so a chain that reappears after a daemon crash-recovery
+    /// reload (`daemon::reconcile_live_effects_state`) can have its routing
+    /// restored immediately instead of waiting for a user-triggered rules
+    /// re-apply.
+    effect_chain_last_targets: HashMap<String, Vec<String>>,
 }
 
 impl CoreEngine {
@@ -70,6 +81,8 @@ impl CoreEngine {
             plugin_manager: Mutex::new(PluginManager::new()),
             recent_streams: RecentStreamCache::default(),
             seen_stream_identities: HashSet::new(),
+            effect_chain_liveness: HashMap::new(),
+            effect_chain_last_targets: HashMap::new(),
         }
     }
 
