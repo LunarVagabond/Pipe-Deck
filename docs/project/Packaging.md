@@ -46,6 +46,8 @@ All package formats must respect the same config layout (XDG):
 
 Installed packages must not embed user config; first run creates defaults in user config directory.
 
+Removing the package does not remove user config, live-effects drop-ins, or the optional daemon's systemd unit — see [Uninstall](Uninstall.md) for the full inventory and cleanup steps.
+
 ## Dependencies
 
 Runtime dependencies (document per distro):

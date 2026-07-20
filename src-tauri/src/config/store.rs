@@ -501,6 +501,20 @@ mod tests {
     }
 
     #[test]
+    fn config_without_version_field_defaults_to_one() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "preferences:\n  show_system_streams: false\nprofile_index: []\n",
+            )
+            .unwrap();
+            let config = store.load_config().unwrap();
+            assert_eq!(config.version, 1);
+        });
+    }
+
+    #[test]
     fn legacy_config_without_virtual_devices_deserializes() {
         with_temp_config(|store| {
             fs::create_dir_all(store.config_dir()).unwrap();

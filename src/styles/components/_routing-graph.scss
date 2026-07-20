@@ -534,24 +534,29 @@
   }
 }
 
-// Bypass toggle — same icon-button language as .routing-graph-node-mute so
-// the two read as siblings, but its own accent (amber, not red) so "bypassed"
-// never gets mistaken for "muted" at a glance.
+// Bypass toggle — an "SFX" badge rather than a play/pause icon, since
+// play/pause reads as "start/stop audio" instead of "bypass the effect
+// chain". Filled teal (matches .routing-graph-node-effects-badge--live) when
+// the chain is active; hollow amber-ringed (matches --bypassed) when
+// bypassed, so this button and the adjacent state dot read as one language.
 .routing-graph-node-bypass {
   flex-shrink: 0;
-  width: 1.3rem;
+  width: 1.9rem;
   height: 1.3rem;
   padding: 0;
-  border: none;
-  border-radius: 4px;
-  background: transparent;
-  font-size: 0.65rem;
+  border: 1.5px solid transparent;
+  border-radius: 999px;
+  background: rgba(63, 208, 201, 0.18);
+  font-size: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   line-height: 1;
   cursor: pointer;
-  color: var(--text-muted);
+  color: #3fd0c9;
 
-  &.active {
-    background: rgba(255, 176, 32, 0.15);
+  &.bypassed {
+    background: transparent;
+    border-color: #ffb020;
     color: #ffb020;
   }
 

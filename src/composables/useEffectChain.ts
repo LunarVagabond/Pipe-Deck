@@ -40,6 +40,14 @@ export function useEffectChain() {
   const loading = ref(true);
   let unlisten: (() => void) | null = null;
   const liveParamsTimers: Record<string, number> = {};
+  /** Devices with a live-params write still in flight — `graph-updated`
+   * fires on every graph change (a brand new stream starting is enough),
+   * not just effects changes, and each firing triggers `refresh()`. Without
+   * this guard, `refresh()` blindly overwrites `chains.value` from disk,
+   * which can still hold the pre-write value if the fetch lands before the
+   * in-flight write's `ConfigStore` persist does — stomping the optimistic
+   * edit and reading to the user as "my change/effects got reset". */
+  const pendingWrites: Record<string, boolean> = {};
 
   function chainFor(deviceId: string): EffectChainConfig {
     return chains.value[deviceId] ?? emptyChain();
@@ -47,7 +55,14 @@ export function useEffectChain() {
 
   async function refresh() {
     try {
-      chains.value = await invoke<Record<string, EffectChainConfig>>("get_effect_chains");
+      const fetched = await invoke<Record<string, EffectChainConfig>>("get_effect_chains");
+      const merged = { ...fetched };
+      for (const deviceId of Object.keys(pendingWrites)) {
+        if (pendingWrites[deviceId] && chains.value[deviceId]) {
+          merged[deviceId] = chains.value[deviceId];
+        }
+      }
+      chains.value = merged;
     } catch {
       chains.value = {};
     } finally {
@@ -123,9 +138,29 @@ export function useEffectChain() {
     }
   }
 
+  /** Pushes a live-params write for `deviceId`, marking it pending so a
+   * `graph-updated`-triggered `refresh()` racing ahead of this write's
+   * `ConfigStore` persist can't stomp `chains.value` back to the pre-write
+   * state in the meantime. */
+  async function pushLiveParams(deviceId: string, config: EffectChainConfig) {
+    pendingWrites[deviceId] = true;
+    try {
+      await invoke("set_effect_chain_live_params", { deviceId, config });
+    } catch (error) {
+      handleApplyResult(
+        { success: false, message: error instanceof Error ? error.message : String(error) },
+        "",
+      );
+    } finally {
+      delete pendingWrites[deviceId];
+    }
+  }
+
   /** Live param push for one stage's sliders — debounced, no restart, safe
    * on every drag tick once the stage is already live (which it always is
-   * now, per PD-025). */
+   * now, per PD-025). Only the single most recent timer per device is ever
+   * live, so a burst of ticks collapses into one in-flight write instead of
+   * several racing requests that could settle out of order. */
   function scheduleStageUpdate(deviceId: string, updatedStage: EffectStage) {
     const chain = chains.value[deviceId] ?? emptyChain();
     const nextChain: EffectChainConfig = {
@@ -136,35 +171,43 @@ export function useEffectChain() {
 
     window.clearTimeout(liveParamsTimers[deviceId]);
     liveParamsTimers[deviceId] = window.setTimeout(() => {
-      void invoke("set_effect_chain_live_params", { deviceId, config: nextChain }).catch((error) => {
-        handleApplyResult(
-          { success: false, message: error instanceof Error ? error.message : String(error) },
-          "",
-        );
-      });
+      void pushLiveParams(deviceId, nextChain);
     }, 60);
   }
 
   /** Toggles bypass for the whole chain — a live param when the device
    * already has a stage (immediate, no restart), otherwise just persisted
-   * (nothing live to bypass yet). */
-  async function setBypassed(deviceId: string, bypassed: boolean) {
+   * (nothing live to bypass yet). Debounced through the same per-device
+   * timer `scheduleStageUpdate` uses: clicking the toggle repeatedly and
+   * quickly used to fire one un-sequenced `invoke` per click, and whichever
+   * happened to resolve last — not whichever was clicked last — won,
+   * reading as "the toggle only works sometimes". Collapsing to a single
+   * in-flight write per device fixes that the same way it already does for
+   * slider drags. */
+  function setBypassed(deviceId: string, bypassed: boolean) {
     const chain = chains.value[deviceId] ?? emptyChain();
     const nextChain: EffectChainConfig = { ...chain, bypassed };
     chains.value = { ...chains.value, [deviceId]: nextChain };
 
-    try {
-      if (nextChain.stages.length > 0) {
-        await invoke("set_effect_chain_live_params", { deviceId, config: nextChain });
-      } else {
-        await invoke("set_device_effects", { deviceId, config: nextChain });
-      }
-    } catch (error) {
-      handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
-        "",
-      );
+    window.clearTimeout(liveParamsTimers[deviceId]);
+    if (nextChain.stages.length > 0) {
+      liveParamsTimers[deviceId] = window.setTimeout(() => {
+        void pushLiveParams(deviceId, nextChain);
+      }, 60);
+      return;
     }
+
+    pendingWrites[deviceId] = true;
+    invoke("set_device_effects", { deviceId, config: nextChain })
+      .catch((error) => {
+        handleApplyResult(
+          { success: false, message: error instanceof Error ? error.message : String(error) },
+          "",
+        );
+      })
+      .finally(() => {
+        delete pendingWrites[deviceId];
+      });
   }
 
   /** Persist-only toggle for a dynamics stage (compressor/limiter/noise_gate)
