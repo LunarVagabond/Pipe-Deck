@@ -98,6 +98,38 @@ fn release_version_from_revision(revision: &str) -> Option<String> {
     }
 }
 
+/// Best-effort distro/flavor label from `/etc/os-release`'s `PRETTY_NAME`
+/// (e.g. "Pop!_OS 22.04 LTS"), falling back to `NAME` if `PRETTY_NAME` is
+/// absent, and "unknown" if neither field or the file itself is present.
+fn detect_os_name() -> String {
+    let Ok(contents) = std::fs::read_to_string("/etc/os-release") else {
+        return "unknown".to_string();
+    };
+
+    let mut name = None;
+    for line in contents.lines() {
+        if let Some(value) = line.strip_prefix("PRETTY_NAME=") {
+            return value.trim_matches('"').to_string();
+        }
+        if let Some(value) = line.strip_prefix("NAME=") {
+            name = Some(value.trim_matches('"').to_string());
+        }
+    }
+
+    name.unwrap_or_else(|| "unknown".to_string())
+}
+
+/// Desktop environment / compositor, e.g. "COSMIC", "GNOME", "KDE" — read
+/// from `XDG_CURRENT_DESKTOP`, which desktop session managers set on login.
+fn detect_desktop_environment() -> Option<String> {
+    std::env::var("XDG_CURRENT_DESKTOP").ok().filter(|value| !value.is_empty())
+}
+
+/// Display server session type ("wayland" or "x11") from `XDG_SESSION_TYPE`.
+fn detect_session_type() -> Option<String> {
+    std::env::var("XDG_SESSION_TYPE").ok().filter(|value| !value.is_empty())
+}
+
 fn build_revision_for_display() -> String {
     let revision = BUILD_REVISION.trim();
     if revision.is_empty() {
@@ -123,7 +155,8 @@ pub async fn get_app_info(state: tauri::State<'_, crate::AppState>) -> Result<Ap
 }
 
 /// Assembles a single copyable Markdown blob for bug reports: build/version
-/// info as a bullet list, and a compact routing-graph summary (the same
+/// and running-environment info (OS/distro, desktop environment, session
+/// type) as a bullet list, and a compact routing-graph summary (the same
 /// devices/streams/links data already shown in the app's own UI, not a raw
 /// `pw-dump` dump — see `format_graph_summary`) in a fenced code block so it
 /// pastes into a GitHub issue as readable monospace rather than a wall of
@@ -135,6 +168,9 @@ fn format_diagnostics_bundle(
     build_revision: &str,
     release_version: Option<&str>,
     pipewire_version: Option<&str>,
+    os_name: &str,
+    desktop_environment: Option<&str>,
+    session_type: Option<&str>,
     graph: &RuntimeGraph,
 ) -> String {
     let mut bundle = String::new();
@@ -143,8 +179,17 @@ fn format_diagnostics_bundle(
     bundle.push_str(&format!("- **Build:** {build_revision}\n"));
     bundle.push_str(&format!("- **Install type:** {}\n", install_label(install_kind)));
     bundle.push_str(&format!(
-        "- **PipeWire version:** {}\n\n",
+        "- **PipeWire version:** {}\n",
         pipewire_version.unwrap_or("unknown")
+    ));
+    bundle.push_str(&format!("- **OS:** {os_name}\n"));
+    bundle.push_str(&format!(
+        "- **Desktop:** {}\n",
+        desktop_environment.unwrap_or("unknown")
+    ));
+    bundle.push_str(&format!(
+        "- **Session type:** {}\n\n",
+        session_type.unwrap_or("unknown")
     ));
 
     bundle.push_str("### Graph snapshot\n\n");
@@ -216,12 +261,18 @@ pub async fn get_diagnostics_bundle(state: tauri::State<'_, crate::AppState>) ->
     let release_version = release_version_from_revision(&build_revision);
     let engine = state.engine.read().await;
     let pipewire_version = engine.platform_audio_version();
+    let os_name = detect_os_name();
+    let desktop_environment = detect_desktop_environment();
+    let session_type = detect_session_type();
 
     Ok(format_diagnostics_bundle(
         &install_kind,
         &build_revision,
         release_version.as_deref(),
         pipewire_version.as_deref(),
+        &os_name,
+        desktop_environment.as_deref(),
+        session_type.as_deref(),
         engine.runtime_graph(),
     ))
 }
@@ -330,12 +381,24 @@ mod tests {
             notice: None,
             recent_stream_identities: Vec::new(),
         };
-        let bundle = format_diagnostics_bundle(&InstallKind::Deb, "v0.1.0", Some("0.1.0"), Some("1.2.3"), &graph);
+        let bundle = format_diagnostics_bundle(
+            &InstallKind::Deb,
+            "v0.1.0",
+            Some("0.1.0"),
+            Some("1.2.3"),
+            "Pop!_OS 22.04 LTS",
+            Some("COSMIC"),
+            Some("wayland"),
+            &graph,
+        );
 
         assert!(bundle.contains("**Version:** 0.1.0"));
         assert!(bundle.contains("**Build:** v0.1.0"));
         assert!(bundle.contains("**Install type:** .deb package"));
         assert!(bundle.contains("**PipeWire version:** 1.2.3"));
+        assert!(bundle.contains("**OS:** Pop!_OS 22.04 LTS"));
+        assert!(bundle.contains("**Desktop:** COSMIC"));
+        assert!(bundle.contains("**Session type:** wayland"));
         assert!(bundle.contains("Speakers"));
         assert!(bundle.contains("Discord"));
         assert!(bundle.contains("-> Speakers"));
@@ -351,10 +414,13 @@ mod tests {
             notice: None,
             recent_stream_identities: Vec::new(),
         };
-        let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, &graph);
+        let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, "unknown", None, None, &graph);
 
         assert!(bundle.contains("**Version:** unknown"));
         assert!(bundle.contains("**PipeWire version:** unknown"));
+        assert!(bundle.contains("**OS:** unknown"));
+        assert!(bundle.contains("**Desktop:** unknown"));
+        assert!(bundle.contains("**Session type:** unknown"));
         assert!(bundle.contains("Devices (0):"));
         assert!(bundle.contains("Streams (0):"));
     }
