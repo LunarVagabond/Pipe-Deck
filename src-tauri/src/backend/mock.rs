@@ -441,6 +441,47 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    /// Trait default always returns `false`, which was fine while nothing
+    /// tested against it — `core::routing::verify_route_applied` (issue
+    /// #150) polls this to confirm a route actually took, so a real
+    /// implementation is needed to exercise that function's success path
+    /// against the mock. Resolves both device/stream ids to `system_name`
+    /// on the fly since `current_target`/`current_targets` store the former
+    /// but this trait method (like the live backend) is addressed by the
+    /// latter.
+    fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, _target_is_input: bool) -> bool {
+        let graph = self.lock();
+        let target_ids: Vec<&str> = graph
+            .devices
+            .iter()
+            .filter(|device| device.system_name == target_system_name)
+            .map(|device| device.id.as_str())
+            .collect();
+        if target_ids.is_empty() {
+            return false;
+        }
+
+        let source_targets: Vec<String> = if let Some(device) =
+            graph.devices.iter().find(|device| device.system_name == source_system_name)
+        {
+            if !device.current_targets.is_empty() {
+                device.current_targets.clone()
+            } else {
+                device.current_target.clone().into_iter().collect()
+            }
+        } else if let Some(stream) = graph
+            .streams
+            .iter()
+            .find(|stream| stream.system_name.as_deref() == Some(source_system_name))
+        {
+            stream.current_target.clone().into_iter().collect()
+        } else {
+            Vec::new()
+        };
+
+        source_targets.iter().any(|target_id| target_ids.contains(&target_id.as_str()))
+    }
+
     // The mock sample graph has no real pactl/pw-link session behind it, so
     // reconciliation that requires live PipeWire queries is a deliberate
     // no-op rather than shelling out to system tools with nothing meaningful
