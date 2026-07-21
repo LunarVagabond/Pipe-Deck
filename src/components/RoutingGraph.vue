@@ -157,6 +157,12 @@ const graphActions = {
     contextMenu.value = null;
     await addEq5BandStage(deviceId);
   },
+  bringNodeHere(nodeId: string, x: number, y: number) {
+    contextMenu.value = null;
+    const flowPosition = vueFlow.screenToFlowCoordinate({ x, y });
+    saveNodePosition(nodeId, flowPosition.x, flowPosition.y);
+    layoutVersion.value += 1;
+  },
 };
 
 provide(routingGraphActionsKey, graphActions);
@@ -231,6 +237,12 @@ function onPaneContextMenu(event: MouseEvent) {
 function onAddNodeAction(type: "output" | "input") {
   contextMenu.value = null;
   openNewDeviceDialog(type);
+}
+
+function onBringNodeHereAction(nodeId: string) {
+  const target = contextMenu.value;
+  if (!target || target.kind !== "pane") return;
+  graphActions.bringNodeHere(nodeId, target.x, target.y);
 }
 
 function onAddEffectAction(kind: string) {
@@ -340,6 +352,15 @@ const dropSlotOverlayStyle = computed(() => {
     height: `${preview.height * viewport.zoom}px`,
   };
 });
+// Group nodes aren't individually addressable placement targets — they're
+// repositioned as a unit via their own drag handling, not "brought here"
+// like a stream/device node.
+const pickableNodes = computed(() =>
+  built.value.nodes
+    .filter((node) => node.type !== "groupNode")
+    .map((node) => ({ id: node.id, label: node.data.label })),
+);
+
 const edges = computed<Edge[]>(() =>
   built.value.edges.map((edge) => ({
     ...edge,
@@ -813,11 +834,13 @@ onUnmounted(() => {
     </div>
     <RoutingGraphContextMenu
       :target="contextMenu"
+      :nodes="pickableNodes"
       @rename="onContextMenuAction('rename')"
       @delete="onContextMenuAction('delete')"
       @copy-id="onCopyIdAction"
       @add-node="onAddNodeAction"
       @add-effect="onAddEffectAction"
+      @bring-node-here="onBringNodeHereAction"
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas">

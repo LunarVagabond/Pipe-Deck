@@ -47,6 +47,10 @@ export interface RoutingGraphActions {
   /** PD-025: adds a 5-Band EQ stage to `deviceId` and applies immediately —
    * no separate confirm step. */
   addEffectStage: (deviceId: string) => void | Promise<void>;
+  /** Recovers a node that's been dragged (or auto-laid-out) off-canvas by
+   * relocating it to the screen point `x`/`y` — typically the pane
+   * right-click point that opened the "Bring node here" menu (issue #142). */
+  bringNodeHere: (nodeId: string, x: number, y: number) => void;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =
