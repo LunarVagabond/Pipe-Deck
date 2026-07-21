@@ -95,3 +95,10 @@ pub fn set_light_scheme(id: String) -> Result<(), String> {
         .set_light_scheme(&id)
         .map_err(|error| error.to_string())
 }
+
+#[tauri::command]
+pub fn set_notice_duration_ms(ms: u32) -> Result<(), String> {
+    ConfigStore::new()
+        .set_notice_duration_ms(ms)
+        .map_err(|error| error.to_string())
+}
