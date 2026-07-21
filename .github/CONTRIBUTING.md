@@ -44,6 +44,12 @@ gh issue list
 
 Product direction and acceptance criteria remain in [`docs/product/Roadmap.md`](../docs/product/Roadmap.md). Completed history is in git; do not maintain a separate backlog file in the repo.
 
+### Claiming An Issue
+
+Before starting work, comment on the issue saying you're picking it up. A maintainer will then assign it to you — this is what actually reserves it, so someone else doesn't start the same ticket in parallel. If an issue is already assigned, treat it as taken; comment to ask if it looks stalled instead of opening a competing PR.
+
+*If it's a longer-running ticket, you don't have to post progress updates, but it's nice to leave one now and then so we know it's still moving — maintainers will follow up if an assigned issue goes quiet for a while either way.*
+
 ## Commits And Pull Requests
 
 Open an issue first when the work is non-trivial. The issue carries context (feature, bug, scope) — commits and PRs reference it by number.
