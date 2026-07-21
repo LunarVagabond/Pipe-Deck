@@ -222,6 +222,13 @@ impl CoreEngine {
         self.adapter.platform_audio_version()
     }
 
+    /// Unconditionally unloads every live Pipe Deck virtual device module —
+    /// see `restore::remove_all_virtual_devices` for why this is distinct
+    /// from the config-diffed orphan cleanup `initialize()` runs.
+    pub fn remove_all_virtual_devices(&self) -> (Vec<String>, Vec<String>) {
+        restore::remove_all_virtual_devices(self.adapter.as_ref())
+    }
+
     pub fn list_plugins(&self) -> Vec<PluginStatus> {
         self.plugin_manager
             .lock()

@@ -36,6 +36,16 @@ Pipe Deck writes no log files.
 
 ## Full removal
 
+The one-shot way: **before** removing the package, run
+
+```bash
+pipe-deck-cli cleanup --purge-config
+```
+
+This unloads every live Pipe Deck `pactl` module, disables and removes the background-restore systemd unit, deletes any live-effects drop-ins, and (with `--purge-config`) removes `~/.config/pipe-deck` and the daemon state directory. It prints a JSON summary of what it did. Run it without `--purge-config` first if you just want the *running session* clean but plan to reinstall and keep your profiles/config. This isn't wired into `apt remove`/`dnf remove` automatically — see "Why this isn't automatic" below — so it has to be run explicitly, before or in place of the package removal step.
+
+The manual equivalent, if you'd rather not use the CLI or the binary is already gone:
+
 1. Uninstall the package (or delete the binary/AppImage).
 2. If you ever turned on **Restore on login** in Settings, disable it first from the app (this stops and disables the systemd unit), or manually:
    ```bash
@@ -53,8 +63,19 @@ Pipe Deck writes no log files.
    rm -f ~/.config/pipewire/filter-chain.conf.d/99-pipe-deck-effects-*.conf
    ```
    If you removed these while Pipe Deck-created virtual devices with effects were still active, restart the shared filter-chain daemon so the change takes effect: `systemctl --user restart filter-chain.service`. (This is a PipeWire-provided unit, not something Pipe Deck installs — see below.)
+5. Unload any still-live virtual devices from the current PipeWire session (step 3 only stops them being *recreated* on next launch — a module already loaded stays loaded in the running session until it's unloaded or PipeWire restarts):
+   ```bash
+   pactl list short modules | grep pipe-deck | cut -f1 | xargs -r -n1 pactl unload-module
+   ```
+   Or just restart PipeWire (see "Resetting PipeWire itself back to stock" below) if a brief audio interruption is acceptable.
 
-Virtual devices themselves need no cleanup — they're `pactl` modules that don't persist past a PipeWire/session restart on their own, and step 3 removes the config that would otherwise recreate them.
+## Why this isn't automatic on `apt remove`/`dnf remove`
+
+Tauri's bundler (what builds Pipe Deck's `.deb`/`.rpm`) has no `postrm`/`postinst`/`%postun` hook mechanism today — there's no config surface to ship a cleanup script that runs automatically on package removal. `pipe-deck-cli cleanup` exists so there's at least an explicit, scriptable one-shot instead of nothing; a distro packager building their own `.deb`/`.rpm` outside this repo's bundler config is free to wire it into a `prerm` script (it must run in `prerm`, before files are deleted — by the time `postrm` runs, `pipe-deck-cli` itself is already gone).
+
+## Flatpak
+
+The `flatpak/` manifest is kept in the repo for a future contributor (see `flatpak/README.md`) but isn't built by CI or documented as a supported install path (dropped in #201/#203). If you built and installed it yourself: Flatpak's sandbox means `pipe-deck-cli cleanup` and the systemd-unit steps above generally can't reach your real user session (`~/.config/systemd/user`, `pactl`) from inside the sandbox at all — `flatpak uninstall` removes the sandboxed app and its isolated data, but anything Pipe Deck reached outside the sandbox (if the manifest grants that access) would need the same manual `pactl unload-module`/systemd steps above, run from a normal (non-sandboxed) shell.
 
 ## Resetting PipeWire itself back to stock
 
