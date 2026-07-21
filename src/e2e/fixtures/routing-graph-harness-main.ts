@@ -4,7 +4,7 @@ import "@vue-flow/core/dist/style.css";
 import "@vue-flow/core/dist/theme-default.css";
 import "@vue-flow/controls/dist/style.css";
 import "../../../src/styles/main.scss";
-import type { RuntimeGraph } from "../../src/types/graph";
+import type { ActionStatus, RuntimeGraph } from "../../src/types/graph";
 
 /**
  * Minimal host for RoutingGraph.vue, used by e2e/routing-graph.spec.ts to drive
@@ -16,6 +16,9 @@ export interface RoutingGraphHarness {
   graph: RuntimeGraph;
   connectStreamToDevice(streamId: string, deviceId: string): void;
   touchDevice(deviceId: string): void;
+  /** Seeds a minimal route_explanation on a stream so tests can drive the
+   * on-graph warning badge (issue #154) without a full explanation fixture. */
+  setStreamRouteStatus(streamId: string, actionStatus: ActionStatus): void;
 }
 
 const graph = reactive<RuntimeGraph>({
@@ -56,6 +59,17 @@ const harness: RoutingGraphHarness = {
     if (!device) return;
     device.volume_percent = ((device.volume_percent ?? 0) + 1) % 101;
     device.muted = !device.muted;
+  },
+  setStreamRouteStatus(streamId, actionStatus) {
+    const stream = graph.streams.find((entry) => entry.id === streamId);
+    if (!stream) return;
+    stream.route_explanation = {
+      source: "authored_rule",
+      match_reasons: [],
+      skipped_candidates: [],
+      action_status: actionStatus,
+      fallback_applied: false,
+    };
   },
 };
 

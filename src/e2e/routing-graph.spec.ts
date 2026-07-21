@@ -457,3 +457,35 @@ test.describe("RoutingGraph bring node here", () => {
     expect(layout["stream:stream-1"]).toBeDefined();
   });
 });
+
+test.describe("RoutingGraph route-warning badge", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
+    await page.waitForSelector(".vue-flow__node");
+  });
+
+  test("a blocked route renders the blocked warning badge on the stream's node", async ({ page }) => {
+    const node = page.locator(".vue-flow__node", { hasText: "Test App" });
+    await expect(node.locator(".routing-graph-node-warning-badge")).toHaveCount(0);
+
+    await page.evaluate(() => window.__harness.setStreamRouteStatus("stream-1", "blocked"));
+
+    await expect(node.locator(".routing-graph-node-warning-badge--blocked")).toHaveCount(1);
+  });
+
+  test("a target_unavailable route renders the unavailable warning badge", async ({ page }) => {
+    const node = page.locator(".vue-flow__node", { hasText: "Test App" });
+
+    await page.evaluate(() => window.__harness.setStreamRouteStatus("stream-1", "target_unavailable"));
+
+    await expect(node.locator(".routing-graph-node-warning-badge--unavailable")).toHaveCount(1);
+  });
+
+  test("an applied route does not render a warning badge", async ({ page }) => {
+    const node = page.locator(".vue-flow__node", { hasText: "Test App" });
+
+    await page.evaluate(() => window.__harness.setStreamRouteStatus("stream-1", "applied"));
+
+    await expect(node.locator(".routing-graph-node-warning-badge")).toHaveCount(0);
+  });
+});
