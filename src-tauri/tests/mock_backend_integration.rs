@@ -634,6 +634,30 @@ fn restore_session_removes_orphaned_modules_not_listed_in_config() {
 }
 
 #[test]
+fn remove_all_virtual_devices_unloads_every_live_module_regardless_of_config() {
+    // Unlike restore_session's orphan pass, this ignores config.yaml
+    // entirely — a full teardown (package uninstall/purge) has no reason to
+    // spare a device just because it's still listed there.
+    let (backend, store, _guard) = mock_backend_with_config();
+    store
+        .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
+        .expect("save spec");
+    backend
+        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
+        .expect("pre-seed configured module");
+    backend
+        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
+        .expect("pre-seed unconfigured module");
+
+    let (removed, errors) = restore::remove_all_virtual_devices(&backend);
+
+    assert!(errors.is_empty());
+    assert!(removed.contains(&"pipe-deck-keep-me".to_string()));
+    assert!(removed.contains(&"pipe-deck-orphan".to_string()));
+    assert!(backend.list_virtual_devices().is_empty());
+}
+
+#[test]
 fn restore_profile_virtual_devices_recreates_devices_a_profile_depends_on() {
     let (backend, store, _guard) = mock_backend_with_config();
     store

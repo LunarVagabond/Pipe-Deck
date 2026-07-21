@@ -385,6 +385,24 @@ pub fn disable_background_service() -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Full teardown of the background-restore unit: disables/stops it (like
+/// `disable_background_service`) and additionally deletes the unit file
+/// itself, which that function deliberately leaves in place. Meant for
+/// package uninstall/purge (`pipe-deck-cli cleanup`), not the Settings
+/// toggle — a user turning background restore back on later should still
+/// find a working unit without needing to reinstall the package.
+/// Returns the removed unit path, or `None` if there was nothing to remove.
+pub fn uninstall_user_service_unit() -> Result<Option<PathBuf>, String> {
+    let unit_path = user_systemd_dir().join(SERVICE_NAME);
+    if !unit_path.exists() {
+        return Ok(None);
+    }
+    let _ = run_systemctl(&["disable", "--now", SERVICE_NAME]);
+    fs::remove_file(&unit_path).map_err(|error| error.to_string())?;
+    let _ = run_systemctl(&["daemon-reload"]);
+    Ok(Some(unit_path))
+}
+
 pub fn get_status() -> DaemonStatus {
     let enabled = is_service_enabled();
     let running = is_service_running();

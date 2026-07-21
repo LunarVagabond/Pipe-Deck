@@ -95,6 +95,10 @@ make build          # production bundles (deb/rpm/AppImage/binary)
 
 Enable background restore from the in-app **Settings** view (installs user unit, runs `systemctl --user enable --now`).
 
+### Uninstalling
+
+Tauri's bundler has no `postrm`/`postinst`/`%postun` hook config for the `.deb`/`.rpm` targets above — package removal only removes package-owned files (the binary, desktop file, the `/usr/lib/systemd/user/` unit template), never the per-user state Pipe Deck writes at runtime (config, the *enabled* systemd unit under `~/.config/systemd/user/`, live `pactl` virtual device modules). `pipe-deck-cli cleanup [--purge-config]` (issue #169) is the explicit, scriptable answer until/unless a future packaging change adds real pre/post-removal hooks; see `docs/project/Uninstall.md` for the full breakdown and the Flatpak sandboxing caveat.
+
 ## Decisions
 
 - Phase 2: baseline artifacts for dev/beta testing, not production repos.

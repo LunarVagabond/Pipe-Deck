@@ -111,6 +111,24 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
     Ok(result)
 }
 
+/// Unconditionally unloads every live `pipe-deck-*` virtual device module,
+/// with no config diff — unlike `restore_session`'s orphan pass, which only
+/// removes what's *not* in `config.yaml`. Meant for a full teardown (package
+/// uninstall/purge, `pipe-deck-cli cleanup`) where there's no reason to keep
+/// any of them around regardless of what's still configured. Returns the
+/// system_names actually removed and any per-device error messages.
+pub fn remove_all_virtual_devices(backend: &dyn AudioBackend) -> (Vec<String>, Vec<String>) {
+    let mut removed = Vec::new();
+    let mut errors = Vec::new();
+    for module in backend.list_virtual_devices() {
+        match backend.remove_virtual_device(&module.system_name) {
+            Ok(()) => removed.push(module.system_name),
+            Err(error) => errors.push(format!("failed to unload {}: {error}", module.system_name)),
+        }
+    }
+    (removed, errors)
+}
+
 pub fn restore_profile_virtual_devices(
     backend: &dyn AudioBackend,
     profile: &Profile,
