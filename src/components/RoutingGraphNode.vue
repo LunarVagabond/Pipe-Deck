@@ -181,6 +181,13 @@ function onToggleMute() {
           :title="effectsBadgeTitle"
           :aria-label="effectsBadgeTitle"
         />
+        <span
+          v-if="data.routeWarning"
+          class="routing-graph-node-warning-badge"
+          :class="`routing-graph-node-warning-badge--${data.routeWarning}`"
+          :title="data.routeWarningTitle"
+          :aria-label="data.routeWarningTitle"
+        />
         <div class="routing-graph-node-copy">
           <NodeCardHeader
             v-if="data.systemName"

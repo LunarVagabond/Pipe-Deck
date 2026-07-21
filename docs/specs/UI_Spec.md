@@ -106,6 +106,8 @@ Connection lines draw between linked nodes. Authored policies are managed in the
 | Session manual override | `Manual choice this session` |
 | No match | `No matching auto-route rule` |
 
+A stream whose `action_status` is `blocked`, `skipped_manual_override`, or `target_unavailable` also gets a colored dot badge directly on its node in the Routing graph (not just inside the collapsible route-explanation panel), so a routing failure is visible without opening it — `blocked`/`skipped_manual_override` render as `--status-warning`, `target_unavailable` as the more severe `--status-danger`. The badge's tooltip reuses this same label table.
+
 ## Progressive Disclosure
 
 - Default mode: simplified labels, guided actions, safe defaults.

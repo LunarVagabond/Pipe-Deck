@@ -1,4 +1,4 @@
-import type { RouteExplanation, RouteSource } from "../types/graph";
+import type { ActionStatus, RouteExplanation, RouteSource } from "../types/graph";
 
 export function formatRuleLabel(
   ruleKey: string,
@@ -47,4 +47,41 @@ export function routeExplanationSummary(
   }
 
   return `Matched ${ruleLabel}`;
+}
+
+export function actionStatusLabel(status: ActionStatus | undefined): string {
+  switch (status) {
+    case "applied":
+      return "Applied";
+    case "blocked":
+      return "Blocked";
+    case "skipped_manual_override":
+      return "Skipped (manual override)";
+    case "target_unavailable":
+      return "Target unavailable";
+    case "simulated":
+      return "Would apply";
+    default:
+      return "No action";
+  }
+}
+
+/**
+ * `blocked` and `skipped_manual_override` both mean "a rule matched but
+ * nothing was applied" and read the same on the graph; `target_unavailable`
+ * ("the destination doesn't exist") is a distinct, more severe case and gets
+ * its own color.
+ */
+export function routeWarningLevel(
+  explanation: RouteExplanation | undefined,
+): "blocked" | "unavailable" | null {
+  switch (explanation?.action_status) {
+    case "blocked":
+    case "skipped_manual_override":
+      return "blocked";
+    case "target_unavailable":
+      return "unavailable";
+    default:
+      return null;
+  }
 }
