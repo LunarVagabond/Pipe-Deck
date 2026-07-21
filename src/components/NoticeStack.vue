@@ -13,7 +13,13 @@ const { notices, dismissNotice } = useNotices();
       :class="notice.kind"
     >
       <p>{{ notice.message }}</p>
-      <button type="button" class="notice-dismiss" @click="dismissNotice(notice.id)">
+      <button
+        type="button"
+        class="notice-dismiss"
+        aria-label="Dismiss notice"
+        title="Dismiss"
+        @click="dismissNotice(notice.id)"
+      >
         ×
       </button>
     </article>

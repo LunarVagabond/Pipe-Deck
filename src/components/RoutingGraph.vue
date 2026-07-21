@@ -13,7 +13,7 @@ import {
   type NodeDragEvent,
 } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
-import { Controls } from "@vue-flow/controls";
+import { Controls, ControlButton } from "@vue-flow/controls";
 import RoutingGraphContextMenu from "./RoutingGraphContextMenu.vue";
 import RoutingGraphNode from "./RoutingGraphNode.vue";
 import RoutingGraphGroupNode from "./RoutingGraphGroupNode.vue";
@@ -63,6 +63,9 @@ const { confirm } = useConfirm();
 const { prompt } = usePrompt();
 const { openNewDeviceDialog } = useNewDeviceDialog();
 const vueFlow = useVueFlow();
+const isInteractive = computed(
+  () => vueFlow.nodesDraggable.value || vueFlow.nodesConnectable.value || vueFlow.elementsSelectable.value,
+);
 
 const edgeUpdatePending = ref<Edge | null>(null);
 const contextMenu = ref<RoutingGraphMenuTarget | null>(null);
@@ -866,7 +869,49 @@ onUnmounted(() => {
         @pane-context-menu="onPaneContextMenu"
       >
         <Background pattern-color="rgba(255,255,255,0.04)" :gap="20" />
-        <Controls />
+        <Controls>
+          <template #control-zoom-in>
+            <ControlButton aria-label="Zoom in" title="Zoom in" @click="vueFlow.zoomIn()">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+                <path d="M32 18.133H18.133V32h-4.266V18.133H0v-4.266h13.867V0h4.266v13.867H32z" />
+              </svg>
+            </ControlButton>
+          </template>
+          <template #control-zoom-out>
+            <ControlButton aria-label="Zoom out" title="Zoom out" @click="vueFlow.zoomOut()">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 5">
+                <path d="M0 0h32v4.2H0z" />
+              </svg>
+            </ControlButton>
+          </template>
+          <template #control-fit-view>
+            <ControlButton aria-label="Fit view" title="Fit view to all nodes" @click="vueFlow.fitView()">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 30">
+                <path
+                  d="M3.692 4.63c0-.53.4-.938.939-.938h5.215V0H4.708C2.13 0 0 2.054 0 4.63v5.216h3.692V4.631zM27.354 0h-5.2v3.692h5.17c.53 0 .984.4.984.939v5.215H32V4.631A4.624 4.624 0 0 0 27.354 0zm.954 24.83c0 .532-.4.94-.939.94h-5.215v3.768h5.215c2.577 0 4.631-2.13 4.631-4.707v-5.139h-3.692v5.139zm-23.677.94a.919.919 0 0 1-.939-.94v-5.138H0v5.139c0 2.577 2.13 4.707 4.708 4.707h5.138V25.77H4.631z"
+                />
+              </svg>
+            </ControlButton>
+          </template>
+          <template #control-interactive>
+            <ControlButton
+              :aria-label="isInteractive ? 'Lock canvas (disable drag and select)' : 'Unlock canvas (enable drag and select)'"
+              :title="isInteractive ? 'Lock canvas' : 'Unlock canvas'"
+              @click="vueFlow.setInteractive(!isInteractive)"
+            >
+              <svg v-if="isInteractive" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 32">
+                <path
+                  d="M21.333 10.667H19.81V7.619C19.81 3.429 16.38 0 12.19 0c-4.114 1.828-1.37 2.133.305 2.438 1.676.305 4.42 2.59 4.42 5.181v3.048H3.047A3.056 3.056 0 0 0 0 13.714v15.238A3.056 3.056 0 0 0 3.048 32h18.285a3.056 3.056 0 0 0 3.048-3.048V13.714a3.056 3.056 0 0 0-3.048-3.047zM12.19 24.533a3.056 3.056 0 0 1-3.047-3.047 3.056 3.056 0 0 1 3.047-3.048 3.056 3.056 0 0 1 3.048 3.048 3.056 3.056 0 0 1-3.048 3.047z"
+                />
+              </svg>
+              <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 32">
+                <path
+                  d="M21.333 10.667H19.81V7.619C19.81 3.429 16.38 0 12.19 0 8 0 4.571 3.429 4.571 7.619v3.048H3.048A3.056 3.056 0 0 0 0 13.714v15.238A3.056 3.056 0 0 0 3.048 32h18.285a3.056 3.056 0 0 0 3.048-3.048V13.714a3.056 3.056 0 0 0-3.048-3.047zM12.19 24.533a3.056 3.056 0 0 1-3.047-3.047 3.056 3.056 0 0 1 3.047-3.048 3.056 3.056 0 0 1 3.048 3.048 3.056 3.056 0 0 1-3.048 3.047zm4.724-13.866H7.467V7.619c0-2.59 2.133-4.724 4.723-4.724 2.591 0 4.724 2.133 4.724 4.724v3.048z"
+                />
+              </svg>
+            </ControlButton>
+          </template>
+        </Controls>
       </VueFlow>
       <div v-if="dropSlotOverlayStyle" class="routing-graph-drop-slot-overlay" :style="dropSlotOverlayStyle" />
     </div>
