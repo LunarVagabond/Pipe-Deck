@@ -566,9 +566,6 @@ impl AudioBackend for MockAudioBackend {
         multi: bool,
         _mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
-        // Unreachable in practice: restore_session/restore_profile_virtual_devices/
-        // apply_persisted_routes all short-circuit on PIPE_DECK_USE_MOCK=1
-        // before ever calling this. Implemented for trait completeness.
         let mut graph = self.lock();
         graph.devices.push(Device {
             id: format!("virtual-{}", system_name.trim_start_matches("pipe-deck-")),

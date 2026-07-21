@@ -15,16 +15,6 @@ pub enum RestoreError {
 }
 
 pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, RestoreError> {
-    if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
-        return Ok(RestoreResult {
-            created: Vec::new(),
-            adopted: Vec::new(),
-            removed_orphans: Vec::new(),
-            warnings: Vec::new(),
-            errors: Vec::new(),
-        });
-    }
-
     let store = ConfigStore::new();
     let mut config = store
         .load_config()
@@ -125,16 +115,6 @@ pub fn restore_profile_virtual_devices(
     backend: &dyn AudioBackend,
     profile: &Profile,
 ) -> Result<RestoreResult, RestoreError> {
-    if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
-        return Ok(RestoreResult {
-            created: Vec::new(),
-            adopted: Vec::new(),
-            removed_orphans: Vec::new(),
-            warnings: Vec::new(),
-            errors: Vec::new(),
-        });
-    }
-
     if profile.device_assumptions.is_empty() {
         return Ok(RestoreResult {
             created: Vec::new(),
@@ -191,10 +171,6 @@ pub fn restore_profile_virtual_devices(
 }
 
 pub fn apply_persisted_routes(backend: &dyn AudioBackend) -> Result<(), RestoreError> {
-    if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
-        return Ok(());
-    }
-
     let mut graph = backend
         .fetch_graph()
         .map_err(|error| RestoreError::Adapter(error.to_string()))?;

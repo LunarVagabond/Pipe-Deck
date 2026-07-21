@@ -7,8 +7,12 @@
 //! change to the trait or its Linux/mock implementations gets a real signal
 //! before it ships, not just a clean `cargo check`.
 
+use pipe_deck_lib::backend::mock::MockAudioBackend;
+use pipe_deck_lib::backend::AudioBackend;
+use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
-use pipe_deck_lib::core::models::{DeviceDirection, DeviceKind, MixSource};
+use pipe_deck_lib::core::models::{DeviceDirection, DeviceKind, MixSource, Profile, VirtualDeviceSpec};
+use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -522,6 +526,140 @@ fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_
         1,
         "mic's mix-source feed must survive an unrelated device's effect removal"
     );
+}
+
+/// Same isolated-config-dir setup as `mock_engine()`, but hands back a bare
+/// `MockAudioBackend` + `ConfigStore` instead of a `CoreEngine` — the
+/// `restore` module's functions take `&dyn AudioBackend` directly and are
+/// never reached through `CoreEngine` in mock mode (it skips them itself,
+/// since a fresh `MockAudioBackend` never has anything to adopt/orphan-clean
+/// on startup).
+fn mock_backend_with_config() -> (MockAudioBackend, ConfigStore, MutexGuard<'static, ()>) {
+    let guard = lock_env();
+    let n = COUNTER.fetch_add(1, Ordering::SeqCst);
+    let config_dir = std::env::temp_dir().join(format!(
+        "pipe-deck-mock-restore-test-config-{}-{n}",
+        std::process::id()
+    ));
+    let _ = std::fs::remove_dir_all(&config_dir);
+    std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
+    std::env::set_var("PIPE_DECK_USE_MOCK", "1");
+    (MockAudioBackend::new(), ConfigStore::new(), guard)
+}
+
+fn virtual_device_spec(id: &str, slug: &str, direction: DeviceDirection) -> VirtualDeviceSpec {
+    VirtualDeviceSpec {
+        id: id.into(),
+        slug: slug.into(),
+        label: format!("Restore Test {slug}"),
+        direction,
+        created_at: "2026-07-21T00:00:00Z".into(),
+        multi: false,
+        mix_sources: Vec::new(),
+    }
+}
+
+#[test]
+fn restore_session_recreates_configured_virtual_devices_missing_from_the_backend() {
+    let (backend, store, _guard) = mock_backend_with_config();
+    store
+        .add_virtual_device(virtual_device_spec("vdev-1", "restore-output", DeviceDirection::Output))
+        .expect("save spec");
+
+    let result = restore::restore_session(&backend).expect("restore_session");
+
+    assert_eq!(result.created, vec!["pipe-deck-restore-output".to_string()]);
+    assert!(result.adopted.is_empty());
+    assert!(result.errors.is_empty());
+    assert!(backend
+        .list_virtual_devices()
+        .iter()
+        .any(|module| module.system_name == "pipe-deck-restore-output"));
+}
+
+#[test]
+fn restore_session_adopts_a_device_the_backend_already_has_instead_of_recreating_it() {
+    let (backend, store, _guard) = mock_backend_with_config();
+    store
+        .add_virtual_device(virtual_device_spec("vdev-1", "restore-output", DeviceDirection::Output))
+        .expect("save spec");
+    backend
+        .restore_virtual_device("pipe-deck-restore-output", "Restore Test", DeviceDirection::Output, false, &[])
+        .expect("pre-seed backend");
+
+    let result = restore::restore_session(&backend).expect("restore_session");
+
+    assert!(result.created.is_empty());
+    assert_eq!(result.adopted, vec!["pipe-deck-restore-output".to_string()]);
+    assert_eq!(
+        backend
+            .list_virtual_devices()
+            .iter()
+            .filter(|module| module.system_name == "pipe-deck-restore-output")
+            .count(),
+        1,
+        "adopting an already-live device must not create a duplicate"
+    );
+}
+
+#[test]
+fn restore_session_removes_orphaned_modules_not_listed_in_config() {
+    // `restore_session` treats an *empty* config plus existing modules as a
+    // first-run migration (it adopts everything into config rather than
+    // orphan-removing it — see the `config.virtual_devices.is_empty()`
+    // branch), so this needs at least one real spec in config to avoid
+    // tripping that path and exercise orphan removal instead.
+    let (backend, store, _guard) = mock_backend_with_config();
+    store
+        .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
+        .expect("save spec");
+    backend
+        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
+        .expect("pre-seed backend with the configured module");
+    backend
+        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
+        .expect("pre-seed backend with an unconfigured module");
+
+    let result = restore::restore_session(&backend).expect("restore_session");
+
+    assert!(result.removed_orphans.contains(&"pipe-deck-orphan".to_string()));
+    assert!(result.adopted.contains(&"pipe-deck-keep-me".to_string()));
+    let system_names: Vec<_> = backend
+        .list_virtual_devices()
+        .into_iter()
+        .map(|module| module.system_name)
+        .collect();
+    assert!(!system_names.contains(&"pipe-deck-orphan".to_string()));
+    assert!(system_names.contains(&"pipe-deck-keep-me".to_string()));
+}
+
+#[test]
+fn restore_profile_virtual_devices_recreates_devices_a_profile_depends_on() {
+    let (backend, store, _guard) = mock_backend_with_config();
+    store
+        .add_virtual_device(virtual_device_spec("vdev-1", "profile-output", DeviceDirection::Output))
+        .expect("save spec");
+
+    let mut profile = Profile {
+        version: 1,
+        id: "gaming".into(),
+        name: "Gaming".into(),
+        created: "2026-07-21T00:00:00Z".into(),
+        updated: "2026-07-21T00:00:00Z".into(),
+        routing_intents: vec![],
+        volume_state: Default::default(),
+        device_assumptions: Default::default(),
+        effect_state: Default::default(),
+    };
+    profile.device_assumptions.insert("vdev-1".into(), "pipe-deck-profile-output".into());
+
+    let result = restore::restore_profile_virtual_devices(&backend, &profile).expect("restore_profile_virtual_devices");
+
+    assert_eq!(result.created, vec!["pipe-deck-profile-output".to_string()]);
+    assert!(backend
+        .list_virtual_devices()
+        .iter()
+        .any(|module| module.system_name == "pipe-deck-profile-output"));
 }
 
 #[test]
