@@ -233,6 +233,214 @@ mod live_tests {
     /// and the pactl sink both go back to "not there" after every unload,
     /// completely independent of memory; (2) RSS growth stays under a
     /// generous cap across the whole run.
+    /// Cycle count for `native_host_soak_test_production_timescale`,
+    /// configurable via `PIPE_DECK_SOAK_CYCLES` so a quick check and a
+    /// multi-hour manual run are the same test — default is still well past
+    /// the 50-cycle test above, per #205.
+    fn soak_cycle_count() -> u32 {
+        std::env::var("PIPE_DECK_SOAK_CYCLES")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(2000)
+    }
+
+    /// RSS in KB for an arbitrary process, via `/proc/<pid>/status`. Used by
+    /// the production-timescale soak test, which drives the *real*
+    /// `pipe-deck-daemon` binary as a child process rather than an in-process
+    /// server thread, so `rss_kb()` (this process's own RSS) doesn't capture
+    /// the daemon's memory.
+    fn rss_kb_for(pid: u32) -> Option<u64> {
+        let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+        status.lines().find_map(|line| {
+            line.strip_prefix("VmRSS:")
+                .and_then(|rest| rest.split_whitespace().next())
+                .and_then(|kb| kb.parse().ok())
+        })
+    }
+
+    /// Open file descriptor count for an arbitrary process, via
+    /// `/proc/<pid>/fd`. A leaked socket/fd from a bad unload path wouldn't
+    /// necessarily show up in RSS (a closed-but-not-freed fd is cheap), so
+    /// this is checked as an independent signal.
+    fn fd_count_for(pid: u32) -> Option<usize> {
+        std::fs::read_dir(format!("/proc/{pid}/fd")).ok().map(|entries| entries.count())
+    }
+
+    /// Number of `pipe-deck-native-ipc-prodsoak`-tagged sinks currently known
+    /// to PipeWire/pactl, independent of the daemon's own in-memory
+    /// bookkeeping (`is_loaded`) — catches the case where `unload_chain`
+    /// reports success but the underlying PipeWire module/node didn't
+    /// actually go away.
+    fn orphaned_module_count(device_system_name: &str) -> usize {
+        let output = std::process::Command::new("pactl").args(["list", "short", "sinks"]).output();
+        match output {
+            Ok(output) => String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .filter(|line| line.contains(device_system_name))
+                .count(),
+            Err(_) => 0,
+        }
+    }
+
+    /// Spawns the real `pipe-deck-daemon` binary (not an in-process server
+    /// thread) as an ephemeral child, pointed at a fresh temp socket, and
+    /// waits for it to start accepting connections. Mirrors
+    /// `daemon::ensure_ephemeral_daemon`'s spawn shape but talks to
+    /// `daemon_binary_path()` directly rather than going through the
+    /// ping-first/env-var gate, since this test wants to unconditionally
+    /// drive a fresh process. Returns the child (caller must kill it) and the
+    /// socket path (caller must remove it).
+    fn spawn_real_daemon() -> (std::process::Child, PathBuf) {
+        static NEXT_TEST_SOCKET_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let socket_path = PathBuf::from(format!(
+            "/tmp/pipe-deck-native-host-prodsoak-{}-{}.sock",
+            std::process::id(),
+            NEXT_TEST_SOCKET_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        ));
+        std::env::set_var("PIPE_DECK_NATIVE_HOST_SOCKET", &socket_path);
+
+        let daemon_path = crate::daemon::daemon_binary_path()
+            .expect("pipe-deck-daemon binary not found — run `make build-daemon-dev` first");
+        let mut child = std::process::Command::new(daemon_path)
+            .env("PIPE_DECK_DAEMON_EPHEMERAL", "1")
+            .env("PIPE_DECK_NATIVE_HOST_SOCKET", &socket_path)
+            .spawn()
+            .expect("failed to spawn pipe-deck-daemon for soak test");
+
+        let mut bound = false;
+        for _ in 0..50 {
+            if NativeHostClient::ping() {
+                bound = true;
+                break;
+            }
+            if let Ok(Some(status)) = child.try_wait() {
+                panic!("daemon child exited early with status {status:?} before it ever answered a ping");
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        assert!(bound, "spawned daemon did not start accepting connections in time");
+        (child, socket_path)
+    }
+
+    /// Extended soak test for #205: drives the real daemon binary (not an
+    /// in-process test double) through many more load/unload cycles than
+    /// `native_host_soak_test_many_load_unload_cycles`, tracking RSS, open fd
+    /// count, and orphaned-PipeWire-module count as three independent
+    /// signals rather than RSS alone. Cycle count is configurable via
+    /// `PIPE_DECK_SOAK_CYCLES` (default 2000) so the same test serves both a
+    /// quick check and a genuinely long manual run.
+    ///
+    /// Run via:
+    /// `cargo test --features native-effects --lib -- --ignored \
+    ///   native_host_soak_test_production_timescale`
+    /// (build the daemon binary first: `make build-daemon-dev`).
+    #[test]
+    #[ignore]
+    fn native_host_soak_test_production_timescale() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let (mut child, socket_path) = spawn_real_daemon();
+        let daemon_pid = child.id();
+        let device_system_name = "pipe-deck-native-ipc-prodsoak";
+
+        let cleanup = |child: &mut std::process::Child| {
+            let _ = NativeHostClient::unload_chain(device_system_name);
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&socket_path);
+        };
+
+        let config = EffectChainConfig {
+            stages: vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 3,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        };
+
+        let cycles = soak_cycle_count();
+        let warmup_cycles = cycles.min(WARMUP_CYCLES * 4).max(1);
+        let checkpoint_every = (cycles / 20).max(1);
+
+        let rss_before = rss_kb_for(daemon_pid);
+        let fds_before = fd_count_for(daemon_pid);
+        println!("production soak baseline: RSS={rss_before:?}kB fds={fds_before:?} over {cycles} cycles");
+
+        let mut rss_after_warmup = None;
+        let mut fds_after_warmup = None;
+
+        for cycle in 1..=cycles {
+            if let Err(error) = NativeHostClient::load_chain(device_system_name, false, &config) {
+                cleanup(&mut child);
+                panic!("cycle {cycle}: load_chain failed: {error}");
+            }
+            if !pactl::sink_exists(device_system_name).unwrap_or(false) {
+                cleanup(&mut child);
+                panic!("cycle {cycle}: effects sink did not appear after load_chain");
+            }
+
+            if let Err(error) = NativeHostClient::unload_chain(device_system_name) {
+                cleanup(&mut child);
+                panic!("cycle {cycle}: unload_chain failed: {error}");
+            }
+            if NativeHostClient::is_loaded(device_system_name) {
+                cleanup(&mut child);
+                panic!("cycle {cycle}: daemon still reports the chain as loaded after unload_chain");
+            }
+            let orphaned = orphaned_module_count(device_system_name);
+            if orphaned > 0 {
+                cleanup(&mut child);
+                panic!("cycle {cycle}: {orphaned} orphaned pactl sink(s) still present after unload_chain");
+            }
+
+            if cycle == warmup_cycles {
+                rss_after_warmup = rss_kb_for(daemon_pid);
+                fds_after_warmup = fd_count_for(daemon_pid);
+            }
+            if cycle % checkpoint_every == 0 {
+                println!(
+                    "cycle {cycle}/{cycles}: RSS={:?}kB fds={:?}",
+                    rss_kb_for(daemon_pid),
+                    fd_count_for(daemon_pid)
+                );
+            }
+        }
+
+        let rss_final = rss_kb_for(daemon_pid);
+        let fds_final = fd_count_for(daemon_pid);
+        println!(
+            "production soak done: baseline RSS={rss_before:?}kB fds={fds_before:?}; \
+             post-warmup RSS={rss_after_warmup:?}kB fds={fds_after_warmup:?}; \
+             final RSS={rss_final:?}kB fds={fds_final:?}"
+        );
+        cleanup(&mut child);
+
+        if let (Some(after_warmup), Some(final_rss)) = (rss_after_warmup, rss_final) {
+            let post_warmup_growth = final_rss.saturating_sub(after_warmup);
+            let cap = MAX_ACCEPTABLE_POST_WARMUP_GROWTH_KB * (cycles as u64 / SOAK_CYCLES as u64).max(1);
+            assert!(
+                post_warmup_growth <= cap,
+                "RSS grew {post_warmup_growth}kB over {} cycles after warmup, exceeding the {cap}kB cap \
+                 — looks like a real per-cycle leak, not warmup",
+                cycles - warmup_cycles
+            );
+        }
+        if let (Some(after_warmup), Some(final_fds)) = (fds_after_warmup, fds_final) {
+            let fd_growth = final_fds.saturating_sub(after_warmup);
+            assert!(
+                fd_growth <= 5,
+                "open fd count grew by {fd_growth} over {} cycles after warmup — looks like a leaked \
+                 socket/fd, not one-time warmup",
+                cycles - warmup_cycles
+            );
+        }
+    }
+
     #[test]
     #[ignore]
     fn native_host_soak_test_many_load_unload_cycles() {
