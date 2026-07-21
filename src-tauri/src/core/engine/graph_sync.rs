@@ -23,6 +23,11 @@ impl CoreEngine {
             plugins.push_graph(&self.graph);
         }
         self.apply_queued_plugin_effect_requests();
+        // Command-driven refresh completed and `self.graph` now reflects it
+        // — bump so the pw-dump monitor (see `graph_generation` field doc in
+        // `mod.rs`) can tell a snapshot it sampled before this point is
+        // stale relative to this now-authoritative state.
+        self.graph_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 

@@ -19,6 +19,7 @@ use crate::backend::AudioBackend;
 use crate::pipewire::filter_chain;
 use crate::plugins::PluginManager;
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, Emitter};
 use thiserror::Error;
@@ -64,6 +65,20 @@ pub struct CoreEngine {
     /// restored immediately instead of waiting for a user-triggered rules
     /// re-apply.
     effect_chain_last_targets: HashMap<String, Vec<String>>,
+    /// Bumped by every command-driven `refresh_graph()` (never by the
+    /// passive `pw-dump` monitor's `apply_graph_update`). A plain field
+    /// would be enough for command paths, which already hold `&mut self`
+    /// under the engine's write lock, but the monitor thread in
+    /// `backend::linux::live::run_pw_dump_monitor` samples PipeWire
+    /// (`enumerate_pipewire()`) *before* it ever touches the engine lock —
+    /// it needs to read "what generation was authoritative right as I
+    /// finished sampling" without awaiting that lock, which only a shared
+    /// atomic handle (see `graph_generation_handle`) allows. Exists to fix
+    /// issue #229's stale-graph-view symptom: the monitor can sample
+    /// mid-restart and only get to apply/emit its (stale) snapshot after a
+    /// command's own final, correct emit — comparing generations lets that
+    /// stale snapshot be dropped instead of overwriting the correct one.
+    graph_generation: Arc<AtomicU64>,
 }
 
 impl CoreEngine {
@@ -83,11 +98,19 @@ impl CoreEngine {
             seen_stream_identities: HashSet::new(),
             effect_chain_liveness: HashMap::new(),
             effect_chain_last_targets: HashMap::new(),
+            graph_generation: Arc::new(AtomicU64::new(0)),
         }
     }
 
     pub fn runtime_graph(&self) -> &RuntimeGraph {
         &self.graph
+    }
+
+    /// A cloned handle to the command-driven graph-generation counter, for
+    /// the `pw-dump` monitor subscription set up in `initialize()` to read
+    /// without needing the engine's write lock. See the field doc comment.
+    pub fn graph_generation_handle(&self) -> Arc<AtomicU64> {
+        self.graph_generation.clone()
     }
 
     pub fn last_error(&self) -> Option<&str> {
@@ -133,12 +156,25 @@ impl CoreEngine {
         self.emit_graph_update(app);
 
         let app_handle = app.clone();
+        let generation_handle = self.graph_generation_handle();
         self.adapter
             .subscribe(Box::new(move |graph| {
+                // Snapshot the generation as of right after this graph was
+                // sampled from PipeWire (see the `graph_generation` field
+                // doc) — if a command-driven `refresh_graph()` completes and
+                // bumps it before this update gets to apply below, this
+                // snapshot is stale (it may reflect a mid-restart transient
+                // state) and must be dropped rather than overwrite the
+                // command's already-correct, already-emitted state.
+                let observed_generation = generation_handle.load(Ordering::SeqCst);
                 let app_handle = app_handle.clone();
                 let engine_ref = engine_ref.clone();
+                let generation_handle = generation_handle.clone();
                 tauri::async_runtime::spawn(async move {
                     let mut engine = engine_ref.write().await;
+                    if generation_handle.load(Ordering::SeqCst) != observed_generation {
+                        return;
+                    }
                     engine.apply_graph_update(graph);
                     let _ = app_handle.emit("graph-updated", engine.runtime_graph().clone());
                 });
