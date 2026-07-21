@@ -169,6 +169,12 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_notice_duration_ms(&self, ms: u32) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.notice_duration_ms = ms;
+        self.save_config(&config)
+    }
+
     pub fn virtual_devices(&self) -> Vec<VirtualDeviceSpec> {
         self.load_config()
             .map(|config| config.virtual_devices)
@@ -542,6 +548,7 @@ mod tests {
             assert_eq!(config.preferences.theme_mode, "dark");
             assert_eq!(config.preferences.dark_scheme, "midnight-deck");
             assert_eq!(config.preferences.light_scheme, "paper-deck");
+            assert_eq!(config.preferences.notice_duration_ms, 5000);
         });
     }
 
@@ -552,11 +559,13 @@ mod tests {
             store.set_theme_mode("system").unwrap();
             store.set_dark_scheme("copper-dusk").unwrap();
             store.set_light_scheme("meadow-light").unwrap();
+            store.set_notice_duration_ms(8000).unwrap();
 
             let preferences = store.preferences();
             assert_eq!(preferences.theme_mode, "system");
             assert_eq!(preferences.dark_scheme, "copper-dusk");
             assert_eq!(preferences.light_scheme, "meadow-light");
+            assert_eq!(preferences.notice_duration_ms, 8000);
         });
     }
 

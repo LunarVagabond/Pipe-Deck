@@ -114,6 +114,7 @@ export interface Preferences {
   theme_mode?: string;
   dark_scheme?: string;
   light_scheme?: string;
+  notice_duration_ms?: number;
 }
 
 export interface StreamRouteRule {

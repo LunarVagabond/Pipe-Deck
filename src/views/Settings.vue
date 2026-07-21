@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import PluginDetailModal from "../components/PluginDetailModal.vue";
-import { useApplyResult } from "../stores/notices";
+import { useApplyResult, useNoticeSettings } from "../stores/notices";
 import { useUpdateStatus } from "../stores/updateStatus";
 import {
   DEFAULT_DARK_SCHEME_ID,
@@ -20,6 +20,13 @@ const THEME_MODE_OPTIONS = [
   { value: "light", label: "Light" },
   { value: "dark", label: "Dark" },
   { value: "system", label: "Follow system" },
+];
+
+const NOTICE_DURATION_OPTIONS = [
+  { value: "3000", label: "3s" },
+  { value: "5000", label: "5s" },
+  { value: "8000", label: "8s" },
+  { value: "0", label: "Until dismissed" },
 ];
 
 type SettingsTab = "general" | "background" | "plugins" | "about";
@@ -90,6 +97,7 @@ const {
   setLightScheme,
   resetToDefaults: resetThemeToDefaults,
 } = useTheme();
+const { noticeDurationMs, setNoticeDuration } = useNoticeSettings();
 
 const darkSchemes = computed(() => schemes.value.filter((scheme) => scheme.kind === "dark"));
 const lightSchemes = computed(() => schemes.value.filter((scheme) => scheme.kind === "light"));
@@ -449,6 +457,23 @@ onMounted(() => {
         <a href="https://github.com/LunarVagabond/Pipe-Deck/blob/main/docs/specs/Theming.md" target="_blank" rel="noreferrer">Theming docs</a>
         for the schema.
       </p>
+
+      <p class="settings-subheading">Notices</p>
+
+      <div class="settings-row">
+        <div>
+          <p class="settings-row-label">Notice duration</p>
+          <p class="settings-row-hint">
+            How long a toast notice (route applied, profile saved, errors, ...) stays on screen
+            before dismissing itself.
+          </p>
+        </div>
+        <SegmentedControl
+          :model-value="String(noticeDurationMs)"
+          :options="NOTICE_DURATION_OPTIONS"
+          @update:model-value="(value) => setNoticeDuration(Number(value))"
+        />
+      </div>
     </div>
 
     <div

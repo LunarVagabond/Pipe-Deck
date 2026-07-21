@@ -179,10 +179,16 @@ pub struct Preferences {
     pub dark_scheme: String,
     #[serde(default = "default_light_scheme")]
     pub light_scheme: String,
+    #[serde(default = "default_notice_duration_ms")]
+    pub notice_duration_ms: u32,
 }
 
 fn default_theme_mode() -> String {
     "dark".into()
+}
+
+fn default_notice_duration_ms() -> u32 {
+    5000
 }
 
 fn default_dark_scheme() -> String {
@@ -204,6 +210,7 @@ impl Default for Preferences {
             theme_mode: default_theme_mode(),
             dark_scheme: default_dark_scheme(),
             light_scheme: default_light_scheme(),
+            notice_duration_ms: default_notice_duration_ms(),
         }
     }
 }

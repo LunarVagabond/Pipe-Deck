@@ -45,6 +45,7 @@ pub fn run() {
             commands::config::set_theme_mode,
             commands::config::set_dark_scheme,
             commands::config::set_light_scheme,
+            commands::config::set_notice_duration_ms,
             commands::profile::get_profile,
             commands::profile::save_profile,
             commands::profile::save_profile_as,
