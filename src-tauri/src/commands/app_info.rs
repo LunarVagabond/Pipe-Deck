@@ -132,6 +132,56 @@ pub async fn get_app_info(state: tauri::State<'_, crate::AppState>) -> Result<Ap
     })
 }
 
+/// Assembles a single copyable text blob for bug reports: build/version info,
+/// a fresh raw pw-dump snapshot (via the existing backend fetch path — see
+/// `AudioBackend::diagnostics_snapshot`), and the environment fields the bug
+/// report template already asks for. Pipe Deck doesn't write a log file (see
+/// `docs/project/Getting_Started.md`'s troubleshooting section), so there's
+/// no log section to include.
+fn format_diagnostics_bundle(
+    install_kind: &InstallKind,
+    build_revision: &str,
+    release_version: Option<&str>,
+    pipewire_version: Option<&str>,
+    pw_dump_snapshot: Option<&str>,
+) -> String {
+    let mut bundle = String::new();
+    bundle.push_str("Pipe Deck diagnostics\n");
+    bundle.push_str("=====================\n\n");
+    bundle.push_str(&format!("Version: {}\n", release_version.unwrap_or(build_revision)));
+    bundle.push_str(&format!("Build: {build_revision}\n"));
+    bundle.push_str(&format!("Install type: {}\n", install_label(install_kind)));
+    bundle.push_str(&format!(
+        "PipeWire version: {}\n",
+        pipewire_version.unwrap_or("unknown")
+    ));
+    bundle.push('\n');
+
+    bundle.push_str("pw-dump snapshot\n");
+    bundle.push_str("-----------------\n");
+    bundle.push_str(pw_dump_snapshot.unwrap_or("(not available)\n"));
+
+    bundle
+}
+
+#[tauri::command]
+pub async fn get_diagnostics_bundle(state: tauri::State<'_, crate::AppState>) -> Result<String, String> {
+    let install_kind = detect_install_kind();
+    let build_revision = build_revision_for_display();
+    let release_version = release_version_from_revision(&build_revision);
+    let engine = state.engine.read().await;
+    let pipewire_version = engine.platform_audio_version();
+    let pw_dump_snapshot = engine.diagnostics_snapshot();
+
+    Ok(format_diagnostics_bundle(
+        &install_kind,
+        &build_revision,
+        release_version.as_deref(),
+        pipewire_version.as_deref(),
+        pw_dump_snapshot.as_deref(),
+    ))
+}
+
 #[tauri::command]
 pub fn open_url(url: String) -> Result<(), String> {
     if !(url.starts_with("https://") || url.starts_with("http://")) {
@@ -148,7 +198,7 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{release_version_from_revision, InstallKind};
+    use super::{format_diagnostics_bundle, release_version_from_revision, InstallKind};
 
     #[test]
     fn install_kind_serializes_snake_case() {
@@ -177,5 +227,31 @@ mod tests {
             release_version_from_revision("v0.0.2-alpha"),
             Some("0.0.2-alpha".to_string())
         );
+    }
+
+    #[test]
+    fn diagnostics_bundle_includes_version_and_snapshot() {
+        let bundle = format_diagnostics_bundle(
+            &InstallKind::Deb,
+            "v0.1.0",
+            Some("0.1.0"),
+            Some("1.2.3"),
+            Some("{\"id\": 1}"),
+        );
+
+        assert!(bundle.contains("Version: 0.1.0"));
+        assert!(bundle.contains("Build: v0.1.0"));
+        assert!(bundle.contains("Install type: .deb package"));
+        assert!(bundle.contains("PipeWire version: 1.2.3"));
+        assert!(bundle.contains("{\"id\": 1}"));
+    }
+
+    #[test]
+    fn diagnostics_bundle_falls_back_when_fields_are_missing() {
+        let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, None);
+
+        assert!(bundle.contains("Version: unknown"));
+        assert!(bundle.contains("PipeWire version: unknown"));
+        assert!(bundle.contains("(not available)"));
     }
 }

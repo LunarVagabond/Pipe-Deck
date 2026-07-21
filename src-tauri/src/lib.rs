@@ -32,6 +32,7 @@ pub fn run() {
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::app_info::get_app_info,
+            commands::app_info::get_diagnostics_bundle,
             commands::app_info::open_url,
             commands::graph::get_runtime_graph,
             commands::config::get_config,
