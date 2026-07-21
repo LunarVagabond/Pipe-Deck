@@ -198,3 +198,26 @@ fn validate_device_route(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::backend::mock::MockAudioBackend;
+    use std::time::Duration;
+
+    #[test]
+    fn verify_route_applied_succeeds_once_the_backend_reports_the_route_live() {
+        let backend = MockAudioBackend::new();
+        // The mock's sample graph seeds "sink-chat" already routed to
+        // "sink-headphones" — no need to issue a route first.
+        let result = verify_route_applied(&backend, "sink-chat", "sink-headphones", false, Duration::from_millis(500));
+        assert!(result.is_ok(), "{result:?}");
+    }
+
+    #[test]
+    fn verify_route_applied_times_out_when_the_route_never_takes() {
+        let backend = MockAudioBackend::new();
+        let result = verify_route_applied(&backend, "sink-chat", "sink-speakers", false, Duration::from_millis(200));
+        assert!(result.is_err());
+    }
+}
