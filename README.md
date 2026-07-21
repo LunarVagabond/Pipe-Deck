@@ -122,6 +122,8 @@ If yes, see [Contributing](.github/CONTRIBUTING.md) and open an issue or PR. [Pl
 - [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) — design questions, proposals, and anything worth keeping searchable
 - [Discord](https://discord.gg/cHtuCFkRRm) — "Dev Syndicate" server, casual chat and quick questions
 
+If a process rule in [Contributing](.github/CONTRIBUTING.md) gets in the way, raising it in a Discussion or on Discord is welcome — see [If A Convention Gets In The Way](.github/CONTRIBUTING.md#if-a-convention-gets-in-the-way).
+
 ## License
 
 [MIT](LICENSE)
