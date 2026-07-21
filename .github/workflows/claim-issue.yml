@@ -13,13 +13,19 @@ jobs:
     if: >
       github.event.issue.pull_request == null &&
       github.event.issue.state == 'open' &&
-      github.event.comment.user.type != 'Bot'
+      github.event.comment.user.type != 'Bot' &&
+      contains(github.event.comment.body, '/claim')
     steps:
       - name: Assign commenter if the issue is claimable
         uses: actions/github-script@v7
         with:
           script: |
-            const body = context.payload.comment.body.trim().toLowerCase();
+            // `/claim` is case-sensitive, exact-match-after-trim by design —
+            // the job-level `if:` above does a coarse `contains()` pre-filter
+            // so the runner never boots for comments that don't mention it at
+            // all (GitHub Actions expressions have no case-fold function, so
+            // that pre-filter can't itself be case-insensitive).
+            const body = context.payload.comment.body.trim();
             if (body !== '/claim') {
               return;
             }
