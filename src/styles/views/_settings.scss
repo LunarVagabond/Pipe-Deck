@@ -239,17 +239,6 @@
   align-items: center;
 }
 
-.settings-unsupported-pill {
-  flex-shrink: 0;
-  padding: 0.25rem 0.6rem;
-  border-radius: 999px;
-  border: 1px solid vars.translucent(--status-danger, 35);
-  background: vars.translucent(--status-danger, 10);
-  color: #fca5a5;
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
 .settings-update-copy {
   flex: 1;
   min-width: 0;
