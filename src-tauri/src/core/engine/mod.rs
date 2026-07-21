@@ -150,10 +150,30 @@ impl CoreEngine {
         if config.preferences.restore_on_startup {
             let _ = self.apply_desired_routing();
         }
-        if self.graph.data_source != "mock" {
-            let _ = self.restore_effect_chains();
-        }
         self.emit_graph_update(app);
+
+        // Reapplying previously-live effect chains does a native-effects
+        // daemon round trip per device (`is_effect_chain_loaded`), which can
+        // block for several seconds if the daemon — just spawned by
+        // `ensure_ephemeral_daemon` moments earlier — hasn't opened its IPC
+        // socket for `accept()` yet. Running it inline here, before
+        // returning, held the engine write lock for that whole stall: every
+        // other command waiting on the same lock (starting with the
+        // frontend's very first `get_runtime_graph` call on app boot) queued
+        // behind it, which read as a multi-second blank window on cold
+        // launch. Spawning it separately re-acquires the lock only once the
+        // daemon round trip actually needs it, so the graph handoff above
+        // isn't held hostage by it.
+        if self.graph.data_source != "mock" {
+            let engine_for_effects = engine_ref.clone();
+            let app_for_effects = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let mut engine = engine_for_effects.write().await;
+                if engine.restore_effect_chains().is_ok() {
+                    engine.emit_graph_update(&app_for_effects);
+                }
+            });
+        }
 
         let app_handle = app.clone();
         let generation_handle = self.graph_generation_handle();
