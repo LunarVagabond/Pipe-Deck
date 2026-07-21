@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start dev dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke release release-checks
+.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke screenshots release release-checks
 
 NPM ?= npm
 CARGO ?= cargo
@@ -22,9 +22,15 @@ install: ## Install frontend dependencies
 
 start: dev ## Run the desktop app in development mode
 
+start-mock: dev-mock ## Run the desktop app in development mode against the mock backend
+
 dev: ## Run the desktop app in development mode (Tauri + Vite)
 	rm -rf node_modules/.vite
 	$(NPM) run tauri dev
+
+dev-mock: ## Run the desktop app in development mode against the mock backend (PIPE_DECK_USE_MOCK=1)
+	rm -rf node_modules/.vite
+	PIPE_DECK_USE_MOCK=1 $(NPM) run tauri dev
 
 dev-frontend: ## Run only the Vite frontend dev server
 	rm -rf node_modules/.vite
@@ -79,6 +85,9 @@ clean: ## Remove build artifacts
 
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
+
+screenshots: ## Refresh docs/images/*.png from the live frontend (scripts/screenshot-app.mjs)
+	$(NPM) run screenshots
 
 release-checks: ## Run the pre-release validation gate (type-check, frontend tests, cargo check, cargo test) standalone
 	bash scripts/release-checks.sh
