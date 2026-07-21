@@ -135,6 +135,8 @@ Current targets include:
 
 Set `PIPE_DECK_USE_MOCK=1` only when you need the static sample graph (e.g. UI work without PipeWire).
 
+The Rust backend links `libpipewire` directly (native effects transport, see `docs/architecture/Decisions.md` PD-027) as of #149, so building/testing needs `libpipewire-0.3` dev headers installed (`pkg-config` finds them) in addition to the usual Tauri prerequisites — e.g. `libpipewire-0.3-dev` on Debian/Ubuntu, `pipewire-devel` on Fedora.
+
 When introducing a new developer-facing command (for example lint, format, or packaging), add a documented Make target in the root `Makefile` and mention it here if it is part of the standard workflow.
 
 ### Known Dev-Environment Warnings

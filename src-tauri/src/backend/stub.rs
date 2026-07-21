@@ -156,19 +156,6 @@ impl AudioBackend for StubBackend {
         ))
     }
 
-    fn swap_to_effect_chain(
-        &self,
-        _device: &Device,
-        _conf_path: &std::path::Path,
-        _rendered_conf: &str,
-        _downstream_targets: &[Device],
-        _mic_feeders: &[String],
-    ) -> Result<(), BackendError> {
-        Err(BackendError::Message(
-            "no audio backend implemented for this platform yet".into(),
-        ))
-    }
-
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),

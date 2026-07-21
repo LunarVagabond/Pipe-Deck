@@ -9,7 +9,6 @@ use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
-#[cfg(feature = "native-effects")]
 pub mod ipc;
 
 const SERVICE_NAME: &str = "pipe-deck-daemon.service";
@@ -136,10 +135,8 @@ pub fn run() -> i32 {
     // Native-effects hosting (issue #148): the daemon should come up for
     // effects hosting regardless of whether restore succeeded — restore
     // failures don't block a user from attaching a live effect chain. This
-    // never returns in a `native-effects` build unless the socket bind
-    // itself fails; without the feature, this is a no-op and the daemon
-    // exits right after `write_status` as it always has.
-    serve_native_effects_if_enabled();
+    // only returns if the socket bind itself fails.
+    serve_native_effects();
     0
 }
 
@@ -161,23 +158,18 @@ pub fn run() -> i32 {
 /// the GUI dies, including a crash) is the spawning side's job
 /// (`ensure_ephemeral_daemon`'s `PR_SET_PDEATHSIG`), not this function's.
 pub fn run_ephemeral() -> i32 {
-    serve_native_effects_if_enabled();
+    serve_native_effects();
     0
 }
 
 /// Enters the daemon's long-running phase: notifies `systemd` (`Type=notify`)
 /// that startup is complete, then blocks forever serving native-effects IPC
-/// requests (`ipc::server::run`). A no-op when the feature isn't compiled in
-/// — `run()` just returns 0 immediately as it always has.
-#[cfg(feature = "native-effects")]
-fn serve_native_effects_if_enabled() {
+/// requests (`ipc::server::run`).
+fn serve_native_effects() {
     reconcile_live_effects_state();
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     let _ = ipc::server::run();
 }
-
-#[cfg(not(feature = "native-effects"))]
-fn serve_native_effects_if_enabled() {}
 
 /// Re-derives live-effects state after a daemon (re)start — a native
 /// in-memory connection doesn't survive the daemon dying the way a conf.d
@@ -204,7 +196,6 @@ fn serve_native_effects_if_enabled() {}
 /// `format!("virtual-{}", system_name.trim_start_matches("pipe-deck-"))`
 /// (`backend::linux::virtual_devices`), and `list_virtual_devices()` already
 /// returns that `device_id` paired with `system_name`/`direction` directly.
-#[cfg(feature = "native-effects")]
 fn reconcile_live_effects_state() {
     let Ok(chains) = ConfigStore::new().effect_chains() else {
         return;
@@ -232,9 +223,8 @@ fn reconcile_live_effects_state() {
 /// — belt-and-suspenders for a clean quit, on top of `PR_SET_PDEATHSIG`'s
 /// kernel-level guarantee for the crash case (see `ensure_ephemeral_daemon`).
 /// `None` when nothing was spawned (either a persistent daemon already
-/// answered a ping, or spawning failed, or the feature/env var didn't call
-/// for it) — `kill_ephemeral_daemon` is a safe no-op either way.
-#[cfg(feature = "native-effects")]
+/// answered a ping or spawning failed) — `kill_ephemeral_daemon` is a safe
+/// no-op either way.
 pub struct EphemeralDaemonHandle(pub std::sync::Mutex<Option<std::process::Child>>);
 
 /// Spawns a lightweight instance of the daemon binary as a plain child
@@ -243,10 +233,6 @@ pub struct EphemeralDaemonHandle(pub std::sync::Mutex<Option<std::process::Child
 /// effects transport for this session. Ping-first: if anything (typically
 /// the persistent daemon) already answers the socket, does nothing — the
 /// GUI never needs to know or care which one it's actually talking to.
-///
-/// Only ever called when the `native-effects` feature is compiled in and
-/// `PIPE_DECK_NATIVE_EFFECTS=1` is set — matches every other native-effects
-/// gate in this codebase (see `backend::linux::live::effect_chain_capabilities`).
 ///
 /// Crash-safety: `PR_SET_PDEATHSIG` makes the kernel send `SIGKILL` to the
 /// child the moment *this* process dies, for any reason — a clean quit, a
@@ -263,11 +249,7 @@ pub struct EphemeralDaemonHandle(pub std::sync::Mutex<Option<std::process::Child
 /// the process either way, and for a user who hasn't opted into persistence,
 /// effects *not* surviving the app closing is the intended behavior, not a
 /// gap (confirmed against the underlying product question this addresses).
-#[cfg(feature = "native-effects")]
 pub fn ensure_ephemeral_daemon() -> Option<std::process::Child> {
-    if std::env::var("PIPE_DECK_NATIVE_EFFECTS").as_deref() != Ok("1") {
-        return None;
-    }
     if ipc::client::NativeHostClient::ping() {
         return None;
     }
@@ -297,10 +279,8 @@ pub fn ensure_ephemeral_daemon() -> Option<std::process::Child> {
 }
 
 /// Kills a previously spawned ephemeral daemon, if any. Safe to call even if
-/// nothing was ever spawned (persistent daemon was already running, spawn
-/// failed, or the feature/env var wasn't active) — a no-op in every one of
-/// those cases.
-#[cfg(feature = "native-effects")]
+/// nothing was ever spawned (persistent daemon was already running, or
+/// spawning failed) — a no-op in either case.
 pub fn kill_ephemeral_daemon(handle: &EphemeralDaemonHandle) {
     if let Ok(mut guard) = handle.0.lock() {
         if let Some(mut child) = guard.take() {
@@ -445,12 +425,12 @@ fn run_systemctl(args: &[&str]) -> Result<String, String> {
     }
 }
 
-#[cfg(all(test, feature = "native-effects"))]
+#[cfg(test)]
 mod live_tests {
     //! `#[ignore]`d on purpose: hits a *real* PipeWire session, same
     //! convention as `core::engine::effects_ops::live_tests` and
     //! `daemon::ipc::client::live_tests`. Only run via
-    //! `cargo test --features native-effects --lib -- --ignored
+    //! `cargo test --lib -- --ignored
     //! reconcile_live_effects_state_reloads_a_persisted_chain_after_a_simulated_crash`.
     //! Exercises a disposable `Recovery Test Bus` virtual output this
     //! test creates and removes itself.

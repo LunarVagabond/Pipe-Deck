@@ -10,7 +10,6 @@ use crate::core::routing::{
 };
 use crate::config::profile_store::{import_profile_archive, ProfileStore};
 use crate::core::restore;
-use crate::pipewire::filter_chain;
 use std::path::Path;
 
 use super::mock::{apply_mock_profile, apply_mock_profile_volumes, apply_mock_snapshot};
@@ -246,9 +245,6 @@ impl CoreEngine {
 
         if self.graph.data_source != "mock" {
             let active = self.active_effect_chains(&profile.effect_state);
-            if let Err(error) = filter_chain::sync_all_effects(&active, &[]) {
-                self.last_error = Some(error.to_string());
-            }
             // Only re-enables live processing for devices that were already
             // live before the swap — see `reapply_previously_live_effect_chains`.
             self.reapply_previously_live_effect_chains(&active);

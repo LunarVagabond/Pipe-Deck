@@ -1,32 +1,16 @@
 use crate::config::ConfigStore;
 use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage};
+use crate::pipewire::filter_chain;
 use crate::pipewire::fx_capability::{self, FxCapabilities};
 use crate::pipewire::fx_validate::{self, PreflightResult};
-use crate::pipewire::{filter_chain, pipewire_restart, pw_cli};
+use crate::pipewire::pw_cli;
 #[cfg(test)]
 use crate::backend::linux::{pactl, pw_link};
 use std::collections::HashMap;
-use std::fs;
 #[cfg(test)]
 use std::time::Duration;
 
 use super::{CoreEngine, EngineError};
-
-/// Whether a native-transport chain (issue #148) is currently loaded for
-/// `system_name` — always `false` when the `native-effects` feature isn't
-/// compiled in, so every native-aware check below degrades to exactly
-/// today's conf-file-based liveness check.
-fn native_effect_chain_live(system_name: &str) -> bool {
-    #[cfg(feature = "native-effects")]
-    {
-        crate::pipewire::native_host::is_loaded(system_name)
-    }
-    #[cfg(not(feature = "native-effects"))]
-    {
-        let _ = system_name;
-        false
-    }
-}
 
 impl CoreEngine {
     pub fn get_effect_chains(&self) -> Result<HashMap<String, EffectChainConfig>, EngineError> {
@@ -61,8 +45,7 @@ impl CoreEngine {
         let Some(device) = self.graph.devices.iter().find(|device| device.id == device_id) else {
             return false;
         };
-        native_effect_chain_live(&device.system_name)
-            || filter_chain::conf_path_for_device(&device.system_name).is_some_and(|path| path.is_file())
+        self.adapter.is_effect_chain_loaded(&device.system_name)
     }
 
     pub fn set_device_effects(
@@ -85,34 +68,26 @@ impl CoreEngine {
 
         let store = ConfigStore::new();
         if config.is_active() {
+            // This is the persist-only path (bypass toggle before any stage
+            // is live, dynamics-stage persist) — it never itself applies or
+            // reverts live processing, so it must not clobber an existing
+            // `live: true` set by a real apply just because the frontend's
+            // `config` doesn't know about this Rust-only bookkeeping field.
+            let mut persisted_config = config;
+            let previously_live = store
+                .effect_chains()
+                .ok()
+                .and_then(|chains| chains.get(device_id).map(|existing| existing.live))
+                .unwrap_or(false);
+            persisted_config.live = previously_live;
             store
-                .set_effect_chain(device_id, &config)
+                .set_effect_chain(device_id, &persisted_config)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         } else {
             store
                 .remove_effect_chain(device_id)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
-
-        if self.graph.data_source == "mock" {
-            return Ok(ApplyResult {
-                success: true,
-                message: None,
-            });
-        }
-
-        let chains = store
-            .effect_chains()
-            .map_err(|error| EngineError::Config(error.to_string()))?;
-        let active = self.active_effect_chains(&chains);
-        let deactivated = if config.is_active() {
-            Vec::new()
-        } else {
-            vec![device.system_name.clone()]
-        };
-
-        filter_chain::sync_all_effects(&active, &deactivated)
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         Ok(ApplyResult {
             success: true,
@@ -228,33 +203,6 @@ impl CoreEngine {
 
         let is_input = device.direction == DeviceDirection::Input;
 
-        // Native transport (issue #148) doesn't write a conf.d file at all —
-        // `load_effect_chain` takes `config` directly — so the idempotence
-        // short-circuit below only applies to the restart-based path.
-        let native = matches!(
-            self.adapter.effect_chain_capabilities(),
-            crate::backend::EffectChainHostingCapability::NativeZeroRestart
-        );
-
-        let conf_path = filter_chain::conf_path_for_device(&device.system_name)
-            .ok_or_else(|| EngineError::Adapter("could not resolve HOME for effects config".to_string()))?;
-        let rendered = if is_input {
-            fx_validate::render_conf_capture(&device.system_name, config)
-        } else {
-            fx_validate::render_conf(&device.system_name, config)
-        };
-
-        if !native && conf_path.is_file() {
-            if let Ok(existing) = fs::read_to_string(&conf_path) {
-                if existing == rendered {
-                    return Ok(ApplyResult {
-                        success: true,
-                        message: Some("no change".to_string()),
-                    });
-                }
-            }
-        }
-
         // Output-direction-only concepts: what the device currently routes
         // to downstream, and any sink-inputs (apps actively playing into it)
         // that need to briefly hold on a scratch sink for the swap. Neither
@@ -277,10 +225,10 @@ impl CoreEngine {
         // Output-direction-only: any OTHER virtual output currently chained
         // into this one (PD-026 — virtual outputs can route into another
         // virtual output as a submix/bus) must be re-linked after the module
-        // swap too, same as this device's own downstream targets. The swap
+        // load too, same as this device's own downstream targets. The load
         // destroys and recreates this device's sink node, which silently
         // severs any raw pw-link an upstream device's monitor already held
-        // into it; nothing about `self.adapter.swap_to_effect_chain` below
+        // into it; nothing about `self.adapter.load_effect_chain` below
         // knows to restore an *incoming* device-level route on its own, only
         // this device's own outgoing ones (`downstream_targets`) and its
         // stream sink-inputs (`held_sink_inputs`).
@@ -301,13 +249,13 @@ impl CoreEngine {
         // Input-direction-only: whatever's currently monitor-linked into this
         // device's `input_*` ports (mic-mix feed sinks, or the single feed
         // sink generic routing uses) must be captured *before* the module
-        // swap below — once the device's module is unloaded, `input_*` ports
+        // load below — once the device's module is unloaded, `input_*` ports
         // on this name no longer exist to discover them from.
         let mic_feeders = if is_input { self.adapter.list_mic_feeds(&device.system_name, true) } else { Vec::new() };
 
         // The device may currently be carrying audio (apps actively playing
         // into it). Rather than refusing to apply effects at all, briefly
-        // hold those streams on a scratch sink for the swap and move them
+        // hold those streams on a scratch sink for the load and move them
         // back once the effects-hosted sink is confirmed up — a short
         // glitch on the affected streams instead of a hard block.
         let held_sink_inputs = if is_input {
@@ -318,22 +266,13 @@ impl CoreEngine {
                 .map_err(|error| EngineError::Adapter(error.to_string()))?
         };
 
-        let apply_result = if native {
-            self.adapter
-                .load_effect_chain(&device, config, &downstream_targets, &mic_feeders)
-                .map(|_playback_name| ())
-        } else {
-            self.adapter
-                .swap_to_effect_chain(&device, &conf_path, &rendered, &downstream_targets, &mic_feeders)
-        };
+        let apply_result = self
+            .adapter
+            .load_effect_chain(&device, config, &downstream_targets, &mic_feeders)
+            .map(|_playback_name| ());
 
         if let Err(error) = apply_result {
-            if native {
-                let _ = self.adapter.unload_effect_chain(&device.system_name);
-            } else {
-                let _ = fs::remove_file(&conf_path);
-                let _ = pipewire_restart::restart_filter_chain_service();
-            }
+            let _ = self.adapter.unload_effect_chain(&device.system_name);
             if is_input {
                 let _ = self.adapter.revert_to_plain_device(&device, false);
                 let _ = self
@@ -357,14 +296,15 @@ impl CoreEngine {
             let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
         }
 
-        if !native {
-            self.relink_other_active_effect_chains(&device.id);
-        }
-
         let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
 
+        // Persist `live: true` — PD-017 §1's signal that this chain was
+        // explicitly confirmed live (see the field doc on
+        // `EffectChainConfig::live`), not just configured.
+        let mut persisted_config = config.clone();
+        persisted_config.live = true;
         ConfigStore::new()
-            .set_effect_chain(device_id, config)
+            .set_effect_chain(device_id, &persisted_config)
             .map_err(|error| EngineError::Config(error.to_string()))?;
 
         self.refresh_graph()?;
@@ -423,8 +363,14 @@ impl CoreEngine {
         pw_cli::set_params(node_id, &fx_validate::live_params(config))
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
+        // A node was already resolvable above, so this chain is already
+        // live — preserve that regardless of what the caller's `config`
+        // says (the frontend doesn't track this Rust-only bookkeeping flag,
+        // so a naive persist here would silently reset it to `false`).
+        let mut persisted_config = config.clone();
+        persisted_config.live = true;
         ConfigStore::new()
-            .set_effect_chain(device_id, config)
+            .set_effect_chain(device_id, &persisted_config)
             .map_err(|error| EngineError::Config(error.to_string()))?;
 
         Ok(ApplyResult {
@@ -445,11 +391,7 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {device_id}")))?;
 
-        let conf_path = filter_chain::conf_path_for_device(&device.system_name)
-            .ok_or_else(|| EngineError::Adapter("could not resolve HOME for effects config".to_string()))?;
-        let native = native_effect_chain_live(&device.system_name);
-
-        if !native && !conf_path.is_file() {
+        if !self.adapter.is_effect_chain_loaded(&device.system_name) {
             return Ok(ApplyResult {
                 success: true,
                 message: Some("no live effects to remove".to_string()),
@@ -471,7 +413,7 @@ impl CoreEngine {
         // `revert_to_plain_device` destroys and recreates this device's sink
         // node, same as `apply_effect_chain_structural`'s matching capture —
         // see that function's comment for why this can't be discovered after
-        // the swap.
+        // the fact.
         let upstream_sources: Vec<(String, Vec<String>)> = if is_input {
             Vec::new()
         } else {
@@ -504,7 +446,7 @@ impl CoreEngine {
             Vec::new()
         };
 
-        // Both of these can fail (a flaky `filter-chain.service` restart, a
+        // Both of these can fail (an unreachable native-effects daemon, a
         // slow-to-reappear plain sink) — unlike `apply_effect_chain_structural`'s
         // matching rollback branch, an early `?` return here would skip
         // `release_held_sink_inputs` entirely, permanently stranding whatever
@@ -532,16 +474,22 @@ impl CoreEngine {
                     true,
                 )
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        } else {
+        } else if self.graph.data_source != "mock" {
+            // `core::routing::apply_sink_targets` shells straight out to
+            // real `pw-link`, bypassing `AudioBackend`/the mock entirely
+            // (a pre-existing gap — see the module doc on
+            // `core::engine::effects_ops::effect_chain_liveness_tests`).
+            // `MockAudioBackend`'s own `revert_to_plain_device`/
+            // `unload_effect_chain` never touch `self.graph`'s routing
+            // fields, so this device's `current_targets` is already
+            // correct by the time we get here in mock mode — nothing to
+            // re-link, and calling out to a real `pw-link` that doesn't
+            // exist would only fail.
             crate::core::routing::apply_sink_targets(&self.graph, &device.id, &downstream_target_ids)
                 .map_err(|error| EngineError::Routing(error.to_string()))?;
             for (upstream_id, upstream_targets) in &upstream_sources {
                 let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
             }
-        }
-
-        if !native {
-            self.relink_other_active_effect_chains(&device.id);
         }
 
         ConfigStore::new()
@@ -555,32 +503,20 @@ impl CoreEngine {
         })
     }
 
-    /// Deletes `system_name`'s live-effects conf.d drop-in if one exists and,
-    /// only if it did, restarts `filter-chain.service` so the daemon picks
-    /// up its absence. Shared by `remove_effect_chain_structural` (primary
-    /// operation, propagates failures via `?`) and
-    /// `virtual_ops::remove_virtual_device` (best-effort cleanup ahead of
-    /// destroying the device outright, which swallows this call's `Err` —
-    /// the device being deleted regardless is not itself a reason to abort).
-    /// Returns whether a conf was actually present.
+    /// Unloads `system_name`'s live effects chain, if one is loaded.
+    /// Best-effort/no-op if nothing is loaded. Shared by
+    /// `remove_effect_chain_structural` (primary operation, propagates
+    /// failures via `?`) and `virtual_ops::remove_virtual_device`
+    /// (best-effort cleanup ahead of destroying the device outright, which
+    /// swallows this call's `Err` — the device being deleted regardless is
+    /// not itself a reason to abort). Returns whether a chain was actually
+    /// live.
     pub(super) fn discard_effect_chain_conf(&self, system_name: &str) -> Result<bool, EngineError> {
-        // Native transport (issue #148) has no conf.d file to remove — just
-        // destroy its module directly. Best-effort/no-op if nothing is
-        // loaded, mirroring the conf-file branch's own "nothing to do" path.
-        let native_was_live = native_effect_chain_live(system_name);
-        let _ = self.adapter.unload_effect_chain(system_name);
-
-        let Some(conf_path) = filter_chain::conf_path_for_device(system_name) else {
-            return Ok(native_was_live);
-        };
-        if !conf_path.is_file() {
-            return Ok(native_was_live);
-        }
-        fs::remove_file(&conf_path)
-            .map_err(|error| EngineError::Adapter(format!("failed to remove effects config: {error}")))?;
-        pipewire_restart::restart_filter_chain_service()
+        let was_live = self.adapter.is_effect_chain_loaded(system_name);
+        self.adapter
+            .unload_effect_chain(system_name)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        Ok(true)
+        Ok(was_live)
     }
 
     pub fn restore_effect_chains(&mut self) -> Result<(), EngineError> {
@@ -594,28 +530,24 @@ impl CoreEngine {
             .map_err(|error| EngineError::Config(error.to_string()))?;
         let active = self.active_effect_chains(&chains);
         self.reapply_previously_live_effect_chains(&active);
-        let _ = filter_chain::sync_all_effects(&active, &[])
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         Ok(())
     }
 
-    /// Re-establishes live processing (Structural Apply) for any device that
-    /// already has a live conf file on disk from before — that file is the
-    /// signal the user had previously confirmed "Enable live effects" for
-    /// this device, so silently restoring it on app-boot/profile-swap restore
-    /// isn't turning on live processing that was never explicitly approved
-    /// (PD-017 §1). A chain that's configured but was never applied stays
-    /// persist-only, same as before this existed. `apply_effect_chain_structural`
-    /// is already idempotent (no-ops without a restart if the rendered conf
-    /// is unchanged), so this is safe to call on every restore/swap. Each
+    /// Re-establishes live processing (Structural Apply) for any device
+    /// whose persisted chain has `live: true` — the signal the user had
+    /// previously confirmed live processing for this device, so silently
+    /// restoring it on app-boot/profile-swap restore isn't turning on live
+    /// processing that was never explicitly approved (PD-017 §1). A chain
+    /// that's configured but was never applied stays persist-only, same as
+    /// before this existed. Skips anything the daemon already reports as
+    /// loaded (e.g. `daemon::reconcile_live_effects_state` already reloaded
+    /// it after a crash/restart) rather than reloading it redundantly. Each
     /// device is independent — one failing must not block the rest of
     /// restore, per #20's acceptance criteria.
     pub(super) fn reapply_previously_live_effect_chains(&mut self, active: &[(String, EffectChainConfig)]) {
         for (system_name, config) in active {
-            let was_live = filter_chain::conf_path_for_device(system_name)
-                .is_some_and(|path| path.is_file());
-            if !was_live {
+            if !config.live || self.adapter.is_effect_chain_loaded(system_name) {
                 continue;
             }
             let Some(device_id) = self
@@ -628,45 +560,6 @@ impl CoreEngine {
                 continue;
             };
             let _ = self.apply_effect_chain_structural(&device_id, config);
-        }
-    }
-
-    /// Repairs collateral link loss caused by `restart_filter_chain_service()`
-    /// (`pipewire::pipewire_restart`): that call restarts the single, shared
-    /// `filter-chain.service` systemd unit, which reloads *every* device's
-    /// conf.d fragment at once (see `filter_chain::filter_chain_conf_dir`) —
-    /// not just the one just touched. Any other device with a live effect
-    /// chain gets its node silently torn down and recreated by the same
-    /// restart, dropping its `pw-link` connections with nothing to restore
-    /// them. Re-links every *other* active-chain device's own downstream
-    /// targets (`exclude_device_id` already had its own re-link handled by
-    /// the caller). Only meaningful for the restart-carrying path — native
-    /// transport (issue #148) never restarts the shared daemon, so nothing
-    /// else is disrupted.
-    fn relink_other_active_effect_chains(&mut self, exclude_device_id: &str) {
-        let Ok(chains) = ConfigStore::new().effect_chains() else {
-            return;
-        };
-        let active = self.active_effect_chains(&chains);
-        for (system_name, _config) in &active {
-            let Some(other) = self
-                .graph
-                .devices
-                .iter()
-                .find(|device| &device.system_name == system_name)
-                .cloned()
-            else {
-                continue;
-            };
-            if other.id == exclude_device_id || other.direction == DeviceDirection::Input {
-                continue;
-            }
-            let downstream_target_ids: Vec<_> = if other.current_targets.is_empty() {
-                other.current_target.clone().into_iter().collect()
-            } else {
-                other.current_targets.clone()
-            };
-            let _ = crate::core::routing::apply_sink_targets(&self.graph, &other.id, &downstream_target_ids);
         }
     }
 
@@ -692,7 +585,7 @@ impl CoreEngine {
         let active = self.active_effect_chains(&chains);
 
         for (system_name, _config) in &active {
-            let is_live = native_effect_chain_live(system_name);
+            let is_live = self.adapter.is_effect_chain_loaded(system_name);
             self.reconcile_one_effect_chain_liveness(system_name, is_live);
         }
 
@@ -1172,7 +1065,7 @@ mod effect_chain_liveness_tests {
             "pipe-deck-effect-liveness-test-{}",
             std::process::id()
         ));
-        let _ = fs::remove_dir_all(&temp_dir);
+        let _ = std::fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
         std::env::set_var("PIPE_DECK_USE_MOCK", "1");
         let mut engine = CoreEngine::new();

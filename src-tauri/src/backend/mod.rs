@@ -6,7 +6,6 @@ use crate::core::models::{Device, DeviceDirection, EffectChainConfig, MixSourceS
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
-use std::path::Path;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -151,29 +150,7 @@ pub trait AudioBackend: Send + Sync {
         None
     }
 
-    // --- Restart-based live effects (issue #147) ---
-    //
-    // The mechanism `core/engine/effects_ops.rs` actually uses today: write a
-    // filter-chain.conf.d drop-in, restart `filter-chain.service`, wait for
-    // the effects-hosted node to reappear, then re-link whatever the device
-    // was routed to/fed by. These are distinct from the four #141 sketch
-    // methods below, which are shaped for a different (native, zero-restart)
-    // mechanism — reusing those names/signatures for this restart-based
-    // mechanism would misrepresent what each backend actually does.
-
-    /// Replaces `try_apply_structural`'s entire body: unloads the device's
-    /// plain pactl module, writes `rendered_conf` to `conf_path`, restarts
-    /// `filter-chain.service`, waits for the effects-hosted node to
-    /// reappear, then re-links either the mic-mix feeders (input direction)
-    /// or `downstream_targets` (output direction) and prunes stale fan-out.
-    fn swap_to_effect_chain(
-        &self,
-        device: &Device,
-        conf_path: &Path,
-        rendered_conf: &str,
-        downstream_targets: &[Device],
-        mic_feeders: &[String],
-    ) -> Result<(), BackendError>;
+    // --- Live effects (issue #148/#149: native, restart-free transport) ---
 
     /// Reverts a device from an effects-hosted node back to its plain
     /// pactl null-sink/virtual-source. `wait_for_node` controls whether to
@@ -211,45 +188,16 @@ pub trait AudioBackend: Send + Sync {
         to_is_virtual_source: bool,
     ) -> Result<(), BackendError>;
 
-    // --- Design sketch only (issue #141) — NOT wired into any call site yet. ---
-    //
-    // These four methods are the shape a native, zero-restart effects
-    // mechanism would take once #141's research spike
-    // (`examples/filter_chain_spike.rs`) is promoted to a real
-    // implementation: `pw_context_load_module`/`pw_impl_module_destroy`
-    // (or the equivalent SPA node-creation API) called directly from a
-    // long-running process, replacing the conf.d-write +
-    // `systemctl restart filter-chain.service` flow
-    // `core/engine/effects_ops.rs` uses today. Default bodies below return
-    // `not implemented` so adding this doesn't require touching
-    // `MockAudioBackend`, `StubBackend`, or `LinuxPipeWireBackend` — no
-    // backend implements these yet.
-    //
-    // Landing this for real would also close a pre-existing boundary gap:
-    // `core/engine/effects_ops.rs` currently calls
-    // `backend::linux::{pactl, pw_link, virtual_mic_mix}` directly instead
-    // of through `self.adapter`, which is exactly the shortcut the trait
-    // boundary (issue #68) exists to prevent. Routing effects through these
-    // methods instead would fix that at the same time, not as a separate
-    // follow-up.
-    //
-    // Open questions the spike flagged that a real implementation still
-    // needs to answer: process-wide `pw::init()`/`deinit()` lifecycle
-    // ownership (the spike hit a real crash getting this wrong — see its
-    // doc comment), and whether RSS growth across many load/unload cycles
-    // is a genuine leak or one-time warmup (only checked over 5 cycles).
-
     /// Load a filter-chain-equivalent effect chain onto `device`, replacing
-    /// whatever chain (if any) is already live for it, and re-link onward
-    /// exactly like `swap_to_effect_chain` does: `downstream_targets` for an
-    /// output-direction device, `mic_feeders` for an input-direction one.
-    /// Mirrors `swap_to_effect_chain`'s signature deliberately (this is the
-    /// same operation, native transport underneath) rather than the
-    /// original #141 sketch's narrower one, since this is the first real
-    /// call site wiring it up. Returns the node name actually relinked —
-    /// `effect_output.*` for outputs, `effect_input.*` for inputs — mostly
-    /// useful to callers for logging; the relinking itself is already done
-    /// by the time this returns.
+    /// whatever chain (if any) is already live for it, and re-link onward:
+    /// `downstream_targets` for an output-direction device, `mic_feeders`
+    /// for an input-direction one. Returns the node name actually
+    /// relinked — `effect_output.*` for outputs, `effect_input.*` for
+    /// inputs — mostly useful to callers for logging; the relinking itself
+    /// is already done by the time this returns. Default body returns "not
+    /// implemented" so `MockAudioBackend`/`StubBackend` don't need a real
+    /// implementation (they no-op or error respectively, see their own
+    /// overrides).
     fn load_effect_chain(
         &self,
         _device: &Device,
@@ -257,39 +205,33 @@ pub trait AudioBackend: Send + Sync {
         _downstream_targets: &[Device],
         _mic_feeders: &[String],
     ) -> Result<String, BackendError> {
-        Err(BackendError::Message("load_effect_chain: not implemented (see issue #141)".into()))
+        Err(BackendError::Message("load_effect_chain: not implemented".into()))
     }
 
     /// Unloads a previously loaded chain's native module. Does *not* recreate
-    /// the device's plain pactl sink/source — same division of labor as the
-    /// restart-based path, where that's `revert_to_plain_device`'s job,
-    /// called separately by the caller.
+    /// the device's plain pactl sink/source — that's `revert_to_plain_device`'s
+    /// job, called separately by the caller.
     fn unload_effect_chain(&self, _device_system_name: &str) -> Result<(), BackendError> {
-        Err(BackendError::Message("unload_effect_chain: not implemented (see issue #141)".into()))
+        Err(BackendError::Message("unload_effect_chain: not implemented".into()))
+    }
+
+    /// Whether a chain is currently loaded for `device_system_name` —
+    /// backed by a real, out-of-process query (`daemon::ipc` for
+    /// `LinuxPipeWireBackend`) rather than any in-memory bookkeeping this
+    /// process itself might hold, since the process asking (the GUI) is
+    /// never the process actually hosting the chain (the daemon). `false`
+    /// by default, correct for any backend that can't host live effects at
+    /// all.
+    fn is_effect_chain_loaded(&self, _device_system_name: &str) -> bool {
+        false
     }
 
     /// Push updated stage parameters (EQ gain, bypass, ...) to an
     /// already-loaded chain without reloading it — the in-process
     /// equivalent of today's `pw_cli::set_params` live-slider path.
     fn set_effect_chain_live_params(&self, _device_system_name: &str, _config: &EffectChainConfig) -> Result<(), BackendError> {
-        Err(BackendError::Message("set_effect_chain_live_params: not implemented (see issue #141)".into()))
+        Err(BackendError::Message("set_effect_chain_live_params: not implemented".into()))
     }
-
-    /// Whether this backend can host live effects at all, and via which
-    /// mechanism — lets the UI/preflight distinguish "native, zero-restart"
-    /// from "conf.d + restart" from "unsupported" without a hardcoded
-    /// backend-name check.
-    fn effect_chain_capabilities(&self) -> EffectChainHostingCapability {
-        EffectChainHostingCapability::Unsupported
-    }
-}
-
-/// See the `AudioBackend` design-sketch methods above (issue #141) — not
-/// referenced by any call site yet.
-pub enum EffectChainHostingCapability {
-    Unsupported,
-    RestartBased,
-    NativeZeroRestart,
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
@@ -435,17 +377,6 @@ impl AudioBackend for EmptyAudioBackend {
     }
 
     fn set_virtual_device_alias(&self, _system_name: &str, _alias: &str) -> Result<(), BackendError> {
-        Err(BackendError::Message(self.notice.clone()))
-    }
-
-    fn swap_to_effect_chain(
-        &self,
-        _device: &Device,
-        _conf_path: &Path,
-        _rendered_conf: &str,
-        _downstream_targets: &[Device],
-        _mic_feeders: &[String],
-    ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 
