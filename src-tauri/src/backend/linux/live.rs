@@ -264,6 +264,13 @@ impl AudioBackend for LinuxPipeWireBackend {
         query_pipewire_version()
     }
 
+    fn diagnostics_snapshot(&self) -> Option<String> {
+        match pw_dump::run_snapshot() {
+            Ok(bytes) => Some(String::from_utf8_lossy(&bytes).into_owned()),
+            Err(error) => Some(format!("pw-dump snapshot unavailable: {error}")),
+        }
+    }
+
     fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError> {
         if device.direction == DeviceDirection::Input {
             pactl::create_virtual_source(&device.system_name, &device.label)?;

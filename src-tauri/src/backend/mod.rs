@@ -150,6 +150,15 @@ pub trait AudioBackend: Send + Sync {
         None
     }
 
+    /// A fresh raw graph-state snapshot for bug-report diagnostics (issue
+    /// #170) — the Linux backend returns its `pw-dump -N` output verbatim.
+    /// `None` means "no raw snapshot available" rather than an error, so a
+    /// backend without an equivalent (mock, stub, a future non-PipeWire
+    /// platform) can just omit that section of the diagnostics bundle.
+    fn diagnostics_snapshot(&self) -> Option<String> {
+        None
+    }
+
     // --- Live effects (issue #148/#149: native, restart-free transport) ---
 
     /// Reverts a device from an effects-hosted node back to its plain

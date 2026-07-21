@@ -126,20 +126,7 @@ async function openExternal(event: MouseEvent, url: string) {
 
 const updateStatusClass = computed(() => `update-status-dot--${updateStatus.value}`);
 
-const backgroundRestoreHint = computed(() => {
-  if (appInfo.value?.backgroundRestoreSupported) {
-    return "Installs a user systemd unit for restore at login.";
-  }
-  return `Not supported in the Flatpak build. Install via ${nativeInstallHint.value} for login restore.`;
-});
-
-const nativeInstallHint = computed(() => {
-  const kind = appInfo.value?.installKind;
-  if (kind === "deb") return ".deb";
-  if (kind === "rpm") return ".rpm";
-  if (kind === "app_image") return "AppImage";
-  return ".deb, .rpm, or AppImage";
-});
+const backgroundRestoreHint = "Installs a user systemd unit for restore at login.";
 
 async function loadSettings() {
   const config = await invoke<{
@@ -169,6 +156,24 @@ async function copyPath(path: string) {
       { success: false, message: error instanceof Error ? error.message : String(error) },
       "",
     );
+  }
+}
+
+const diagnosticsBusy = ref(false);
+
+async function copyDiagnostics() {
+  diagnosticsBusy.value = true;
+  try {
+    const bundle = await invoke<string>("get_diagnostics_bundle");
+    await navigator.clipboard.writeText(bundle);
+    handleApplyResult({ success: true }, "Diagnostics copied to clipboard.");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  } finally {
+    diagnosticsBusy.value = false;
   }
 }
 
@@ -486,7 +491,7 @@ onMounted(() => {
         Run restore at login via a user systemd service, even when the app is closed.
       </p>
 
-      <div v-if="appInfo?.backgroundRestoreSupported" class="settings-row">
+      <div class="settings-row">
         <div>
           <p class="settings-row-label">Restore at login via background service</p>
           <p class="settings-row-hint">
@@ -498,16 +503,6 @@ onMounted(() => {
           :disabled="busy"
           @update:model-value="setBackgroundRestore"
         />
-      </div>
-
-      <div v-else class="settings-row settings-row--static">
-        <div>
-          <p class="settings-row-label">Restore at login via background service</p>
-          <p class="settings-row-hint">
-            {{ backgroundRestoreHint }}
-          </p>
-        </div>
-        <span class="settings-unsupported-pill">Not supported</span>
       </div>
 
       <div class="settings-status-section">
@@ -693,6 +688,23 @@ onMounted(() => {
             <template v-if="appInfo?.installLabel"> · {{ appInfo.installLabel }}</template>
           </p>
         </div>
+      </div>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Copy diagnostics</p>
+          <p class="settings-row-hint">
+            Version, PipeWire version, and a fresh graph snapshot — paste this into a bug report.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="settings-action-btn"
+          :disabled="diagnosticsBusy"
+          @click="copyDiagnostics"
+        >
+          Copy
+        </button>
       </div>
 
       <div class="settings-row settings-row--static">

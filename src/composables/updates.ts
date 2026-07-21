@@ -57,8 +57,6 @@ export function platformKeyForInstallKind(installKind: InstallKind): string | nu
       return "linux-x86_64-deb";
     case "rpm":
       return "linux-x86_64-rpm";
-    case "flatpak":
-      return "linux-x86_64-flatpak";
     case "native":
     case "dev":
       return "linux-x86_64-binary";
@@ -84,15 +82,6 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
       status: "error",
       currentVersion: appInfo.buildRevision,
       error: "Update check requires a tagged release build",
-      canAutoInstall: false,
-    };
-  }
-
-  if (appInfo.installKind === "flatpak") {
-    return {
-      status: "unsupported",
-      currentVersion,
-      error: "Flatpak builds update through Flathub — check there for the latest version.",
       canAutoInstall: false,
     };
   }

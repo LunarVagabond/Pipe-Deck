@@ -123,7 +123,9 @@ PipeWire and `systemctl --user` rely on a user session bus and `XDG_RUNTIME_DIR`
 
 ### Capturing backend errors for a bug report
 
-Pipe Deck does not write a log file — backend errors are printed to standard error. To capture them, launch from a terminal and watch stderr:
+The fastest way to gather most of what the [bug report template](../../.github/ISSUE_TEMPLATE/bug_report.yml) asks for is **Settings → About → Copy diagnostics**: it copies version info, the PipeWire version, and a fresh graph (`pw-dump`) snapshot to your clipboard in one click — paste it straight into the issue.
+
+Pipe Deck does not write a log file — backend errors are printed to standard error instead, which the diagnostics button can't capture. To get those, launch from a terminal and watch stderr:
 
 ```bash
 make start   # or run the built binary directly from a terminal
