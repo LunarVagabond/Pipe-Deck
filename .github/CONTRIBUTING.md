@@ -46,9 +46,9 @@ Product direction and acceptance criteria remain in [`docs/product/Roadmap.md`](
 
 ### Claiming An Issue
 
-Before starting work, comment on the issue saying you're picking it up. A maintainer will then assign it to you — this is what actually reserves it, so someone else doesn't start the same ticket in parallel. If an issue is already assigned, treat it as taken; comment to ask if it looks stalled instead of opening a competing PR.
+Before starting work, comment `/claim` on the issue — a bot assigns it to you automatically, which is what actually reserves it, so someone else doesn't start the same ticket in parallel. If an issue is already assigned, treat it as taken; comment to ask if it looks stalled instead of opening a competing PR. Epics don't work this way — find the specific sub-issue you want and `/claim` that instead.
 
-*If it's a longer-running ticket, you don't have to post progress updates, but it's nice to leave one now and then so we know it's still moving — maintainers will follow up if an assigned issue goes quiet for a while either way.*
+*If it's a longer-running ticket, you don't have to post progress updates, but it's nice to leave one now and then so we know it's still moving — a claimed issue that's been quiet for 14 days gets an automatic ping, and is unassigned automatically 3 days after that if there's still no activity, so someone else can pick it up.*
 
 ## Commits And Pull Requests
 
@@ -74,6 +74,8 @@ Examples:
 
 Keep descriptions focused on **what changed** in that commit. Use the issue number from GitHub (`#123`) when one exists. One logical change per commit when practical.
 
+A CI check enforces this format on every non-merge commit in a PR (merge commits from `git merge main` into your branch are exempted) — a malformed message fails the check rather than waiting on a reviewer to catch it by eye.
+
 ### Pull Request Titles
 
 Use the same pattern as commits:
@@ -84,6 +86,8 @@ Use the same pattern as commits:
 ```
 
 `[noissue]` follows the same restriction as commit messages above — maintainer and named core developers only. Everyone else opens an issue first and references it in the title. The PR body can go deeper on approach and testing.
+
+A CI check enforces this title format the same way as commit messages — a malformed title fails the check rather than waiting on a reviewer to catch it by eye.
 
 ### AI-Assisted Contributions
 
