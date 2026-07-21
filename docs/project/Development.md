@@ -69,6 +69,8 @@ Run `make help` for the full, current list — it stays more up to date than any
 
 `cargo test` runs the mock-backed unit tests plus the mock-backend integration suite — extend that suite rather than writing a throwaway verification script when changing engine/backend call paths.
 
+`src-tauri/src/core/restore.rs` (session restore, profile-swap virtual-device restore, persisted-route reapplication) is covered the same way: its functions take `&dyn AudioBackend` directly, so `mock_backend_integration.rs`'s `restore_*` tests exercise them against a bare `MockAudioBackend` (device create/adopt/orphan-removal, profile `device_assumptions` restore) rather than through `CoreEngine`, which never reaches `restore.rs` at all in mock mode.
+
 `cargo test` shares global process state (e.g. `PIPE_DECK_CONFIG_DIR`) across tests and can flake under the default parallel runner; if a `config`/`routing_rules` test fails in isolation, rerun with `-- --test-threads=1` before assuming it's a real regression.
 
 ## Related Documents
