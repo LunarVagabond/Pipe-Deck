@@ -1,0 +1,65 @@
+name: PR Format Lint
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  title-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR title follows convention
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          set -euo pipefail
+          pattern='^(\[#[0-9]+\]|\[noissue\]) - .+$'
+          if ! [[ "$TITLE" =~ $pattern ]]; then
+            echo "PR title does not match the required format:"
+            echo "  $TITLE"
+            echo
+            echo "Expected: '[#<issue>] - <short description>' or '[noissue] - <short description>'."
+            echo "See .github/CONTRIBUTING.md -> Pull Request Titles."
+            exit 1
+          fi
+
+  commit-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check non-merge commit messages follow convention
+        run: |
+          set -euo pipefail
+          pattern='^(\[#[0-9]+\]|\[noissue\]) - .+$'
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+
+          # --no-merges drops auto-generated "Merge branch 'main' into ..."
+          # commits from `git merge main` into a feature branch — those were
+          # never meant to follow the issue-tag convention.
+          failures=0
+          while IFS= read -r line; do
+            sha="${line%% *}"
+            msg="${line#* }"
+            if ! [[ "$msg" =~ $pattern ]]; then
+              echo "Commit $sha does not match the required format:"
+              echo "  $msg"
+              failures=1
+            fi
+          done < <(git log --no-merges --format='%h %s' "$base..$head")
+
+          if [ "$failures" -ne 0 ]; then
+            echo
+            echo "Expected: '[#<issue>] - <short description>' or '[noissue] - <short description>'."
+            echo "See .github/CONTRIBUTING.md -> Commit Messages."
+            exit 1
+          fi

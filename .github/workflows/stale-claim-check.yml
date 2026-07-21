@@ -1,0 +1,88 @@
+name: Stale Claim Check
+
+on:
+  schedule:
+    - cron: "0 12 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  issues: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping quiet claims, unassign after the grace period
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const PING_DAYS = 14;
+            const UNASSIGN_GRACE_DAYS = 3;
+            const PING_MARKER = '<!-- stale-claim-check:ping -->';
+            const DAY_MS = 24 * 60 * 60 * 1000;
+
+            const { owner, repo } = context.repo;
+
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner,
+              repo,
+              state: 'open',
+              assignee: '*',
+              per_page: 100,
+            });
+
+            for (const issue of issues) {
+              if (issue.pull_request) continue;
+              if (issue.assignees.length === 0) continue;
+              if (issue.labels.some((l) => (typeof l === 'string' ? l : l.name) === 'epic')) continue;
+
+              const lastActivity = new Date(issue.updated_at).getTime();
+
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner,
+                repo,
+                issue_number: issue.number,
+                per_page: 100,
+              });
+              const pings = comments.filter(
+                (c) => c.user.type === 'Bot' && c.body.includes(PING_MARKER)
+              );
+              const lastPing = pings.length
+                ? Math.max(...pings.map((c) => new Date(c.created_at).getTime()))
+                : null;
+
+              const now = Date.now();
+              const assigneeList = issue.assignees.map((a) => `@${a.login}`).join(', ');
+
+              if (lastPing === null || lastActivity > lastPing) {
+                // Never pinged, or activity happened since the last ping —
+                // either way this is a fresh idle period to measure.
+                if (now - lastActivity > PING_DAYS * DAY_MS) {
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    body:
+                      `${PING_MARKER}\n` +
+                      `${assigneeList} this issue has been quiet for ${PING_DAYS} days. Still working on it? ` +
+                      `A quick status comment keeps it yours — otherwise it'll be unassigned in ${UNASSIGN_GRACE_DAYS} more days so someone else can pick it up.`,
+                  });
+                }
+              } else {
+                // Already pinged and nothing has happened since.
+                if (now - lastPing > UNASSIGN_GRACE_DAYS * DAY_MS) {
+                  await github.rest.issues.removeAssignees({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    assignees: issue.assignees.map((a) => a.login),
+                  });
+                  await github.rest.issues.createComment({
+                    owner,
+                    repo,
+                    issue_number: issue.number,
+                    body: `Unassigning ${assigneeList} after ${PING_DAYS + UNASSIGN_GRACE_DAYS} days of no activity. Comment \`/claim\` if you're still interested and want it back.`,
+                  });
+                }
+              }
+            }

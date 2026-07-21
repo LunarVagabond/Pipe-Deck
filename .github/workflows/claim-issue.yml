@@ -1,0 +1,78 @@
+name: Claim Issue
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+
+jobs:
+  claim:
+    runs-on: ubuntu-latest
+    if: >
+      github.event.issue.pull_request == null &&
+      github.event.issue.state == 'open' &&
+      github.event.comment.user.type != 'Bot'
+    steps:
+      - name: Assign commenter if the issue is claimable
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const body = context.payload.comment.body.trim().toLowerCase();
+            if (body !== '/claim') {
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const commenter = context.payload.comment.user.login;
+
+            // Re-fetch the issue at run time rather than trusting the webhook
+            // payload, so two people commenting `/claim` at once can't both
+            // pass the "no assignees yet" check.
+            const { data: issue } = await github.rest.issues.get({
+              owner,
+              repo,
+              issue_number,
+            });
+
+            const isEpic = issue.labels.some(
+              (label) => (typeof label === 'string' ? label : label.name) === 'epic'
+            );
+            if (isEpic) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body:
+                  `@${commenter} epics track work through native sub-issues rather than being claimed directly — ` +
+                  `find the specific sub-issue you want to work on and \`/claim\` that instead.`,
+              });
+              return;
+            }
+
+            if (issue.assignees.length > 0) {
+              const current = issue.assignees.map((a) => `@${a.login}`).join(', ');
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number,
+                body: `@${commenter} this issue is already assigned to ${current} — treat it as taken. Comment to ask if it looks stalled.`,
+              });
+              return;
+            }
+
+            await github.rest.issues.addAssignees({
+              owner,
+              repo,
+              issue_number,
+              assignees: [commenter],
+            });
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body: `@${commenter} you're assigned — thanks for picking this up! See CONTRIBUTING.md for branching/PR conventions before you get started.`,
+            });
