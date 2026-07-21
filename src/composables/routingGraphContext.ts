@@ -6,7 +6,13 @@ export interface RoutingGraphNodeMenuTarget {
   x: number;
   y: number;
   label: string;
-  systemName: string;
+  /** Absent for stream nodes — streams have no PipeWire-side alias/rename
+   * target, only a RuntimeGraph `entityId`. */
+  systemName?: string;
+  /** The underlying RuntimeGraph device/stream id — always present, unlike
+   * `deviceId` below which is scoped to effects-capable device nodes. This
+   * is what "Copy ID" copies. */
+  entityId: string;
   editable: boolean;
   deletable: boolean;
   /** Present only for a device node (not a stream) that's effects-capable —

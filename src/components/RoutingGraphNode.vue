@@ -84,9 +84,6 @@ function onHandleKeydown(event: KeyboardEvent, handle: RoutingGraphHandle) {
 }
 
 function onContextMenu(event: MouseEvent) {
-  if (!props.data.systemName || (!props.data.editable && !props.data.deletable)) {
-    return;
-  }
   event.preventDefault();
   event.stopPropagation();
   const deviceId = props.data.channelType === "device" ? props.data.entityId : undefined;
@@ -96,6 +93,7 @@ function onContextMenu(event: MouseEvent) {
     y: event.clientY,
     label: props.data.label,
     systemName: props.data.systemName,
+    entityId: props.data.entityId,
     editable: Boolean(props.data.editable),
     deletable: Boolean(props.data.deletable),
     deviceId,

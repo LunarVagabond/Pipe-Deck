@@ -20,6 +20,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   rename: [];
   delete: [];
+  "copy-id": [];
   close: [];
   "add-node": [type: "output" | "input"];
   "add-effect": [kind: string];
@@ -45,6 +46,12 @@ const availableEffects = computed<AvailableEffect[]>(() => {
     @contextmenu.prevent
   >
     <template v-if="target.kind === 'node'">
+      <button type="button" @click="emit('copy-id')">Copy ID</button>
+      <hr
+        v-if="target.editable || availableEffects.length > 0 || target.deletable"
+        class="routing-graph-context-menu-separator"
+      />
+
       <template v-if="target.editable">
         <button type="button" @click="emit('rename')">Rename</button>
         <hr v-if="availableEffects.length > 0 || target.deletable" class="routing-graph-context-menu-separator" />
