@@ -201,7 +201,7 @@ pub fn apply_persisted_routes(backend: &dyn AudioBackend) -> Result<(), RestoreE
         device_manual_overrides: &device_overrides,
         dry_run: false,
         mock_graph_only: false,
-        limit_to_identities: None,
+        limit_to_stream_ids: None,
         backend,
     };
     backend.apply_graph_routing(&mut graph, &ctx);

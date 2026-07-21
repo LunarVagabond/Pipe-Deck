@@ -25,7 +25,7 @@ Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`)
 - Dashboard dropdown changes still append to `routing_rules.stream_rules` at implicit priority `-1000` (minus index), so authored rules win when both match.
 - On first upgrade, existing `routing_rules.stream_rules` migrate once into `rules[]` when `rules` is empty.
 - Session manual overrides block auto-apply until cleared (including when the user re-selects the rule's target).
-- When `preferences.auto_apply_rules` is true (default), newly seen stream identities are routed on graph refresh without clearing session overrides.
+- When `preferences.auto_apply_rules` is true (default), newly seen stream *instances* (keyed on the live PipeWire node id, not app identity — see PD-030) are routed on graph refresh without clearing session overrides. This distinction matters for apps like Firefox that tear down/recreate their stream node per tab while reporting identical `app_name`/`executable`/`media_name`: identity-keyed "newness" would treat only the very first such stream as new and silently skip every later one. The seen-set is also cleared whenever a rule is created, edited, deleted, or toggled, so a rule added after a matching stream already exists is applied on the next refresh rather than requiring a manual "Apply rules" click.
 
 See `docs/Config_Spec.md` for serialization and precedence details.
 
@@ -142,6 +142,13 @@ Deterministic unit tests in `src-tauri/src/core/rules/` (`mod tests`):
 | Multiple authored rules — highest priority wins | `multiple_authored_rules_highest_priority_wins` |
 | Capture stream matches direction rule | `capture_stream_matches_direction_rule` |
 | Device rule mismatch tracks manual override | `device_rule_mismatch_tracks_manual_override` |
+
+Engine-level regression coverage in `src-tauri/tests/mock_backend_integration.rs` (issue #277/#116, PD-030):
+
+| Scenario | Test name |
+|----------|-----------|
+| Rule added after a matching stream already exists is applied on the next refresh, not just via manual "Apply rules" | `rule_added_after_a_stream_already_exists_is_applied_on_next_refresh` |
+| A new stream instance (new PipeWire node id) with the same app-level identity as a previously-seen stream is still independently auto-routed | `a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed` |
 
 Run via `make test`.
 

@@ -100,9 +100,8 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         };
 
-        if let Some(limit) = ctx.limit_to_identities {
-            let key = stream_identity_key(&stream);
-            if !limit.contains(&key) {
+        if let Some(limit) = ctx.limit_to_stream_ids {
+            if !limit.contains(&stream.id) {
                 continue;
             }
         }
@@ -704,7 +703,7 @@ mod tests {
     }
 
     #[test]
-    fn limit_to_identities_skips_other_streams() {
+    fn limit_to_stream_ids_skips_other_streams() {
         use crate::config::store::ConfigStore;
         use std::fs;
 
@@ -736,20 +735,21 @@ mod tests {
         store.save_config(&config).expect("save config");
 
         let mut graph = graph_with_outputs();
-        graph.streams.push(sample_stream("Discord", Some("discord"), None));
-        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
-        let discord_key = stream_identity_key(
-            graph.streams.iter().find(|s| s.app_name == "Discord").unwrap(),
-        );
+        let mut discord = sample_stream("Discord", Some("discord"), None);
+        discord.id = "discord-stream".into();
+        let mut firefox = sample_stream("Firefox", Some("firefox"), None);
+        firefox.id = "firefox-stream".into();
+        graph.streams.push(discord);
+        graph.streams.push(firefox);
         let mut limit = HashSet::new();
-        limit.insert(discord_key);
+        limit.insert("discord-stream".to_string());
         let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
             device_manual_overrides: &HashSet::new(),
             dry_run: true,
             mock_graph_only: true,
-            limit_to_identities: Some(&limit),
+            limit_to_stream_ids: Some(&limit),
             backend: &backend,
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("simulate");
@@ -810,7 +810,7 @@ mod tests {
             device_manual_overrides: &HashSet::new(),
             dry_run: false,
             mock_graph_only: true,
-            limit_to_identities: None,
+            limit_to_stream_ids: None,
             backend: &backend,
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("apply");
@@ -863,7 +863,7 @@ mod tests {
             device_manual_overrides: &HashSet::new(),
             dry_run: false,
             mock_graph_only: true,
-            limit_to_identities: None,
+            limit_to_stream_ids: None,
             backend: &backend,
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("apply");
@@ -990,7 +990,7 @@ mod tests {
             device_manual_overrides: &HashSet::new(),
             dry_run: false,
             mock_graph_only: true,
-            limit_to_identities: None,
+            limit_to_stream_ids: None,
             backend: &backend,
         };
         apply_device_rules(&mut graph, &device_rules, &ctx).expect("apply device rules");
@@ -1015,7 +1015,7 @@ mod tests {
             device_manual_overrides: &HashSet::new(),
             dry_run: false,
             mock_graph_only: true,
-            limit_to_identities: None,
+            limit_to_stream_ids: None,
             backend: &backend,
         };
         apply_device_rules(&mut graph, &device_rules, &ctx).expect("apply device rules");
