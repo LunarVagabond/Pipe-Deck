@@ -222,6 +222,10 @@ impl CoreEngine {
         self.adapter.platform_audio_version()
     }
 
+    pub fn diagnostics_snapshot(&self) -> Option<String> {
+        self.adapter.diagnostics_snapshot()
+    }
+
     pub fn list_plugins(&self) -> Vec<PluginStatus> {
         self.plugin_manager
             .lock()

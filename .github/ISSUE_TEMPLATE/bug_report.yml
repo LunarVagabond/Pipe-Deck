@@ -8,6 +8,8 @@ body:
       value: |
         Thanks for the report. A few details help us reproduce it quickly.
 
+        Tip: **Settings → About → Copy diagnostics** copies your version, PipeWire version, and a fresh graph snapshot in one click — paste it below instead of filling those in by hand.
+
   - type: textarea
     id: what-happened
     attributes:

@@ -159,6 +159,24 @@ async function copyPath(path: string) {
   }
 }
 
+const diagnosticsBusy = ref(false);
+
+async function copyDiagnostics() {
+  diagnosticsBusy.value = true;
+  try {
+    const bundle = await invoke<string>("get_diagnostics_bundle");
+    await navigator.clipboard.writeText(bundle);
+    handleApplyResult({ success: true }, "Diagnostics copied to clipboard.");
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  } finally {
+    diagnosticsBusy.value = false;
+  }
+}
+
 async function runUpdateCheck() {
   await checkForUpdatesNow();
 }
@@ -670,6 +688,23 @@ onMounted(() => {
             <template v-if="appInfo?.installLabel"> · {{ appInfo.installLabel }}</template>
           </p>
         </div>
+      </div>
+
+      <div class="settings-row settings-row--static">
+        <div>
+          <p class="settings-row-label">Copy diagnostics</p>
+          <p class="settings-row-hint">
+            Version, PipeWire version, and a fresh graph snapshot — paste this into a bug report.
+          </p>
+        </div>
+        <button
+          type="button"
+          class="settings-action-btn"
+          :disabled="diagnosticsBusy"
+          @click="copyDiagnostics"
+        >
+          Copy
+        </button>
       </div>
 
       <div class="settings-row settings-row--static">
