@@ -91,15 +91,10 @@ Capabilities are explicit, reviewable, and revocable in Settings.
 | `graph.read` | Receive `graph.updated` notifications with runtime graph JSON | Yes |
 | `routing.suggest` | Send route suggestions to the host (no apply) | Yes |
 | `profile.read` | Receive `profile.updated` notifications with active profile metadata | Yes |
-| `effects.manage` | Create/update PipeWire filter-chain on `pipe-deck-*` devices only | No — declarable and grantable, but the host has no RPC handler for it yet |
+| `effects.manage` | Create/update PipeWire filter-chain on `pipe-deck-*` devices only | Yes — via a queued-request model (PD-021): a plugin sends an `effects.apply` notification, and the host applies it through the existing `set_device_effects` path on the next graph-refresh tick |
 | `ui.panel.register` | Register a nav panel (id, title, summary HTML) rendered by host UI | Yes |
 
-`effects.manage` can still be requested by a plugin manifest and granted by a user in Settings —
-the grant is stored and the Plugins detail modal will label it "Not yet enforced" — but
-granting/revoking it currently has no runtime effect, since there's no host-side handler for it
-yet. Real filter-chain mutation from a plugin is a bigger change than the other four capabilities
-(it needs its own PD-### decision, per this repo's docs-first convention) and is tracked as future
-work, not a v1 guarantee.
+All five v1 capabilities are enforced as of PD-021 (`docs/architecture/Decisions.md`).
 
 **Out of v1:** `routing.apply`, `profile.write` — require a future API revision with explicit approval and audit.
 

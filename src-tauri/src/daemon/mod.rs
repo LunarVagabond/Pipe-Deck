@@ -386,9 +386,9 @@ pub fn disable_background_service() -> Result<(), String> {
 }
 
 pub fn get_status() -> DaemonStatus {
-    let state = read_status();
     let enabled = is_service_enabled();
     let running = is_service_running();
+    let state = stale_state_filter(enabled, read_status());
 
     DaemonStatus {
         running,
@@ -397,6 +397,21 @@ pub fn get_status() -> DaemonStatus {
         last_run: state.as_ref().map(|value| value.last_run.clone()),
         last_error: state.as_ref().and_then(|value| value.last_error.clone()),
         devices_restored: state.as_ref().map(|value| value.devices_restored),
+    }
+}
+
+/// A disabled service can't run again on its own, so a `last_error` (or
+/// `last_run`) left over from a previous enabled period is stale, not
+/// current status — surfacing it as a persistent error in Settings ->
+/// Background regardless of `enabled` was reported as a bug (#120): once the
+/// service is disabled, `daemon.json` is never rewritten, so whatever it
+/// last recorded (e.g. a one-off misconfigured `PIPE_DECK_CONFIG_DIR` during
+/// manual testing) stuck around forever.
+fn stale_state_filter(enabled: bool, state: Option<DaemonStateFile>) -> Option<DaemonStateFile> {
+    if enabled {
+        state
+    } else {
+        None
     }
 }
 
@@ -422,6 +437,39 @@ fn run_systemctl(args: &[&str]) -> Result<String, String> {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     } else {
         Err(String::from_utf8_lossy(&output.stderr).to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_state(last_error: Option<&str>) -> DaemonStateFile {
+        DaemonStateFile {
+            pid: 1234,
+            last_run: "2026-07-20T14:23:45Z".into(),
+            last_error: last_error.map(str::to_string),
+            devices_restored: 0,
+        }
+    }
+
+    #[test]
+    fn disabled_service_hides_stale_state() {
+        let state = sample_state(Some("failed to read config: missing field `version`"));
+        assert!(stale_state_filter(false, Some(state)).is_none());
+    }
+
+    #[test]
+    fn enabled_service_surfaces_its_recorded_state() {
+        let state = sample_state(Some("boom"));
+        let result = stale_state_filter(true, Some(state)).expect("state preserved when enabled");
+        assert_eq!(result.last_error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn no_recorded_state_stays_none_regardless_of_enabled() {
+        assert!(stale_state_filter(true, None).is_none());
+        assert!(stale_state_filter(false, None).is_none());
     }
 }
 
