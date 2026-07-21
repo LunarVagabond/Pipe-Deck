@@ -1,4 +1,6 @@
+use crate::core::models::{ActionStatus, RuntimeGraph};
 use serde::Serialize;
+use std::collections::HashMap;
 use std::process::Command;
 
 const BUILD_REVISION: &str = env!("PIPE_DECK_BUILD_REVISION");
@@ -120,10 +122,12 @@ pub async fn get_app_info(state: tauri::State<'_, crate::AppState>) -> Result<Ap
     })
 }
 
-/// Assembles a single copyable text blob for bug reports: build/version info,
-/// a fresh raw pw-dump snapshot (via the existing backend fetch path — see
-/// `AudioBackend::diagnostics_snapshot`), and the environment fields the bug
-/// report template already asks for. Pipe Deck doesn't write a log file (see
+/// Assembles a single copyable Markdown blob for bug reports: build/version
+/// info as a bullet list, and a compact routing-graph summary (the same
+/// devices/streams/links data already shown in the app's own UI, not a raw
+/// `pw-dump` dump — see `format_graph_summary`) in a fenced code block so it
+/// pastes into a GitHub issue as readable monospace rather than a wall of
+/// unformatted text. Pipe Deck doesn't write a log file (see
 /// `docs/project/Getting_Started.md`'s troubleshooting section), so there's
 /// no log section to include.
 fn format_diagnostics_bundle(
@@ -131,25 +135,78 @@ fn format_diagnostics_bundle(
     build_revision: &str,
     release_version: Option<&str>,
     pipewire_version: Option<&str>,
-    pw_dump_snapshot: Option<&str>,
+    graph: &RuntimeGraph,
 ) -> String {
     let mut bundle = String::new();
-    bundle.push_str("Pipe Deck diagnostics\n");
-    bundle.push_str("=====================\n\n");
-    bundle.push_str(&format!("Version: {}\n", release_version.unwrap_or(build_revision)));
-    bundle.push_str(&format!("Build: {build_revision}\n"));
-    bundle.push_str(&format!("Install type: {}\n", install_label(install_kind)));
+    bundle.push_str("## Pipe Deck diagnostics\n\n");
+    bundle.push_str(&format!("- **Version:** {}\n", release_version.unwrap_or(build_revision)));
+    bundle.push_str(&format!("- **Build:** {build_revision}\n"));
+    bundle.push_str(&format!("- **Install type:** {}\n", install_label(install_kind)));
     bundle.push_str(&format!(
-        "PipeWire version: {}\n",
+        "- **PipeWire version:** {}\n\n",
         pipewire_version.unwrap_or("unknown")
     ));
-    bundle.push('\n');
 
-    bundle.push_str("pw-dump snapshot\n");
-    bundle.push_str("-----------------\n");
-    bundle.push_str(pw_dump_snapshot.unwrap_or("(not available)\n"));
+    bundle.push_str("### Graph snapshot\n\n");
+    bundle.push_str("```\n");
+    bundle.push_str(&format_graph_summary(graph));
+    bundle.push_str("```\n");
 
     bundle
+}
+
+/// A compact, human-readable routing summary — device/stream labels and
+/// where they're currently routed, resolved from ids to labels via `graph`
+/// itself. Deliberately *not* a raw `pw-dump` dump: this is exactly the
+/// state the app's own routing graph already displays, so it adds no new
+/// exposure, and stays small (tens of lines, not the ~10k a raw snapshot
+/// runs to) — see issue discussion on #170 for why the raw dump was dropped.
+fn resolve_label<'a>(label_by_id: &HashMap<&'a str, &'a str>, id: &'a str) -> &'a str {
+    label_by_id.get(id).copied().unwrap_or(id)
+}
+
+fn format_graph_summary(graph: &RuntimeGraph) -> String {
+    let label_by_id: HashMap<&str, &str> =
+        graph.devices.iter().map(|device| (device.id.as_str(), device.label.as_str())).collect();
+
+    let mut out = String::new();
+    out.push_str(&format!("Devices ({}):\n", graph.devices.len()));
+    for device in &graph.devices {
+        let targets: Vec<&str> = if !device.current_targets.is_empty() {
+            device.current_targets.iter().map(|id| resolve_label(&label_by_id, id)).collect()
+        } else {
+            device
+                .current_target
+                .as_deref()
+                .map(|id| resolve_label(&label_by_id, id))
+                .into_iter()
+                .collect()
+        };
+        let routed_to = if targets.is_empty() { String::new() } else { format!(" -> {}", targets.join(", ")) };
+        out.push_str(&format!(
+            "  {} ({:?}, {:?}){routed_to}\n",
+            device.label, device.kind, device.direction
+        ));
+    }
+
+    out.push_str(&format!("\nStreams ({}):\n", graph.streams.len()));
+    for stream in &graph.streams {
+        let routed_to = stream
+            .current_target
+            .as_deref()
+            .map(|id| format!(" -> {}", resolve_label(&label_by_id, id)))
+            .unwrap_or_default();
+        let warning = match stream.route_explanation.as_ref().map(|explanation| &explanation.action_status) {
+            Some(status) if !matches!(status, ActionStatus::Applied) => format!("  [{status:?}]"),
+            _ => String::new(),
+        };
+        out.push_str(&format!(
+            "  {} ({:?}){routed_to}{warning}\n",
+            stream.app_name, stream.direction
+        ));
+    }
+
+    out
 }
 
 #[tauri::command]
@@ -159,14 +216,13 @@ pub async fn get_diagnostics_bundle(state: tauri::State<'_, crate::AppState>) ->
     let release_version = release_version_from_revision(&build_revision);
     let engine = state.engine.read().await;
     let pipewire_version = engine.platform_audio_version();
-    let pw_dump_snapshot = engine.diagnostics_snapshot();
 
     Ok(format_diagnostics_bundle(
         &install_kind,
         &build_revision,
         release_version.as_deref(),
         pipewire_version.as_deref(),
-        pw_dump_snapshot.as_deref(),
+        engine.runtime_graph(),
     ))
 }
 
@@ -186,7 +242,54 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_diagnostics_bundle, release_version_from_revision, InstallKind};
+    use super::{format_diagnostics_bundle, format_graph_summary, release_version_from_revision, InstallKind};
+    use crate::core::models::{
+        ActionStatus, Device, DeviceDirection, DeviceKind, RouteExplanation, RouteSource, RuntimeGraph, Stream,
+        StreamDirection,
+    };
+
+    fn sample_device(id: &str, label: &str, current_target: Option<&str>) -> Device {
+        Device {
+            id: id.to_string(),
+            system_name: format!("pipe-deck-{id}"),
+            label: label.to_string(),
+            kind: DeviceKind::Virtual,
+            direction: DeviceDirection::Output,
+            sink_mode: None,
+            volume_percent: None,
+            muted: None,
+            current_target: current_target.map(str::to_string),
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        }
+    }
+
+    fn sample_stream(app_name: &str, current_target: Option<&str>, action_status: Option<ActionStatus>) -> Stream {
+        Stream {
+            id: format!("stream-{app_name}"),
+            app_name: app_name.to_string(),
+            executable: None,
+            window_class: None,
+            system_name: None,
+            direction: StreamDirection::Playback,
+            current_target: current_target.map(str::to_string),
+            media_name: None,
+            is_system: false,
+            volume_percent: None,
+            muted: None,
+            route_explanation: action_status.map(|action_status| RouteExplanation {
+                source: RouteSource::NoRule,
+                matched_rule_id: None,
+                matched_rule_key: None,
+                match_reasons: Vec::new(),
+                skipped_candidates: Vec::new(),
+                action_status,
+                target_system_name: None,
+                target_system_names: Vec::new(),
+                fallback_applied: false,
+            }),
+        }
+    }
 
     #[test]
     fn install_kind_serializes_snake_case() {
@@ -218,28 +321,77 @@ mod tests {
     }
 
     #[test]
-    fn diagnostics_bundle_includes_version_and_snapshot() {
-        let bundle = format_diagnostics_bundle(
-            &InstallKind::Deb,
-            "v0.1.0",
-            Some("0.1.0"),
-            Some("1.2.3"),
-            Some("{\"id\": 1}"),
-        );
+    fn diagnostics_bundle_includes_version_and_graph_summary() {
+        let graph = RuntimeGraph {
+            devices: vec![sample_device("d1", "Speakers", None)],
+            streams: vec![sample_stream("Discord", Some("d1"), None)],
+            links: Vec::new(),
+            data_source: "pipewire".to_string(),
+            notice: None,
+            recent_stream_identities: Vec::new(),
+        };
+        let bundle = format_diagnostics_bundle(&InstallKind::Deb, "v0.1.0", Some("0.1.0"), Some("1.2.3"), &graph);
 
-        assert!(bundle.contains("Version: 0.1.0"));
-        assert!(bundle.contains("Build: v0.1.0"));
-        assert!(bundle.contains("Install type: .deb package"));
-        assert!(bundle.contains("PipeWire version: 1.2.3"));
-        assert!(bundle.contains("{\"id\": 1}"));
+        assert!(bundle.contains("**Version:** 0.1.0"));
+        assert!(bundle.contains("**Build:** v0.1.0"));
+        assert!(bundle.contains("**Install type:** .deb package"));
+        assert!(bundle.contains("**PipeWire version:** 1.2.3"));
+        assert!(bundle.contains("Speakers"));
+        assert!(bundle.contains("Discord"));
+        assert!(bundle.contains("-> Speakers"));
     }
 
     #[test]
     fn diagnostics_bundle_falls_back_when_fields_are_missing() {
-        let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, None);
+        let graph = RuntimeGraph {
+            devices: Vec::new(),
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "pipewire".to_string(),
+            notice: None,
+            recent_stream_identities: Vec::new(),
+        };
+        let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, &graph);
 
-        assert!(bundle.contains("Version: unknown"));
-        assert!(bundle.contains("PipeWire version: unknown"));
-        assert!(bundle.contains("(not available)"));
+        assert!(bundle.contains("**Version:** unknown"));
+        assert!(bundle.contains("**PipeWire version:** unknown"));
+        assert!(bundle.contains("Devices (0):"));
+        assert!(bundle.contains("Streams (0):"));
+    }
+
+    #[test]
+    fn graph_summary_stays_compact_and_resolves_target_labels() {
+        let graph = RuntimeGraph {
+            devices: vec![sample_device("d1", "Headphones", None)],
+            streams: vec![sample_stream("Spotify", Some("d1"), None)],
+            links: Vec::new(),
+            data_source: "pipewire".to_string(),
+            notice: None,
+            recent_stream_identities: Vec::new(),
+        };
+        let summary = format_graph_summary(&graph);
+
+        // Small and readable, not a multi-thousand-line raw dump.
+        assert!(summary.lines().count() < 10);
+        assert!(summary.contains("Spotify (Playback) -> Headphones"));
+    }
+
+    #[test]
+    fn graph_summary_flags_a_non_applied_route_but_not_an_applied_one() {
+        let graph = RuntimeGraph {
+            devices: vec![sample_device("d1", "Speakers", None)],
+            streams: vec![
+                sample_stream("Blocked App", Some("d1"), Some(ActionStatus::Blocked)),
+                sample_stream("Fine App", Some("d1"), Some(ActionStatus::Applied)),
+            ],
+            links: Vec::new(),
+            data_source: "pipewire".to_string(),
+            notice: None,
+            recent_stream_identities: Vec::new(),
+        };
+        let summary = format_graph_summary(&graph);
+
+        assert!(summary.contains("Blocked App (Playback) -> Speakers  [Blocked]"));
+        assert!(!summary.contains("Fine App (Playback) -> Speakers  ["));
     }
 }
