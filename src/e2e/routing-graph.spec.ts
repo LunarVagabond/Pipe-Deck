@@ -414,3 +414,46 @@ test.describe("RoutingGraph grouping", () => {
     await expect(group).not.toHaveCSS("border-top-color", "rgba(255, 255, 255, 0.25)");
   });
 });
+
+test.describe("RoutingGraph bring node here", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
+    await page.waitForSelector(".vue-flow__node");
+  });
+
+  test("right-click pane -> Bring node here -> pick a node relocates it to the click point", async ({
+    page,
+  }) => {
+    const streamNode = page.locator(".vue-flow__node", { hasText: "Test App" });
+    const boxBefore = await streamNode.boundingBox();
+    if (!boxBefore) throw new Error("missing bounding box before relocation");
+
+    // Right-click a spot on the canvas well away from the node's current
+    // position, but high enough up that the menu (which grows downward from
+    // the click point) still fits inside the default 720px-tall viewport.
+    const clickPoint = { x: boxBefore.x + 400, y: boxBefore.y + 60 };
+    await page.mouse.click(clickPoint.x, clickPoint.y, { button: "right" });
+    await page.waitForSelector(".routing-graph-context-menu");
+
+    const trigger = page.locator(".routing-graph-context-menu button", { hasText: "Bring node here" });
+    await trigger.click();
+    await page.waitForSelector(".routing-graph-node-picker");
+
+    const pickButton = page.locator(".routing-graph-node-picker button", { hasText: "Test App" });
+    await pickButton.click();
+
+    await expect(page.locator(".routing-graph-context-menu")).toHaveCount(0);
+
+    const boxAfter = await streamNode.boundingBox();
+    if (!boxAfter) throw new Error("missing bounding box after relocation");
+
+    // The node should have moved substantially toward the click point rather
+    // than staying at its pre-relocation spot.
+    expect(Math.abs(boxAfter.x - boxBefore.x)).toBeGreaterThan(50);
+
+    const layoutRaw = await page.evaluate(() => localStorage.getItem("pipe-deck-routing-layout"));
+    expect(layoutRaw).toBeTruthy();
+    const layout = JSON.parse(layoutRaw ?? "{}");
+    expect(layout["stream:stream-1"]).toBeDefined();
+  });
+});

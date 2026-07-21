@@ -67,6 +67,11 @@ Users should understand current audio state quickly and complete common routing 
 - Each application stream shows a collapsible **route explanation** panel: matched rule, match reasons, skipped candidates, and manual-override status.
 - **Change route** in the panel focuses the stream's target dropdown.
 
+### Recover an Off-Screen Node
+
+- Right-click empty canvas → **Bring node here…** → pick a node from the list of every node currently on the board → the picked node relocates to the click point.
+- Recovers a node dragged (or auto-laid-out) far outside the visible canvas, which otherwise has no other way to be located.
+
 ## Dashboard Layout
 
 The default dashboard uses a four-column routing matrix:

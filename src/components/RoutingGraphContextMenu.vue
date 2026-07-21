@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import type { RoutingGraphMenuTarget } from "../composables/routingGraphContext";
 
 /** Catalog of effects a node can attach — today just one kind, but this is
@@ -15,6 +15,9 @@ const EFFECT_CATALOG: AvailableEffect[] = [{ kind: "eq5band", label: "5-Band EQ"
 
 const props = defineProps<{
   target: RoutingGraphMenuTarget | null;
+  /** Every node currently on the board — the source list for "Bring node
+   * here" (issue #142). */
+  nodes?: { id: string; label: string }[];
 }>();
 
 const emit = defineEmits<{
@@ -24,6 +27,7 @@ const emit = defineEmits<{
   close: [];
   "add-node": [type: "output" | "input"];
   "add-effect": [kind: string];
+  "bring-node-here": [nodeId: string];
 }>();
 
 const availableEffects = computed<AvailableEffect[]>(() => {
@@ -34,6 +38,19 @@ const availableEffects = computed<AvailableEffect[]>(() => {
   const existing = target.existingStageKinds ?? [];
   return EFFECT_CATALOG.filter((effect) => !existing.includes(effect.kind));
 });
+
+const nodePickerOpen = ref(false);
+watch(
+  () => props.target,
+  () => {
+    nodePickerOpen.value = false;
+  },
+);
+
+function onPickNode(nodeId: string) {
+  nodePickerOpen.value = false;
+  emit("bring-node-here", nodeId);
+}
 </script>
 
 <template>
@@ -83,6 +100,22 @@ const availableEffects = computed<AvailableEffect[]>(() => {
       <p class="routing-graph-context-menu-label">Add node</p>
       <button type="button" @click="emit('add-node', 'output')">+ Virtual Output</button>
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
+
+      <hr class="routing-graph-context-menu-separator" />
+      <div class="routing-graph-node-picker-anchor">
+        <button type="button" @click="nodePickerOpen = !nodePickerOpen">Bring node here…</button>
+        <div v-if="nodePickerOpen" class="routing-graph-node-picker">
+          <button
+            v-for="node in nodes ?? []"
+            :key="node.id"
+            type="button"
+            @click="onPickNode(node.id)"
+          >
+            {{ node.label }}
+          </button>
+          <p v-if="!nodes?.length" class="routing-graph-context-menu-label">No nodes on the board</p>
+        </div>
+      </div>
     </template>
   </div>
 </template>
