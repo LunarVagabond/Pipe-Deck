@@ -16,6 +16,10 @@ If no, refine or drop the proposal.
 
 For quick questions or a sanity check before opening an issue, drop into [Discord](https://discord.gg/cHtuCFkRRm) (server name: "Dev Syndicate"). For anything worth keeping searchable — design discussion, proposals — use [GitHub Discussions](https://github.com/LunarVagabond/Pipe-Deck/discussions) instead.
 
+## If A Convention Gets In The Way
+
+The branching model, commit format, and process rules below are a starting point, not a settled standard — assembled from what's worked elsewhere, not handed down from experience running an OSS project. Follow them as written. But if one is genuinely getting in the way of a contribution, doesn't fit a situation, or just seems off, raise it first — a [Discussion](https://github.com/LunarVagabond/Pipe-Deck/discussions) or a note in [Discord](https://discord.gg/cHtuCFkRRm) — before working around it. Same goes for friction in the tools, the codebase, or the workflow generally: surfacing it is always welcome. The goal is to talk it through and adjust the rule if it's wrong, not to greenlight quietly deviating from it.
+
 ## Contribution Principles
 
 - User experience first.
