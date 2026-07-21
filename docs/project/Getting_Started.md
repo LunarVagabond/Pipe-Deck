@@ -4,21 +4,39 @@ Everything you need to get Pipe Deck running from source, whether you're trying 
 
 ## Prerequisites
 
-- **Linux** with **PipeWire** (a Wayland or X11 desktop with PipeWire as the active audio server — check with `pipewire --version`). Pipe Deck shells out to `pactl`, `pw-link`, `pw-dump`, and `pw-cli`, so these need to be on your `PATH`.
+- **Linux** with **PipeWire** and **WirePlumber** (a Wayland or X11 desktop with PipeWire as the active audio server — check with `pipewire --version`). Pipe Deck shells out to `pactl`, `pw-link`, `pw-dump`, and `pw-cli`, so these need to be on your `PATH` (see the package table below).
 - **Rust** (stable) — install via [rustup](https://rustup.rs/) if you don't already have it.
 - **Node.js 20+** and npm, for the frontend build.
-- **Tauri's Linux system dependencies** — the exact package names vary by distro. On Debian/Ubuntu (also what CI installs):
+- **Distro packages** — build-time deps (Tauri/WebKitGTK, plus `libpipewire` dev headers — the daemon binary links `pipewire-rs` directly, see `src-tauri/Cargo.toml`) and runtime deps (PipeWire, WirePlumber, and the `pactl`/`pw-link`/`pw-dump`/`pw-cli` CLIs used at runtime):
+
+  | | Ubuntu / Debian | Fedora | Arch |
+  |---|---|---|---|
+  | **Build deps** | `libwebkit2gtk-4.1-dev`, `build-essential`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `patchelf`, `libpipewire-0.3-dev` | `webkit2gtk4.1-devel`, `@development-tools`, `libappindicator-gtk3-devel`, `librsvg2-devel`, `patchelf`, `pipewire-devel` | `webkit2gtk-4.1`, `base-devel`, `libappindicator-gtk3`, `librsvg`, `patchelf`, `pipewire` |
+  | **Runtime (PipeWire/WirePlumber)** | `pipewire`, `wireplumber`, `pipewire-pulse` | `pipewire`, `wireplumber`, `pipewire-pulseaudio` | `pipewire`, `wireplumber`, `pipewire-pulse` |
+  | **CLI tools** (`pactl` / `pw-link`, `pw-dump`, `pw-cli`) | `pulseaudio-utils` / `pipewire-bin` | `pulseaudio-utils` / `pipewire-utils` | `libpulse` / `pipewire` |
+
+  Install command per distro:
 
   ```bash
+  # Ubuntu / Debian (also what CI installs)
   sudo apt-get install -y \
-    libwebkit2gtk-4.1-dev \
-    build-essential \
-    libayatana-appindicator3-dev \
-    librsvg2-dev \
-    patchelf
+    libwebkit2gtk-4.1-dev build-essential libayatana-appindicator3-dev \
+    librsvg2-dev patchelf libpipewire-0.3-dev \
+    pipewire wireplumber pipewire-pulse pulseaudio-utils pipewire-bin
+
+  # Fedora
+  sudo dnf install -y \
+    webkit2gtk4.1-devel @development-tools libappindicator-gtk3-devel \
+    librsvg2-devel patchelf pipewire-devel \
+    pipewire wireplumber pipewire-pulseaudio pulseaudio-utils pipewire-utils
+
+  # Arch
+  sudo pacman -S --needed \
+    webkit2gtk-4.1 base-devel libappindicator-gtk3 librsvg patchelf \
+    pipewire wireplumber pipewire-pulse libpulse
   ```
 
-  For Fedora, Arch, and other distros, follow [Tauri's official prerequisites guide](https://tauri.app/start/prerequisites/) for the equivalent packages (WebKitGTK, AppIndicator, librsvg, and a C toolchain).
+  For other distros, follow [Tauri's official prerequisites guide](https://tauri.app/start/prerequisites/) for the equivalent WebKitGTK/AppIndicator/librsvg/toolchain packages, plus your distro's PipeWire dev headers package.
 
 You do **not** need a real audio setup to start UI work — see mock mode below.
 
@@ -81,13 +99,7 @@ Common day-one failures, and how to collect the details the [bug report template
 
 ### `pactl`, `pw-link`, `pw-dump`, or `pw-cli` not found
 
-Pipe Deck shells out to these commands to read and change the PipeWire graph (`pactl` and `pw-link`/`pw-dump` for enumeration and routing, `pw-cli` for the PipeWire version and effects). If any is missing from your `PATH`, enumeration or routing fails. Install the packages that provide them:
-
-| Distro | `pactl` | `pw-link`, `pw-dump`, `pw-cli` |
-|--------|---------|--------------------------------|
-| Debian / Ubuntu | `pulseaudio-utils` | `pipewire-bin` |
-| Fedora | `pulseaudio-utils` | `pipewire-utils` |
-| Arch | `libpulse` | `pipewire` |
+Pipe Deck shells out to these commands to read and change the PipeWire graph (`pactl` and `pw-link`/`pw-dump` for enumeration and routing, `pw-cli` for the PipeWire version and effects). If any is missing from your `PATH`, enumeration or routing fails. See the "CLI tools" row of the prerequisites table above for the packages that provide them per distro.
 
 Check they resolve:
 
