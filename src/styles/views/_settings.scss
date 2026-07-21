@@ -302,7 +302,8 @@
 
 .update-status-dot--unknown,
 .update-status-dot--checking,
-.update-status-dot--unsupported {
+.update-status-dot--unsupported,
+.update-status-dot--dev_build {
   background: var(--text-muted);
   box-shadow: 0 0 0 2px rgba(148, 163, 184, 0.2);
 }

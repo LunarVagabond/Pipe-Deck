@@ -77,14 +77,6 @@ export async function fetchUpdateManifest(): Promise<UpdateManifest> {
 
 export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResult> {
   const currentVersion = appInfo.releaseVersion;
-  if (!currentVersion) {
-    return {
-      status: "error",
-      currentVersion: appInfo.buildRevision,
-      error: "Update check requires a tagged release build",
-      canAutoInstall: false,
-    };
-  }
 
   try {
     const manifest = await fetchUpdateManifest();
@@ -92,8 +84,20 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
     if (!latestVersion) {
       return {
         status: "error",
-        currentVersion,
+        currentVersion: currentVersion ?? appInfo.buildRevision,
         error: "Update manifest has no version",
+        canAutoInstall: false,
+      };
+    }
+
+    if (!currentVersion) {
+      // Dev builds carry a commit hash, not a semver tag, so there's nothing to
+      // compare against — report the latest release instead of failing the check.
+      return {
+        status: "dev_build",
+        currentVersion: appInfo.buildRevision,
+        latestVersion,
+        releaseUrl: RELEASES_PAGE,
         canAutoInstall: false,
       };
     }
@@ -119,7 +123,7 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
   } catch (error) {
     return {
       status: "error",
-      currentVersion,
+      currentVersion: currentVersion ?? appInfo.buildRevision,
       error: error instanceof Error ? error.message : String(error),
       canAutoInstall: false,
     };
@@ -152,4 +156,5 @@ export const updateStatusLabel: Record<UpdateStatus, string> = {
   checking: "Checking…",
   error: "Update check failed",
   unsupported: "Managed externally",
+  dev_build: "Dev build",
 };

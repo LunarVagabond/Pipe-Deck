@@ -15,7 +15,8 @@ export type UpdateStatus =
   | "unknown"
   | "checking"
   | "error"
-  | "unsupported";
+  | "unsupported"
+  | "dev_build";
 
 export interface UpdateCheckResult {
   status: UpdateStatus;

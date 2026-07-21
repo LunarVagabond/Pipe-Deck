@@ -102,16 +102,31 @@ describe("fetchUpdateManifest", () => {
 });
 
 describe("checkForUpdates", () => {
-  it("errors immediately when there is no tagged release version", async () => {
+  it("reports the latest release as a dev_build result when there is no tagged release version", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: "1.3.0", platforms: {} }),
+    });
+
     const result = await checkForUpdates(appInfo({ releaseVersion: undefined }));
 
     expect(result).toEqual({
-      status: "error",
+      status: "dev_build",
       currentVersion: "abc123",
-      error: "Update check requires a tagged release build",
+      latestVersion: "1.3.0",
+      releaseUrl: RELEASES_PAGE,
       canAutoInstall: false,
     });
-    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("reports an error with the build revision when the manifest fetch fails and there is no tagged release version", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 500 });
+
+    const result = await checkForUpdates(appInfo({ releaseVersion: undefined }));
+
+    expect(result.status).toBe("error");
+    expect(result.currentVersion).toBe("abc123");
+    expect(result.error).toContain("500");
   });
 
   it("resolves status/downloadUrl on the happy path for an app_image install", async () => {
