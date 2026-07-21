@@ -489,6 +489,34 @@ mod tests {
         assert!(stale_state_filter(true, None).is_none());
         assert!(stale_state_filter(false, None).is_none());
     }
+
+    /// Only the "nothing to remove" branch is safely testable here: the
+    /// "unit exists" branch shells out to the real `systemctl --user`
+    /// session (see `uninstall_user_service_unit`'s doc comment), which
+    /// can't be sandboxed without a fake `systemctl` on `PATH` — same
+    /// reason `install_user_service_unit`/`enable_background_service`/
+    /// `disable_background_service` have no test coverage either.
+    #[test]
+    fn uninstall_user_service_unit_is_a_no_op_when_no_unit_file_exists() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-uninstall-unit-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).expect("create temp XDG_CONFIG_HOME");
+        let previous = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", &temp_dir);
+
+        let result = uninstall_user_service_unit();
+
+        match previous {
+            Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        let _ = fs::remove_dir_all(&temp_dir);
+
+        assert_eq!(result.unwrap(), None);
+    }
 }
 
 #[cfg(test)]

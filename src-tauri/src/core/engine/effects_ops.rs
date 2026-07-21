@@ -203,48 +203,11 @@ impl CoreEngine {
 
         let is_input = device.direction == DeviceDirection::Input;
 
-        // Output-direction-only concepts: what the device currently routes
-        // to downstream, and any sink-inputs (apps actively playing into it)
-        // that need to briefly hold on a scratch sink for the swap. Neither
-        // applies to a virtual input/mic device — it has no downstream
-        // routing targets of its own, and "in use" for a source means
-        // source-outputs (apps currently recording from it), which this pass
-        // doesn't attempt to hold/restore (see PD-024 for scope).
-        let downstream_target_ids = if is_input {
-            Vec::new()
-        } else if device.current_targets.is_empty() {
-            device.current_target.clone().into_iter().collect::<Vec<_>>()
-        } else {
-            device.current_targets.clone()
-        };
+        let (downstream_target_ids, upstream_sources) = self.downstream_and_upstream_routes(&device, is_input);
         let downstream_targets: Vec<_> = downstream_target_ids
             .iter()
             .filter_map(|id| self.graph.devices.iter().find(|d| &d.id == id).cloned())
             .collect();
-
-        // Output-direction-only: any OTHER virtual output currently chained
-        // into this one (PD-026 — virtual outputs can route into another
-        // virtual output as a submix/bus) must be re-linked after the module
-        // load too, same as this device's own downstream targets. The load
-        // destroys and recreates this device's sink node, which silently
-        // severs any raw pw-link an upstream device's monitor already held
-        // into it; nothing about `self.adapter.load_effect_chain` below
-        // knows to restore an *incoming* device-level route on its own, only
-        // this device's own outgoing ones (`downstream_targets`) and its
-        // stream sink-inputs (`held_sink_inputs`).
-        let upstream_sources: Vec<(String, Vec<String>)> = if is_input {
-            Vec::new()
-        } else {
-            self.graph
-                .devices
-                .iter()
-                .filter(|other| other.id != device.id)
-                .filter_map(|other| {
-                    let targets = other.resolved_targets();
-                    targets.contains(&device.id).then(|| (other.id.clone(), targets))
-                })
-                .collect()
-        };
 
         // Input-direction-only: whatever's currently monitor-linked into this
         // device's `input_*` ports (mic-mix feed sinks, or the single feed
@@ -253,18 +216,7 @@ impl CoreEngine {
         // on this name no longer exist to discover them from.
         let mic_feeders = if is_input { self.adapter.list_mic_feeds(&device.system_name, true) } else { Vec::new() };
 
-        // The device may currently be carrying audio (apps actively playing
-        // into it). Rather than refusing to apply effects at all, briefly
-        // hold those streams on a scratch sink for the load and move them
-        // back once the effects-hosted sink is confirmed up — a short
-        // glitch on the affected streams instead of a hard block.
-        let held_sink_inputs = if is_input {
-            Vec::new()
-        } else {
-            self.adapter
-                .hold_sink_inputs_for_swap(&device.system_name)
-                .map_err(|error| EngineError::Adapter(error.to_string()))?
-        };
+        let held_sink_inputs = self.hold_sink_inputs_for_swap_if_output(&device, is_input)?;
 
         let apply_result = self
             .adapter
@@ -400,41 +352,9 @@ impl CoreEngine {
 
         let is_input = device.direction == DeviceDirection::Input;
 
-        let downstream_target_ids = if is_input {
-            Vec::new()
-        } else if device.current_targets.is_empty() {
-            device.current_target.clone().into_iter().collect::<Vec<_>>()
-        } else {
-            device.current_targets.clone()
-        };
+        let (downstream_target_ids, upstream_sources) = self.downstream_and_upstream_routes(&device, is_input);
 
-        // Output-direction-only: any OTHER virtual output currently chained
-        // into this one (PD-026 — bus-into-bus) must be re-linked after
-        // `revert_to_plain_device` destroys and recreates this device's sink
-        // node, same as `apply_effect_chain_structural`'s matching capture —
-        // see that function's comment for why this can't be discovered after
-        // the fact.
-        let upstream_sources: Vec<(String, Vec<String>)> = if is_input {
-            Vec::new()
-        } else {
-            self.graph
-                .devices
-                .iter()
-                .filter(|other| other.id != device.id)
-                .filter_map(|other| {
-                    let targets = other.resolved_targets();
-                    targets.contains(&device.id).then(|| (other.id.clone(), targets))
-                })
-                .collect()
-        };
-
-        let held_sink_inputs = if is_input {
-            Vec::new()
-        } else {
-            self.adapter
-                .hold_sink_inputs_for_swap(&device.system_name)
-                .map_err(|error| EngineError::Adapter(error.to_string()))?
-        };
+        let held_sink_inputs = self.hold_sink_inputs_for_swap_if_output(&device, is_input)?;
 
         // Capture whatever's currently feeding the live effects inlet before
         // tearing it down (input-direction only) — same "must discover
@@ -501,6 +421,65 @@ impl CoreEngine {
             success: true,
             message: Some(format!("Effects removed from {}", device.label)),
         })
+    }
+
+    /// Output-direction-only routing state a structural swap (apply or
+    /// remove) needs captured *before* touching the device's module, shared
+    /// verbatim by `apply_effect_chain_structural` and
+    /// `remove_effect_chain_structural`:
+    ///
+    /// - `downstream_target_ids`: what the device currently routes to.
+    /// - `upstream_sources`: any OTHER virtual output currently chained into
+    ///   this one (PD-026 — bus-into-bus). The module load/revert destroys
+    ///   and recreates this device's sink node, which silently severs any
+    ///   raw pw-link an upstream device's monitor already held into it —
+    ///   nothing about the swap itself knows to restore an *incoming*
+    ///   device-level route, only this device's own outgoing one, so it has
+    ///   to be discovered up front and re-applied after.
+    ///
+    /// Neither concept applies to a virtual input/mic device — it has no
+    /// downstream routing targets of its own, and nothing else can be
+    /// "chained into" a mic — so both come back empty for `is_input`.
+    fn downstream_and_upstream_routes(&self, device: &crate::core::models::Device, is_input: bool) -> (Vec<String>, Vec<(String, Vec<String>)>) {
+        let downstream_target_ids = if is_input {
+            Vec::new()
+        } else if device.current_targets.is_empty() {
+            device.current_target.clone().into_iter().collect::<Vec<_>>()
+        } else {
+            device.current_targets.clone()
+        };
+
+        let upstream_sources: Vec<(String, Vec<String>)> = if is_input {
+            Vec::new()
+        } else {
+            self.graph
+                .devices
+                .iter()
+                .filter(|other| other.id != device.id)
+                .filter_map(|other| {
+                    let targets = other.resolved_targets();
+                    targets.contains(&device.id).then(|| (other.id.clone(), targets))
+                })
+                .collect()
+        };
+
+        (downstream_target_ids, upstream_sources)
+    }
+
+    /// The device may currently be carrying audio (apps actively playing
+    /// into it, output-direction only — a source's "in use" means
+    /// source-outputs, which a structural swap doesn't attempt to
+    /// hold/restore, see PD-024 for scope). Rather than refusing to swap at
+    /// all, briefly hold those streams on a scratch sink so the caller can
+    /// move them back once the swapped-to sink is confirmed up. Shared by
+    /// `apply_effect_chain_structural` and `remove_effect_chain_structural`.
+    fn hold_sink_inputs_for_swap_if_output(&self, device: &crate::core::models::Device, is_input: bool) -> Result<Vec<u32>, EngineError> {
+        if is_input {
+            return Ok(Vec::new());
+        }
+        self.adapter
+            .hold_sink_inputs_for_swap(&device.system_name)
+            .map_err(|error| EngineError::Adapter(error.to_string()))
     }
 
     /// Unloads `system_name`'s live effects chain, if one is loaded.

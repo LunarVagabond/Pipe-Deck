@@ -33,11 +33,7 @@
 //! A native in-memory connection doesn't survive the daemon process dying
 //! the way a conf.d file did — if the daemon crashes or is restarted,
 //! whatever chains were loaded are gone with it. `daemon::reconcile_live_effects_state`
-//! is the landing spot for re-deriving/reloading persisted chains after a
-//! restart, but is currently an empty stub — recovery is not yet
-//! implemented.
-// TODO(#148 follow-up): recovery from daemon restart — nothing recovers yet,
-// see `daemon::reconcile_live_effects_state`.
+//! re-derives and reloads persisted chains after a restart.
 
 use crate::core::models::EffectChainConfig;
 use crate::pipewire::{filter_chain, fx_validate};
