@@ -1,16 +1,10 @@
-//! Native, restart-free effects transport (issue #148) — promotes the #141
-//! spike (`examples/filter_chain_spike.rs`) into a real module. Loads
-//! `libpipewire-module-filter-chain` directly into the live, real
-//! `pipewire.service` session via `pw_context_load_module`, instead of
-//! writing a conf.d drop-in and restarting the separate `filter-chain.service`
-//! unit (`pipewire::pipewire_restart`).
-//!
-//! Opt-in only: requires both the `native-effects` Cargo feature (this whole
-//! module is compiled out otherwise, see `pipewire::mod`) and
-//! `PIPE_DECK_NATIVE_EFFECTS=1` at runtime (see
-//! `backend::linux::live::LinuxPipeWireBackend::effect_chain_capabilities`).
-//! The restart-based path remains the unconditional default for everyone
-//! else.
+//! Native, restart-free effects transport (issue #148, cutover to the
+//! unconditional default in #149) — originated as the #141 spike
+//! (`docs/architecture/Decisions.md` PD-027), then promoted into this real
+//! module. Loads `libpipewire-module-filter-chain` directly into the live,
+//! real `pipewire.service` session via `pw_context_load_module`, instead of
+//! writing a conf.d drop-in and restarting a separate `filter-chain.service`
+//! unit — that restart-based mechanism no longer exists in this codebase.
 //!
 //! ## Lifecycle
 //!

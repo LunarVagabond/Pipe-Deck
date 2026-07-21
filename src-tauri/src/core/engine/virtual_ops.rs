@@ -472,12 +472,12 @@ mod live_tests {
 
     #[test]
     #[ignore]
-    fn removing_a_device_with_live_effects_cleans_up_its_conf_file() {
-        // Regression test: `remove_virtual_device` used to leave a device's
-        // effects conf.d file behind, which `filter-chain.service` would keep
-        // recreating a same-named ghost sink from on every future restart,
-        // long after the device itself (and all knowledge of it in the UI)
-        // was gone.
+    fn removing_a_device_with_live_effects_unloads_its_native_chain() {
+        // Regression test (native-transport equivalent of the old
+        // conf.d-orphan regression from before #149): `remove_virtual_device`
+        // must unload a device's live effect chain, not just delete the
+        // device — otherwise the native host keeps hosting a chain for a
+        // system_name nothing in the UI knows about anymore.
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let mut engine = CoreEngine::new();
@@ -503,17 +503,19 @@ mod live_tests {
             .apply_effect_chain_structural(&created.device_id, &config)
             .expect("structural apply should succeed");
 
-        let conf_path = crate::pipewire::filter_chain::conf_path_for_device(&created.system_name)
-            .expect("conf path should resolve");
-        assert!(conf_path.is_file(), "conf file should exist right after apply");
+        assert!(
+            engine.is_effect_chain_live(&created.device_id),
+            "chain should be live right after apply"
+        );
 
+        let system_name = created.system_name.clone();
         engine
-            .remove_virtual_device(&created.system_name)
+            .remove_virtual_device(&system_name)
             .expect("remove_virtual_device should succeed");
 
         assert!(
-            !conf_path.is_file(),
-            "conf file should be removed along with the device, not left as an orphan"
+            !crate::daemon::ipc::client::NativeHostClient::is_loaded(&system_name),
+            "native chain should be unloaded along with the device, not left as an orphan"
         );
     }
 }

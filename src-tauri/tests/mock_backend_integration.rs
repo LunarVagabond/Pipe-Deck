@@ -289,32 +289,44 @@ fn apply_effect_chain_structural_validates_even_in_mock_mode() {
 
 #[test]
 fn remove_effect_chain_structural_runs_the_real_adapter_call_path_in_mock_mode() {
-    // #147: remove_effect_chain_structural's own precondition guard (is
-    // there a live conf file at all?) is a real check, not a mock
-    // short-circuit — so exercising its adapter calls (hold/release sink
-    // inputs, revert-to-plain-device, mic-feed relink) needs a real conf
-    // file to exist first. `PIPE_DECK_FILTER_CHAIN_CONF_DIR` redirects that
-    // check to a temp directory instead of the real $HOME, so this is safe
-    // to run in CI.
-    let temp_dir = std::env::temp_dir().join(format!("pipe-deck-test-filter-chain-{}", std::process::id()));
-    std::fs::create_dir_all(&temp_dir).expect("create temp filter-chain conf dir");
-    std::env::set_var("PIPE_DECK_FILTER_CHAIN_CONF_DIR", &temp_dir);
-
+    // #147/#149: remove_effect_chain_structural's own precondition guard (is
+    // a chain actually loaded, per `AudioBackend::is_effect_chain_loaded`)
+    // is a real check, not a mock short-circuit — so exercising its adapter
+    // calls (hold/release sink inputs, revert-to-plain-device, mic-feed
+    // relink) needs a chain to actually be loaded first via a real
+    // `apply_effect_chain_structural`, which `MockAudioBackend` tracks
+    // in-memory the same way it tracks routing/mixer state.
     let (mut engine, _guard) = mock_engine();
     let output = engine.create_virtual_output("Integration Remove Path Output").expect("create output");
 
-    let conf_path = temp_dir.join(format!("99-pipe-deck-effects-{}.conf", output.system_name.trim_start_matches("pipe-deck-")));
-    std::fs::write(&conf_path, "# test fixture, not a real filter-chain config\n").expect("write fixture conf file");
-    assert!(conf_path.is_file(), "fixture conf file should exist before remove");
+    let config = pipe_deck_lib::core::models::EffectChainConfig {
+        stages: vec![pipe_deck_lib::core::models::EffectStage::Eq5Band {
+            id: "eq".to_string(),
+            eq_bass: 4,
+            eq_sub: 0,
+            eq_mid: 0,
+            eq_treble: 0,
+            eq_air: 0,
+            output_gain: 0,
+        }],
+        ..Default::default()
+    };
+    engine
+        .apply_effect_chain_structural(&output.device_id, &config)
+        .expect("structural apply should succeed");
+    assert!(
+        engine.is_effect_chain_live(&output.device_id),
+        "chain should be live right after apply"
+    );
 
     let result = engine
         .remove_effect_chain_structural(&output.device_id)
         .expect("remove_effect_chain_structural should succeed once the adapter calls all no-op successfully");
     assert!(result.success);
-    assert!(!conf_path.is_file(), "remove_effect_chain_structural should have deleted the conf file");
-
-    std::env::remove_var("PIPE_DECK_FILTER_CHAIN_CONF_DIR");
-    let _ = std::fs::remove_dir_all(&temp_dir);
+    assert!(
+        !engine.is_effect_chain_live(&output.device_id),
+        "remove_effect_chain_structural should have unloaded the chain"
+    );
 }
 
 #[test]
@@ -453,6 +465,63 @@ fn touching_effects_on_one_device_does_not_disturb_another_devices_routing() {
 
     let a_final = engine.runtime_graph().devices.iter().find(|d| d.id == a.device_id).unwrap().clone();
     assert_eq!(a_final.current_targets, vec!["sink-headphones".to_string()]);
+}
+
+#[test]
+fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_live_chain() {
+    // Regression for #229/#149: before the native-transport cutover, effect
+    // removal restarted the single shared `filter-chain.service`, tearing
+    // down every device's effect-hosted node at once — #210's repair pass
+    // (`relink_other_active_effect_chains`) only ever covered output-
+    // direction devices, explicitly skipping `DeviceDirection::Input`, so an
+    // input-direction (mic) device with its own live chain was never
+    // repaired. Native transport's per-device `unload_chain` makes this
+    // whole class of collateral damage structurally impossible — this locks
+    // that in for the input-direction case specifically.
+    use pipe_deck_lib::core::models::{EffectStage, MixSource};
+
+    let (mut engine, _guard) = mock_engine();
+    let output = engine.create_virtual_output("Unrelated Output").expect("create output");
+    let mic = engine.create_virtual_input("Live Mic").expect("create mic");
+    let mic_source = engine.create_virtual_output("Mic Feed Source").expect("create mic feed source");
+
+    engine.set_device_targets(&output.device_id, &["sink-headphones".to_string()]).unwrap();
+    engine
+        .set_virtual_mic_mix(
+            &mic.device_id,
+            &[MixSource { device_id: mic_source.device_id.clone(), volume_percent: 100, muted: false }],
+        )
+        .expect("set up mic mix");
+    engine.refresh_graph().unwrap();
+
+    let eq_stage = |id: &str| EffectStage::Eq5Band {
+        id: id.to_string(),
+        eq_sub: 0,
+        eq_bass: 4,
+        eq_mid: 0,
+        eq_treble: 0,
+        eq_air: 0,
+        output_gain: 0,
+    };
+
+    engine.add_effect_stage(&mic.device_id, eq_stage("mic-eq")).expect("add effects to mic");
+    engine.add_effect_stage(&output.device_id, eq_stage("output-eq")).expect("add effects to output");
+    engine.refresh_graph().unwrap();
+    assert!(engine.is_effect_chain_live(&mic.device_id), "mic chain should be live before touching output");
+
+    engine.remove_effect_stage(&output.device_id, "output-eq").expect("remove effects from output");
+    engine.refresh_graph().unwrap();
+
+    assert!(
+        engine.is_effect_chain_live(&mic.device_id),
+        "removing effects from an unrelated output device must not disturb the mic's own live chain"
+    );
+    let mic_after = engine.runtime_graph().devices.iter().find(|d| d.id == mic.device_id).unwrap().clone();
+    assert_eq!(
+        mic_after.mix_sources.len(),
+        1,
+        "mic's mix-source feed must survive an unrelated device's effect removal"
+    );
 }
 
 #[test]

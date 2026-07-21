@@ -11,10 +11,9 @@ use crate::backend::linux::split_sink;
 use crate::backend::linux::virtual_devices::{VirtualDeviceEntry, VirtualDeviceRegistry};
 use crate::backend::linux::virtual_mic_mix;
 use crate::backend::slugify;
-use crate::pipewire::{filter_chain, pipewire_restart};
+use crate::pipewire::filter_chain;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
-use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -265,74 +264,6 @@ impl AudioBackend for LinuxPipeWireBackend {
         query_pipewire_version()
     }
 
-    fn swap_to_effect_chain(
-        &self,
-        device: &Device,
-        conf_path: &Path,
-        rendered_conf: &str,
-        downstream_targets: &[Device],
-        mic_feeders: &[String],
-    ) -> Result<(), BackendError> {
-        if let Some(dir) = filter_chain::filter_chain_conf_dir() {
-            std::fs::create_dir_all(&dir)
-                .map_err(|error| BackendError::Message(format!("failed to create effects config dir: {error}")))?;
-        }
-
-        if let Some(module_id) = pactl::find_module_id_by_sink_name(&device.system_name)? {
-            pactl::unload_module(&module_id)?;
-        }
-
-        std::fs::write(conf_path, rendered_conf)
-            .map_err(|error| BackendError::Message(format!("failed to write effects config: {error}")))?;
-
-        pipewire_restart::restart_filter_chain_service()?;
-
-        if device.direction == DeviceDirection::Input {
-            filter_chain::wait_for_source(&device.system_name, Duration::from_secs(5))?;
-            filter_chain::wait_for_effect_input_ports(&device.system_name, Duration::from_secs(5))?;
-
-            let effect_input_name = filter_chain::effect_input_name_for_device(&device.system_name);
-            virtual_mic_mix::relink_feeds_to(mic_feeders, &device.system_name, &effect_input_name, false).map_err(
-                |error| {
-                    BackendError::Message(format!(
-                        "effects source came up but its mic-mix feeds could not be re-linked: {error}"
-                    ))
-                },
-            )?;
-
-            return Ok(());
-        }
-
-        filter_chain::wait_for_sink(&device.system_name, Duration::from_secs(5))?;
-        filter_chain::wait_for_effect_output_ports(&device.system_name, Duration::from_secs(5))?;
-
-        let effect_output_name = filter_chain::effect_output_name_for_device(&device.system_name);
-        let mut allowed_targets = HashSet::new();
-        for target in downstream_targets {
-            let is_virtual_input = target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
-            let result = if is_virtual_input {
-                pw_link::link_capture_source_to_virtual_input(&effect_output_name, &target.system_name)
-            } else {
-                pw_link::link_capture_source_to_sink(&effect_output_name, &target.system_name)
-            };
-            result.map_err(|error| {
-                BackendError::Message(format!(
-                    "effects sink came up but could not be re-linked to {}: {error}",
-                    target.label
-                ))
-            })?;
-            allowed_targets.insert(target.system_name.clone());
-        }
-        // See the equivalent comment previously on `try_apply_structural` in
-        // `core/engine/effects_ops.rs`: a prior swap's downstream targets may
-        // no longer match this one, and node identity persisting across a
-        // Structural Apply (PD-020) means nothing else ever tears a stale
-        // link down on its own.
-        let _ = split_sink::prune_stale_fan_out_links(&effect_output_name, &allowed_targets);
-
-        Ok(())
-    }
-
     fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError> {
         if device.direction == DeviceDirection::Input {
             pactl::create_virtual_source(&device.system_name, &device.label)?;
@@ -390,12 +321,10 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     // `native_host` is not called directly from this file (issue #148,
-    // "daemon-owned" requirement) — the module is still compiled into the
-    // GUI binary (feature gating is build-wide, not per-binary), but only
-    // the daemon binary's `daemon::ipc::server::dispatch` actually invokes
-    // it. This file talks to that daemon process over
-    // `daemon::ipc::client::NativeHostClient` instead.
-    #[cfg(feature = "native-effects")]
+    // "daemon-owned" requirement) — only the daemon binary's
+    // `daemon::ipc::server::dispatch` actually invokes it. This file talks
+    // to that daemon process over `daemon::ipc::client::NativeHostClient`
+    // instead.
     fn load_effect_chain(
         &self,
         device: &Device,
@@ -439,36 +368,21 @@ impl AudioBackend for LinuxPipeWireBackend {
             })?;
             allowed_targets.insert(target.system_name.clone());
         }
-        // See the equivalent comment on `swap_to_effect_chain` above — a
-        // prior load's downstream targets may no longer match this one.
+        // A prior load's downstream targets may no longer match this one,
+        // and node identity persisting across a Structural Apply (PD-020)
+        // means nothing else ever tears a stale link down on its own.
         let _ = split_sink::prune_stale_fan_out_links(&playback_name, &allowed_targets);
 
         Ok(playback_name)
     }
 
-    #[cfg(feature = "native-effects")]
     fn unload_effect_chain(&self, device_system_name: &str) -> Result<(), BackendError> {
         crate::daemon::ipc::client::NativeHostClient::unload_chain(device_system_name)
             .map_err(|error| BackendError::Message(error.to_string()))
     }
 
-    /// Native transport is only ever reported when the `native-effects`
-    /// Cargo feature is compiled in, `PIPE_DECK_NATIVE_EFFECTS=1` is set at
-    /// runtime, *and* the daemon actually answers a live ping over
-    /// `daemon::ipc` — this triple gate is what keeps restart-based effects
-    /// hosting the default: for a locally-built `--features native-effects`
-    /// binary with the env var unset, and for any user who hasn't enabled
-    /// restore-on-login (the daemon-owned path only exists for that
-    /// persistent-daemon case — see the PD-027 addendum). Any connect/ping
-    /// failure silently falls back to `RestartBased`, never a hard error.
-    fn effect_chain_capabilities(&self) -> crate::backend::EffectChainHostingCapability {
-        #[cfg(feature = "native-effects")]
-        if std::env::var("PIPE_DECK_NATIVE_EFFECTS").as_deref() == Ok("1")
-            && crate::daemon::ipc::client::NativeHostClient::ping()
-        {
-            return crate::backend::EffectChainHostingCapability::NativeZeroRestart;
-        }
-        crate::backend::EffectChainHostingCapability::RestartBased
+    fn is_effect_chain_loaded(&self, device_system_name: &str) -> bool {
+        crate::daemon::ipc::client::NativeHostClient::is_loaded(device_system_name)
     }
 }
 

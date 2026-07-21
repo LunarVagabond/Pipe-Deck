@@ -108,7 +108,7 @@ fn request_with_timeout(op: IpcOp, timeout: Duration) -> Result<IpcOkPayload, Ip
 mod live_tests {
     //! `#[ignore]`d on purpose: hits a *real* PipeWire session, same
     //! convention as `core::engine::effects_ops::live_tests`. Only run via
-    //! `cargo test --features native-effects --lib -- --ignored
+    //! `cargo test --lib -- --ignored
     //! daemon_ipc_round_trips_load_chain_over_the_socket`, and only on a
     //! machine where that's safe. Exercises a disposable
     //! `pipe-deck-native-ipc-test` device name this test creates/destroys

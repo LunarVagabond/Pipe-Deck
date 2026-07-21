@@ -110,7 +110,6 @@ pub fn run() {
             tray::setup_tray(app)?;
             tray::attach_close_to_tray(&app.handle());
 
-            #[cfg(feature = "native-effects")]
             app.manage(daemon::EphemeralDaemonHandle(std::sync::Mutex::new(daemon::ensure_ephemeral_daemon())));
 
             let handle = app.handle().clone();
@@ -133,10 +132,8 @@ pub fn run() {
 
 /// Only real teardown work today is the ephemeral daemon (issue #148) — a
 /// clean-quit-path complement to `PR_SET_PDEATHSIG`'s kernel-level guarantee
-/// for the crash case (see `daemon::ensure_ephemeral_daemon`). No-op for a
-/// default build (no state to look up) and a no-op for anything other than
-/// `RunEvent::Exit`.
-#[cfg(feature = "native-effects")]
+/// for the crash case (see `daemon::ensure_ephemeral_daemon`). A no-op for
+/// anything other than `RunEvent::Exit`.
 fn handle_run_event(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
     if let tauri::RunEvent::Exit = event {
         if let Some(state) = app_handle.try_state::<daemon::EphemeralDaemonHandle>() {
@@ -144,6 +141,3 @@ fn handle_run_event(app_handle: &tauri::AppHandle, event: tauri::RunEvent) {
         }
     }
 }
-
-#[cfg(not(feature = "native-effects"))]
-fn handle_run_event(_app_handle: &tauri::AppHandle, _event: tauri::RunEvent) {}

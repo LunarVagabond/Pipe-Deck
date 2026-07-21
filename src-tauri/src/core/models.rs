@@ -761,6 +761,21 @@ pub struct EffectChainConfig {
     /// individual stages.
     #[serde(default)]
     pub bypassed: bool,
+    /// Whether the user has explicitly confirmed live processing for this
+    /// chain (a real `apply_effect_chain_structural` succeeded and hasn't
+    /// been reverted since) — distinct from `is_active()`, which only means
+    /// "something is configured." PD-017 §1 requires restore to never
+    /// silently turn on live processing that wasn't explicitly confirmed;
+    /// before native transport this was inferred from a restart-based
+    /// conf.d file surviving on disk across restarts, but native transport's
+    /// liveness is in-memory in the daemon process and doesn't survive that
+    /// way, so this flag is the persisted signal instead. `#[serde(default)]`
+    /// means every pre-existing profile deserializes as `false` — an
+    /// accepted one-time transition: those chains stay persist-only until
+    /// re-applied once after upgrading, rather than guessing at legacy
+    /// conf-file state.
+    #[serde(default)]
+    pub live: bool,
 }
 
 /// Accepts either the current `{ stages: [...], ... }` shape or a pre-PD-025
@@ -799,6 +814,8 @@ impl<'de> Deserialize<'de> for EffectChainConfig {
             noise_gate: DynamicsStage,
             #[serde(default)]
             bypassed: bool,
+            #[serde(default)]
+            live: bool,
         }
 
         let raw = OnDisk::deserialize(deserializer)?;
@@ -831,6 +848,7 @@ impl<'de> Deserialize<'de> for EffectChainConfig {
             limiter: raw.limiter,
             noise_gate: raw.noise_gate,
             bypassed: raw.bypassed,
+            live: raw.live,
         })
     }
 }

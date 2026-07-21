@@ -653,6 +653,7 @@ mod tests {
                 limiter: crate::core::models::DynamicsStage::default(),
                 noise_gate: crate::core::models::DynamicsStage::default(),
                 bypassed: false,
+                live: true,
             };
             store
                 .set_effect_chain("virtual-game", &chain)

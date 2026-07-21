@@ -1,12 +1,11 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, Link, MixSource, MixSourceSpec, RuntimeGraph, SinkMode,
+    Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, RuntimeGraph, SinkMode,
     Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
 use std::collections::HashSet;
-use std::path::Path;
 use std::sync::Mutex;
 
 /// Holds a mutable in-memory graph seeded from the static sample data, so
@@ -17,12 +16,19 @@ use std::sync::Mutex;
 /// `data_source == "mock"` branches to fake persistence in-place.
 pub struct MockAudioBackend {
     graph: Mutex<RuntimeGraph>,
+    /// system_names with a live effect chain "loaded" — tracked so
+    /// `is_effect_chain_loaded` reflects real load/unload calls instead of
+    /// always answering `false`, the same way `graph` makes routing/mixer
+    /// mutations persist across a `fetch_graph()` the way a real backend's
+    /// live state would.
+    loaded_effect_chains: Mutex<HashSet<String>>,
 }
 
 impl MockAudioBackend {
     pub fn new() -> Self {
         Self {
             graph: Mutex::new(Self::sample_graph()),
+            loaded_effect_chains: Mutex::new(HashSet::new()),
         }
     }
 
@@ -616,15 +622,33 @@ impl AudioBackend for MockAudioBackend {
         Some("1.0.0 (mock)".to_string())
     }
 
-    fn swap_to_effect_chain(
+    fn load_effect_chain(
         &self,
-        _device: &Device,
-        _conf_path: &Path,
-        _rendered_conf: &str,
+        device: &Device,
+        _config: &EffectChainConfig,
         _downstream_targets: &[Device],
         _mic_feeders: &[String],
-    ) -> Result<(), BackendError> {
+    ) -> Result<String, BackendError> {
+        self.loaded_effect_chains
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(device.system_name.clone());
+        Ok(format!("effect_output.{}", device.system_name))
+    }
+
+    fn unload_effect_chain(&self, device_system_name: &str) -> Result<(), BackendError> {
+        self.loaded_effect_chains
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(device_system_name);
         Ok(())
+    }
+
+    fn is_effect_chain_loaded(&self, device_system_name: &str) -> bool {
+        self.loaded_effect_chains
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(device_system_name)
     }
 
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
