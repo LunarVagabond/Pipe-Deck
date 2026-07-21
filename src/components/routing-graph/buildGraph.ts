@@ -7,6 +7,7 @@ import {
   streamDisplayLabel,
   streamSubtitle,
 } from "../../utils/routingLayout";
+import { actionStatusLabel, routeWarningLevel } from "../../utils/routeExplanation";
 import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
@@ -36,6 +37,11 @@ export interface RoutingGraphNodeData {
    * hardware. Hardware still gets a plain volume slider via `channelType`,
    * it just isn't framed as an effect and can't have more added to it. */
   supportsEffects?: boolean;
+  /** Set when this stream's routing was blocked, skipped, or couldn't find
+   * its target — surfaced as a colored badge on the node itself since a
+   * blocked route otherwise leaves no edge and no other on-graph trace. */
+  routeWarning?: "blocked" | "unavailable";
+  routeWarningTitle?: string;
 }
 
 export interface RoutingGraphGroupData {
@@ -143,6 +149,7 @@ export { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
 
 function streamNodeKind(stream: Stream): RoutingGraphNodeData {
   const playback = stream.direction === "playback";
+  const warning = routeWarningLevel(stream.route_explanation);
   return {
     label: streamDisplayLabel(stream),
     subtitle: streamSubtitle(stream),
@@ -156,6 +163,8 @@ function streamNodeKind(stream: Stream): RoutingGraphNodeData {
     muted: stream.muted,
     // Streams are always audio sources — always effects-capable.
     supportsEffects: true,
+    routeWarning: warning ?? undefined,
+    routeWarningTitle: warning ? actionStatusLabel(stream.route_explanation?.action_status) : undefined,
   };
 }
 

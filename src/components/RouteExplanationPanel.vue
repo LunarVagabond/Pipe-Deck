@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import type { Stream } from "../types/graph";
-import { formatRuleLabel, routeExplanationSummary } from "../utils/routeExplanation";
+import { actionStatusLabel, formatRuleLabel, routeExplanationSummary } from "../utils/routeExplanation";
 
 const { stream, devices } = defineProps<{
   stream: Stream;
@@ -28,23 +28,7 @@ const summary = computed(() => {
   return routeExplanationSummary(detail, targetName || undefined);
 });
 
-const statusLabel = computed(() => {
-  const status = explanation.value?.action_status;
-  switch (status) {
-    case "applied":
-      return "Applied";
-    case "blocked":
-      return "Blocked";
-    case "skipped_manual_override":
-      return "Skipped (manual override)";
-    case "target_unavailable":
-      return "Target unavailable";
-    case "simulated":
-      return "Would apply";
-    default:
-      return "No action";
-  }
-});
+const statusLabel = computed(() => actionStatusLabel(explanation.value?.action_status));
 
 function focusRouteSelect() {
   const select = document.querySelector<HTMLSelectElement>(
