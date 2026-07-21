@@ -198,13 +198,28 @@ async function removeVirtualDevice(systemName: string, label: string) {
 
 function onContextMenuAction(action: "rename" | "delete") {
   const target = contextMenu.value;
-  if (!target || target.kind !== "node") {
+  if (!target || target.kind !== "node" || !target.systemName) {
     return;
   }
   if (action === "rename") {
     void graphActions.renameDevice(target.systemName, target.label);
   } else if (action === "delete") {
     graphActions.deleteDevice(target.systemName, target.label);
+  }
+}
+
+async function onCopyIdAction() {
+  const target = contextMenu.value;
+  contextMenu.value = null;
+  if (!target || target.kind !== "node") {
+    return;
+  }
+  try {
+    await navigator.clipboard.writeText(target.entityId);
+    handleApplyResult({ success: true }, "ID copied to clipboard.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleApplyResult({ success: false, message: `Couldn't copy ID: ${message}` }, "");
   }
 }
 
@@ -800,6 +815,7 @@ onUnmounted(() => {
       :target="contextMenu"
       @rename="onContextMenuAction('rename')"
       @delete="onContextMenuAction('delete')"
+      @copy-id="onCopyIdAction"
       @add-node="onAddNodeAction"
       @add-effect="onAddEffectAction"
       @close="contextMenu = null"
