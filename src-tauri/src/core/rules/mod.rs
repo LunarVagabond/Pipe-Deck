@@ -16,8 +16,9 @@ pub struct ApplyRulesContext<'a> {
     pub device_manual_overrides: &'a HashSet<String>,
     pub dry_run: bool,
     pub mock_graph_only: bool,
-    /// When set, only streams with these identity keys are eligible for apply.
-    pub limit_to_identities: Option<&'a HashSet<crate::core::stream_identity::StreamIdentityKey>>,
+    /// When set, only streams whose `Stream.id` (the PipeWire node id, i.e.
+    /// this specific stream instance) appears here are eligible for apply.
+    pub limit_to_stream_ids: Option<&'a HashSet<String>>,
     /// Live routing-state fallback for rule matching (e.g. monitor-route
     /// discovery when `RuntimeGraph.current_targets` is stale/missing) — see
     /// `core/rules/matching.rs::actual_device_target_system_names` and

@@ -1,7 +1,6 @@
 use crate::config::ConfigStore;
 use crate::core::models::RuntimeGraph;
 use crate::core::rules::{self, ApplyRulesContext};
-use crate::core::stream_identity::stream_identity_key;
 use std::collections::HashSet;
 use tauri::{AppHandle, Emitter};
 
@@ -103,7 +102,7 @@ impl CoreEngine {
             device_manual_overrides: &self.device_manual_overrides,
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
-            limit_to_identities: None,
+            limit_to_stream_ids: None,
             backend: self.adapter.as_ref(),
         };
         self.adapter.apply_graph_routing(&mut self.graph, &ctx);
@@ -113,22 +112,34 @@ impl CoreEngine {
         let config = ConfigStore::new()
             .load_config()
             .unwrap_or_else(|_| ConfigStore::default_config());
+
+        // Prune to currently-live stream ids regardless of auto-apply, so a
+        // stream that disappears and later returns with the same id (rather
+        // than being replaced by a fresh PipeWire node) doesn't linger in the
+        // set forever, and so the set doesn't grow unbounded over a session.
+        let live_ids: HashSet<String> = self
+            .graph
+            .streams
+            .iter()
+            .map(|stream| stream.id.clone())
+            .collect();
+        self.seen_stream_ids.retain(|id| live_ids.contains(id));
+
         if !config.preferences.auto_apply_rules {
             return;
         }
 
-        let mut new_identities = HashSet::new();
+        let mut new_ids = HashSet::new();
         for stream in &self.graph.streams {
             if stream.is_system {
                 continue;
             }
-            let key = stream_identity_key(stream);
-            if !self.seen_stream_identities.contains(&key) {
-                new_identities.insert(key);
+            if !self.seen_stream_ids.contains(&stream.id) {
+                new_ids.insert(stream.id.clone());
             }
         }
 
-        if new_identities.is_empty() {
+        if new_ids.is_empty() {
             return;
         }
 
@@ -150,13 +161,13 @@ impl CoreEngine {
             device_manual_overrides: &self.device_manual_overrides,
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
-            limit_to_identities: Some(&new_identities),
+            limit_to_stream_ids: Some(&new_ids),
             backend: self.adapter.as_ref(),
         };
         let _ = rules::apply_routing_rules_with_explanations(&mut self.graph, &ctx);
 
-        for key in new_identities {
-            self.seen_stream_identities.insert(key);
+        for id in new_ids {
+            self.seen_stream_ids.insert(id);
         }
     }
 

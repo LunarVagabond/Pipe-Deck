@@ -584,7 +584,7 @@
 }
 
 .rules-col-rule {
-  width: 130px;
+  width: 150px;
 }
 
 .rules-col-conditions {
@@ -592,15 +592,19 @@
 }
 
 .rules-col-target {
-  width: 200px;
+  width: 180px;
+}
+
+.rules-col-match {
+  width: 130px;
 }
 
 .rules-col-status {
-  width: 82px;
+  width: 70px;
 }
 
 .rules-col-actions {
-  width: 168px;
+  width: 130px;
 }
 
 .rules-table th,
@@ -640,8 +644,93 @@
 }
 
 .rules-rule-cell {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+}
+
+.rule-priority-controls {
+  display: grid;
+  gap: 0.15rem;
+  flex: none;
+}
+
+.rule-name-meta {
   display: grid;
   gap: 0.2rem;
+}
+
+.rule-priority-btn {
+  width: 1.35rem;
+  height: 1.1rem;
+  padding: 0;
+  border-radius: 0.3rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text-muted);
+  font-size: 0.6rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.rule-priority-btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.rule-priority-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.rule-row-disabled .rule-target-name,
+.rule-row-disabled .rule-condition-text,
+.rule-row-disabled strong {
+  color: var(--text-muted);
+}
+
+.rule-condition-chip {
+  display: inline-grid;
+  gap: 0.1rem;
+}
+
+.rule-match-badge {
+  display: inline-block;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.rule-match-badge-active {
+  color: var(--accent-teal);
+  background: rgba(38, 195, 163, 0.12);
+}
+
+.rule-match-badge-idle {
+  color: var(--text-muted);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.rules-search-input {
+  width: 100%;
+  max-width: 260px;
+  padding: 0.45rem 0.7rem;
+  border-radius: 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.rules-search-input:focus {
+  outline: none;
+  border-color: var(--accent-teal);
+}
+
+.rules-search-input::placeholder {
+  color: var(--text-muted);
 }
 
 .rule-meta {

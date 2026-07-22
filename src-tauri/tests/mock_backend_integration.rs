@@ -11,7 +11,10 @@ use pipe_deck_lib::backend::mock::MockAudioBackend;
 use pipe_deck_lib::backend::AudioBackend;
 use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
-use pipe_deck_lib::core::models::{DeviceDirection, DeviceKind, MixSource, Profile, VirtualDeviceSpec};
+use pipe_deck_lib::core::models::{
+    Device, DeviceDirection, DeviceKind, MixSource, Profile, Rule, RuleAction, RuleCondition,
+    RuntimeGraph, Stream, StreamDirection, VirtualDeviceSpec,
+};
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
@@ -695,4 +698,130 @@ fn engine_reinitializes_cleanly_against_a_fresh_backend_instance() {
     assert!(!engine.runtime_graph().devices.is_empty());
     assert!(!engine.runtime_graph().streams.is_empty());
     let _ = engine.simulate_rules();
+}
+
+fn headset_device() -> Device {
+    Device {
+        id: "device-headset".into(),
+        system_name: "headset-out".into(),
+        label: "Headset".into(),
+        kind: DeviceKind::Physical,
+        direction: DeviceDirection::Output,
+        sink_mode: None,
+        volume_percent: Some(100),
+        muted: Some(false),
+        current_target: None,
+        current_targets: Vec::new(),
+        mix_sources: Vec::new(),
+    }
+}
+
+fn firefox_stream(id: &str) -> Stream {
+    Stream {
+        id: id.into(),
+        app_name: "Firefox".into(),
+        executable: Some("firefox".into()),
+        window_class: None,
+        system_name: None,
+        direction: StreamDirection::Playback,
+        current_target: None,
+        media_name: None,
+        is_system: false,
+        volume_percent: None,
+        muted: None,
+        route_explanation: None,
+    }
+}
+
+fn firefox_rule() -> Rule {
+    Rule {
+        id: "firefox-to-headset".into(),
+        name: "Firefox to headset".into(),
+        enabled: true,
+        priority: 10,
+        conditions: vec![RuleCondition::Executable {
+            value: "firefox".into(),
+        }],
+        action: RuleAction {
+            target_system_name: Some("headset-out".into()),
+            target_system_names: Vec::new(),
+        },
+        safeguards: Default::default(),
+    }
+}
+
+/// Regression for issue #277 / #116: a routing rule for Firefox was silently
+/// never applied to *any* Firefox stream once one had already been seen —
+/// including a Firefox stream that already existed when the rule was added.
+/// Firefox tears down/recreates its PipeWire node per tab while reporting
+/// identical `app_name`/`executable`/`media_name` across tabs, so the old
+/// "new stream" gate (keyed on that coarse identity) permanently marked all
+/// future Firefox streams "already seen" after the first one — see
+/// `CoreEngine::apply_rules_for_new_streams`.
+#[test]
+fn rule_added_after_a_stream_already_exists_is_applied_on_next_refresh() {
+    let (mut engine, _guard) = mock_engine();
+
+    let mut graph = RuntimeGraph {
+        devices: vec![headset_device()],
+        streams: vec![firefox_stream("node-1001")],
+        links: Vec::new(),
+        data_source: "mock".into(),
+        notice: None,
+        recent_stream_identities: Vec::new(),
+    };
+    engine.apply_graph_update(graph.clone());
+
+    // No rule yet: the stream is observed and marked "seen" without a route.
+    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
+    assert_eq!(stream.current_target, None);
+
+    // Now the user adds a matching rule — with the old identity-keyed seen
+    // set, the still-live stream would never be reconsidered.
+    engine.save_rule(firefox_rule()).expect("save rule");
+
+    // Simulate the next graph refresh (same PipeWire node, still alive).
+    graph.streams = vec![firefox_stream("node-1001")];
+    engine.apply_graph_update(graph);
+
+    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
+    assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
+}
+
+/// Companion regression: a Firefox tab closes (its PipeWire node/stream id
+/// disappears) and a new tab opens (a *different* node id, identical
+/// app_name/executable/media_name). The new stream must be independently
+/// evaluated against the existing rule, not skipped as "already seen" just
+/// because a same-identity stream was seen before.
+#[test]
+fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
+    let (mut engine, _guard) = mock_engine();
+    engine.save_rule(firefox_rule()).expect("save rule");
+
+    let base_graph = RuntimeGraph {
+        devices: vec![headset_device()],
+        streams: vec![firefox_stream("node-1001")],
+        links: Vec::new(),
+        data_source: "mock".into(),
+        notice: None,
+        recent_stream_identities: Vec::new(),
+    };
+    engine.apply_graph_update(base_graph);
+    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
+    assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
+
+    // Tab closes: node-1001 disappears. A new tab opens: node-1002, same
+    // app-level identity as node-1001.
+    let next_graph = RuntimeGraph {
+        devices: vec![headset_device()],
+        streams: vec![firefox_stream("node-1002")],
+        links: Vec::new(),
+        data_source: "mock".into(),
+        notice: None,
+        recent_stream_identities: Vec::new(),
+    };
+    engine.apply_graph_update(next_graph);
+
+    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1002").unwrap();
+    assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
 }

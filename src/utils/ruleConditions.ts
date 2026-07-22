@@ -159,6 +159,37 @@ export function liveSuggestionsForType(
   return [...values].sort((left, right) => left.localeCompare(right));
 }
 
+export function conditionValue(condition: RuleCondition): string {
+  if (condition.type === "regex") {
+    return condition.pattern;
+  }
+  return condition.value;
+}
+
+export function setConditionValue(condition: RuleCondition, value: string) {
+  if (condition.type === "regex") {
+    condition.pattern = value;
+    return;
+  }
+  condition.value = value;
+}
+
+export function setConditionType(condition: RuleCondition, type: ConditionType) {
+  if (type === "regex") {
+    Object.assign(condition, { type, field: "app_name", pattern: "" });
+    return;
+  }
+  if (type === "direction") {
+    Object.assign(condition, { type, value: "playback" });
+    return;
+  }
+  if (type === "category") {
+    Object.assign(condition, { type, value: "Game" });
+    return;
+  }
+  Object.assign(condition, { type, value: "" });
+}
+
 export function formatConditionSummary(condition: RuleCondition): string {
   if (condition.type === "regex") {
     const field = REGEX_FIELD_OPTIONS.find((entry) => entry.value === condition.field)?.label

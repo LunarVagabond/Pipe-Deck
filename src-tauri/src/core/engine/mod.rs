@@ -53,7 +53,18 @@ pub struct CoreEngine {
     cleared_device_routes: HashSet<String>,
     plugin_manager: Mutex<PluginManager>,
     recent_streams: RecentStreamCache,
-    seen_stream_identities: HashSet<StreamIdentityKey>,
+    /// Stream instance ids (`Stream.id`, the PipeWire node id) already
+    /// considered for auto-apply this session. Deliberately keyed on the
+    /// per-instance id rather than `StreamIdentityKey` (app_name/executable/
+    /// media_name): apps like Firefox tear down and recreate their stream
+    /// node per tab while reporting identical identity metadata across
+    /// tabs, so an identity-keyed set would permanently mark all future
+    /// Firefox streams "already seen" after the first one (issue #277/#116).
+    /// Pruned each refresh to the currently-live id set in
+    /// `apply_rules_for_new_streams`, and cleared entirely on rule
+    /// create/edit/delete/toggle so already-live streams get re-evaluated
+    /// against the changed rule set without requiring a manual "Apply rules".
+    seen_stream_ids: HashSet<String>,
     /// system_name -> was its native effect chain live as of the last graph
     /// refresh (issue #206). Native-effects-only: the restart-based path's
     /// liveness never flips independently of a GUI-initiated call, so it
@@ -95,7 +106,7 @@ impl CoreEngine {
             cleared_device_routes: HashSet::new(),
             plugin_manager: Mutex::new(PluginManager::new()),
             recent_streams: RecentStreamCache::default(),
-            seen_stream_identities: HashSet::new(),
+            seen_stream_ids: HashSet::new(),
             effect_chain_liveness: HashMap::new(),
             effect_chain_last_targets: HashMap::new(),
             graph_generation: Arc::new(AtomicU64::new(0)),
@@ -354,22 +365,28 @@ impl CoreEngine {
             .map_err(|error| EngineError::Config(error.to_string()))
     }
 
-    pub fn save_rule(&self, rule: Rule) -> Result<(), EngineError> {
+    pub fn save_rule(&mut self, rule: Rule) -> Result<(), EngineError> {
         ConfigStore::new()
             .save_rule(rule)
-            .map_err(|error| EngineError::Config(error.to_string()))
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+        self.seen_stream_ids.clear();
+        Ok(())
     }
 
-    pub fn delete_rule(&self, rule_id: &str) -> Result<(), EngineError> {
+    pub fn delete_rule(&mut self, rule_id: &str) -> Result<(), EngineError> {
         ConfigStore::new()
             .delete_rule(rule_id)
-            .map_err(|error| EngineError::Config(error.to_string()))
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+        self.seen_stream_ids.clear();
+        Ok(())
     }
 
-    pub fn toggle_rule(&self, rule_id: &str, enabled: bool) -> Result<(), EngineError> {
+    pub fn toggle_rule(&mut self, rule_id: &str, enabled: bool) -> Result<(), EngineError> {
         ConfigStore::new()
             .toggle_rule(rule_id, enabled)
-            .map_err(|error| EngineError::Config(error.to_string()))
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+        self.seen_stream_ids.clear();
+        Ok(())
     }
 
     pub fn simulate_rules(&self) -> Vec<SimulationResult> {
