@@ -85,10 +85,15 @@ Connection lines draw between linked nodes. Authored policies are managed in the
 
 ## Rules View (Phase 3)
 
-- Full-width table of authored rules (name, conditions, target, status, actions).
+Componentized under `src/components/rules/` (issue #277/#116 UX pass): `RuleListItem.vue` (one table row), `RuleConditionEditor.vue` (one condition row, reused inside the modal), and `RuleFormModal.vue` (the full create/edit dialog) — `Rules.vue` itself is the thin orchestrator (data loading, save/delete/toggle/reorder, search filtering).
+
+- Full-width table of authored rules (name, conditions, target, live-match status, inline enable toggle, actions), sorted and displayed in priority order (highest first).
+- A search box above the table filters by rule name, condition value, or target device name.
+- Each row has an inline `ToggleSwitch` (reused from `components/ToggleSwitch.vue`) for enable/disable, and ▲/▼ priority-reorder buttons that swap the `priority` value with the adjacent rule and persist both — no drag-and-drop.
+- A **Live match** badge per row ("Matching N now" / "No live match") is computed from `simulate_rules` results (`RouteExplanation.matched_rule_key === rule.name`), refreshed after every rule mutation and on load — a rule that never matches anything currently live is now visibly distinguishable from one that does, which is what makes the seen-set fix (PD-030) worth having a UI for.
 - **+ New Rule** opens a centered modal for name, priority, target selection, and conditions.
 - **Edit** reopens the same modal for rename, condition, and target changes.
-- **Simulate** runs a dry-run preview without applying routes.
+- **Simulate** runs a dry-run preview without applying routes; its results also feed the per-row live-match badges above.
 - Collapsible identity reference table helps fill condition values from active streams.
 
 ## Settings View (Phase 4)
