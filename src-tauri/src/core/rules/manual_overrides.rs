@@ -148,7 +148,7 @@ pub fn reconcile_manual_overrides(
 mod tests {
     use super::*;
     use crate::core::models::{
-        Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection,
+        Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection, VirtualRole,
     };
     use crate::core::stream_identity::stream_identity_key;
 
@@ -268,7 +268,7 @@ mod tests {
                     kind: DeviceKind::Virtual,
                     direction: DeviceDirection::Output,
                     sink_mode: None,
-                    virtual_role: None,
+                    virtual_role: Some(VirtualRole::Bus),
                     volume_percent: None,
                     muted: None,
                     current_target: Some("headphones".into()),
