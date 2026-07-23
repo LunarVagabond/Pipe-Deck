@@ -1,7 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::{
     ApplyResult, DeviceDirection, DeviceKind, MixSource, MixSourceSpec, RuntimeGraph,
-    VirtualDeviceResult,
+    VirtualDeviceResult, VirtualRole,
 };
 use crate::core::restore::spec_from_create_result;
 use std::collections::{HashMap, HashSet};
@@ -25,25 +25,42 @@ impl CoreEngine {
         Ok(())
     }
 
+    /// Creates a Bus — today's virtual-output behavior: fan-in, hosts
+    /// effects, can route onward. Kept as the zero-arg entry point so every
+    /// existing caller (and old frontend builds mid-rollout) keeps creating
+    /// what "virtual output" always meant, unchanged. See #287.
     pub fn create_virtual_output(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {
-        self.create_virtual_output_with_mode(name, false)
+        self.create_virtual_output_with_mode(name, false, VirtualRole::Bus)
+    }
+
+    /// Creates the new, stricter terminal Output (virtual) role (#287) — no
+    /// forward routing, no effects, no output pin. The opt-in path, reached
+    /// only via the three-way "Add Bus / Add Output (virtual) / Add Input"
+    /// creation UX.
+    pub fn create_virtual_output_role(
+        &mut self,
+        name: &str,
+        role: VirtualRole,
+    ) -> Result<VirtualDeviceResult, EngineError> {
+        self.create_virtual_output_with_mode(name, false, role)
     }
 
     pub fn create_virtual_multi_output(
         &mut self,
         name: &str,
     ) -> Result<VirtualDeviceResult, EngineError> {
-        self.create_virtual_output_with_mode(name, true)
+        self.create_virtual_output_with_mode(name, true, VirtualRole::Bus)
     }
 
     fn create_virtual_output_with_mode(
         &mut self,
         name: &str,
         multi: bool,
+        role: VirtualRole,
     ) -> Result<VirtualDeviceResult, EngineError> {
         let result = self
             .adapter
-            .create_virtual_output(name, multi)
+            .create_virtual_output(name, multi, role)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
@@ -54,6 +71,7 @@ impl CoreEngine {
                     &result.label,
                     DeviceDirection::Output,
                     multi,
+                    role,
                 ))
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
@@ -75,6 +93,7 @@ impl CoreEngine {
                     &result.label,
                     DeviceDirection::Input,
                     false,
+                    VirtualRole::Bus,
                 ))
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
@@ -148,10 +167,15 @@ impl CoreEngine {
                 })?;
 
             let is_physical_mic = source.kind == DeviceKind::Physical && source.direction == DeviceDirection::Input;
-            let is_virtual_output = source.kind == DeviceKind::Virtual && source.direction == DeviceDirection::Output;
-            if !is_physical_mic && !is_virtual_output {
+            // A terminal Output (#287) is a true dead end — it can't feed a
+            // mic mix any more than it can fan out to another sink; only a
+            // Bus (still routable onward) qualifies as a mix source.
+            let is_virtual_bus = source.kind == DeviceKind::Virtual
+                && source.direction == DeviceDirection::Output
+                && source.virtual_role == Some(VirtualRole::Bus);
+            if !is_physical_mic && !is_virtual_bus {
                 return Err(EngineError::InvalidInput(format!(
-                    "{} is not a physical input or virtual output",
+                    "{} is not a physical input or virtual bus",
                     source.label
                 )));
             }
@@ -335,6 +359,7 @@ pub(super) fn merge_virtual_devices(
         .into_iter()
         .map(|spec| (format!("pipe-deck-{}", spec.slug), spec.multi))
         .collect();
+    let role_by_name = crate::core::restore::role_by_system_name();
 
     let mut id_remap = HashMap::new();
 
@@ -352,6 +377,16 @@ pub(super) fn merge_virtual_devices(
         } else {
             None
         };
+        let virtual_role = if entry.direction == crate::core::models::DeviceDirection::Output {
+            Some(
+                role_by_name
+                    .get(&entry.system_name)
+                    .copied()
+                    .unwrap_or(entry.virtual_role),
+            )
+        } else {
+            None
+        };
 
         if let Some(device) = graph
             .devices
@@ -366,6 +401,7 @@ pub(super) fn merge_virtual_devices(
             device.kind = crate::core::models::DeviceKind::Virtual;
             device.direction = entry.direction.clone();
             device.sink_mode = sink_mode;
+            device.virtual_role = virtual_role;
             if device.volume_percent.is_none() {
                 device.volume_percent = Some(100);
             }
@@ -375,6 +411,7 @@ pub(super) fn merge_virtual_devices(
         } else {
             let mut device = entry.to_device();
             device.sink_mode = sink_mode;
+            device.virtual_role = virtual_role;
             graph.devices.push(device);
         }
     }

@@ -29,6 +29,24 @@ pub enum SinkMode {
     Multi,
 }
 
+/// Splits what used to be one undifferentiated "virtual output" node into two
+/// roles (issue #287): a `Bus` keeps today's full behavior (fan-in, hosts
+/// effects, can route onward to another Bus, a terminal `Output`, or a
+/// mic-mix Input), while `Output` is a new, stricter terminal leaf — fan-in
+/// only, no effects, no forward routing of any kind, and no output pin in the
+/// routing graph. Only meaningful for `Device`s with `direction: Output`;
+/// virtual inputs and physical devices leave `Device.virtual_role` as `None`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum VirtualRole {
+    Bus,
+    Output,
+}
+
+pub fn default_virtual_role_bus() -> VirtualRole {
+    VirtualRole::Bus
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Device {
     pub id: String,
@@ -40,6 +58,8 @@ pub struct Device {
     pub direction: DeviceDirection,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sink_mode: Option<SinkMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub virtual_role: Option<VirtualRole>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub volume_percent: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -324,6 +344,11 @@ pub struct VirtualDeviceSpec {
     pub created_at: String,
     #[serde(default)]
     pub multi: bool,
+    /// Absent in configs written before #287 — defaults to `Bus`, which
+    /// preserves every pre-existing virtual output's chaining/effects
+    /// capability unchanged on upgrade.
+    #[serde(default = "default_virtual_role_bus")]
+    pub virtual_role: VirtualRole,
     /// Physical capture device system names mixed into this virtual input (e.g. headset mic),
     /// each with its own gain (applied via a per-pair feed sink, not the source's own volume).
     #[serde(default, deserialize_with = "deserialize_mix_source_specs", skip_serializing_if = "Vec::is_empty")]
@@ -945,6 +970,8 @@ pub struct VirtualDeviceResult {
     pub label: String,
     #[serde(default)]
     pub multi: bool,
+    #[serde(default = "default_virtual_role_bus")]
+    pub virtual_role: VirtualRole,
 }
 
 /// Backend-neutral virtual device bookkeeping info returned by
@@ -958,6 +985,7 @@ pub struct VirtualDeviceInfo {
     pub label: String,
     pub direction: DeviceDirection,
     pub multi: bool,
+    pub virtual_role: VirtualRole,
 }
 
 impl VirtualDeviceInfo {
@@ -974,6 +1002,10 @@ impl VirtualDeviceInfo {
                 } else {
                     SinkMode::Single
                 }),
+                DeviceDirection::Input => None,
+            },
+            virtual_role: match self.direction {
+                DeviceDirection::Output | DeviceDirection::Duplex => Some(self.virtual_role),
                 DeviceDirection::Input => None,
             },
             volume_percent: Some(100),

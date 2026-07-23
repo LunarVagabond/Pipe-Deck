@@ -1,5 +1,7 @@
 use super::{AudioBackend, BackendError, GraphListener};
-use crate::core::models::{Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
+use crate::core::models::{
+    Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
+};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
@@ -121,7 +123,12 @@ impl AudioBackend for StubBackend {
 
     fn apply_device_aliases_and_levels(&self, _devices: &mut [Device]) {}
 
-    fn create_virtual_output(&self, _label: &str, _multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+    fn create_virtual_output(
+        &self,
+        _label: &str,
+        _multi: bool,
+        _role: VirtualRole,
+    ) -> Result<VirtualDeviceResult, BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
@@ -139,6 +146,7 @@ impl AudioBackend for StubBackend {
         _label: &str,
         _direction: DeviceDirection,
         _multi: bool,
+        _role: VirtualRole,
         _mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
         Err(BackendError::Message(

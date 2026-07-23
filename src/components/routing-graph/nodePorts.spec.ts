@@ -93,6 +93,14 @@ describe("handlesForDevice", () => {
     expect(outHandles.map((h) => h.id)).toEqual(["audio-out:out1", "audio-out:out2", "audio-out:empty"]);
   });
 
+  it("gives a terminal Output (virtual) device zero output handles — #287, it's a true dead end", () => {
+    const device = makeDevice({ id: "term1", kind: "virtual", direction: "output", virtual_role: "output" });
+    const handles = handlesForDevice(device, { in: ["s1"], out: [] });
+
+    expect(handles.some((h) => h.portType === "audio-out")).toBe(false);
+    expect(handles.some((h) => h.portType === "audio-in")).toBe(true);
+  });
+
   it("caps a non-multi-capable side at a single filled handle with no trailing empty slot", () => {
     const device = makeDevice({ id: "d1", kind: "physical", direction: "input" });
     const handles = handlesForDevice(device, { in: [], out: ["s1"] });

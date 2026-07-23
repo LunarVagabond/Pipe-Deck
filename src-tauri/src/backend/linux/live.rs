@@ -1,4 +1,7 @@
-use crate::core::models::{Device, DeviceDirection, DeviceKind, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
+use crate::core::models::{
+    Device, DeviceDirection, DeviceKind, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
+    VirtualRole,
+};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use crate::backend::{BackendError, GraphListener, AudioBackend};
@@ -53,8 +56,14 @@ impl LinuxPipeWireBackend {
         })
     }
 
-    fn create_output_internal(&self, system_name: &str, label: &str, multi: bool) -> Result<VirtualDeviceEntry, BackendError> {
-        self.registry.create_output_for(system_name, label, multi)
+    fn create_output_internal(
+        &self,
+        system_name: &str,
+        label: &str,
+        multi: bool,
+        role: VirtualRole,
+    ) -> Result<VirtualDeviceEntry, BackendError> {
+        self.registry.create_output_for(system_name, label, multi, role)
     }
 
     fn create_input_internal(&self, system_name: &str, label: &str) -> Result<VirtualDeviceEntry, BackendError> {
@@ -203,9 +212,16 @@ impl AudioBackend for LinuxPipeWireBackend {
         pactl::pipe_deck_device_is_live(system_name, direction)
     }
 
-    fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+    fn create_virtual_output(
+        &self,
+        label: &str,
+        multi: bool,
+        role: VirtualRole,
+    ) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(label));
-        Ok(self.create_output_internal(&system_name, label, multi)?.into_result())
+        Ok(self
+            .create_output_internal(&system_name, label, multi, role)?
+            .into_result())
     }
 
     fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError> {
@@ -219,12 +235,13 @@ impl AudioBackend for LinuxPipeWireBackend {
         label: &str,
         direction: DeviceDirection,
         multi: bool,
+        role: VirtualRole,
         mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
         let entry = match direction {
             DeviceDirection::Input => self.create_input_internal(system_name, label)?,
             DeviceDirection::Output | DeviceDirection::Duplex => {
-                self.create_output_internal(system_name, label, multi)?
+                self.create_output_internal(system_name, label, multi, role)?
             }
         };
 

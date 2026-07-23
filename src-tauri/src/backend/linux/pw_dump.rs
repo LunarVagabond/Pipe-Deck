@@ -122,6 +122,12 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     },
                     direction: DeviceDirection::Output,
                     sink_mode: None,
+                    // Corrected from persisted config by
+                    // `core::restore::merge_registry_into_graph` /
+                    // `core::engine::virtual_ops::merge_virtual_devices`,
+                    // same as `sink_mode` above — pw-dump has no notion of
+                    // Bus vs terminal Output (#287).
+                    virtual_role: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
@@ -145,6 +151,7 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     },
                     direction: DeviceDirection::Input,
                     sink_mode: None,
+                    virtual_role: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,

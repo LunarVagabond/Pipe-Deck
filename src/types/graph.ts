@@ -30,6 +30,14 @@ export interface RouteExplanation {
 
 export type SinkMode = "single" | "multi";
 
+/** Splits what used to be one undifferentiated "virtual output" node into
+ * two roles (#287): a `bus` keeps today's full behavior (fan-in, hosts
+ * effects, can route onward to another bus, a terminal output, or a
+ * mic-mix input), while `output` is a stricter terminal leaf — fan-in only,
+ * no effects, no forward routing, no output pin. Only set for `Device`s
+ * with `direction: "output"`. */
+export type VirtualRole = "bus" | "output";
+
 /** A contributor to a virtual-mic mix; volume/mute only affect its share of
  * that one mix (via a per-pair feed sink), not the source's own device
  * volume — muting never touches the underlying link. */
@@ -46,6 +54,7 @@ export interface Device {
   kind: DeviceKind;
   direction: DeviceDirection;
   sink_mode?: SinkMode;
+  virtual_role?: VirtualRole;
   volume_percent?: number;
   muted?: boolean;
   current_target?: string;

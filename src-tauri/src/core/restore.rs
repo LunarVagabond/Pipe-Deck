@@ -1,5 +1,7 @@
 use crate::config::ConfigStore;
-use crate::core::models::{DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceSpec};
+use crate::core::models::{
+    DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceSpec, VirtualRole,
+};
 use crate::backend::AudioBackend;
 use crate::backend::slugify;
 use chrono::Utc;
@@ -59,6 +61,7 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
                 direction: module.direction.clone(),
                 created_at: now.clone(),
                 multi: false,
+                virtual_role: module.virtual_role,
                 mix_sources: Vec::new(),
             })
             .collect();
@@ -208,12 +211,27 @@ pub fn apply_persisted_routes(backend: &dyn AudioBackend) -> Result<(), RestoreE
     Ok(())
 }
 
+/// Every persisted-config lookup keyed by system_name that `merge_registry_into_graph`
+/// (this file) and `core::engine::virtual_ops::merge_virtual_devices` both need to overlay
+/// onto a freshly-listed `VirtualDeviceInfo`/`VirtualDeviceEntry`, since neither the live
+/// pactl scan nor the config-backfill pass in `virtual_devices::discover_from_pactl` can
+/// recover `virtual_role` from anything but persisted config (#287 — unlike `multi`, role
+/// isn't encoded in the sink name or module args).
+pub fn role_by_system_name() -> std::collections::HashMap<String, VirtualRole> {
+    ConfigStore::new()
+        .virtual_devices()
+        .into_iter()
+        .map(|spec| (format!("pipe-deck-{}", spec.slug), spec.virtual_role))
+        .collect()
+}
+
 pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, backend: &dyn AudioBackend) {
     let multi_by_name: std::collections::HashMap<String, bool> = ConfigStore::new()
         .virtual_devices()
         .into_iter()
         .map(|spec| (format!("pipe-deck-{}", spec.slug), spec.multi))
         .collect();
+    let role_by_name = role_by_system_name();
 
     for entry in backend.list_virtual_devices() {
         let sink_mode = if entry.direction == DeviceDirection::Output {
@@ -229,6 +247,16 @@ pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, backend: &dyn AudioBa
         } else {
             None
         };
+        let virtual_role = if entry.direction == DeviceDirection::Output {
+            Some(
+                role_by_name
+                    .get(&entry.system_name)
+                    .copied()
+                    .unwrap_or(entry.virtual_role),
+            )
+        } else {
+            None
+        };
 
         if let Some(device) = graph
             .devices
@@ -240,9 +268,11 @@ pub fn merge_registry_into_graph(graph: &mut RuntimeGraph, backend: &dyn AudioBa
             device.kind = crate::core::models::DeviceKind::Virtual;
             device.direction = entry.direction.clone();
             device.sink_mode = sink_mode;
+            device.virtual_role = virtual_role;
         } else {
             let mut device = entry.to_device();
             device.sink_mode = sink_mode;
+            device.virtual_role = virtual_role;
             graph.devices.push(device);
         }
     }
@@ -256,6 +286,7 @@ pub fn spec_from_create_result(
     label: &str,
     direction: DeviceDirection,
     multi: bool,
+    role: VirtualRole,
 ) -> VirtualDeviceSpec {
     let slug = system_name
         .strip_prefix("pipe-deck-")
@@ -268,6 +299,7 @@ pub fn spec_from_create_result(
         direction,
         created_at: Utc::now().to_rfc3339(),
         multi,
+        virtual_role: role,
         mix_sources: Vec::new(),
     }
 }
@@ -283,6 +315,7 @@ fn restore_virtual_from_spec(
             &spec.label,
             spec.direction.clone(),
             spec.multi,
+            spec.virtual_role,
             &spec.mix_sources,
         )
         .map_err(|error| error.to_string())
@@ -300,6 +333,7 @@ mod tests {
             "Game Mix",
             DeviceDirection::Output,
             true,
+            VirtualRole::Bus,
         );
         assert_eq!(spec.id, "virtual-game-mix");
         assert_eq!(spec.slug, "game-mix");

@@ -2,7 +2,10 @@ pub mod linux;
 pub mod mock;
 pub mod stub;
 
-use crate::core::models::{Device, DeviceDirection, EffectChainConfig, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult};
+use crate::core::models::{
+    Device, DeviceDirection, EffectChainConfig, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
+    VirtualRole,
+};
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
 use std::collections::HashSet;
@@ -108,7 +111,12 @@ pub trait AudioBackend: Send + Sync {
     // the label. `restore_virtual_device` is for config-driven recreation
     // (core/restore.rs) where system_name is already fixed (the persisted
     // slug) and must NOT be re-derived from a possibly-since-renamed label.
-    fn create_virtual_output(&self, label: &str, multi: bool) -> Result<VirtualDeviceResult, BackendError>;
+    fn create_virtual_output(
+        &self,
+        label: &str,
+        multi: bool,
+        role: VirtualRole,
+    ) -> Result<VirtualDeviceResult, BackendError>;
     fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError>;
     fn restore_virtual_device(
         &self,
@@ -116,6 +124,7 @@ pub trait AudioBackend: Send + Sync {
         label: &str,
         direction: DeviceDirection,
         multi: bool,
+        role: VirtualRole,
         mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError>;
     fn remove_virtual_device(&self, system_name: &str) -> Result<(), BackendError>;
@@ -349,7 +358,12 @@ impl AudioBackend for EmptyAudioBackend {
         false
     }
 
-    fn create_virtual_output(&self, _label: &str, _multi: bool) -> Result<VirtualDeviceResult, BackendError> {
+    fn create_virtual_output(
+        &self,
+        _label: &str,
+        _multi: bool,
+        _role: VirtualRole,
+    ) -> Result<VirtualDeviceResult, BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 
@@ -363,6 +377,7 @@ impl AudioBackend for EmptyAudioBackend {
         _label: &str,
         _direction: DeviceDirection,
         _multi: bool,
+        _role: VirtualRole,
         _mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))

@@ -143,8 +143,12 @@ export function handlesForDevice(
   }
 
   const isVirtualInput = device.kind === "virtual" && device.direction === "input";
+  // A terminal Output (virtual) (#287) is a true dead end — no forward
+  // routing of any kind, so it never gets an output pin to drag from.
+  const isTerminalVirtualOutput =
+    device.kind === "virtual" && device.direction === "output" && device.virtual_role !== "bus";
   const hasIn = column === "routing" || column === "outputs" || isVirtualInput;
-  const hasOut = column === "routing" || column === "inputs" || isVirtualInput;
+  const hasOut = (column === "routing" || column === "inputs" || isVirtualInput) && !isTerminalVirtualOutput;
 
   const handles: RoutingGraphHandle[] = [];
   if (hasIn) {

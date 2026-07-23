@@ -237,7 +237,7 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-function onAddNodeAction(type: "output" | "input") {
+function onAddNodeAction(type: "bus" | "output" | "input") {
   contextMenu.value = null;
   openNewDeviceDialog(type);
 }

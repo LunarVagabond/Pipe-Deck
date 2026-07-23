@@ -1,5 +1,5 @@
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage, VirtualRole};
 use crate::pipewire::filter_chain;
 use crate::pipewire::fx_capability::{self, FxCapabilities};
 use crate::pipewire::fx_validate::{self, PreflightResult};
@@ -187,11 +187,15 @@ impl CoreEngine {
                 "effects may only be applied to pipe-deck virtual devices".to_string(),
             ));
         }
+        // A terminal Output (#287) is a true dead end — no effects, same as
+        // a physical output. Only a Bus (or a virtual input/mic) can host
+        // one.
         if device.kind != DeviceKind::Virtual
             || !matches!(device.direction, DeviceDirection::Output | DeviceDirection::Input)
+            || (device.direction == DeviceDirection::Output && device.virtual_role != Some(VirtualRole::Bus))
         {
             return Err(EngineError::InvalidInput(
-                "live effects currently only support virtual output and input devices".to_string(),
+                "live effects currently only support virtual bus and input devices".to_string(),
             ));
         }
 

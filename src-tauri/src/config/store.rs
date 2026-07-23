@@ -586,6 +586,7 @@ mod tests {
                 direction: crate::core::models::DeviceDirection::Output,
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
+                virtual_role: crate::core::models::VirtualRole::Bus,
                 mix_sources: Vec::new(),
             };
             store.add_virtual_device(spec.clone()).unwrap();
@@ -610,6 +611,7 @@ mod tests {
                 direction: crate::core::models::DeviceDirection::Input,
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
+                virtual_role: crate::core::models::VirtualRole::Bus,
                 mix_sources: Vec::new(),
             };
             store.add_virtual_device(spec).unwrap();
@@ -640,6 +642,23 @@ mod tests {
             assert_eq!(
                 config.virtual_devices[0].mix_sources,
                 vec![crate::core::models::MixSourceSpec::unity("alsa_input.headset")]
+            );
+        });
+    }
+
+    #[test]
+    fn legacy_virtual_device_config_migrates_to_bus() {
+        with_temp_config(|store| {
+            fs::create_dir_all(store.config_dir()).unwrap();
+            fs::write(
+                store.config_dir().join("config.yaml"),
+                "version: 1\nprofile_index: []\nvirtual_devices:\n  - id: virtual-game-mix\n    slug: game-mix\n    label: Game Mix\n    direction: output\n    created_at: '2026-07-09T10:00:00Z'\n    multi: false\n",
+            )
+            .unwrap();
+            let config = store.load_config().unwrap();
+            assert_eq!(
+                config.virtual_devices[0].virtual_role,
+                crate::core::models::VirtualRole::Bus
             );
         });
     }

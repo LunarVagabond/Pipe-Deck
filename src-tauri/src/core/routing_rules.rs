@@ -112,7 +112,7 @@ pub fn find_device_by_system_name<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::{DeviceDirection, DeviceKind, SinkMode, StreamDirection};
+    use crate::core::models::{DeviceDirection, DeviceKind, SinkMode, StreamDirection, VirtualRole};
 
     fn sample_stream(app_name: &str, executable: Option<&str>, media_name: Option<&str>) -> Stream {
         Stream {
@@ -160,6 +160,7 @@ mod tests {
             kind: DeviceKind::Virtual,
             direction: DeviceDirection::Output,
             sink_mode: Some(SinkMode::Multi),
+            virtual_role: Some(VirtualRole::Bus),
             volume_percent: None,
             muted: None,
             current_target: None,
@@ -174,6 +175,7 @@ mod tests {
                 kind: DeviceKind::Physical,
                 direction: DeviceDirection::Output,
                 sink_mode: None,
+                virtual_role: None,
                 volume_percent: None,
                 muted: None,
                 current_target: None,
@@ -187,6 +189,7 @@ mod tests {
                 kind: DeviceKind::Physical,
                 direction: DeviceDirection::Output,
                 sink_mode: None,
+                virtual_role: None,
                 volume_percent: None,
                 muted: None,
                 current_target: None,
