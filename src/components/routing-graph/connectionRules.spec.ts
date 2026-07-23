@@ -323,6 +323,43 @@ describe("resolveConnectionAction — connect mode", () => {
       action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out2"] },
     });
   });
+
+  it("re-targets during an edge_update drag when the unmoved source handle is still occupied", () => {
+    // Reflects real drag behavior: only the dragged (target) end lands on an
+    // empty slot — the unmoved source end still carries its original,
+    // already-connected handle id, not a trailing `:empty` slot.
+    const sink = makeDevice({
+      id: "sink1",
+      label: "Virtual Sink",
+      kind: "virtual",
+      direction: "output",
+      current_targets: ["out1"],
+    });
+    const out1 = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
+    const out2 = makeDevice({ id: "out2", label: "Headphones", kind: "physical", direction: "output" });
+    const graph = makeGraph([sink, out1, out2], []);
+    const result = resolveConnectionAction(
+      graph,
+      connection({
+        source: "device:sink1",
+        target: "device:out2",
+        sourceHandle: "audio-out:out1",
+        targetHandle: "audio-in:empty",
+      }),
+      {
+        mode: "edge_update",
+        previousEdge: {
+          source: "device:sink1",
+          target: "device:out1",
+          sourceHandle: "audio-out:out1",
+          targetHandle: "audio-in:empty",
+        },
+      },
+    );
+    expect(result).toEqual({
+      action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out2"] },
+    });
+  });
 });
 
 describe("resolveConnectionAction — edge_disconnect mode", () => {

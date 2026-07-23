@@ -51,12 +51,19 @@ function parseHandleBase(handleId: string): PortType | null {
  * empty slot; an already-occupied device handle represents one specific existing
  * connection and isn't a valid drop target for a new one. Stream handles (no
  * `:` suffix) are always reassignable, matching today's single-target behavior.
+ *
+ * `alsoFillable` additionally allows specific occupied handle ids through — used
+ * during an edge-update (retarget) drag, where the unmoved end of the edge being
+ * dragged still carries its original, occupied handle id.
  */
-export function isHandleFillable(handleId: string): boolean {
+export function isHandleFillable(
+  handleId: string,
+  alsoFillable: ReadonlyArray<string | null | undefined> = [],
+): boolean {
   if (!handleId.includes(":")) {
     return true;
   }
-  return handleId.endsWith(":empty");
+  return handleId.endsWith(":empty") || alsoFillable.includes(handleId);
 }
 
 /**
@@ -72,6 +79,7 @@ export function canConnectPorts(
   sourcePort: string | null | undefined,
   targetPort: string | null | undefined,
   requireEmptySlot = true,
+  alsoFillable: ReadonlyArray<string | null | undefined> = [],
 ): boolean {
   if (!sourcePort || !targetPort) {
     return false;
@@ -87,7 +95,7 @@ export function canConnectPorts(
   if (!requireEmptySlot) {
     return true;
   }
-  return isHandleFillable(sourcePort) && isHandleFillable(targetPort);
+  return isHandleFillable(sourcePort, alsoFillable) && isHandleFillable(targetPort, alsoFillable);
 }
 
 export function edgeColorForPorts(): string {

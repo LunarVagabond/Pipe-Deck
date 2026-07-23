@@ -414,7 +414,17 @@ function isValidConnection(connection: Connection) {
   // (which carries its own `id`). Only the former should require the target to
   // be the open trailing slot.
   const isExistingEdge = Boolean((connection as unknown as { id?: string }).id);
-  return canConnectPorts(connection.sourceHandle, connection.targetHandle, !isExistingEdge);
+  if (isExistingEdge) {
+    return canConnectPorts(connection.sourceHandle, connection.targetHandle, false);
+  }
+  // During an edge-update (retarget) drag, Vue Flow builds this same bare-Connection
+  // shape for the live candidate, so it's indistinguishable from a fresh connect drag
+  // above — but the unmoved end still carries its original, occupied handle id rather
+  // than an empty slot. Allow that specific handle through so only the genuinely moved
+  // end has to land on a real empty slot.
+  const pending = edgeUpdatePending.value;
+  const alsoFillable = pending ? [pending.sourceHandle, pending.targetHandle] : [];
+  return canConnectPorts(connection.sourceHandle, connection.targetHandle, true, alsoFillable);
 }
 
 async function commitConnection(

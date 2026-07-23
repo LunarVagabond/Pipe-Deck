@@ -47,7 +47,16 @@ export function resolveConnectionAction(
     return { error: "Drag needs both a source and a target port." };
   }
 
-  if (!canConnectPorts(connection.sourceHandle, connection.targetHandle)) {
+  // Mirrors RoutingGraph.vue's isValidConnection: during an edge-update (retarget)
+  // drag, the unmoved end of `connection` still carries its original, occupied
+  // handle id rather than an empty slot, so it needs the same allowance here or a
+  // real retarget that passed the pre-drop gate would be rejected at this later
+  // resolution step instead.
+  const alsoFillable =
+    context.mode === "edge_update" && context.previousEdge
+      ? [context.previousEdge.sourceHandle, context.previousEdge.targetHandle]
+      : [];
+  if (!canConnectPorts(connection.sourceHandle, connection.targetHandle, true, alsoFillable)) {
     return {
       error: "Connect an output port to an open input slot — this target's slot is already in use or the wrong direction.",
     };
