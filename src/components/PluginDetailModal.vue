@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import ToggleSwitch from "./ToggleSwitch.vue";
 import type { CapabilityInfo, PluginStatus } from "../types/graph";
+import { isAlwaysOnPlugin } from "../utils/plugins";
 
 const props = defineProps<{
   plugin: PluginStatus;
@@ -29,11 +30,15 @@ function isEnforced(capability: string): boolean {
         </div>
         <ToggleSwitch
           :model-value="plugin.enabled"
-          :disabled="busy"
+          :disabled="busy || isAlwaysOnPlugin(plugin.id)"
+          :title="isAlwaysOnPlugin(plugin.id) ? 'Effects are always available and can\'t be disabled here.' : undefined"
           @update:model-value="(enabled) => emit('toggle-enabled', enabled)"
         />
       </div>
 
+      <p v-if="isAlwaysOnPlugin(plugin.id)" class="plugin-meta">
+        Always on — this doesn't gate the Effects feature. See the Effects tab to attach or remove effects.
+      </p>
       <p v-if="plugin.description" class="plugin-dialog-description">{{ plugin.description }}</p>
 
       <dl class="plugin-dialog-meta-grid">

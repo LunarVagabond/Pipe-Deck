@@ -15,6 +15,7 @@ import {
 import { useDaemonStatus } from "../stores/daemonStatus";
 import type { CapabilityInfo, PluginDiscoveryIssue, PluginStatus } from "../types/graph";
 import type { ThemeMode } from "../types/theme";
+import { isAlwaysOnPlugin } from "../utils/plugins";
 
 const THEME_MODE_OPTIONS = [
   { value: "light", label: "Light" },
@@ -626,6 +627,9 @@ onMounted(() => {
               <td>
                 <strong>{{ plugin.name }}</strong>
                 <span class="plugin-meta">v{{ plugin.version }} · {{ plugin.runtime_status }}</span>
+                <span v-if="isAlwaysOnPlugin(plugin.id)" class="plugin-meta">
+                  Always on — see the Effects tab
+                </span>
                 <span v-if="plugin.disabled_reason" class="plugin-meta plugin-crash-loop-badge">
                   {{ plugin.disabled_reason }}
                 </span>
@@ -643,10 +647,14 @@ onMounted(() => {
                 </a>
                 <span v-else>—</span>
               </td>
-              <td class="plugins-toggle-cell" @click.stop>
+              <td
+                class="plugins-toggle-cell"
+                @click.stop
+                :title="isAlwaysOnPlugin(plugin.id) ? 'Effects are always available and can\'t be disabled here.' : undefined"
+              >
                 <ToggleSwitch
                   :model-value="plugin.enabled"
-                  :disabled="busy"
+                  :disabled="busy || isAlwaysOnPlugin(plugin.id)"
                   :show-state-labels="false"
                   @update:model-value="(enabled) => togglePlugin(plugin, enabled)"
                 />
