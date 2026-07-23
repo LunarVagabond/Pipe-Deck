@@ -92,6 +92,12 @@ pub struct CoreEngine {
     graph_generation: Arc<AtomicU64>,
 }
 
+impl Default for CoreEngine {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CoreEngine {
     pub fn new() -> Self {
         Self {

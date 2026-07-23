@@ -110,7 +110,7 @@ pub fn run() {
         ])
         .setup(|app| {
             tray::setup_tray(app)?;
-            tray::attach_close_to_tray(&app.handle());
+            tray::attach_close_to_tray(app.handle());
 
             app.manage(daemon::EphemeralDaemonHandle(std::sync::Mutex::new(daemon::ensure_ephemeral_daemon())));
 

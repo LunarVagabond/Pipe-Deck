@@ -38,7 +38,7 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                     if window.is_visible().unwrap_or(false) {
                         let _ = window.hide();
                     } else {
-                        show_main_window(&app);
+                        show_main_window(app);
                     }
                 }
             }

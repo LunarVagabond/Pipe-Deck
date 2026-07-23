@@ -93,14 +93,13 @@ pub fn stream_matches_sink_input(stream: &crate::core::models::Stream, input: &P
         }
     }
 
-    if stream.app_name != input.application_name {
-        if stream
+    if stream.app_name != input.application_name
+        && stream
             .executable
             .as_deref()
             .is_none_or(|executable| executable != input.application_name)
-        {
-            return false;
-        }
+    {
+        return false;
     }
 
     match (&stream.media_name, &input.media_name) {
@@ -136,14 +135,13 @@ pub fn stream_matches_source_output(
         }
     }
 
-    if stream.app_name != output.application_name {
-        if stream
+    if stream.app_name != output.application_name
+        && stream
             .executable
             .as_deref()
             .is_none_or(|executable| executable != output.application_name)
-        {
-            return false;
-        }
+    {
+        return false;
     }
 
     match (&stream.media_name, &output.media_name) {

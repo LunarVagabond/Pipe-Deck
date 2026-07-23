@@ -11,6 +11,12 @@ use std::collections::HashSet;
 /// a real macOS/Windows backend (#69/#70).
 pub struct StubBackend;
 
+impl Default for StubBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StubBackend {
     pub fn new() -> Self {
         Self

@@ -587,7 +587,7 @@ impl CoreEngine {
     /// transition logic is unit-testable with an explicit `is_live` instead
     /// of requiring a real native-effects PipeWire session.
     fn reconcile_one_effect_chain_liveness(&mut self, system_name: &str, is_live: bool) {
-        let Some(device) = self.graph.devices.iter().find(|device| &device.system_name == system_name).cloned()
+        let Some(device) = self.graph.devices.iter().find(|device| device.system_name == system_name).cloned()
         else {
             return;
         };
