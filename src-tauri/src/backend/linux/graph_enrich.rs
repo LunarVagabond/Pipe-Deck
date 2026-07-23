@@ -190,12 +190,12 @@ fn load_pactl_endpoints(kind: &str) -> HashMap<String, PactlEndpoint> {
     for line in text.lines() {
         let line = line.trim();
 
-        if line.starts_with("Name:") {
+        if let Some(stripped) = line.strip_prefix("Name:") {
             if let Some(name) = current_name.take() {
                 endpoints.insert(name, current);
                 current = PactlEndpoint::default();
             }
-            current_name = Some(line["Name:".len()..].trim().to_string());
+            current_name = Some(stripped.trim().to_string());
             continue;
         }
 

@@ -24,6 +24,12 @@ pub struct MockAudioBackend {
     loaded_effect_chains: Mutex<HashSet<String>>,
 }
 
+impl Default for MockAudioBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl MockAudioBackend {
     pub fn new() -> Self {
         Self {

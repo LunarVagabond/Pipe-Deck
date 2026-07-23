@@ -570,9 +570,9 @@ fn configured_label_for_system_name(
 fn extract_arg_value(args: &str, prefix: &str) -> Option<String> {
     let start = args.find(prefix)? + prefix.len();
     let rest = &args[start..];
-    if rest.starts_with('"') {
-        let end = rest[1..].find('"')? + 1;
-        return Some(rest[1..end].to_string());
+    if let Some(stripped) = rest.strip_prefix('"') {
+        let end = stripped.find('"')?;
+        return Some(stripped[..end].to_string());
     }
     let end = rest.find(' ').unwrap_or(rest.len());
     Some(rest[..end].to_string())

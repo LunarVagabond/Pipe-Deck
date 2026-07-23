@@ -1,5 +1,5 @@
 use crate::core::models::{
-    AppConfig, DeviceAliasEntry, EffectChainConfig, PluginEntry, Preferences, ProfileIndexEntry,
+    AppConfig, DeviceAliasEntry, EffectChainConfig, Preferences, ProfileIndexEntry,
     Rule, RoutingRulesConfig, VirtualDeviceSpec,
 };
 use std::collections::HashMap;
@@ -20,6 +20,12 @@ pub struct ConfigStore {
 }
 
 const EFFECTS_PLUGIN_ID: &str = "pipe-deck-effects";
+
+impl Default for ConfigStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl ConfigStore {
     pub fn new() -> Self {
@@ -444,7 +450,7 @@ impl ConfigStore {
         let plugin = config
             .plugins
             .entry(EFFECTS_PLUGIN_ID.to_string())
-            .or_insert_with(PluginEntry::default);
+            .or_default();
         let mut plugin_config = if plugin.config.is_object() {
             plugin.config.as_object().cloned().unwrap_or_default()
         } else {

@@ -310,9 +310,7 @@ fn apply_device_rules_pass(
             } else {
                 false
             };
-            let routed = if already {
-                true
-            } else if ctx.mock_graph_only {
+            let routed = if already || ctx.mock_graph_only {
                 true
             } else {
                 match crate::core::routing::apply_sink_targets(graph, &source_id, &target_ids) {
@@ -381,14 +379,12 @@ pub fn simulate_rules(
                 .first()
                 .and_then(|winner| resolve_target_device(graph, &stream, winner));
             let would_target_device_id = resolved.as_ref().map(|(device, _)| device.id.clone());
-            if let Some((device, fallback_note)) = resolved {
-                if let Some(note) = fallback_note {
-                    explanation.match_reasons.push(note);
-                    explanation.target_system_name = Some(device.system_name.clone());
-                    explanation.target_system_names = vec![device.system_name.clone()];
-                    explanation.action_status = ActionStatus::Simulated;
-                    explanation.fallback_applied = true;
-                }
+            if let Some((device, Some(note))) = resolved {
+                explanation.match_reasons.push(note);
+                explanation.target_system_name = Some(device.system_name.clone());
+                explanation.target_system_names = vec![device.system_name.clone()];
+                explanation.action_status = ActionStatus::Simulated;
+                explanation.fallback_applied = true;
             }
             SimulationResult {
                 stream_id: stream.id.clone(),

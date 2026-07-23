@@ -163,6 +163,7 @@ pub async fn get_app_info(state: tauri::State<'_, crate::AppState>) -> Result<Ap
 /// unformatted text. Pipe Deck doesn't write a log file (see
 /// `docs/developers/Getting_Started.md`'s troubleshooting section), so there's
 /// no log section to include.
+#[allow(clippy::too_many_arguments)]
 fn format_diagnostics_bundle(
     install_kind: &InstallKind,
     build_revision: &str,

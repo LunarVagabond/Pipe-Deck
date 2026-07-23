@@ -498,17 +498,12 @@ pub struct RuleAction {
     pub target_system_names: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum FallbackPolicy {
+    #[default]
     KeepCurrent,
     SafeDefault,
-}
-
-impl Default for FallbackPolicy {
-    fn default() -> Self {
-        Self::KeepCurrent
-    }
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

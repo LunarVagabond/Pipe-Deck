@@ -65,14 +65,13 @@ pub fn stream_matches_pactl_capture_identity(
         }
     }
 
-    if stream.app_name != output.application_name {
-        if stream
+    if stream.app_name != output.application_name
+        && stream
             .executable
             .as_deref()
             .is_none_or(|executable| executable != output.application_name)
-        {
-            return false;
-        }
+    {
+        return false;
     }
 
     match (&stream.media_name, &output.media_name) {
