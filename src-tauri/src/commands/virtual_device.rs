@@ -1,16 +1,25 @@
-use crate::core::models::{ApplyResult, MixSource, VirtualDeviceResult};
+use crate::core::models::{ApplyResult, MixSource, VirtualDeviceResult, VirtualRole};
 use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
 pub async fn create_virtual_output(
     name: String,
+    role: Option<String>,
     app: tauri::AppHandle,
     state: State<'_, AppState>,
 ) -> Result<VirtualDeviceResult, String> {
+    // Absent/anything but "output" keeps today's behavior (a Bus) — old
+    // frontend builds mid-rollout, and every call site that predates #287's
+    // three-way creation UX, still get exactly what "virtual output" always
+    // meant.
+    let role = match role.as_deref() {
+        Some("output") => VirtualRole::Output,
+        _ => VirtualRole::Bus,
+    };
     let mut engine = state.engine.write().await;
     let result = engine
-        .create_virtual_output(&name)
+        .create_virtual_output_role(&name, role)
         .map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(result)

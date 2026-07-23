@@ -308,6 +308,7 @@ mod tests {
             kind: DeviceKind::Virtual,
             direction: DeviceDirection::Output,
             sink_mode: None,
+            virtual_role: None,
             volume_percent: None,
             muted: None,
             current_target: current_target.map(str::to_string),

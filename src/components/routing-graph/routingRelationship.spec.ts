@@ -47,6 +47,12 @@ describe("isMicMixCandidate", () => {
     const target = makeDevice({ id: "out1", kind: "virtual", direction: "output" });
     expect(isMicMixCandidate(source, target)).toBe(false);
   });
+
+  it("is false for a terminal Output (virtual) source — #287, a true dead end can't feed a mic mix", () => {
+    const source = makeDevice({ id: "out1", kind: "virtual", direction: "output", virtual_role: "output" });
+    const target = makeDevice({ id: "mic2", kind: "virtual", direction: "input" });
+    expect(isMicMixCandidate(source, target)).toBe(false);
+  });
 });
 
 describe("isRoutableVirtualOutput", () => {
@@ -60,6 +66,12 @@ describe("isRoutableVirtualOutput", () => {
 
   it("is false for a physical output device", () => {
     expect(isRoutableVirtualOutput(makeDevice({ kind: "physical", direction: "output" }))).toBe(false);
+  });
+
+  it("is false for a terminal Output (virtual) device — #287, it can't route onward", () => {
+    expect(
+      isRoutableVirtualOutput(makeDevice({ kind: "virtual", direction: "output", virtual_role: "output" })),
+    ).toBe(false);
   });
 });
 

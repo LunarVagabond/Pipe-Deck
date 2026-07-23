@@ -68,6 +68,7 @@ mod tests {
                 kind: DeviceKind::Virtual,
                 direction: DeviceDirection::Output,
                 sink_mode: Some(crate::core::models::SinkMode::Single),
+                virtual_role: Some(crate::core::models::VirtualRole::Bus),
                 volume_percent: Some(100),
                 muted: Some(false),
                 current_target: None,

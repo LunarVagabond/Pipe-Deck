@@ -13,7 +13,7 @@ use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{
     Device, DeviceDirection, DeviceKind, MixSource, Profile, Rule, RuleAction, RuleCondition,
-    RuntimeGraph, Stream, StreamDirection, VirtualDeviceSpec,
+    RuntimeGraph, Stream, StreamDirection, VirtualDeviceSpec, VirtualRole,
 };
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -173,6 +173,83 @@ fn virtual_output_can_chain_into_another_virtual_output() {
 
     engine.remove_virtual_device(&submix.system_name).unwrap();
     engine.remove_virtual_device(&master.system_name).unwrap();
+}
+
+#[test]
+fn create_virtual_output_role_creates_a_distinct_terminal_output() {
+    // #287: "Add Output (virtual)" is the new, opt-in restrictive role —
+    // `create_virtual_output` (the zero-arg entry point) must keep creating
+    // a Bus, unchanged, for every existing caller.
+    let (mut engine, _guard) = mock_engine();
+
+    let bus = engine.create_virtual_output("Bus Device").expect("create bus");
+    assert_eq!(bus.virtual_role, VirtualRole::Bus);
+    let terminal = engine
+        .create_virtual_output_role("Terminal Device", VirtualRole::Output)
+        .expect("create terminal output");
+    assert_eq!(terminal.virtual_role, VirtualRole::Output);
+
+    let bus_device = engine.runtime_graph().devices.iter().find(|d| d.id == bus.device_id).unwrap();
+    assert_eq!(bus_device.virtual_role, Some(VirtualRole::Bus));
+    let terminal_device = engine.runtime_graph().devices.iter().find(|d| d.id == terminal.device_id).unwrap();
+    assert_eq!(terminal_device.virtual_role, Some(VirtualRole::Output));
+
+    engine.remove_virtual_device(&bus.system_name).unwrap();
+    engine.remove_virtual_device(&terminal.system_name).unwrap();
+}
+
+#[test]
+fn terminal_output_rejected_as_mic_mix_source() {
+    // #287: a terminal Output is a true dead end — it can't feed a mic mix
+    // any more than it can fan out to another sink; only a Bus qualifies.
+    let (mut engine, _guard) = mock_engine();
+    let terminal = engine
+        .create_virtual_output_role("Terminal Source", VirtualRole::Output)
+        .expect("create terminal output");
+    let input = engine.create_virtual_input("Mic Mix Target").expect("create input");
+
+    let error = engine
+        .set_virtual_mic_mix(&input.device_id, &[MixSource {
+            device_id: terminal.device_id.clone(),
+            volume_percent: 100,
+            muted: false,
+        }])
+        .expect_err("terminal output must not be a valid mic-mix source");
+    assert!(error.to_string().contains("virtual bus"));
+}
+
+#[test]
+fn bus_still_qualifies_as_a_mic_mix_source() {
+    // Positive-path regression alongside the rejection test above — a Bus
+    // (today's virtual-output behavior) must still work as a mic-mix source.
+    let (mut engine, _guard) = mock_engine();
+    let bus = engine.create_virtual_output("Bus Source").expect("create bus");
+    let input = engine.create_virtual_input("Mic Mix Target").expect("create input");
+
+    let result = engine
+        .set_virtual_mic_mix(&input.device_id, &[MixSource {
+            device_id: bus.device_id.clone(),
+            volume_percent: 100,
+            muted: false,
+        }])
+        .expect("bus should be a valid mic-mix source");
+    assert!(result.success, "{:?}", result.message);
+}
+
+#[test]
+fn terminal_output_rejects_effect_attach() {
+    // #287: a terminal Output never hosts effects, same as a physical
+    // output — only a Bus (or a virtual input/mic) can.
+    let (mut engine, _guard) = mock_engine();
+    let terminal = engine
+        .create_virtual_output_role("Terminal Effects Test", VirtualRole::Output)
+        .expect("create terminal output");
+
+    let config = pipe_deck_lib::core::models::EffectChainConfig::default();
+    let error = engine
+        .apply_effect_chain_structural(&terminal.device_id, &config)
+        .expect_err("terminal output must not accept an effect chain");
+    assert!(error.to_string().contains("virtual bus"));
 }
 
 #[test]
@@ -558,6 +635,7 @@ fn virtual_device_spec(id: &str, slug: &str, direction: DeviceDirection) -> Virt
         direction,
         created_at: "2026-07-21T00:00:00Z".into(),
         multi: false,
+        virtual_role: VirtualRole::Bus,
         mix_sources: Vec::new(),
     }
 }
@@ -587,7 +665,7 @@ fn restore_session_adopts_a_device_the_backend_already_has_instead_of_recreating
         .add_virtual_device(virtual_device_spec("vdev-1", "restore-output", DeviceDirection::Output))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-restore-output", "Restore Test", DeviceDirection::Output, false, &[])
+        .restore_virtual_device("pipe-deck-restore-output", "Restore Test", DeviceDirection::Output, false, VirtualRole::Bus, &[])
         .expect("pre-seed backend");
 
     let result = restore::restore_session(&backend).expect("restore_session");
@@ -617,10 +695,10 @@ fn restore_session_removes_orphaned_modules_not_listed_in_config() {
         .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
+        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, VirtualRole::Bus, &[])
         .expect("pre-seed backend with the configured module");
     backend
-        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
+        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, VirtualRole::Bus, &[])
         .expect("pre-seed backend with an unconfigured module");
 
     let result = restore::restore_session(&backend).expect("restore_session");
@@ -646,10 +724,10 @@ fn remove_all_virtual_devices_unloads_every_live_module_regardless_of_config() {
         .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
+        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, VirtualRole::Bus, &[])
         .expect("pre-seed configured module");
     backend
-        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
+        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, VirtualRole::Bus, &[])
         .expect("pre-seed unconfigured module");
 
     let (removed, errors) = restore::remove_all_virtual_devices(&backend);
@@ -708,6 +786,7 @@ fn headset_device() -> Device {
         kind: DeviceKind::Physical,
         direction: DeviceDirection::Output,
         sink_mode: None,
+        virtual_role: None,
         volume_percent: Some(100),
         muted: Some(false),
         current_target: None,

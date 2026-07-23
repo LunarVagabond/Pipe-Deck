@@ -52,6 +52,16 @@ defineProps<{
       stroke-linecap="round"
       stroke-linejoin="round"
     />
+    <!-- Terminal virtual output: signal flows in and stops — no fan-out branches -->
+    <path
+      v-else-if="kind === 'virtual-output'"
+      d="M4 12h11m0 0-2.5-2.5M15 12l-2.5 2.5M18 7v10"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
     <!-- Virtual input: mixes several sources into one -->
     <path
       v-else-if="kind === 'virtual-input'"

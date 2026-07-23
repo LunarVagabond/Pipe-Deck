@@ -25,7 +25,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "output" | "input"];
+  "add-node": [type: "bus" | "output" | "input"];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
 }>();
@@ -98,7 +98,8 @@ function onPickNode(nodeId: string) {
     </template>
     <template v-else>
       <p class="routing-graph-context-menu-label">Add node</p>
-      <button type="button" @click="emit('add-node', 'output')">+ Virtual Output</button>
+      <button type="button" @click="emit('add-node', 'bus')">+ Bus</button>
+      <button type="button" @click="emit('add-node', 'output')">+ Output (virtual)</button>
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
 
       <hr class="routing-graph-context-menu-separator" />

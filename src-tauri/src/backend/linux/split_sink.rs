@@ -1,4 +1,4 @@
-use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph};
+use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph, VirtualRole};
 use crate::backend::BackendError;
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
@@ -46,9 +46,14 @@ pub fn apply_sink_targets(
         .find(|device| device.id == sink_device_id)
         .ok_or_else(|| BackendError::Message(format!("sink device not found: {sink_device_id}")))?;
 
-    if sink.kind != DeviceKind::Virtual || sink.direction != DeviceDirection::Output {
+    // A terminal Output (#287) is a true dead end — no forward routing of
+    // any kind. Only a Bus can fan out to targets.
+    if sink.kind != DeviceKind::Virtual
+        || sink.direction != DeviceDirection::Output
+        || sink.virtual_role != Some(VirtualRole::Bus)
+    {
         return Err(BackendError::Message(
-            "only virtual output sinks can fan out to targets".into(),
+            "only virtual bus devices can fan out to targets".into(),
         ));
     }
 
@@ -215,6 +220,7 @@ mod tests {
             } else {
                 crate::core::models::SinkMode::Single
             }),
+            virtual_role: Some(VirtualRole::Bus),
             volume_percent: None,
             muted: None,
             current_target: None,
@@ -250,6 +256,7 @@ mod tests {
             kind: DeviceKind::Virtual,
             direction: DeviceDirection::Input,
             sink_mode: None,
+            virtual_role: None,
             volume_percent: None,
             muted: None,
             current_target: None,
@@ -268,6 +275,7 @@ mod tests {
             kind: DeviceKind::Physical,
             direction: DeviceDirection::Input,
             sink_mode: None,
+            virtual_role: None,
             volume_percent: None,
             muted: None,
             current_target: None,
@@ -287,6 +295,7 @@ mod tests {
                 kind: DeviceKind::Physical,
                 direction: DeviceDirection::Output,
                 sink_mode: None,
+                virtual_role: None,
                 volume_percent: None,
                 muted: None,
                 current_target: None,
@@ -301,7 +310,26 @@ mod tests {
         };
         let error = apply_sink_targets(&graph, "hw", &["node-2".into()])
             .expect_err("physical device cannot fan out");
-        assert!(error.to_string().contains("virtual output sinks"));
+        assert!(error.to_string().contains("virtual bus devices"));
+    }
+
+    #[test]
+    fn terminal_output_rejects_fan_out() {
+        // #287: a terminal Output (virtual) is a true dead end — unlike a
+        // Bus, it must never be a valid fan-out source.
+        let mut terminal = sample_sink("terminal", false);
+        terminal.virtual_role = Some(VirtualRole::Output);
+        let graph = RuntimeGraph {
+            devices: vec![terminal],
+            streams: Vec::new(),
+            links: Vec::new(),
+            data_source: "mock".into(),
+            notice: None,
+            ..Default::default()
+        };
+        let error = apply_sink_targets(&graph, "terminal", &["node-2".into()])
+            .expect_err("terminal output cannot fan out");
+        assert!(error.to_string().contains("virtual bus devices"));
     }
 
     #[test]

@@ -139,13 +139,18 @@ export function targetLabel(device: Device): string {
   return device.label;
 }
 
-// Every virtual output supports fanning out to multiple targets today — there
+// Every virtual Bus supports fanning out to multiple targets today — there
 // is no PipeWire-level difference between a "multi output" and a plain output
 // sink, both are the same null-sink under the hood. `sink_mode` is kept on
 // the model only for backward-compat deserialization of older persisted
-// devices/profiles; it no longer drives any behavioral distinction here.
+// devices/profiles; it no longer drives any behavioral distinction here. A
+// terminal Output (virtual) (#287) is excluded — it never fans out.
 export function isMultiSink(device: Device): boolean {
-  return device.kind === "virtual" && (device.direction === "output" || device.direction === "duplex");
+  return (
+    device.kind === "virtual" &&
+    device.virtual_role === "bus" &&
+    (device.direction === "output" || device.direction === "duplex")
+  );
 }
 
 export function deviceTargetIds(device: Device): string[] {
@@ -160,7 +165,10 @@ export function deviceSubtitle(device: Device): string {
     return "Split fan-out sink";
   }
   if (device.direction === "output" || device.direction === "duplex") {
-    return device.kind === "virtual" ? "Virtual Sink" : "Hardware Output";
+    if (device.kind === "virtual") {
+      return device.virtual_role === "output" ? "Virtual Output" : "Bus";
+    }
+    return "Hardware Output";
   }
   return device.kind === "virtual" ? "Virtual Source" : "Hardware Input";
 }

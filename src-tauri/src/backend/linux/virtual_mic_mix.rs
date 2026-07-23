@@ -129,6 +129,7 @@ mod tests {
             kind: DeviceKind::Virtual,
             direction,
             sink_mode: None,
+            virtual_role: None,
             volume_percent: None,
             muted: None,
             current_target: None,
