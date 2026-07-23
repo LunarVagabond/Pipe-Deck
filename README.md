@@ -160,7 +160,7 @@ Pipe Deck complements — not replaces — the PipeWire stack. You may also use:
 - [PipeWire](https://pipewire.org/) — session and audio graph
 - [WirePlumber](https://gitlab.freedesktop.org/pipewire/wireplumber) — session manager
 - [qpwgraph](https://gitlab.freedesktop.org/rncbc/qpwgraph) — node graph editor
-- [pavucontrol](https://freedesktop.org/software/pulseaudio/pavucontrol/) — classic PulseAudio/PipeWire volume UI
+- [pavucontrol](http://web.archive.org/web/20260712203622/https://freedesktop.org/software/pulseaudio/pavucontrol/) — classic PulseAudio/PipeWire volume UI
 
 ## Contributing
 
