@@ -62,7 +62,7 @@ fn run() -> Result<(), String> {
 /// systemd unit, and stray effects drop-ins — always. With `--purge-config`,
 /// also deletes the config directory and daemon state directory. Intended
 /// to be run once before/instead of removing the package itself (see
-/// `docs/project/Uninstall.md`), not wired to a package-manager hook
+/// `docs/developers/Uninstall.md`), not wired to a package-manager hook
 /// automatically — Tauri's bundler has no postrm/prerm hook mechanism today.
 fn handle_cleanup(args: &[String]) -> Result<(), String> {
     let purge_config = args.iter().any(|arg| arg == "--purge-config");

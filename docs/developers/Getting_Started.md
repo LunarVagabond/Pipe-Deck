@@ -1,6 +1,6 @@
 # Getting Started
 
-Everything you need to get Pipe Deck running from source, whether you're trying it out or setting up to contribute. For a map of the codebase and the day-to-day dev workflow once you're up and running, see [Development](../project/Development.md).
+Everything you need to get Pipe Deck running from source, whether you're trying it out or setting up to contribute. For a map of the codebase and the day-to-day dev workflow once you're up and running, see [Development](../developers/Development.md).
 
 ## Prerequisites
 
@@ -147,6 +147,6 @@ pw-cli --version
 
 ## Next steps
 
-- Read [Development](../project/Development.md) for the codebase layout and full `make` target list.
+- Read [Development](../developers/Development.md) for the codebase layout and full `make` target list.
 - Read [Contributing](../../.github/CONTRIBUTING.md) before opening a PR — branch naming, commit/PR title conventions, and the docs-first workflow.
-- Building a plugin instead of touching core? Start at [Plugins](../project/Plugins.md) and [Plugin API](../specs/Plugin_API.md).
+- Building a plugin instead of touching core? Start at [Plugins](../developers/Plugins.md) and [Plugin API](../specs/Plugin_API.md).

@@ -2,7 +2,7 @@
 
 Pipe Deck exists so audio routing on Linux doesn't require being a PipeWire expert. This guide gets you from install to your first working route in a few minutes — no config files, no `pw-cli`.
 
-Setting up to contribute code instead? See [Getting Started (from source)](../project/Getting_Started.md).
+Setting up to contribute code instead? See [Getting Started (from source)](../developers/Getting_Started.md).
 
 ## Install
 

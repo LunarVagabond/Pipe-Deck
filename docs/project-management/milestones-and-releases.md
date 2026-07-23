@@ -20,4 +20,4 @@ Issues on the project board carry two custom date fields, **Start date** and **T
 
 ## Release mechanics
 
-This page is about what a milestone *means* and when to create one. For how a release actually gets cut — version bumps, tagging, CI, signing, publishing — see [`../project/Release.md`](../project/Release.md). For the cadence and policy around *when* releases happen, see [Release Strategy](release-strategy.md).
+This page is about what a milestone *means* and when to create one. For how a release actually gets cut — version bumps, tagging, CI, signing, publishing — see [`../developers/Release.md`](../developers/Release.md). For the cadence and policy around *when* releases happen, see [Release Strategy](release-strategy.md).

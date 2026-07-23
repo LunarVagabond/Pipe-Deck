@@ -161,7 +161,7 @@ pub async fn get_app_info(state: tauri::State<'_, crate::AppState>) -> Result<Ap
 /// `pw-dump` dump — see `format_graph_summary`) in a fenced code block so it
 /// pastes into a GitHub issue as readable monospace rather than a wall of
 /// unformatted text. Pipe Deck doesn't write a log file (see
-/// `docs/project/Getting_Started.md`'s troubleshooting section), so there's
+/// `docs/developers/Getting_Started.md`'s troubleshooting section), so there's
 /// no log section to include.
 fn format_diagnostics_bundle(
     install_kind: &InstallKind,

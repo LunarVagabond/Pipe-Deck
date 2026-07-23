@@ -18,5 +18,5 @@ Every issue that was previously grouped under a roadmap-phase milestone has been
 
 - [Issue Workflow](issue-workflow.md) — what an Epic and a Sub-Issue are, when to create a new Epic, how relationships work.
 - [Milestones & Releases](milestones-and-releases.md) — what a milestone means now and when to create one.
-- [Release Strategy](release-strategy.md) — cadence, skip rule, hotfix policy. See [`../project/Release.md`](../project/Release.md) for the mechanics of actually cutting a release.
+- [Release Strategy](release-strategy.md) — cadence, skip rule, hotfix policy. See [`../developers/Release.md`](../developers/Release.md) for the mechanics of actually cutting a release.
 - [Contributing Workflow](contributing-workflow.md) — how to find work and how new issues get organized. See [`.github/CONTRIBUTING.md`](../../.github/CONTRIBUTING.md) for branch/commit/PR conventions.

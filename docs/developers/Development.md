@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Map the current codebase layout and day-to-day dev workflow so contributors can find code quickly. For first-time setup (prerequisites, clone, first run), see [Getting Started](../project/Getting_Started.md).
+Map the current codebase layout and day-to-day dev workflow so contributors can find code quickly. For first-time setup (prerequisites, clone, first run), see [Getting Started](../developers/Getting_Started.md).
 
 ## Stack
 
@@ -75,7 +75,7 @@ Run `make help` for the full, current list — it stays more up to date than any
 
 ## Related Documents
 
-- [Getting Started](../project/Getting_Started.md)
+- [Getting Started](../developers/Getting_Started.md)
 - [System Architecture](../architecture/System_Architecture.md)
 - [PipeWire Design](../architecture/PipeWire_Design.md)
 - [Config Spec](../specs/Config_Spec.md)

@@ -129,5 +129,5 @@ All five v1 capabilities are enforced as of PD-021 (`docs/architecture/Decisions
 ## Related
 
 - `docs/specs/Config_Spec.md` — `plugins:` config block
-- `docs/project/Plugins.md` — contributor guide
+- `docs/developers/Plugins.md` — contributor guide
 - `docs/architecture/Decisions.md` — PD-004, PD-014, PD-015, PD-016

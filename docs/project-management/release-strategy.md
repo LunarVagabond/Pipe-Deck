@@ -1,6 +1,6 @@
 # Release Strategy
 
-Cadence and policy for when Pipe Deck ships. For how a release is actually cut (version bumps, tagging, CI, signing, publishing), see [`../project/Release.md`](../project/Release.md) — that page covers mechanics; this one covers timing.
+Cadence and policy for when Pipe Deck ships. For how a release is actually cut (version bumps, tagging, CI, signing, publishing), see [`../developers/Release.md`](../developers/Release.md) — that page covers mechanics; this one covers timing.
 
 ## Cadence
 
@@ -12,7 +12,7 @@ If a cycle would only include documentation updates or otherwise insignificant c
 
 ## Hotfix policy
 
-A hotfix — a critical bug, regression, or security issue — ships **immediately, outside the normal cadence**, rather than waiting for the next scheduled release. Use the existing hotfix tag-slug convention already documented in [`../project/Release.md`](../project/Release.md#tag-format) (e.g. `v0.2.0-hotfix-title`) — no separate process is needed beyond cutting the release as soon as the fix is ready.
+A hotfix — a critical bug, regression, or security issue — ships **immediately, outside the normal cadence**, rather than waiting for the next scheduled release. Use the existing hotfix tag-slug convention already documented in [`../developers/Release.md`](../developers/Release.md#tag-format) (e.g. `v0.2.0-hotfix-title`) — no separate process is needed beyond cutting the release as soon as the fix is ready.
 
 ## Milestones and cadence
 

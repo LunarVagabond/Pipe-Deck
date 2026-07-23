@@ -331,7 +331,7 @@ impl ConfigStore {
         fs::create_dir_all(self.config_dir.join("profiles"))
             .map_err(|error| ConfigError::Write(format!("{error}")))?;
         // Mirrors profiles/ — a directory the user can browse to and drop a plugin into
-        // (see docs/project/Plugins.md quick start), same idea as themes/ for custom color schemes.
+        // (see docs/developers/Plugins.md quick start), same idea as themes/ for custom color schemes.
         fs::create_dir_all(self.config_dir.join("plugins"))
             .map_err(|error| ConfigError::Write(format!("{error}")))?;
 

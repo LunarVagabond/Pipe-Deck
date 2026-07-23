@@ -4,7 +4,7 @@
 
 Pipe Deck is the **Linux audio mixer and control center** for PipeWire — the open-source desktop app for routing, mixing, profiles, virtual devices, and automation on Linux.
 
-Pipe Deck exists to make Linux audio easier to understand and manage for everyday users and power users alike.
+Pipe Deck exists to help everyday users and power users alike better understand and manage their Linux audio, and to help the community build and maintain the tools that make that possible.
 
 ## Mission
 
@@ -14,7 +14,7 @@ Help users route, organize, and control Linux audio without learning PipeWire in
 
 Every feature must pass this question:
 
-- Does this make Linux audio easier to understand and manage?
+- Does this help users better understand and manage their audio, or help the community build and maintain the tools that make that possible?
 
 If no, the proposal requires refinement before inclusion.
 

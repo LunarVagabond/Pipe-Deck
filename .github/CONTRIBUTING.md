@@ -8,7 +8,7 @@ Contribution standards for Pipe Deck, with emphasis on clarity, safety, and miss
 
 Each feature proposal or implementation should answer:
 
-- Does this make Linux audio easier to understand and manage?
+- Does this help users better understand and manage their audio, or help the community build and maintain the tools that make that possible?
 
 If no, refine or drop the proposal.
 
@@ -191,14 +191,14 @@ When adding a new view or component with custom styling, create or extend the ma
 
 ## Where To Contribute
 
-- New here? Start at [Getting Started](../docs/project/Getting_Started.md) for prerequisites, clone, and first run.
-- Codebase layout and dev workflow: [Development](../docs/project/Development.md)
+- New here? Start at [Getting Started](../docs/developers/Getting_Started.md) for prerequisites, clone, and first run.
+- Codebase layout and dev workflow: [Development](../docs/developers/Development.md)
 - Product direction: [Product Requirements](../docs/product/Product_Requirements.md), [Roadmap](../docs/product/Roadmap.md), [Decisions](../docs/architecture/Decisions.md)
 - Architecture: [System Architecture](../docs/architecture/System_Architecture.md), [PipeWire Design](../docs/architecture/PipeWire_Design.md)
 - Specifications: [UI Spec](../docs/specs/UI_Spec.md), [Plugin API](../docs/specs/Plugin_API.md), [Config Spec](../docs/specs/Config_Spec.md)
 - Contributor process: this file, and the rest of [`docs/README.md`](../docs/README.md)
 
-`docs/` is a normal, PR-able part of this repo, organized into `specs/`, `architecture/`, `product/`, and `project/` subfolders — edit it the same way as any other change.
+`docs/` is a normal, PR-able part of this repo, organized into `specs/`, `architecture/`, `product/`, and `developers/` subfolders — edit it the same way as any other change.
 
 ## Code Of Conduct
 
