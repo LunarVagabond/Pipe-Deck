@@ -14,6 +14,11 @@ describe("isHandleFillable", () => {
   it("treats an already-occupied device handle as not fillable", () => {
     expect(isHandleFillable("audio-in:some-device-id")).toBe(false);
   });
+
+  it("treats an occupied handle as fillable when explicitly allowed", () => {
+    expect(isHandleFillable("audio-in:some-device-id", ["audio-in:some-device-id"])).toBe(true);
+    expect(isHandleFillable("audio-in:some-device-id", ["audio-in:other-device-id"])).toBe(false);
+  });
 });
 
 describe("canConnectPorts", () => {
@@ -37,5 +42,13 @@ describe("canConnectPorts", () => {
 
   it("skips the empty-slot requirement when re-validating an existing edge", () => {
     expect(canConnectPorts("audio-out:device-a", "audio-in:device-b", false)).toBe(true);
+  });
+
+  it("allows an edge-update drag's unmoved, occupied handle via alsoFillable", () => {
+    // The unmoved end still carries its original occupied handle id; only the
+    // dragged end needs to land on a genuinely empty slot.
+    expect(canConnectPorts("audio-out:device-a", "audio-in:empty", true, ["audio-out:device-a"])).toBe(true);
+    // An occupied handle not in alsoFillable is still rejected.
+    expect(canConnectPorts("audio-out:device-a", "audio-in:device-c", true, ["audio-out:device-a"])).toBe(false);
   });
 });
