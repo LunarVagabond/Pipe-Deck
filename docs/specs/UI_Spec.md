@@ -23,7 +23,7 @@ Define the user experience structure and interaction behavior that makes Linux a
 - Component/view styles use a root class namespace (for example `.mixer-strip`) with nested selectors.
 - Theme tokens are defined as CSS custom properties in `src/styles/_variables.scss`. That file's `:root` block is the static pre-JS/failure-mode fallback only — the active color scheme overrides these same custom properties at runtime via `src/stores/theme.ts`. See [Theming](../specs/Theming.md) for the scheme system.
 
-See `docs/Contributing.md` for the contributor-facing layout and rules.
+See [Contributing](../../.github/CONTRIBUTING.md) for the contributor-facing layout and rules.
 
 ## UX Goal
 
@@ -155,8 +155,7 @@ Concretely, this means:
 
 - Reference asset: `docs/assets/mockups/InitialMockup.png`
 - Visual language is dark-first with high-contrast accents and compact control density.
-- Primary navigation model: Dashboard, Routing, Mixer, Sources, Effects, Profiles, Settings.
-- **North-star navigation:** Routing, Mixer, and Sources appear in the sidebar before their dedicated views ship. They stay visible but disabled so the product direction is obvious; enable each item when its view reaches acceptance criteria (see `docs/Roadmap.md` Phase 6–8).
+- Primary navigation model: Dashboard, Profiles, Rules, Routing, Mixer, Sources, Effects, Settings — all shipped and enabled (`src/App.vue`'s `navItems`). Earlier drafts of this doc described some of these as disabled "north-star" placeholders; that pattern is retired now that every primary view has shipped.
 
 ### Candidate Color Schemes
 

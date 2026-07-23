@@ -230,7 +230,7 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
 ### PD-021 Plugin `effects.manage` Enforcement: Queued Requests, Not Direct PipeWire Access
 
 - Status: Accepted
-- Context: `effects.manage` (`docs/Plugin_API.md`) was declarable and grantable in Settings since v1 but had no host-side handler — granting or revoking it had no runtime effect (#120). Closing that gap means letting a plugin actually request an effects change, but the plugin host (`src-tauri/src/plugins/`) has no reference to `CoreEngine`/`AudioBackend` at all — by design (issue #68's boundary: engine/core code never lets outside callers reach `backend::linux` directly), and giving it one just to satisfy this one capability would be a much bigger structural change than the gap warrants.
+- Context: `effects.manage` (`docs/specs/Plugin_API.md`) was declarable and grantable in Settings since v1 but had no host-side handler — granting or revoking it had no runtime effect (#120). Closing that gap means letting a plugin actually request an effects change, but the plugin host (`src-tauri/src/plugins/`) has no reference to `CoreEngine`/`AudioBackend` at all — by design (issue #68's boundary: engine/core code never lets outside callers reach `backend::linux` directly), and giving it one just to satisfy this one capability would be a much bigger structural change than the gap warrants.
 - Decision:
   - `effects.manage` is enforced via a **queued-request model**, not a direct call path. A plugin sends an `effects.apply` notification (`{device_id, config}`); `PluginProcess::handle_line` (gated by the capability, mirroring `routing.suggest`) stores it in a small per-process bounded queue — it does not touch PipeWire and has no engine reference.
   - `CoreEngine::apply_queued_plugin_effect_requests` (called once per `refresh_graph`/`apply_graph_update` tick, right after `push_graph`) drains that queue and applies each request through the **existing, already-safety-checked** `set_device_effects` engine method — the same path the first-party effects UI already uses. No new PipeWire-touching code was written for this; the plugin path reuses `set_device_effects`'s built-in `pipe-deck-*`-only device guard verbatim.
@@ -289,7 +289,7 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
 - Decision:
   - `targetsForVirtualSink` and `connectionRules.ts`'s `isMicMixCandidate` now allow virtual-output → virtual-output routing as a plain route (`device_route`/`device_targets`), distinct from the mic-mix merge path, which `isMicMixCandidate` now scopes strictly to `target.direction === "input"` instead of the previous overly-broad `!== "duplex"`.
   - `split_sink::apply_sink_targets` gained a cycle guard (`would_create_cycle`) — sink-to-sink chaining introduces a new A → B → A risk that couldn't exist while virtual outputs were leaves; a cycle is rejected with an explicit error rather than silently applied.
-  - UI copy and `docs/UI_Spec.md` (new "Virtual Devices as Busses" section) now describe virtual outputs as busses — group, process, chain onward — while virtual inputs remain intentionally merge-only leaves (a virtual mic is consumed by apps, not chained further). `docs/Audio_Terminology.md`'s existing "Bus"/"Submix" glossary entries already matched this framing; only the "Virtual device" entry needed a cross-reference.
+  - UI copy and `docs/specs/UI_Spec.md` (new "Virtual Devices as Busses" section) now describe virtual outputs as busses — group, process, chain onward — while virtual inputs remain intentionally merge-only leaves (a virtual mic is consumed by apps, not chained further). `docs/specs/Audio_Terminology.md`'s existing "Bus"/"Submix" glossary entries already matched this framing; only the "Virtual device" entry needed a cross-reference.
   - `DeviceKind`/`DeviceDirection` and the underlying `module-null-sink` primitive are **not renamed or restructured** — this is a UI mental-model and routing-permission change, not a data-model migration. Renaming the enums/commands themselves was considered out of scope: it would touch every `Device`/`RuntimeGraph` call site (Rust and TS) for no functional gain over the copy/routing changes made here.
 - Rationale: the routing restriction had no design justification and directly blocked the "submix feeding a master mix" workflow #143/#144 both described as expected; fixing it is a narrow, low-risk change once confirmed backend-safe. Reframing the copy toward bus language costs little (docs + a handful of UI strings) and resolves the terminology confusion #144 raised, without taking on the much larger, higher-risk cost of an actual `DeviceKind`/`DeviceDirection` rename across the Rust/TS boundary — that remains a candidate for a future, separately-scoped decision if the bus framing proves insufficient on its own.
 
@@ -345,13 +345,13 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
 
 ## Related Documents
 
-- `docs/Product_Requirements.md`
-- `docs/Roadmap.md`
-- `docs/System_Architecture.md`
-- `docs/PipeWire_Design.md`
-- `docs/UI_Spec.md`
-- `docs/Theming.md`
-- `docs/Config_Spec.md`
-- `docs/Plugin_API.md`
-- `docs/Development.md`
-- `docs/Packaging.md`
+- `docs/product/Product_Requirements.md`
+- `docs/product/Roadmap.md`
+- `docs/architecture/System_Architecture.md`
+- `docs/architecture/PipeWire_Design.md`
+- `docs/specs/UI_Spec.md`
+- `docs/specs/Theming.md`
+- `docs/specs/Config_Spec.md`
+- `docs/specs/Plugin_API.md`
+- `docs/developers/Development.md`
+- `docs/developers/Packaging.md`

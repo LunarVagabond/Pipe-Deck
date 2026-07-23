@@ -54,14 +54,14 @@ Pipe Deck should reduce setup time, reduce confusion, and increase confidence.
 ## Non-Goals
 
 - Replacing PipeWire.
-- Implementing advanced DSP processing in Phase 1.
-- Platform parity beyond Linux is not a near-term commitment. Linux is, and remains, the only fully-supported platform today. A macOS/Windows port is tracked as a long-term, unscheduled direction (see the **Stretch — Cross-Platform Port** milestone and [PD-019](../architecture/Decisions.md) for the target APIs and parity scope) — not a promise against a delivery phase.
+- A complete first-party DSP processing suite as a day-one deliverable — full EQ/dynamics/balance processing is ongoing work, tracked as [Epic #182](https://github.com/LunarVagabond/Pipe-Deck/issues/182).
+- Platform parity beyond Linux is not a near-term commitment. Linux is, and remains, the only fully-supported platform today. A macOS/Windows port is tracked as a long-term, unscheduled direction (see [Epic #185](https://github.com/LunarVagabond/Pipe-Deck/issues/185) and [PD-019](../architecture/Decisions.md) for the target APIs and parity scope) — not a promise against a delivery date.
 
-## Phase Boundaries and Implementation Status
+## Delivery Status and Implementation Tracking
 
-Phase-by-phase scope, delivery status, and current active phase live in [Roadmap](../product/Roadmap.md) — that document is the single source of truth for delivery sequencing, kept current as phases complete. This document defines *what* Pipe Deck is and *why*; it deliberately does not duplicate *when* each phase ships, since that detail has drifted stale here in the past.
+This document defines *what* Pipe Deck is and *why*; it deliberately does not track *when* things ship, since that detail has drifted stale here in the past.
 
-Open, in-flight, and backlog work beyond the roadmap phases is tracked as [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/issues) against the milestones listed on the project board (Phase 6–8, Documentation & Process, Ecosystem & Packaging, Quality & Platform, and the long-term Stretch — Cross-Platform Port milestone).
+Concrete delivery status lives on GitHub, not in a docs file: **milestones** track what ships in a specific release, and **epics** (`epic`-labeled issues with native sub-issues) track large, multi-release initiatives. See [Project Management](../project-management/README.md) for the full model. [Roadmap](../product/Roadmap.md) covers strategic direction and delivery history, including a lookup table from the old numbered "Phase 6+" names to their current epics.
 
 ## Long-Term Goal: Automatic Mapping
 
@@ -73,7 +73,7 @@ Directional intent:
 - Apply safe default mappings for common scenarios.
 - Allow clear override and rollback when heuristics are wrong.
 
-This is a strategic direction, not a Phase 1 deliverable.
+This is a strategic direction, not an initial/day-one deliverable.
 
 ## Success Criteria
 

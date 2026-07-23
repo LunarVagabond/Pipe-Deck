@@ -42,7 +42,7 @@ Open work lives in [GitHub Issues](https://github.com/LunarVagabond/Pipe-Deck/is
 gh issue list
 ```
 
-Product direction and acceptance criteria remain in [`docs/product/Roadmap.md`](../docs/product/Roadmap.md). Completed history is in git; do not maintain a separate backlog file in the repo.
+Product direction lives in [`docs/product/Roadmap.md`](../docs/product/Roadmap.md); acceptance criteria for specific initiatives live on their tracking issue/epic, not in a docs file. Completed history is in git; do not maintain a separate backlog file in the repo.
 
 ### Claiming An Issue
 

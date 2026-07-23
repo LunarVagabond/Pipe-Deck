@@ -27,7 +27,7 @@ Phase 2 ships a **minimal** persistence layer in `config.yaml` (`routing_rules`)
 - Session manual overrides block auto-apply until cleared (including when the user re-selects the rule's target).
 - When `preferences.auto_apply_rules` is true (default), newly seen stream *instances* (keyed on the live PipeWire node id, not app identity — see PD-030) are routed on graph refresh without clearing session overrides. This distinction matters for apps like Firefox that tear down/recreate their stream node per tab while reporting identical `app_name`/`executable`/`media_name`: identity-keyed "newness" would treat only the very first such stream as new and silently skip every later one. The seen-set is also cleared whenever a rule is created, edited, deleted, or toggled, so a rule added after a matching stream already exists is applied on the next refresh rather than requiring a manual "Apply rules" click.
 
-See `docs/Config_Spec.md` for serialization and precedence details.
+See `docs/specs/Config_Spec.md` for serialization and precedence details.
 
 ## Rule Model
 

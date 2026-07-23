@@ -136,7 +136,7 @@ Full walkthrough, prerequisites table, and troubleshooting: [Getting Started (de
 
 ## Roadmap
 
-Pipe Deck is under active development toward a v0.5.0 beta. See the [Roadmap](docs/product/Roadmap.md) for what's planned and the [Decisions](docs/architecture/Decisions.md) log for the architectural choices behind it.
+Pipe Deck is under active development toward a v0.5.0 beta. [Roadmap](docs/product/Roadmap.md) covers the strategic direction; concrete "what's shipping when" lives on GitHub as [milestones](https://github.com/LunarVagabond/Pipe-Deck/milestones) (releases) and [epics](https://github.com/LunarVagabond/Pipe-Deck/issues?q=is%3Aissue+label%3Aepic) (multi-release initiatives). See the [Decisions](docs/architecture/Decisions.md) log for the architectural choices behind it.
 
 ## Documentation
 
@@ -177,7 +177,7 @@ If a process rule in [Contributing](.github/CONTRIBUTING.md) gets in the way, ra
 
 **Does this replace PipeWire or WirePlumber?** No. Pipe Deck shells out to standard PipeWire tooling (`pactl`, `pw-link`, `pw-dump`) and sits on top of the session PipeWire/WirePlumber already manage — it doesn't compete with them.
 
-**Is it stable enough for daily use?** Pipe Deck is pre-1.0 and under active development — see the [Roadmap](docs/product/Roadmap.md) for what's landed and what's still ahead. Profiles and routing changes are designed to be visible and reversible, but treat it as active alpha/beta software, not a finished product.
+**Is it stable enough for daily use?** Pipe Deck is pre-1.0 and under active development — see [open milestones](https://github.com/LunarVagabond/Pipe-Deck/milestones) for the current release target. Profiles and routing changes are designed to be visible and reversible, but treat it as active alpha/beta software, not a finished product.
 
 **Do I need to know PipeWire internals to use it?** No — that's the point. Familiarity with `pavucontrol`/`qpwgraph`-style tools helps you map concepts across, but Pipe Deck's dashboard and routing matrix are meant to stand on their own.
 

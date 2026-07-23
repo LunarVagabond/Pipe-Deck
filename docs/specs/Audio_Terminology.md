@@ -41,7 +41,7 @@ A reference glossary for the audio-engineering and PipeWire concepts Pipe Deck's
 
 **Peak vs. RMS** — Two different ways to measure "how loud": peak is the single highest instantaneous sample value (what tells you if you're about to clip); RMS (root-mean-square) is a windowed average that tracks perceived loudness better. A meter showing only peak can look quiet while still sounding loud, and vice versa.
 
-**Pan / balance** — Positioning a signal across the stereo field. *Pan* usually implies starting from mono and placing it somewhere in the stereo image; *balance* usually implies adjusting the relative left/right level of an already-stereo signal. Tracked as issue #16 (Phase 7) for per-channel control in Pipe Deck's effect chains.
+**Pan / balance** — Positioning a signal across the stereo field. *Pan* usually implies starting from mono and placing it somewhere in the stereo image; *balance* usually implies adjusting the relative left/right level of an already-stereo signal. Tracked as issue #16 (part of [Epic #182](https://github.com/LunarVagabond/Pipe-Deck/issues/182)) for per-channel control in Pipe Deck's effect chains.
 
 **Mute vs. bypass** — Mute silences a channel entirely. Bypass (used for effects) skips a specific processing stage while leaving the signal otherwise flowing — the chain keeps passing audio through unprocessed rather than stopping it. Pipe Deck's per-device chain editor (#15) supports bypassing individual effects without removing them from the saved chain.
 
@@ -63,9 +63,9 @@ A reference glossary for the audio-engineering and PipeWire concepts Pipe Deck's
 
 **Sidechain** — Feeding a *second* signal into a dynamics processor (compressor/gate) to control how it acts on the *first* signal, instead of the processor reacting only to the signal it's processing. Ducking is the classic sidechain-compression use case: the compressor sits on the music bus, but its trigger input is the voice-chat stream.
 
-**Compressor / limiter** — Dynamics processors that reduce a signal's level once it crosses a *threshold*, at a set *ratio* (compressor: gentler, proportional reduction; limiter: a compressor with a very high ratio acting as a hard ceiling that a signal effectively can't cross). Governed by *attack* (how fast it starts reducing once the threshold is crossed) and *release* (how fast it stops once the signal drops back below). Tracked for Pipe Deck as issue #86 (Phase 7), currently blocked on finding a compliant backing plugin per `docs/Decisions.md`.
+**Compressor / limiter** — Dynamics processors that reduce a signal's level once it crosses a *threshold*, at a set *ratio* (compressor: gentler, proportional reduction; limiter: a compressor with a very high ratio acting as a hard ceiling that a signal effectively can't cross). Governed by *attack* (how fast it starts reducing once the threshold is crossed) and *release* (how fast it stops once the signal drops back below). Tracked for Pipe Deck as issue #86 (part of [Epic #182](https://github.com/LunarVagabond/Pipe-Deck/issues/182)), currently blocked on finding a compliant backing plugin per `docs/architecture/Decisions.md`.
 
-**Noise gate** — The inverse shape of a compressor: instead of reducing loud signal, it mutes/reduces signal *below* a threshold — used to silence a mic between words instead of letting background noise bleed through continuously. Tracked as issue #18 (Phase 7), implemented via a chained filter-chain module per `PipeWire Design`.
+**Noise gate** — The inverse shape of a compressor: instead of reducing loud signal, it mutes/reduces signal *below* a threshold — used to silence a mic between words instead of letting background noise bleed through continuously. Tracked as issue #18 (part of [Epic #182](https://github.com/LunarVagabond/Pipe-Deck/issues/182)), implemented via a chained filter-chain module per `PipeWire Design`.
 
 **Threshold / ratio / attack / release** — The four core dynamics-processor parameters: threshold sets the level where processing kicks in, ratio sets how strongly it reacts once triggered, attack/release set how fast it engages/disengages. The same four concepts apply to gates and compressors, just acting in opposite directions.
 
@@ -81,7 +81,7 @@ A reference glossary for the audio-engineering and PipeWire concepts Pipe Deck's
 
 **Builtin (PipeWire) processing** — A small set of effects PipeWire itself ships without needing an external LADSPA/LV2 plugin installed — currently the only path Pipe Deck trusts for its "always works, no extra install" live-processing guarantee, per the safety contract in issue #64.
 
-**Preflight / validation** — Checking a proposed effect-chain configuration for safety/compatibility *before* committing it to a live PipeWire config change and restart — Pipe Deck's `fx_validate.rs`, required after a past incident where an unvalidated filter-chain config crashed the PipeWire session (see PD-017 in `docs/Decisions.md`).
+**Preflight / validation** — Checking a proposed effect-chain configuration for safety/compatibility *before* committing it to a live PipeWire config change and restart — Pipe Deck's `fx_validate.rs`, required after a past incident where an unvalidated filter-chain config crashed the PipeWire session (see PD-017 in `docs/architecture/Decisions.md`).
 
 ## Session/device management (PipeWire-specific)
 
@@ -93,7 +93,7 @@ A reference glossary for the audio-engineering and PipeWire concepts Pipe Deck's
 
 **Latency / buffer / xrun** — Latency is the delay between a sound being generated and it reaching the output. Buffer size is the main lever controlling that trade-off (smaller buffer = lower latency, higher risk of glitches). An xrun (buffer under/overrun) is an audible glitch/dropout from the system failing to keep up with the buffer schedule in time — the thing you're trading against when pushing latency lower.
 
-**Profile (Pipe Deck-specific)** — A saved snapshot of routing/device/effect-chain state as YAML (`config/store.rs`, `docs/Config_Spec.md`) that can be restored later — not a PipeWire/WirePlumber concept, but Pipe Deck's own persistence unit layered on top of everything above.
+**Profile (Pipe Deck-specific)** — A saved snapshot of routing/device/effect-chain state as YAML (`config/store.rs`, `docs/specs/Config_Spec.md`) that can be restored later — not a PipeWire/WirePlumber concept, but Pipe Deck's own persistence unit layered on top of everything above.
 
 ## See also
 
