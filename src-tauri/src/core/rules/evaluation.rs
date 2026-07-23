@@ -2,6 +2,7 @@ use crate::config::store::ConfigStore;
 use crate::core::models::{
     ActionStatus, DeviceDirection, DeviceKind, DeviceRouteRule, FallbackPolicy, RouteExplanation,
     RouteSource, Rule, RuntimeGraph, SimulationResult, Stream, StreamDirection, StreamRouteRule,
+    VirtualRole,
 };
 use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::matching::{
@@ -230,7 +231,17 @@ fn apply_device_rules_pass(
 ) {
     for rule in device_rules {
         if let Some(source) = find_device_by_system_name(graph, &rule.source_system_name) {
-            if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
+            // A terminal Output (virtual) (#287) can never fan out — skip it
+            // here the same way an ineligible device already was, rather
+            // than attempting `apply_sink_targets` every refresh only to
+            // have it rejected by the backend's own gate. Without this, a
+            // rule whose source is a terminal Output retries and logs a
+            // failure on every graph refresh forever, since nothing about
+            // that failure is ever going to change.
+            if source.kind != DeviceKind::Virtual
+                || source.direction != DeviceDirection::Output
+                || source.virtual_role != Some(VirtualRole::Bus)
+            {
                 continue;
             }
             let source_id = source.id.clone();
@@ -767,6 +778,77 @@ mod tests {
     }
 
     #[test]
+    fn device_rule_with_terminal_output_source_is_skipped_not_retried() {
+        // #287 follow-up: a persisted device rule whose source has since
+        // become (or was created as) a terminal Output (virtual) must never
+        // be attempted — it can structurally never fan out. Before this
+        // fix, `apply_device_rules_pass` only checked kind/direction, so a
+        // terminal-Output source fell through to `apply_sink_targets` on
+        // every single graph refresh, which the backend's own Bus-only gate
+        // rejects every time — spamming an identical failure log forever
+        // instead of being skipped once, up front, like any other
+        // ineligible device.
+        use crate::config::store::ConfigStore;
+        use crate::core::models::{DeviceRouteRule, VirtualRole};
+        use std::fs;
+
+        let _guard = crate::config::store::lock_config_dir_env();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-rules-terminal-output-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+
+        let store = ConfigStore::new();
+        store.ensure_layout().expect("config layout");
+        let mut config = ConfigStore::default_config();
+        config.routing_rules.device_rules = vec![DeviceRouteRule {
+            source_system_name: "pipe-deck-terminal".into(),
+            target_system_name: Some("hdmi-out".into()),
+            target_system_names: Vec::new(),
+            safeguards: Default::default(),
+        }];
+        store.save_config(&config).expect("save config");
+
+        let mut graph = graph_with_outputs();
+        graph.devices.push(Device {
+            id: "terminal-output".into(),
+            system_name: "pipe-deck-terminal".into(),
+            label: "Terminal".into(),
+            kind: DeviceKind::Virtual,
+            direction: DeviceDirection::Output,
+            sink_mode: None,
+            virtual_role: Some(VirtualRole::Output),
+            volume_percent: None,
+            muted: None,
+            current_target: None,
+            current_targets: Vec::new(),
+            mix_sources: Vec::new(),
+        });
+
+        let backend = crate::backend::mock::MockAudioBackend::new();
+        let ctx = ApplyRulesContext {
+            manual_overrides: &HashSet::new(),
+            device_manual_overrides: &HashSet::new(),
+            dry_run: false,
+            mock_graph_only: true,
+            limit_to_stream_ids: None,
+            backend: &backend,
+        };
+        apply_routing_rules_with_explanations(&mut graph, &ctx).expect("apply rules");
+
+        let terminal = graph.devices.iter().find(|d| d.id == "terminal-output").unwrap();
+        assert!(
+            terminal.current_targets.is_empty(),
+            "a terminal Output must never be marked routed by a device rule"
+        );
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+    }
+
+    #[test]
     fn apply_marks_fallback_applied_when_safe_default_used() {
         use crate::config::store::ConfigStore;
         use std::fs;
@@ -962,7 +1044,7 @@ mod tests {
             kind: DeviceKind::Virtual,
             direction: DeviceDirection::Output,
             sink_mode: None,
-            virtual_role: None,
+            virtual_role: Some(VirtualRole::Bus),
             volume_percent: None,
             muted: None,
             current_target: None,
