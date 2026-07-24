@@ -166,6 +166,24 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_processing_node_input_gain(
+        &self,
+        node_id: &str,
+        port_index: u32,
+        gain_percent: u8,
+        muted: bool,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let Some(entry) = node.input_sources.get_mut(port_index as usize) {
+            entry.gain_percent = gain_percent;
+            entry.muted = muted;
+        }
+        self.save_config(&config)
+    }
+
     pub fn remove_processing_node_port(
         &self,
         node_id: &str,

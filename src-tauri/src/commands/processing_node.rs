@@ -48,6 +48,23 @@ pub async fn connect_processing_node_port(
 }
 
 #[tauri::command]
+pub async fn update_processing_node_input_gain(
+    node_id: String,
+    port_index: u32,
+    gain_percent: u8,
+    muted: bool,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .update_processing_node_input_gain(&node_id, port_index, gain_percent, muted)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn disconnect_processing_node_port(
     node_id: String,
     direction: PortDirection,

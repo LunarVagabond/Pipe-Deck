@@ -288,6 +288,21 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("relink_processing_node_port: not implemented".into()))
     }
+
+    /// Live-updates one already-connected Mixer input's gain/mute without
+    /// touching linking — the fast path for a slider drag, same PD-017
+    /// two-speed contract as `set_effect_chain_live_params`. Only meaningful
+    /// for `ProcessingNodeKind::Mixer` inputs; other kinds have no per-port
+    /// gain concept and never call this.
+    fn set_processing_node_input_gain(
+        &self,
+        _system_name: &str,
+        _peer_system_name: &str,
+        _gain_percent: u8,
+        _muted: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_input_gain: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

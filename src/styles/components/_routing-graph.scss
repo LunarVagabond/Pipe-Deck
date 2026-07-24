@@ -531,6 +531,60 @@
   border-top: 1px dashed rgba(255, 255, 255, 0.1);
 }
 
+// PD-032 Mixer processing node — one gain row per connected input,
+// deliberately compact since a node card has no room for a full mixer strip.
+.routing-graph-node-mixer-inputs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.routing-graph-node-mixer-inputs-empty {
+  margin: 0;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.routing-graph-node-mixer-input-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.routing-graph-node-mixer-input-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.routing-graph-node-mixer-input-gain {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.routing-graph-node-mixer-input-gain-label {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
+// PD-032 stub effect nodes (issue #293's 11 non-DSP kinds) — a plain
+// pass-through with nothing to configure, visibly labeled so it's never
+// mistaken for a working effect.
+.routing-graph-node-stub-label {
+  margin: 0;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+  font-size: 0.75rem;
+  font-style: italic;
+  opacity: 0.7;
+}
+
 // A node's effects list — grows vertically as rows are added, one row per
 // attached effect (v1 ships with just "volume", but the list/row shape is
 // built to hold more later). No fixed height anywhere here or on the node

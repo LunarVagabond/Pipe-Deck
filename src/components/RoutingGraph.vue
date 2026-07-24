@@ -264,15 +264,16 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out") {
+async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer") {
   contextMenu.value = null;
-  if (type === "fan_out") {
+  if (type === "fan_out" || type === "mixer") {
+    const label = type === "fan_out" ? "Fan-out" : "Mixer";
     try {
-      await invoke("create_processing_node", { label: "Fan-out", kind: { kind: "fan_out" } });
-      handleApplyResult({ success: true }, "Fan-out node added");
+      await invoke("create_processing_node", { label, kind: { kind: type } });
+      handleApplyResult({ success: true }, `${label} node added`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      handleApplyResult({ success: false, message: `Couldn't add fan-out node: ${message}` }, "");
+      handleApplyResult({ success: false, message: `Couldn't add ${label.toLowerCase()} node: ${message}` }, "");
     }
     return;
   }

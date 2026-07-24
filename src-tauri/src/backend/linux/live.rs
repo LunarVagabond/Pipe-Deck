@@ -403,14 +403,14 @@ impl AudioBackend for LinuxPipeWireBackend {
         crate::daemon::ipc::client::NativeHostClient::is_loaded(device_system_name)
     }
 
-    // --- Processing nodes (PD-032). Fan-out only for now (issue #293 phase
-    // 2) — Mixer/EQ5Band fall through to the trait's "not implemented"
-    // default until their own phases; Stub never reaches here at all
+    // --- Processing nodes (PD-032). Fan-out and Mixer for now (issue #293
+    // phases 2-3) — EQ5Band falls through to the trait's "not implemented"
+    // default until its own phase; Stub never reaches here at all
     // (CoreEngine never calls this trait for a Stub kind).
 
     fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
         match &node.kind {
-            ProcessingNodeKind::FanOut => {
+            ProcessingNodeKind::FanOut | ProcessingNodeKind::Mixer { .. } => {
                 if pactl::sink_exists(&node.system_name)? {
                     return Ok(());
                 }
@@ -424,6 +424,14 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        // A Mixer's per-input feed sinks (see `relink_processing_node_port`)
+        // are owned by this node and have no independent lifetime — GC them
+        // all before unloading the node's own sink, the same
+        // capture-nothing/tear-down-everything reasoning
+        // `disconnect_all_virtual_mic_mixes` already applies to a plain
+        // virtual mic. Harmless no-op for a Fan-out/EQ node, which never has
+        // any.
+        let _ = pactl::gc_feed_sinks_for_mix_pairs(system_name, &std::collections::HashSet::new());
         if let Some(module_id) = pactl::find_module_id_by_sink_name(system_name)? {
             pactl::unload_module(&module_id)?;
         }
@@ -442,12 +450,35 @@ impl AudioBackend for LinuxPipeWireBackend {
         direction: PortDirection,
         peer_id: Option<&str>,
     ) -> Result<(), BackendError> {
+        let node = graph.processing_nodes.iter().find(|node| node.system_name == system_name);
+        let is_mixer = matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Mixer { .. }));
+
         match direction {
             PortDirection::Input => match peer_id {
                 Some(id) => {
                     if let Some(device) = graph.devices.iter().find(|device| device.id == id) {
-                        pw_link::link_sink_monitor_to_target(&device.system_name, system_name, false)
+                        if is_mixer {
+                            // Each input gets its own independent-gain feed
+                            // sink (PD-032: the Mixer Node generalizes the
+                            // existing mic-mix mechanism — see
+                            // `virtual_mic_mix::apply_virtual_mic_mix` for
+                            // the device-scoped original this mirrors)
+                            // rather than a direct unity-gain link.
+                            let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
+                            let feed_name =
+                                pactl::ensure_feed_sink_for_mix_pair(system_name, &device.system_name, node_label)?;
+                            pw_link::link_capture_source_to_sink(&device.system_name, &feed_name)?;
+                            pactl::set_sink_volume_by_name(&feed_name, 100)?;
+                            pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
+                        } else {
+                            pw_link::link_sink_monitor_to_target(&device.system_name, system_name, false)
+                        }
                     } else if graph.streams.iter().any(|stream| stream.id == id) {
+                        if is_mixer {
+                            return Err(BackendError::Message(
+                                "a Mixer Node's inputs must be devices, not application streams".into(),
+                            ));
+                        }
                         pactl::move_stream_to_sink_name(graph, id, system_name)
                     } else {
                         Err(BackendError::Message(format!("relink peer not found: {id}")))
@@ -456,9 +487,10 @@ impl AudioBackend for LinuxPipeWireBackend {
                 // Disconnecting a stream's route is a graph-model concept
                 // (forget the desired route), not a forced move — same
                 // semantics as `clear_stream_target` elsewhere. Only a
-                // device-fed input needs an actual `pw-link` teardown.
+                // device-fed input needs an actual `pw-link`/feed-sink
+                // teardown.
                 None => {
-                    let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
+                    let Some(node) = node else {
                         return Ok(());
                     };
                     let Some(previous_id) =
@@ -467,7 +499,11 @@ impl AudioBackend for LinuxPipeWireBackend {
                         return Ok(());
                     };
                     if let Some(device) = graph.devices.iter().find(|device| device.id == previous_id) {
-                        pw_link::disconnect_sink_monitor_route(&device.system_name, system_name)
+                        if is_mixer {
+                            pactl::remove_feed_sink_for_mix_pair(system_name, &device.system_name)
+                        } else {
+                            pw_link::disconnect_sink_monitor_route(&device.system_name, system_name)
+                        }
                     } else {
                         Ok(())
                     }
@@ -503,6 +539,18 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
             }
         }
+    }
+
+    fn set_processing_node_input_gain(
+        &self,
+        system_name: &str,
+        peer_system_name: &str,
+        gain_percent: u8,
+        muted: bool,
+    ) -> Result<(), BackendError> {
+        let feed_name = pactl::feed_sink_name_for_mix_pair(system_name, peer_system_name);
+        pactl::set_sink_volume_by_name(&feed_name, gain_percent)?;
+        pactl::set_sink_mute_by_name(&feed_name, muted)
     }
 }
 

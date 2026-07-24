@@ -97,6 +97,52 @@ impl CoreEngine {
         Ok(ApplyResult { success: true, message: None })
     }
 
+    /// Live-updates a Mixer Node's per-input gain/mute — the PD-017
+    /// two-speed fast path (no relink, no reload), safe to call on every
+    /// slider tick. Only meaningful for a connected input on a Mixer kind;
+    /// errors for anything else rather than silently no-op-ing.
+    pub fn update_processing_node_input_gain(
+        &mut self,
+        node_id: &str,
+        port_index: u32,
+        gain_percent: u8,
+        muted: bool,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        if !matches!(node.kind, ProcessingNodeKind::Mixer { .. }) {
+            return Err(EngineError::InvalidInput(format!("{node_id} has no per-input gain to update")));
+        }
+        let peer_id = node
+            .inputs
+            .iter()
+            .find(|port| port.index == port_index)
+            .and_then(|port| port.connected_id.as_deref())
+            .ok_or_else(|| EngineError::InvalidInput(format!("input {port_index} on {node_id} isn't connected")))?
+            .to_string();
+        let peer_system_name = resolve_system_name_for_id(&self.graph, &peer_id)
+            .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?;
+
+        self.adapter
+            .set_processing_node_input_gain(&node.system_name, &peer_system_name, gain_percent, muted)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .set_processing_node_input_gain(node_id, port_index, gain_percent, muted)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+        Ok(ApplyResult { success: true, message: None })
+    }
+
     /// Creates a Mixer/Fan-out/EQ/stub processing node (PD-032). Freshly
     /// created with no ports wired — connecting it into the graph is a
     /// separate, later step (issue #293 phases 2-5), not part of creation.
@@ -383,6 +429,71 @@ mod live_tests {
         disconnect_result.expect("disconnect output a");
         assert!(unlinked_a_after_disconnect, "output a link should be torn down");
         assert!(still_linked_b_after_disconnect, "output b link should survive disconnecting a");
+    }
+
+    #[test]
+    #[ignore]
+    fn mixer_node_round_trips_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let source_a = engine.create_virtual_output("Pipe Deck Live Mixer Src A").expect("create source a");
+        let source_b = engine.create_virtual_output("Pipe Deck Live Mixer Src B").expect("create source b");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+            let _ = engine.remove_virtual_device(&source_a.system_name);
+            let _ = engine.remove_virtual_device(&source_b.system_name);
+        };
+
+        let node = match engine.create_processing_node("Pipe Deck Live Mixer", ProcessingNodeSpecKind::Mixer) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+
+        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id) {
+            cleanup(&mut engine, Some(&node.id));
+            panic!("connect input a failed: {error}");
+        }
+        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id) {
+            cleanup(&mut engine, Some(&node.id));
+            panic!("connect input b failed: {error}");
+        }
+
+        let feed_a = pactl::feed_sink_name_for_mix_pair(&node.system_name, &source_a.system_name);
+        let feed_b = pactl::feed_sink_name_for_mix_pair(&node.system_name, &source_b.system_name);
+        let both_feeds_live = pactl::sink_exists(&feed_a).unwrap_or(false) && pactl::sink_exists(&feed_b).unwrap_or(false);
+
+        if let Err(error) = engine.update_processing_node_input_gain(&node.id, 0, 55, false) {
+            cleanup(&mut engine, Some(&node.id));
+            panic!("update gain failed: {error}");
+        }
+        let gain_applied = pactl::sink_volume_percent(&feed_a).unwrap_or(None) == Some(55);
+
+        // Disconnecting input a must tear down only its own feed sink, not
+        // input b's — the #105 lesson (incomplete/incorrect teardown)
+        // applied to the per-pair-feed-sink mechanism this generalizes from
+        // mic-mix, on a real session rather than the mock's bookkeeping.
+        let disconnect_result = engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0);
+        let feed_a_gone_after_disconnect = !pactl::sink_exists(&feed_a).unwrap_or(true);
+        let feed_b_survives_disconnect = pactl::sink_exists(&feed_b).unwrap_or(false);
+
+        cleanup(&mut engine, Some(&node.id));
+        let feed_b_gone_after_node_removal = !pactl::sink_exists(&feed_b).unwrap_or(true);
+
+        assert!(both_feeds_live, "both mixer input feed sinks should exist after connecting");
+        assert!(gain_applied, "gain update should be reflected on the feed sink's own volume");
+        disconnect_result.expect("disconnect input a");
+        assert!(feed_a_gone_after_disconnect, "input a's feed sink should be torn down on disconnect");
+        assert!(feed_b_survives_disconnect, "input b's feed sink should survive disconnecting a");
+        assert!(feed_b_gone_after_node_removal, "removing the mixer node should GC its remaining feed sink");
     }
 }
 

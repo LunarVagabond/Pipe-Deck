@@ -280,6 +280,70 @@ fn single_input_processing_node_rejects_a_second_input_connection() {
     assert!(error.to_string().contains("only one input"), "{error}");
 }
 
+/// A Mixer Node's defining shape: N growable inputs, each with its own gain,
+/// summed into a single output — the generalized replacement for mic-mix
+/// (PD-032). Two sources connect, one gets a live gain update, then one
+/// disconnects without disturbing the other's gain or connection.
+#[test]
+fn mixer_node_sums_inputs_with_independent_gain() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+    let source_a = engine.create_virtual_output("Mic A").expect("create source a");
+    let source_b = engine.create_virtual_output("Mic B").expect("create source b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
+        .expect("connect input a");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
+        .expect("connect input b");
+
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.inputs.len(), 2);
+    match &refreshed.kind {
+        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![100, 100]),
+        other => panic!("expected Mixer, got {other:?}"),
+    }
+
+    engine
+        .update_processing_node_input_gain(&node.id, 0, 60, false)
+        .expect("update gain for input a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    match &refreshed.kind {
+        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![60, 100]),
+        other => panic!("expected Mixer, got {other:?}"),
+    }
+
+    engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0).expect("disconnect input a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.inputs.len(), 1);
+    assert_eq!(refreshed.inputs[0].connected_id.as_deref(), Some(source_b.device_id.as_str()));
+    match &refreshed.kind {
+        // Input b's gain (still at unity) survives disconnecting input a and
+        // re-indexing down to slot 0.
+        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![100]),
+        other => panic!("expected Mixer, got {other:?}"),
+    }
+}
+
+#[test]
+fn mixer_node_input_gain_update_rejects_a_disconnected_port() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
+
+    let error = engine
+        .update_processing_node_input_gain(&node.id, 0, 50, false)
+        .expect_err("gain update on a disconnected port should be rejected");
+    assert!(error.to_string().contains("isn't connected"), "{error}");
+}
+
 #[test]
 fn virtual_output_can_chain_into_another_virtual_output() {
     let (mut engine, _guard) = mock_engine();

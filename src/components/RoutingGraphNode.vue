@@ -4,6 +4,7 @@ import { Handle, Position, useNodeId } from "@vue-flow/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
+import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useEffectChain } from "../composables/useEffectChain";
@@ -203,8 +204,20 @@ function onToggleMute() {
         </div>
       </div>
 
+      <!-- `handlesForProcessingNode` builds audio-in handles in the same
+           order as `ProcessingNode.inputs`, so filtered position === real
+           port index; see nodePorts.ts. -->
+      <RoutingGraphNodeMixer
+        v-if="data.processingNodeKind?.kind === 'mixer'"
+        :node-id="data.entityId"
+        :input-gains-percent="data.processingNodeKind.input_gains_percent"
+        :inputs="inHandles.filter((h) => !h.empty).map((h, i) => ({ index: i, connectedId: h.connectedId }))"
+      />
+      <p v-else-if="data.processingNodeKind?.kind === 'stub'" class="routing-graph-node-stub-label">
+        Not implemented yet
+      </p>
       <RoutingGraphNodeEffects
-        v-if="data.channelType && data.supportsEffects"
+        v-else-if="data.channelType && data.supportsEffects"
         :channel-type="data.channelType"
         :entity-id="data.entityId"
         :label="data.label"
