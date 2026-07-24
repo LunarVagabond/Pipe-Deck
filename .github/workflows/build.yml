@@ -51,7 +51,10 @@ jobs:
             build-essential \
             libayatana-appindicator3-dev \
             librsvg2-dev \
-            patchelf
+            patchelf \
+            pkg-config \
+            libpipewire-0.3-dev \
+            libspa-0.2-dev
 
       - uses: dtolnay/rust-toolchain@stable
 
