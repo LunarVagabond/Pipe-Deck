@@ -223,6 +223,63 @@ fn removing_a_processing_node_with_multiple_connected_inputs_is_rejected() {
     assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
+/// A Fan-out Node's defining shape: one input, N outputs, each output
+/// growing the port list on connect and shrinking it (dense, re-indexed) on
+/// disconnect — proven here against two virtual outputs as targets.
+#[test]
+fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut)
+        .expect("create fan-out node");
+    let output_a = engine.create_virtual_output("Fan A").expect("create target a");
+    let output_b = engine.create_virtual_output("Fan B").expect("create target b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
+        .expect("connect output a");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id)
+        .expect("connect output b");
+
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.outputs.len(), 2);
+    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_a.device_id.as_str()));
+    assert_eq!(refreshed.outputs[1].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+
+    engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0).expect("disconnect output a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.outputs.len(), 1);
+    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+}
+
+/// Fan-out/EQ/stub kinds take exactly one input — a second connect attempt
+/// on an already-occupied single input port is rejected outright rather than
+/// silently accepted (nothing downstream a second input would even mean).
+#[test]
+fn single_input_processing_node_rejects_a_second_input_connection() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut)
+        .expect("create fan-out node");
+    let source_a = engine.create_virtual_output("Source A").expect("create source a");
+    let source_b = engine.create_virtual_output("Source B").expect("create source b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
+        .expect("connect first input");
+    let error = engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
+        .expect_err("second input should be rejected");
+    assert!(error.to_string().contains("only one input"), "{error}");
+}
+
 #[test]
 fn virtual_output_can_chain_into_another_virtual_output() {
     let (mut engine, _guard) = mock_engine();

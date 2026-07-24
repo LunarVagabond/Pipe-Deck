@@ -25,7 +25,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "bus" | "output" | "input"];
+  "add-node": [type: "bus" | "output" | "input" | "fan_out"];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
 }>();
@@ -101,6 +101,7 @@ function onPickNode(nodeId: string) {
       <button type="button" @click="emit('add-node', 'bus')">+ Bus</button>
       <button type="button" @click="emit('add-node', 'output')">+ Output (virtual)</button>
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
+      <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-out Node</button>
 
       <hr class="routing-graph-context-menu-separator" />
       <div class="routing-graph-node-picker-anchor">

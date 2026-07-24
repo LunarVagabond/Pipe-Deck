@@ -1,4 +1,4 @@
-import type { Device, RuntimeGraph, Stream } from "../../types/graph";
+import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
 import { deviceColumn, deviceTargetIds, isMultiSink } from "../../utils/routingLayout";
 import type { PortType } from "./portTypes";
 
@@ -160,6 +160,29 @@ export function handlesForDevice(
   return handles;
 }
 
+/**
+ * A Fan-out Node has one input port and N growable output ports, each keyed
+ * by the peer id currently occupying it (same `${portType}:${id}` scheme as
+ * `buildSideHandles`, so `handlesForLink` needs no processing-node-specific
+ * branch — it's already generic over peer id). Mixer/EQ/stub kinds reuse
+ * this too: only the "how many ports, growable or fixed" answer differs per
+ * kind, not the handle-building mechanics.
+ */
+export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHandle[] {
+  const inConnected = (node.inputs ?? []).map((port) => port.connected_id).filter((id): id is string => !!id);
+  const outConnected = (node.outputs ?? []).map((port) => port.connected_id).filter((id): id is string => !!id);
+
+  // Both sides always show a trailing empty slot to drag onto — the
+  // single-input-kinds cap (Fan-out/EQ/stub accept exactly one input) is
+  // enforced engine-side (`CoreEngine::connect_processing_node_port`), not
+  // by hiding the slot here, so a rejected second connection still gets a
+  // clear error toast instead of no drop target at all.
+  const handles: RoutingGraphHandle[] = [];
+  handles.push(...buildSideHandles("audio-in", inConnected, true));
+  handles.push(...buildSideHandles("audio-out", outConnected, true));
+  return handles;
+}
+
 export function handlesForLink(
   sourceIsStream: boolean,
   targetIsStream: boolean,
@@ -176,8 +199,12 @@ export function graphEntityExists(
   streams: Stream[],
   devices: Device[],
   entityId: string,
+  processingNodes: ProcessingNode[] = [],
 ): boolean {
   if (streams.some((stream) => stream.id === entityId)) {
+    return true;
+  }
+  if (processingNodes.some((node) => node.id === entityId)) {
     return true;
   }
   const device = devices.find((entry) => entry.id === entityId);

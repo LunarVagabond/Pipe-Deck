@@ -273,13 +273,18 @@ pub trait AudioBackend: Send + Sync {
     }
 
     /// Re-points a processing node's `port_index` (on the `direction` side)
-    /// to `peer_system_name`, or disconnects it if `None`.
+    /// to `peer_id` (a device or stream id, resolved against `graph` the
+    /// same way `route_stream`/`route_device` resolve their targets — a
+    /// stream needs `pactl` sink-input move, a device needs a `pw-link`
+    /// monitor link, and only the backend can tell those apart), or
+    /// disconnects the port if `None`.
     fn relink_processing_node_port(
         &self,
+        _graph: &RuntimeGraph,
         _system_name: &str,
         _port_index: u32,
         _direction: PortDirection,
-        _peer_system_name: Option<&str>,
+        _peer_id: Option<&str>,
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("relink_processing_node_port: not implemented".into()))
     }

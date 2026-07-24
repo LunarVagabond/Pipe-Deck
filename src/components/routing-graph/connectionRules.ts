@@ -1,12 +1,12 @@
 import type { Connection } from "@vue-flow/core";
-import type { Device, RuntimeGraph, Stream } from "../../types/graph";
+import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
 import {
   isMultiSink,
   sinksForStream,
   streamDisplayLabel,
   targetsForVirtualSink,
 } from "../../utils/routingLayout";
-import { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
+import { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 import { canConnectPorts } from "./portTypes";
 import { isMicMixCandidate, isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
 
@@ -20,7 +20,13 @@ export type RoutingConnectionAction =
   // list, so two mixing actions fired close together can't race and drop one.
   | { type: "mic_mix_add"; virtualMicDeviceId: string; sourceDeviceId: string }
   | { type: "mic_mix_remove"; virtualMicDeviceId: string; sourceDeviceId: string }
-  | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string };
+  | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string }
+  // PD-032 processing nodes: `peerId` is a device or stream id, resolved
+  // server-side against the engine's own graph (`connect_processing_node_port`),
+  // same "computed against live state, not a client-built full list" caution
+  // as the mic-mix actions above.
+  | { type: "processing_node_connect"; nodeId: string; direction: "input" | "output"; peerId: string }
+  | { type: "processing_node_disconnect"; nodeId: string; direction: "input" | "output"; portIndex: number };
 
 export interface PreviousEdge {
   source: string;
@@ -80,6 +86,10 @@ export function resolveConnectionAction(
     return resolveDeviceToDevice(graph, source.id, target.id, context);
   }
 
+  if (source.kind === "processingNode" || target.kind === "processingNode") {
+    return resolveProcessingNodeConnection(graph, source, target);
+  }
+
   const sourceStream = findStream(graph, source.id);
   const targetStream = findStream(graph, target.id);
   const sourceLabel = sourceStream ? labelFor(sourceStream) : source.id;
@@ -97,8 +107,78 @@ function findDevice(graph: RuntimeGraph, deviceId: string): Device | undefined {
   return graph.devices.find((device) => device.id === deviceId);
 }
 
+function findProcessingNode(graph: RuntimeGraph, nodeId: string): ProcessingNode | undefined {
+  return (graph.processing_nodes ?? []).find((node) => node.id === nodeId);
+}
+
 function labelFor(entity: Stream | Device): string {
   return "app_name" in entity ? streamDisplayLabel(entity) : entity.label;
+}
+
+function peerLabel(graph: RuntimeGraph, peerId: string): string {
+  const stream = findStream(graph, peerId);
+  if (stream) return labelFor(stream);
+  const device = findDevice(graph, peerId);
+  if (device) return labelFor(device);
+  return peerId;
+}
+
+/**
+ * A processing node's input accepts a stream or device; its output feeds a
+ * stream-less device (or, in a later phase, another processing node).
+ * `source`/`target` follow vue-flow's drag direction — a processing node as
+ * `source` means its output is being dragged out to `target`; as `target`
+ * means `source` is being dragged into one of its input ports.
+ */
+function resolveProcessingNodeConnection(
+  graph: RuntimeGraph,
+  source: { kind: "stream" | "device" | "processingNode"; id: string },
+  target: { kind: "stream" | "device" | "processingNode"; id: string },
+): { action: RoutingConnectionAction } | { error: string } {
+  if (source.kind === "processingNode" && target.kind === "processingNode") {
+    return { error: "Chaining two processing nodes together isn't supported yet." };
+  }
+
+  const nodeId = source.kind === "processingNode" ? source.id : target.id;
+  const node = findProcessingNode(graph, nodeId);
+  if (!node) {
+    return { error: "Processing node not found." };
+  }
+
+  const direction: "input" | "output" = source.kind === "processingNode" ? "output" : "input";
+  const peerId = source.kind === "processingNode" ? target.id : source.id;
+  const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
+  if (ports.some((port) => port.connected_id === peerId)) {
+    return { error: `"${peerLabel(graph, peerId)}" is already connected to "${node.label}".` };
+  }
+
+  return { action: { type: "processing_node_connect", nodeId: node.id, direction, peerId } };
+}
+
+function resolveProcessingNodeDisconnect(
+  graph: RuntimeGraph,
+  source: { kind: "stream" | "device" | "processingNode"; id: string },
+  target: { kind: "stream" | "device" | "processingNode"; id: string },
+): { action: RoutingConnectionAction } | { error: string } {
+  if (source.kind === "processingNode" && target.kind === "processingNode") {
+    return { error: "Nothing to disconnect." };
+  }
+
+  const nodeId = source.kind === "processingNode" ? source.id : target.id;
+  const node = findProcessingNode(graph, nodeId);
+  if (!node) {
+    return { error: "Processing node not found." };
+  }
+
+  const direction: "input" | "output" = source.kind === "processingNode" ? "output" : "input";
+  const peerId = source.kind === "processingNode" ? target.id : source.id;
+  const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
+  const port = ports.find((entry) => entry.connected_id === peerId);
+  if (!port) {
+    return { error: `"${node.label}" isn't currently connected to "${peerLabel(graph, peerId)}" — nothing to disconnect.` };
+  }
+
+  return { action: { type: "processing_node_disconnect", nodeId: node.id, direction, portIndex: port.index } };
 }
 
 function resolveStreamToDevice(
@@ -277,6 +357,10 @@ function resolveEdgeDisconnect(
     };
   }
 
+  if (source.kind === "processingNode" || target.kind === "processingNode") {
+    return resolveProcessingNodeDisconnect(graph, source, target);
+  }
+
   if (source.kind !== "device" || target.kind !== "device") {
     return { error: "Nothing to disconnect." };
   }
@@ -322,15 +406,23 @@ function resolveEdgeDisconnect(
   };
 }
 
+function graphNodeIdFor(graph: RuntimeGraph, entityId: string): string {
+  if (graph.streams.some((stream) => stream.id === entityId)) {
+    return streamNodeId(entityId);
+  }
+  if ((graph.processing_nodes ?? []).some((node) => node.id === entityId)) {
+    return processingNodeNodeId(entityId);
+  }
+  return deviceNodeId(entityId);
+}
+
 export function nodeIdsForLink(
   graph: RuntimeGraph,
   sourceId: string,
   targetId: string,
 ): { source: string; target: string } {
-  const sourceIsStream = graph.streams.some((stream) => stream.id === sourceId);
-  const targetIsStream = graph.streams.some((stream) => stream.id === targetId);
   return {
-    source: sourceIsStream ? streamNodeId(sourceId) : deviceNodeId(sourceId),
-    target: targetIsStream ? streamNodeId(targetId) : deviceNodeId(targetId),
+    source: graphNodeIdFor(graph, sourceId),
+    target: graphNodeIdFor(graph, targetId),
   };
 }

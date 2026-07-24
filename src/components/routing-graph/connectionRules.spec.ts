@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Connection } from "@vue-flow/core";
-import { makeDevice, makeGraph, makeStream } from "../../test/graphFixtures";
+import { makeDevice, makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
 import { resolveConnectionAction } from "./connectionRules";
 
 function connection(overrides: Partial<Connection>): Connection {
@@ -515,6 +515,89 @@ describe("resolveConnectionAction — edge_disconnect mode", () => {
     });
     expect(result).toEqual({
       action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out2"] },
+    });
+  });
+});
+
+describe("resolveConnectionAction — processing nodes (PD-032)", () => {
+  it("connects a device to a processing node's input", () => {
+    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
+    const node = makeProcessingNode({ id: "proc-1" });
+    const graph = makeGraph([source], [], [], [node]);
+    const result = resolveConnectionAction(
+      graph,
+      connection({
+        source: "device:src1",
+        target: "processingNode:proc-1",
+        sourceHandle: "audio-out:empty",
+        targetHandle: "audio-in:empty",
+      }),
+    );
+    expect(result).toEqual({
+      action: { type: "processing_node_connect", nodeId: "proc-1", direction: "input", peerId: "src1" },
+    });
+  });
+
+  it("connects a processing node's output to a device", () => {
+    const target = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const node = makeProcessingNode({ id: "proc-1" });
+    const graph = makeGraph([target], [], [], [node]);
+    const result = resolveConnectionAction(
+      graph,
+      connection({
+        source: "processingNode:proc-1",
+        target: "device:out1",
+        sourceHandle: "audio-out:empty",
+        targetHandle: "audio-in:empty",
+      }),
+    );
+    expect(result).toEqual({
+      action: { type: "processing_node_connect", nodeId: "proc-1", direction: "output", peerId: "out1" },
+    });
+  });
+
+  it("errors when the peer is already connected to that port", () => {
+    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
+    const node = makeProcessingNode({ id: "proc-1", inputs: [{ index: 0, connected_id: "src1" }] });
+    const graph = makeGraph([source], [], [], [node]);
+    const result = resolveConnectionAction(
+      graph,
+      connection({
+        source: "device:src1",
+        target: "processingNode:proc-1",
+        sourceHandle: "audio-out:empty",
+        targetHandle: "audio-in:empty",
+      }),
+    );
+    expect(result).toEqual({ error: '"Speakers" is already connected to "Fan-out".' });
+  });
+
+  it("errors when chaining two processing nodes together", () => {
+    const nodeA = makeProcessingNode({ id: "proc-a" });
+    const nodeB = makeProcessingNode({ id: "proc-b" });
+    const graph = makeGraph([], [], [], [nodeA, nodeB]);
+    const result = resolveConnectionAction(
+      graph,
+      connection({
+        source: "processingNode:proc-a",
+        target: "processingNode:proc-b",
+        sourceHandle: "audio-out:empty",
+        targetHandle: "audio-in:empty",
+      }),
+    );
+    expect(result).toEqual({ error: "Chaining two processing nodes together isn't supported yet." });
+  });
+
+  it("disconnects a processing node's output from a device via edge_disconnect", () => {
+    const target = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const node = makeProcessingNode({ id: "proc-1", outputs: [{ index: 0, connected_id: "out1" }] });
+    const graph = makeGraph([target], [], [], [node]);
+    const result = resolveConnectionAction(graph, connection({}), {
+      mode: "edge_disconnect",
+      previousEdge: { source: "processingNode:proc-1", target: "device:out1" },
+    });
+    expect(result).toEqual({
+      action: { type: "processing_node_disconnect", nodeId: "proc-1", direction: "output", portIndex: 0 },
     });
   });
 });

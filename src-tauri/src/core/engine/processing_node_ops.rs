@@ -1,8 +1,8 @@
 use crate::backend::slugify;
 use crate::config::ConfigStore;
 use crate::core::models::{
-    ApplyResult, ProcessingNode, ProcessingNodeKind, ProcessingNodePort, ProcessingNodeSpec,
-    ProcessingNodeSpecKind, RuntimeGraph,
+    ApplyResult, PortDirection, ProcessingNode, ProcessingNodeKind, ProcessingNodePort,
+    ProcessingNodeSpec, ProcessingNodeSpecKind, RuntimeGraph,
 };
 use chrono::Utc;
 
@@ -11,6 +11,90 @@ use super::{CoreEngine, EngineError};
 impl CoreEngine {
     pub fn list_processing_nodes(&self) -> &[ProcessingNode] {
         &self.graph.processing_nodes
+    }
+
+    /// Wires `peer_id` (a device or stream id) into `node_id`'s next free
+    /// port on the given `direction`, or a freshly appended one if every
+    /// existing port of that direction is already occupied — this is how a
+    /// Mixer's inputs or a Fan-out's outputs grow with each connection.
+    /// Single-input kinds (Fan-out/EQ/stub all take exactly one signal in)
+    /// reject a second input connection instead of silently accepting one
+    /// nothing downstream expects.
+    pub fn connect_processing_node_port(
+        &mut self,
+        node_id: &str,
+        direction: PortDirection,
+        peer_id: &str,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        let peer_system_name = resolve_system_name_for_id(&self.graph, peer_id)
+            .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?;
+
+        let ports = match direction {
+            PortDirection::Input => &node.inputs,
+            PortDirection::Output => &node.outputs,
+        };
+        if direction == PortDirection::Input
+            && !matches!(node.kind, ProcessingNodeKind::Mixer { .. })
+            && ports.iter().any(|port| port.connected_id.is_some())
+        {
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} accepts only one input - disconnect the existing one first"
+            )));
+        }
+        let port_index = ports
+            .iter()
+            .find(|port| port.connected_id.is_none())
+            .map(|port| port.index)
+            .unwrap_or(ports.len() as u32);
+
+        self.adapter
+            .relink_processing_node_port(&self.graph, &node.system_name, port_index, direction, Some(peer_id))
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .upsert_processing_node_port(node_id, direction, port_index, &peer_system_name)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+        Ok(ApplyResult { success: true, message: None })
+    }
+
+    pub fn disconnect_processing_node_port(
+        &mut self,
+        node_id: &str,
+        direction: PortDirection,
+        port_index: u32,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        self.adapter
+            .relink_processing_node_port(&self.graph, &node.system_name, port_index, direction, None)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .remove_processing_node_port(node_id, direction, port_index)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+        Ok(ApplyResult { success: true, message: None })
     }
 
     /// Creates a Mixer/Fan-out/EQ/stub processing node (PD-032). Freshly
@@ -131,6 +215,21 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
     }
 }
 
+fn resolve_system_name_for_id(graph: &RuntimeGraph, id: &str) -> Option<String> {
+    graph
+        .devices
+        .iter()
+        .find(|device| device.id == id)
+        .map(|device| device.system_name.clone())
+        .or_else(|| {
+            graph
+                .streams
+                .iter()
+                .find(|stream| stream.id == id)
+                .and_then(|stream| stream.system_name.clone())
+        })
+}
+
 fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option<String> {
     graph
         .devices
@@ -210,6 +309,80 @@ pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &Runti
         live: false,
         inputs,
         outputs,
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    //! `#[ignore]`d on purpose (mirrors `effects_ops::live_tests`): these hit
+    //! a *real* PipeWire session via `pactl`/`pw-link`, unlike every other
+    //! test in this crate. Only run via
+    //! `cargo test --lib -- --ignored fan_out_node_round_trips_on_a_real_pipewire_session`.
+    //! Creates disposable `pipe-deck-*`/`pipe-deck-proc-*` devices it removes
+    //! itself; never touches anything the user configured.
+    use super::*;
+    use crate::backend::linux::{pactl, pw_link};
+
+    #[test]
+    #[ignore]
+    fn fan_out_node_round_trips_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let output_a = engine.create_virtual_output("Pipe Deck Live Fan A").expect("create target a");
+        let output_b = engine.create_virtual_output("Pipe Deck Live Fan B").expect("create target b");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+            let _ = engine.remove_virtual_device(&output_a.system_name);
+            let _ = engine.remove_virtual_device(&output_b.system_name);
+        };
+
+        let node = match engine.create_processing_node("Pipe Deck Live Fan-out", ProcessingNodeSpecKind::FanOut) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+
+        if !pactl::sink_exists(&node.system_name).unwrap_or(false) {
+            cleanup(&mut engine, Some(&node.id));
+            panic!("fan-out sink did not appear after create_processing_node");
+        }
+
+        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id) {
+            cleanup(&mut engine, Some(&node.id));
+            panic!("connect output a failed: {error}");
+        }
+        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id) {
+            cleanup(&mut engine, Some(&node.id));
+            panic!("connect output b failed: {error}");
+        }
+
+        let linked_a = pw_link::is_sink_monitor_routed_to(&node.system_name, &output_a.system_name, false);
+        let linked_b = pw_link::is_sink_monitor_routed_to(&node.system_name, &output_b.system_name, false);
+
+        // Disconnecting output a must tear down only that leg, not b's —
+        // the #105 lesson (incomplete/incorrect teardown) applied to a real
+        // session rather than the mock's in-memory bookkeeping.
+        let disconnect_result = engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0);
+        let still_linked_b_after_disconnect =
+            pw_link::is_sink_monitor_routed_to(&node.system_name, &output_b.system_name, false);
+        let unlinked_a_after_disconnect =
+            !pw_link::is_sink_monitor_routed_to(&node.system_name, &output_a.system_name, false);
+
+        cleanup(&mut engine, Some(&node.id));
+
+        assert!(linked_a, "fan-out node did not link to output a");
+        assert!(linked_b, "fan-out node did not link to output b");
+        disconnect_result.expect("disconnect output a");
+        assert!(unlinked_a_after_disconnect, "output a link should be torn down");
+        assert!(still_linked_b_after_disconnect, "output b link should survive disconnecting a");
     }
 }
 

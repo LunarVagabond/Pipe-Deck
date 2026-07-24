@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { makeDevice, makeGraph, makeStream } from "../../test/graphFixtures";
+import { makeDevice, makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
 import { collectRoutingEdges } from "./collectEdges";
 
 describe("collectRoutingEdges", () => {
@@ -110,6 +110,35 @@ describe("collectRoutingEdges", () => {
   it("drops a link referencing an entity no longer in the graph", () => {
     const device = makeDevice({ id: "d1", direction: "output" });
     const graph = makeGraph([device], [], [{ id: "link-1", source_id: "gone", target_id: "d1" }]);
+
+    expect(collectRoutingEdges(graph)).toHaveLength(0);
+  });
+
+  it("builds an edge for each connected port on a processing node — PD-032's 4th edge shape", () => {
+    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
+    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const out2 = makeDevice({ id: "out2", kind: "physical", direction: "output" });
+    const node = makeProcessingNode({
+      id: "proc-1",
+      inputs: [{ index: 0, connected_id: "src1" }],
+      outputs: [
+        { index: 0, connected_id: "out1" },
+        { index: 1, connected_id: "out2" },
+      ],
+    });
+    const graph = makeGraph([source, out1, out2], [], [], [node]);
+
+    const edges = collectRoutingEdges(graph);
+
+    expect(edges).toHaveLength(3);
+    expect(edges).toContainEqual(expect.objectContaining({ source: "device:src1", target: "processingNode:proc-1" }));
+    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:proc-1", target: "device:out1" }));
+    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:proc-1", target: "device:out2" }));
+  });
+
+  it("drops a processing-node edge whose port peer no longer exists in the graph", () => {
+    const node = makeProcessingNode({ id: "proc-1", outputs: [{ index: 0, connected_id: "gone" }] });
+    const graph = makeGraph([], [], [], [node]);
 
     expect(collectRoutingEdges(graph)).toHaveLength(0);
   });

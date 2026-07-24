@@ -88,6 +88,8 @@ pub fn run() {
             commands::effects::reorder_effect_stages,
             commands::processing_node::create_processing_node,
             commands::processing_node::remove_processing_node,
+            commands::processing_node::connect_processing_node_port,
+            commands::processing_node::disconnect_processing_node_port,
             commands::virtual_device::create_virtual_output,
             commands::virtual_device::create_virtual_multi_output,
             commands::virtual_device::create_virtual_input,

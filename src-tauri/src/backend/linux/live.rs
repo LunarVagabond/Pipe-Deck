@@ -1,6 +1,6 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
-    VirtualRole,
+    Device, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind,
+    RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -401,6 +401,108 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn is_effect_chain_loaded(&self, device_system_name: &str) -> bool {
         crate::daemon::ipc::client::NativeHostClient::is_loaded(device_system_name)
+    }
+
+    // --- Processing nodes (PD-032). Fan-out only for now (issue #293 phase
+    // 2) — Mixer/EQ5Band fall through to the trait's "not implemented"
+    // default until their own phases; Stub never reaches here at all
+    // (CoreEngine never calls this trait for a Stub kind).
+
+    fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
+        match &node.kind {
+            ProcessingNodeKind::FanOut => {
+                if pactl::sink_exists(&node.system_name)? {
+                    return Ok(());
+                }
+                pactl::create_null_sink(&node.system_name, &node.label)?;
+                Ok(())
+            }
+            _ => Err(BackendError::Message(
+                "load_processing_node: not yet implemented for this kind".into(),
+            )),
+        }
+    }
+
+    fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        if let Some(module_id) = pactl::find_module_id_by_sink_name(system_name)? {
+            pactl::unload_module(&module_id)?;
+        }
+        Ok(())
+    }
+
+    fn is_processing_node_loaded(&self, system_name: &str) -> bool {
+        pactl::sink_exists(system_name).unwrap_or(false)
+    }
+
+    fn relink_processing_node_port(
+        &self,
+        graph: &RuntimeGraph,
+        system_name: &str,
+        port_index: u32,
+        direction: PortDirection,
+        peer_id: Option<&str>,
+    ) -> Result<(), BackendError> {
+        match direction {
+            PortDirection::Input => match peer_id {
+                Some(id) => {
+                    if let Some(device) = graph.devices.iter().find(|device| device.id == id) {
+                        pw_link::link_sink_monitor_to_target(&device.system_name, system_name, false)
+                    } else if graph.streams.iter().any(|stream| stream.id == id) {
+                        pactl::move_stream_to_sink_name(graph, id, system_name)
+                    } else {
+                        Err(BackendError::Message(format!("relink peer not found: {id}")))
+                    }
+                }
+                // Disconnecting a stream's route is a graph-model concept
+                // (forget the desired route), not a forced move — same
+                // semantics as `clear_stream_target` elsewhere. Only a
+                // device-fed input needs an actual `pw-link` teardown.
+                None => {
+                    let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
+                        return Ok(());
+                    };
+                    let Some(previous_id) =
+                        node.inputs.iter().find(|port| port.index == port_index).and_then(|port| port.connected_id.as_deref())
+                    else {
+                        return Ok(());
+                    };
+                    if let Some(device) = graph.devices.iter().find(|device| device.id == previous_id) {
+                        pw_link::disconnect_sink_monitor_route(&device.system_name, system_name)
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            PortDirection::Output => {
+                let resolve = |id: &str| graph.devices.iter().find(|device| device.id == id);
+                match peer_id {
+                    Some(id) => {
+                        let target = resolve(id)
+                            .ok_or_else(|| BackendError::Message(format!("relink target not found: {id}")))?;
+                        let target_is_virtual_source =
+                            target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
+                        pw_link::link_sink_monitor_to_target(system_name, &target.system_name, target_is_virtual_source)
+                    }
+                    None => {
+                        let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
+                            return Ok(());
+                        };
+                        let Some(previous_id) = node
+                            .outputs
+                            .iter()
+                            .find(|port| port.index == port_index)
+                            .and_then(|port| port.connected_id.as_deref())
+                        else {
+                            return Ok(());
+                        };
+                        match resolve(previous_id) {
+                            Some(target) => pw_link::disconnect_sink_monitor_route(system_name, &target.system_name),
+                            None => Ok(()),
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

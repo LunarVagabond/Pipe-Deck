@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { makeDevice, makeGraph, makeStream } from "../../test/graphFixtures";
-import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
+import { makeDevice, makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
+import {
+  computeDeviceConnections,
+  graphEntityExists,
+  handlesForDevice,
+  handlesForProcessingNode,
+  handlesForStream,
+} from "./nodePorts";
 
 describe("computeDeviceConnections", () => {
   it("tracks a playback stream as an input connection on its target", () => {
@@ -113,5 +119,38 @@ describe("handlesForDevice", () => {
   it("returns no handles for a device outside any known column", () => {
     const device = makeDevice({ id: "feed1", system_name: "pipe-deck-feed-1", direction: "output" });
     expect(handlesForDevice(device)).toEqual([]);
+  });
+});
+
+describe("handlesForProcessingNode", () => {
+  it("gives an unconnected fan-out node one empty input slot and one empty output slot", () => {
+    const node = makeProcessingNode();
+    const handles = handlesForProcessingNode(node);
+    expect(handles).toEqual([
+      { id: "audio-in:empty", type: "target", position: "left", portType: "audio-in", empty: true },
+      { id: "audio-out:empty", type: "source", position: "right", portType: "audio-out", empty: true },
+    ]);
+  });
+
+  it("gives a connected fan-out node one handle per output plus a trailing empty slot", () => {
+    const node = makeProcessingNode({
+      inputs: [{ index: 0, connected_id: "src1" }],
+      outputs: [
+        { index: 0, connected_id: "out1" },
+        { index: 1, connected_id: "out2" },
+      ],
+    });
+    const handles = handlesForProcessingNode(node);
+    const outHandles = handles.filter((h) => h.portType === "audio-out");
+    expect(outHandles.map((h) => h.id)).toEqual(["audio-out:out1", "audio-out:out2", "audio-out:empty"]);
+    expect(handles.some((h) => h.id === "audio-in:src1")).toBe(true);
+  });
+});
+
+describe("graphEntityExists", () => {
+  it("recognizes a processing node id when the processing-nodes list is passed", () => {
+    const node = makeProcessingNode({ id: "proc-1" });
+    expect(graphEntityExists([], [], "proc-1", [node])).toBe(true);
+    expect(graphEntityExists([], [], "proc-1")).toBe(false);
   });
 });

@@ -125,6 +125,73 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    /// Persists `peer_system_name` at `port_index` on the given `direction`
+    /// for the named node — extending the port list if `port_index` is one
+    /// past the current end (a freshly grown port), overwriting in place
+    /// otherwise. A no-op (not an error) if the node itself was removed out
+    /// from under a still-in-flight connect call.
+    pub fn upsert_processing_node_port(
+        &self,
+        node_id: &str,
+        direction: crate::core::models::PortDirection,
+        port_index: u32,
+        peer_system_name: &str,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        let index = port_index as usize;
+        match direction {
+            crate::core::models::PortDirection::Input => {
+                let entry = ProcessingNodePortSpec {
+                    source_system_name: peer_system_name.to_string(),
+                    gain_percent: 100,
+                    muted: false,
+                };
+                if index < node.input_sources.len() {
+                    node.input_sources[index] = entry;
+                } else {
+                    node.input_sources.push(entry);
+                }
+            }
+            crate::core::models::PortDirection::Output => {
+                if index < node.output_targets.len() {
+                    node.output_targets[index] = peer_system_name.to_string();
+                } else {
+                    node.output_targets.push(peer_system_name.to_string());
+                }
+            }
+        }
+        self.save_config(&config)
+    }
+
+    pub fn remove_processing_node_port(
+        &self,
+        node_id: &str,
+        direction: crate::core::models::PortDirection,
+        port_index: u32,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        let index = port_index as usize;
+        match direction {
+            crate::core::models::PortDirection::Input => {
+                if index < node.input_sources.len() {
+                    node.input_sources.remove(index);
+                }
+            }
+            crate::core::models::PortDirection::Output => {
+                if index < node.output_targets.len() {
+                    node.output_targets.remove(index);
+                }
+            }
+        }
+        self.save_config(&config)
+    }
+
     pub fn save_config(&self, config: &AppConfig) -> Result<(), ConfigError> {
         fs::create_dir_all(&self.config_dir)
             .map_err(|error| ConfigError::Write(format!("{error}")))?;

@@ -183,6 +183,28 @@ async function saveDeviceAlias(systemName: string, alias: string) {
   }
 }
 
+async function removeProcessingNode(nodeId: string, label: string) {
+  const confirmed = await confirm(`Delete "${label}"?`, {
+    title: "Delete processing node",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const response = await invoke<{ success: boolean; message?: string }>("remove_processing_node", { id: nodeId });
+    handleApplyResult(response, "Processing node removed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleApplyResult(
+      { success: false, message: `Couldn't delete "${label}": ${message}` },
+      "",
+    );
+  }
+}
+
 async function removeVirtualDevice(systemName: string, label: string) {
   const confirmed = await confirm(`Delete virtual device "${label}"?`, {
     title: "Delete virtual device",
@@ -213,7 +235,12 @@ function onContextMenuAction(action: "rename" | "delete") {
   if (action === "rename") {
     void graphActions.renameDevice(target.systemName, target.label);
   } else if (action === "delete") {
-    graphActions.deleteDevice(target.systemName, target.label);
+    if (target.systemName.startsWith("pipe-deck-proc-")) {
+      contextMenu.value = null;
+      void removeProcessingNode(target.entityId, target.label);
+    } else {
+      graphActions.deleteDevice(target.systemName, target.label);
+    }
   }
 }
 
@@ -237,8 +264,18 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-function onAddNodeAction(type: "bus" | "output" | "input") {
+async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out") {
   contextMenu.value = null;
+  if (type === "fan_out") {
+    try {
+      await invoke("create_processing_node", { label: "Fan-out", kind: { kind: "fan_out" } });
+      handleApplyResult({ success: true }, "Fan-out node added");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      handleApplyResult({ success: false, message: `Couldn't add fan-out node: ${message}` }, "");
+    }
+    return;
+  }
   openNewDeviceDialog(type);
 }
 

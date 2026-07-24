@@ -64,6 +64,20 @@ export async function applyRoutingConnection(
         },
       );
       onResult(response, "Also sending this app's audio to your microphone");
+    } else if (result.action.type === "processing_node_connect") {
+      const response = await invoke<{ success: boolean; message?: string }>("connect_processing_node_port", {
+        nodeId: result.action.nodeId,
+        direction: result.action.direction,
+        peerId: result.action.peerId,
+      });
+      onResult(response, "Routing updated");
+    } else if (result.action.type === "processing_node_disconnect") {
+      const response = await invoke<{ success: boolean; message?: string }>("disconnect_processing_node_port", {
+        nodeId: result.action.nodeId,
+        direction: result.action.direction,
+        portIndex: result.action.portIndex,
+      });
+      onResult(response, "Routing cleared");
     } else {
       const response = await invoke<{ success: boolean; message?: string }>("set_device_route", {
         sourceDeviceId: result.action.sourceDeviceId,

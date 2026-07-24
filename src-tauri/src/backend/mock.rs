@@ -769,11 +769,46 @@ impl AudioBackend for MockAudioBackend {
 
     fn relink_processing_node_port(
         &self,
-        _system_name: &str,
-        _port_index: u32,
-        _direction: PortDirection,
-        _peer_system_name: Option<&str>,
+        _graph: &RuntimeGraph,
+        system_name: &str,
+        port_index: u32,
+        direction: PortDirection,
+        peer_id: Option<&str>,
     ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        let ports = match direction {
+            PortDirection::Input => &mut node.inputs,
+            PortDirection::Output => &mut node.outputs,
+        };
+        match peer_id {
+            Some(peer) => match ports.iter_mut().find(|port| port.index == port_index) {
+                Some(port) => port.connected_id = Some(peer.to_string()),
+                // A fresh port one past the current end — this is how a
+                // Mixer's inputs / Fan-out's outputs grow with each
+                // connection (see `CoreEngine::connect_processing_node_port`).
+                None => ports.push(crate::core::models::ProcessingNodePort {
+                    index: port_index,
+                    connected_id: Some(peer.to_string()),
+                }),
+            },
+            // Disconnect removes the port entirely and re-indexes what's
+            // left, rather than leaving a hole — matches how the real
+            // backend's persisted `output_targets`/`input_sources` (plain
+            // `Vec`s, re-derived by position on every merge) behave.
+            None => {
+                if let Some(position) = ports.iter().position(|port| port.index == port_index) {
+                    ports.remove(position);
+                    for port in ports.iter_mut() {
+                        if port.index > port_index {
+                            port.index -= 1;
+                        }
+                    }
+                }
+            }
+        }
         Ok(())
     }
 

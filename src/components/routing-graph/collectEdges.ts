@@ -7,7 +7,7 @@ import {
 } from "../../utils/routingLayout";
 import { graphEntityExists, handlesForLink } from "./nodePorts";
 import { edgeClassForPort, edgeColorForPorts } from "./portTypes";
-import { deviceNodeId, streamNodeId } from "./nodeIds";
+import { deviceNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 
 export interface BuiltGraphEdge {
   id: string;
@@ -27,10 +27,13 @@ function edgeKey(source: string, target: string): string {
   return `${source}|${target}`;
 }
 
-/** Column rank of a stream or device, for detecting backward-flowing connections. */
+/** Column rank of a stream, device, or processing node, for detecting backward-flowing connections. */
 function entityColumnRank(graph: RuntimeGraph, entityId: string): number {
   if (graph.streams.some((stream) => stream.id === entityId)) {
     return columnRank("applications");
+  }
+  if ((graph.processing_nodes ?? []).some((node) => node.id === entityId)) {
+    return columnRank("routing");
   }
   const device = graph.devices.find((entry) => entry.id === entityId);
   const column = device ? deviceColumn(device) : null;
@@ -44,17 +47,20 @@ function makeEdge(
   targetId: string,
   options: { mix?: boolean } = {},
 ): BuiltGraphEdge | null {
-  if (!graphEntityExists(graph.streams, graph.devices, sourceId)) {
+  const processingNodes = graph.processing_nodes ?? [];
+  if (!graphEntityExists(graph.streams, graph.devices, sourceId, processingNodes)) {
     return null;
   }
-  if (!graphEntityExists(graph.streams, graph.devices, targetId)) {
+  if (!graphEntityExists(graph.streams, graph.devices, targetId, processingNodes)) {
     return null;
   }
 
   const sourceIsStream = graph.streams.some((stream) => stream.id === sourceId);
   const targetIsStream = graph.streams.some((stream) => stream.id === targetId);
-  const source = sourceIsStream ? streamNodeId(sourceId) : deviceNodeId(sourceId);
-  const target = targetIsStream ? streamNodeId(targetId) : deviceNodeId(targetId);
+  const sourceIsProcessingNode = !sourceIsStream && processingNodes.some((node) => node.id === sourceId);
+  const targetIsProcessingNode = !targetIsStream && processingNodes.some((node) => node.id === targetId);
+  const source = sourceIsStream ? streamNodeId(sourceId) : sourceIsProcessingNode ? processingNodeNodeId(sourceId) : deviceNodeId(sourceId);
+  const target = targetIsStream ? streamNodeId(targetId) : targetIsProcessingNode ? processingNodeNodeId(targetId) : deviceNodeId(targetId);
   const { sourceHandle, targetHandle } = handlesForLink(
     sourceIsStream,
     targetIsStream,
@@ -163,6 +169,22 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   for (const device of graph.devices) {
     for (const mixSource of device.mix_sources ?? []) {
       addEdge(`mix-source-${mixSource.device_id}-${device.id}`, mixSource.device_id, device.id, { mix: true });
+    }
+  }
+
+  // Processing node ports (PD-032) — a 4th edge shape alongside links,
+  // multi-sink fan-out, and mic-mix: every occupied input/output port draws
+  // one edge between the node and whatever peer id it's wired to.
+  for (const node of graph.processing_nodes ?? []) {
+    for (const port of node.inputs ?? []) {
+      if (port.connected_id) {
+        addEdge(`proc-in-${port.connected_id}-${node.id}`, port.connected_id, node.id);
+      }
+    }
+    for (const port of node.outputs ?? []) {
+      if (port.connected_id) {
+        addEdge(`proc-out-${node.id}-${port.connected_id}`, node.id, port.connected_id);
+      }
     }
   }
 

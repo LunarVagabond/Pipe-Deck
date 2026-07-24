@@ -288,6 +288,22 @@ pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, Ba
     Ok(None)
 }
 
+/// Whether a live `sink_name=` belongs in the plain virtual-device registry
+/// (`VirtualDeviceRegistry`/`RuntimeGraph.devices`) — the canonical
+/// classification predicate `list_pipe_deck_modules`'s scan filters through.
+/// `pipe-deck-feed-*` (mix-source feed sinks) and `pipe-deck-proc-*` (PD-032
+/// processing nodes, `RuntimeGraph.processing_nodes`) both have their own
+/// separate representation and must never be absorbed here — that would
+/// silently misclassify them as a plain `Device`, the #105-style
+/// "enrichment doesn't recognize the new object" failure PD-032 exists to
+/// prevent. See `naming_allowlist_coverage` below for the cross-file
+/// assertion this predicate is meant to keep true.
+fn belongs_in_virtual_device_registry(system_name: &str) -> bool {
+    system_name.starts_with("pipe-deck-")
+        && !system_name.starts_with("pipe-deck-feed-")
+        && !system_name.starts_with("pipe-deck-proc-")
+}
+
 pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, BackendError> {
     let output = run_pactl(&["list", "modules", "short"])?;
     let mut entries = Vec::new();
@@ -300,7 +316,7 @@ pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, BackendError>
         let Some(system_name) = extract_arg_value(&args, "sink_name=") else {
             continue;
         };
-        if !system_name.starts_with("pipe-deck-") || system_name.starts_with("pipe-deck-feed-") {
+        if !belongs_in_virtual_device_registry(&system_name) {
             continue;
         }
         let slug = system_name.strip_prefix("pipe-deck-").unwrap_or(&system_name);
@@ -600,6 +616,27 @@ fn extract_quoted_property(args: &str, marker: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// PD-032's naming-allowlist coverage assertion: a synthetic
+    /// `pipe-deck-proc-*` name must be recognized as a Pipe Deck object by
+    /// the canonical predicate (`filter_chain::is_pipe_deck_device`) while
+    /// being explicitly excluded from the plain virtual-device registry
+    /// (`belongs_in_virtual_device_registry`, used by `list_pipe_deck_modules`)
+    /// — the same way `pipe-deck-feed-*` already is. A future call site that
+    /// forgets this exclusion would silently misclassify a processing node
+    /// as a `Device` on the next live rescan; this test is the guard against
+    /// that regressing unnoticed.
+    #[test]
+    fn naming_allowlist_coverage_excludes_processing_nodes_from_virtual_device_registry() {
+        let proc_name = "pipe-deck-proc-mixer-test";
+        assert!(crate::pipewire::filter_chain::is_pipe_deck_device(proc_name));
+        assert!(!belongs_in_virtual_device_registry(proc_name));
+
+        // Sibling prefixes keep their existing behavior unchanged.
+        assert!(belongs_in_virtual_device_registry("pipe-deck-game-mix"));
+        assert!(!belongs_in_virtual_device_registry("pipe-deck-feed-mic"));
+        assert!(!belongs_in_virtual_device_registry("alsa_output.pci"));
+    }
 
     #[test]
     fn is_per_pair_mix_feed_sink_recognizes_mix_pair_names() {
