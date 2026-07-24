@@ -49,13 +49,17 @@ A reference glossary for the audio-engineering and PipeWire concepts Pipe Deck's
 
 **Bus** — A shared signal path that more than one source feeds into and that itself can be treated as a single thing to route, monitor, or process — the mixing-desk equivalent of a shared destination rather than a point-to-point cable. In Pipe Deck terms, a bus is a virtual device multiple sources route or send into.
 
-**Submix** — A bus that groups a subset of sources (e.g. "all my game audio") before that group joins a larger master mix — useful for controlling a whole category's level with one fader instead of adjusting each source individually. Pipe Deck's chainable mixer nodes (issue #77 — per-source volume + one mixer feeding another) implement this pattern.
+**Submix** — A bus that groups a subset of sources (e.g. "all my game audio") before that group joins a larger master mix — useful for controlling a whole category's level with one fader instead of adjusting each source individually. Pipe Deck's **Mixer Node** (PD-032, issue #293 — a dedicated processing node with N growable inputs, each with its own independent gain, summed into one output) implements this pattern directly; a chain of Mixer Nodes feeding a Bus feeding another Mixer Node reproduces the "submix into a master mix" structure.
 
 **Send / return** — A *send* takes a copy of a source's signal (usually at an independently adjustable level, separate from the source's main/"dry" output) and feeds it to a bus, typically one carrying a shared effect (reverb, compression). The *return* is that bus's processed output coming back into the main mix. The point of a send is that the source keeps going to its normal destination *and* contributes to the shared effect, rather than being rerouted through it exclusively — see issue #113 (effect bus with per-source send levels), not yet implemented.
 
 **Master / main mix** — The final combined output everything eventually reaches, upstream of the physical output device. Not a distinct concept in Pipe Deck today — the "master" is whatever real sink(s) other things route to — but the term shows up in mixing-console mental models this app deliberately mirrors.
 
 **Routing matrix** — A grid representation of "which sources connect to which destinations," used in Pipe Deck's Routing view as the visual/interaction model for what's ultimately a set of PipeWire links.
+
+**Fan-out** — Duplicating one source's signal out to multiple destinations at once, as opposed to a plain 1:1 route. A multi-sink virtual Bus already does this generically (`Device.current_targets`); Pipe Deck's dedicated **Fan-out Node** (PD-032, issue #293) makes the same one-to-many relationship an explicit, independently-wired graph node rather than a property of an existing device.
+
+**Processing node** — A dedicated, independently-wired graph node that takes audio in and produces audio out — as opposed to a property attached to an existing device or stream. Mixer, Fan-out, and per-effect nodes (5-Band EQ fully functional; a longer list of other effect kinds shipping as visibly-labeled "Not implemented yet" pass-through stubs ahead of real DSP) are all processing nodes (PD-032, issue #293). See "Processing Nodes" in `UI_Spec.md`.
 
 ## Automation and dynamics
 
