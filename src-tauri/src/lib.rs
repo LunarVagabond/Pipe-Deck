@@ -5,6 +5,7 @@ pub mod core;
 pub mod daemon;
 pub mod pipewire;
 pub mod plugins;
+pub mod sysproc;
 pub mod tray;
 
 use core::engine::CoreEngine;

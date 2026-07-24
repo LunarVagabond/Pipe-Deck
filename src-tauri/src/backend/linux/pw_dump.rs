@@ -8,8 +8,8 @@ use crate::backend::BackendError;
 use crate::backend::linux::graph_enrich;
 use serde::Deserialize;
 use serde_json::Value;
+use crate::sysproc;
 use std::collections::{HashMap, HashSet};
-use std::process::Command;
 
 #[derive(Debug, Deserialize)]
 pub struct PwDumpObject {
@@ -20,10 +20,10 @@ pub struct PwDumpObject {
 }
 
 pub fn run_snapshot() -> Result<Vec<u8>, BackendError> {
-    let output = Command::new("timeout")
+    let output = sysproc::command("timeout")
         .args(["5", "pw-dump", "-N"])
         .output()
-        .or_else(|_| Command::new("pw-dump").arg("-N").output())
+        .or_else(|_| sysproc::command("pw-dump").arg("-N").output())
         .map_err(|error| BackendError::Message(format!("failed to run pw-dump: {error}")))?;
 
     if !output.status.success() {

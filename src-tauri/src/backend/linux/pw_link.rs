@@ -1,5 +1,5 @@
 use crate::backend::BackendError;
-use std::process::Command;
+use crate::sysproc;
 
 /// Links a virtual sink's monitor ports into a target's playback (or, for a
 /// virtual-input target, input) ports.
@@ -236,7 +236,7 @@ fn disconnect_links(links: impl IntoIterator<Item = (String, String)>) -> Result
 }
 
 fn list_ports(flag: &str) -> Vec<String> {
-    let output = match Command::new("pw-link").arg(flag).output() {
+    let output = match sysproc::command("pw-link").arg(flag).output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
@@ -349,7 +349,7 @@ fn links_from_source(source_system_name: &str) -> Vec<(String, String)> {
 /// Runs `pw-link -l` and parses it via `parse_pw_link_list` — the one
 /// subprocess call site every `list_*` lookup in this file goes through.
 fn run_pw_link_list() -> Vec<(String, String)> {
-    let output = match Command::new("pw-link").arg("-l").output() {
+    let output = match sysproc::command("pw-link").arg("-l").output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
@@ -411,7 +411,7 @@ fn parse_pw_link_list(text: &str) -> Vec<(String, String)> {
 }
 
 fn run_pw_link(args: &[&str]) -> Result<(), BackendError> {
-    let output = Command::new("pw-link")
+    let output = sysproc::command("pw-link")
         .args(args)
         .output()
         .map_err(|error| BackendError::Message(format!("failed to run pw-link: {error}")))?;

@@ -1,7 +1,7 @@
 use crate::core::models::{StreamDirection};
 use crate::backend::BackendError;
 use std::collections::HashMap;
-use std::process::Command;
+use crate::sysproc;
 
 #[derive(Debug, Clone)]
 pub struct PactlSinkInput {
@@ -51,7 +51,7 @@ pub fn load_source_index_names() -> HashMap<u32, String> {
 }
 
 fn load_short_index_names(kind: &str) -> HashMap<u32, String> {
-    let output = match Command::new("pactl").args(["list", kind, "short"]).output() {
+    let output = match sysproc::command("pactl").args(["list", kind, "short"]).output() {
         Ok(output) if output.status.success() => output,
         _ => return HashMap::new(),
     };
@@ -181,7 +181,7 @@ pub(crate) fn find_source_output_index(
 }
 
 fn parse_sink_inputs() -> Vec<PactlSinkInput> {
-    let output = match Command::new("pactl").args(["list", "sink-inputs"]).output() {
+    let output = match sysproc::command("pactl").args(["list", "sink-inputs"]).output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
@@ -279,7 +279,7 @@ fn parse_sink_inputs_from_text(text: &str) -> Vec<PactlSinkInput> {
 }
 
 fn parse_source_outputs() -> Vec<PactlSourceOutput> {
-    let output = match Command::new("pactl").args(["list", "source-outputs"]).output() {
+    let output = match sysproc::command("pactl").args(["list", "source-outputs"]).output() {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };

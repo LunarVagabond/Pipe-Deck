@@ -17,7 +17,8 @@ use crate::backend::slugify;
 use crate::pipewire::filter_chain;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
-use std::process::{Command, Stdio};
+use crate::sysproc;
+use std::process::Stdio;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -404,7 +405,7 @@ impl AudioBackend for LinuxPipeWireBackend {
 }
 
 fn query_pipewire_version() -> Option<String> {
-    let output = Command::new("pw-cli").arg("--version").output().ok()?;
+    let output = sysproc::command("pw-cli").arg("--version").output().ok()?;
     if !output.status.success() {
         return None;
     }
@@ -448,7 +449,7 @@ fn run_pw_dump_monitor(
     cached_graph: &Arc<Mutex<RuntimeGraph>>,
     listener_slot: &Arc<Mutex<Option<GraphListener>>>,
 ) -> bool {
-    let mut child = match Command::new("pw-dump")
+    let mut child = match sysproc::command("pw-dump")
         .args(["-m"])
         .stdout(Stdio::piped())
         .stderr(Stdio::null())

@@ -8,7 +8,7 @@ use crate::backend::linux::pactl::r#virtual::{
 };
 use crate::backend::linux::pw_link;
 use std::collections::HashSet;
-use std::process::Command;
+use crate::sysproc;
 
 pub fn move_stream_to_target(
     graph: &RuntimeGraph,
@@ -218,7 +218,7 @@ fn get_default_source_name() -> Option<String> {
 }
 
 fn read_pactl_default_name(args: &[&str]) -> Option<String> {
-    let output = Command::new("pactl").args(args).output().ok()?;
+    let output = sysproc::command("pactl").args(args).output().ok()?;
     if !output.status.success() {
         return None;
     }

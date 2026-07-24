@@ -1,6 +1,7 @@
 use crate::backend::BackendError;
+use crate::sysproc;
 use std::io::Read;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 /// How long to wait for `pw-cli set-param` before giving up and killing it.
@@ -22,7 +23,7 @@ const SET_PARAM_TIMEOUT: Duration = Duration::from_secs(5);
 /// '{ "params": [ "<name>", <value>, ... ] }'` (the *array* form of the
 /// struct — the object/dict form silently no-ops).
 pub fn find_node_id_by_name(node_name: &str) -> Result<Option<u32>, BackendError> {
-    let output = Command::new("pw-dump")
+    let output = sysproc::command("pw-dump")
         .output()
         .map_err(|error| BackendError::Message(format!("failed to run pw-dump: {error}")))?;
     if !output.status.success() {
@@ -73,7 +74,7 @@ pub fn set_params(node_id: u32, params: &[(String, f64)]) -> Result<(), BackendE
     // otherwise fill the OS pipe buffer and deadlock the child against us.
     // stderr stays piped since we need it for the `Error` check below, and
     // pw-cli's error output is always short.
-    let mut child = Command::new("pw-cli")
+    let mut child = sysproc::command("pw-cli")
         .args(["set-param", &node_id.to_string(), "Props", &param_json])
         .stdout(Stdio::null())
         .stderr(Stdio::piped())

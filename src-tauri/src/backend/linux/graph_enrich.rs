@@ -7,7 +7,7 @@ use crate::backend::linux::stream_match::{
     stream_matches_pactl_source_output,
 };
 use std::collections::HashMap;
-use std::process::Command;
+use crate::sysproc;
 
 pub fn finalize_graph(graph: &mut RuntimeGraph) {
     apply_device_aliases(&mut graph.devices);
@@ -177,7 +177,7 @@ fn apply_pactl_levels(devices: &mut [Device]) {
 }
 
 fn load_pactl_endpoints(kind: &str) -> HashMap<String, PactlEndpoint> {
-    let output = match Command::new("pactl").args(["list", kind]).output() {
+    let output = match sysproc::command("pactl").args(["list", kind]).output() {
         Ok(output) if output.status.success() => output,
         _ => return HashMap::new(),
     };

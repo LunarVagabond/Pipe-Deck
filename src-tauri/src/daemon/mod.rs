@@ -1,6 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::DaemonStatus;
 use crate::core::restore::{self, RestoreError};
+use crate::sysproc;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -255,7 +256,7 @@ pub fn ensure_ephemeral_daemon() -> Option<std::process::Child> {
     }
 
     let path = daemon_binary_path()?;
-    let mut command = Command::new(path);
+    let mut command = sysproc::command(path);
     command.env("PIPE_DECK_DAEMON_EPHEMERAL", "1");
 
     // SAFETY: the closure only calls `libc::prctl`, an async-signal-safe
