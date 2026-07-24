@@ -59,12 +59,19 @@ impl CoreEngine {
             PortDirection::Input => &node.inputs,
             PortDirection::Output => &node.outputs,
         };
-        if direction == PortDirection::Input
-            && !matches!(node.kind, ProcessingNodeKind::Mixer { .. })
-            && ports.iter().any(|port| port.connected_id.is_some())
-        {
+        // A Mixer's inputs grow (N sources summed); a Fan-out's outputs grow
+        // (1 source duplicated to N destinations). Every other side on every
+        // kind — a Mixer's own single output, a Fan-out's single input,
+        // both sides of an EQ/stub — is capped at one connection.
+        let is_growable = match (direction, &node.kind) {
+            (PortDirection::Input, ProcessingNodeKind::Mixer { .. }) => true,
+            (PortDirection::Output, ProcessingNodeKind::FanOut) => true,
+            _ => false,
+        };
+        if !is_growable && ports.iter().any(|port| port.connected_id.is_some()) {
+            let side = if direction == PortDirection::Input { "input" } else { "output" };
             return Err(EngineError::InvalidInput(format!(
-                "{node_id} accepts only one input - disconnect the existing one first"
+                "{node_id} accepts only one {side} - disconnect the existing one first"
             )));
         }
         let port_index = ports
@@ -82,6 +89,15 @@ impl CoreEngine {
                 .upsert_processing_node_port(node_id, direction, port_index, &peer_system_name)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
+
+        // Chaining (PD-032 follow-up): when the peer is itself a processing
+        // node, its own port list is a second, independent piece of
+        // bookkeeping (real backend: a separate persisted spec; mock: a
+        // separate `ProcessingNode` in the in-memory graph) — the call above
+        // only ever touched `node`'s side. Without this, a Fan-out chained
+        // into a Mixer would show the connection on the Mixer's input but
+        // leave the Fan-out's own output slot looking empty.
+        self.mirror_peer_processing_node_port_connect(node_id, direction, peer_id)?;
 
         self.refresh_graph()?;
         Ok(ApplyResult { success: true, message: None })
@@ -101,6 +117,14 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
 
+        let peer_id = match direction {
+            PortDirection::Input => &node.inputs,
+            PortDirection::Output => &node.outputs,
+        }
+        .iter()
+        .find(|port| port.index == port_index)
+        .and_then(|port| port.connected_id.clone());
+
         self.adapter
             .relink_processing_node_port(&self.graph, &node.system_name, port_index, direction, None)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
@@ -111,8 +135,98 @@ impl CoreEngine {
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
+        if let Some(peer_id) = peer_id {
+            self.mirror_peer_processing_node_port_disconnect(node_id, direction, &peer_id)?;
+        }
+
         self.refresh_graph()?;
         Ok(ApplyResult { success: true, message: None })
+    }
+
+    /// Keeps a chained peer's own port list in sync with a connect on
+    /// `node_id`'s side — see the call site above for why this is needed.
+    /// A no-op when `peer_id` isn't itself a processing node (a device/
+    /// stream peer's connectivity is derived generically elsewhere, e.g.
+    /// `computeDeviceConnections` on the frontend, and has no ports list of
+    /// its own to keep in lockstep). Never issues a second real PipeWire
+    /// link — the one call in `connect_processing_node_port` above already
+    /// made it; this only updates the peer's own bookkeeping of that same
+    /// link.
+    fn mirror_peer_processing_node_port_connect(
+        &mut self,
+        node_id: &str,
+        direction: PortDirection,
+        peer_id: &str,
+    ) -> Result<(), EngineError> {
+        let Some(peer_node) = self.graph.processing_nodes.iter().find(|node| node.id == peer_id).cloned() else {
+            return Ok(());
+        };
+        let peer_direction = match direction {
+            PortDirection::Input => PortDirection::Output,
+            PortDirection::Output => PortDirection::Input,
+        };
+        let peer_ports = match peer_direction {
+            PortDirection::Input => &peer_node.inputs,
+            PortDirection::Output => &peer_node.outputs,
+        };
+        let peer_port_index = peer_ports
+            .iter()
+            .find(|port| port.connected_id.is_none())
+            .map(|port| port.index)
+            .unwrap_or(peer_ports.len() as u32);
+
+        if self.graph.data_source == "mock" {
+            self.adapter
+                .relink_processing_node_port(&self.graph, &peer_node.system_name, peer_port_index, peer_direction, Some(node_id))
+                .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        } else {
+            let node_system_name = resolve_system_name_for_id(&self.graph, node_id)
+                .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {node_id}")))?;
+            ConfigStore::new()
+                .upsert_processing_node_port(peer_id, peer_direction, peer_port_index, &node_system_name)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+        Ok(())
+    }
+
+    /// Disconnect-side counterpart to `mirror_peer_processing_node_port_connect`
+    /// — removes the matching port on the peer's own side rather than leaving
+    /// it pointing at a node that no longer links back.
+    fn mirror_peer_processing_node_port_disconnect(
+        &mut self,
+        node_id: &str,
+        direction: PortDirection,
+        peer_id: &str,
+    ) -> Result<(), EngineError> {
+        let Some(peer_node) = self.graph.processing_nodes.iter().find(|node| node.id == peer_id).cloned() else {
+            return Ok(());
+        };
+        let peer_direction = match direction {
+            PortDirection::Input => PortDirection::Output,
+            PortDirection::Output => PortDirection::Input,
+        };
+        let peer_ports = match peer_direction {
+            PortDirection::Input => &peer_node.inputs,
+            PortDirection::Output => &peer_node.outputs,
+        };
+        let Some(peer_port_index) = peer_ports
+            .iter()
+            .find(|port| port.connected_id.as_deref() == Some(node_id))
+            .map(|port| port.index)
+        else {
+            return Ok(());
+        };
+
+        if self.graph.data_source == "mock" {
+            self.adapter
+                .relink_processing_node_port(&self.graph, &peer_node.system_name, peer_port_index, peer_direction, None)
+                .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        } else {
+            ConfigStore::new()
+                .remove_processing_node_port(peer_id, peer_direction, peer_port_index)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+        Ok(())
     }
 
     /// Live-updates a Mixer Node's per-input gain/mute — the PD-017
@@ -388,6 +502,15 @@ fn resolve_system_name_for_id(graph: &RuntimeGraph, id: &str) -> Option<String> 
                 .find(|stream| stream.id == id)
                 .and_then(|stream| stream.system_name.clone())
         })
+        // A peer can itself be another processing node (chaining — PD-032
+        // phase 5's follow-up: Mixer -> Fan-out, Fan-out -> Mixer, etc.).
+        .or_else(|| {
+            graph
+                .processing_nodes
+                .iter()
+                .find(|node| node.id == id)
+                .map(|node| node.system_name.clone())
+        })
 }
 
 fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option<String> {
@@ -402,6 +525,13 @@ fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option
                 .iter()
                 .find(|stream| stream.system_name.as_deref() == Some(system_name))
                 .map(|stream| stream.id.clone())
+        })
+        .or_else(|| {
+            graph
+                .processing_nodes
+                .iter()
+                .find(|node| node.system_name == system_name)
+                .map(|node| node.id.clone())
         })
 }
 

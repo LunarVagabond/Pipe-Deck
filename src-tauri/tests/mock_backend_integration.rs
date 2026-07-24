@@ -244,6 +244,32 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     }
 }
 
+/// Processing nodes can chain into each other (Fan-out -> Mixer, and the
+/// reverse) — a peer id can itself be another processing node, not just a
+/// device or stream.
+#[test]
+fn processing_nodes_can_chain_into_each_other() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut).expect("create fan-out");
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let source = engine.create_virtual_output("Source").expect("create source");
+
+    engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source.device_id)
+        .expect("connect source into fan-out");
+    engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &fan_out.id)
+        .expect("chain fan-out into mixer");
+
+    let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    assert_eq!(mixer_after.inputs[0].connected_id.as_deref(), Some(fan_out.id.as_str()));
+
+    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    assert_eq!(fan_out_after.outputs[0].connected_id.as_deref(), Some(mixer.id.as_str()));
+}
+
 /// PD-032's "ambiguous relink is rejected, never guessed" rule — the direct
 /// #105 lesson applied to node removal. `apply_graph_update` is used here
 /// (rather than any live connect command, which doesn't exist until later
@@ -327,6 +353,28 @@ fn single_input_processing_node_rejects_a_second_input_connection() {
         .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
         .expect_err("second input should be rejected");
     assert!(error.to_string().contains("only one input"), "{error}");
+}
+
+/// A Mixer's inputs grow but its output doesn't — only Fan-out's output
+/// grows. Regression for a real bug: the original single-port cap only
+/// checked the input side for every kind, so every kind's output side was
+/// silently unlimited (a Mixer/EQ/stub showed a growable, wrong output port).
+#[test]
+fn mixer_node_output_is_capped_at_one_connection() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
+    let target_a = engine.create_virtual_output("Target A").expect("create target a");
+    let target_b = engine.create_virtual_output("Target B").expect("create target b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &target_a.device_id)
+        .expect("connect first output");
+    let error = engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &target_b.device_id)
+        .expect_err("second output should be rejected");
+    assert!(error.to_string().contains("only one output"), "{error}");
 }
 
 /// A Mixer Node's defining shape: N growable inputs, each with its own gain,

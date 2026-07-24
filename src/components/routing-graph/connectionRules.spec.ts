@@ -524,9 +524,9 @@ describe("resolveConnectionAction — processing nodes (PD-032)", () => {
     expect(result).toEqual({ error: '"Speakers" is already connected to "Fan-out".' });
   });
 
-  it("errors when chaining two processing nodes together", () => {
-    const nodeA = makeProcessingNode({ id: "proc-a" });
-    const nodeB = makeProcessingNode({ id: "proc-b" });
+  it("chains one processing node's output into another's input", () => {
+    const nodeA = makeProcessingNode({ id: "proc-a", kind: { kind: "fan_out" } });
+    const nodeB = makeProcessingNode({ id: "proc-b", kind: { kind: "mixer", input_gains_percent: [] } });
     const graph = makeGraph([], [], [], [nodeA, nodeB]);
     const result = resolveConnectionAction(
       graph,
@@ -537,7 +537,24 @@ describe("resolveConnectionAction — processing nodes (PD-032)", () => {
         targetHandle: "audio-in:empty",
       }),
     );
-    expect(result).toEqual({ error: "Chaining two processing nodes together isn't supported yet." });
+    expect(result).toEqual({
+      action: { type: "processing_node_connect", nodeId: "proc-b", direction: "input", peerId: "proc-a" },
+    });
+  });
+
+  it("errors when a processing node is chained into itself", () => {
+    const node = makeProcessingNode({ id: "proc-a" });
+    const graph = makeGraph([], [], [], [node]);
+    const result = resolveConnectionAction(
+      graph,
+      connection({
+        source: "processingNode:proc-a",
+        target: "processingNode:proc-a",
+        sourceHandle: "audio-out:empty",
+        targetHandle: "audio-in:empty",
+      }),
+    );
+    expect(result).toEqual({ error: "A processing node can't feed its own input." });
   });
 
   it("disconnects a processing node's output from a device via edge_disconnect", () => {

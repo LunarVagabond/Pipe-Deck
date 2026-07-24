@@ -161,6 +161,48 @@ describe("handlesForProcessingNode", () => {
     expect(outHandles.map((h) => h.id)).toEqual(["audio-out:out1", "audio-out:out2", "audio-out:empty"]);
     expect(handles.some((h) => h.id === "audio-in:src1")).toBe(true);
   });
+
+  it("caps a fan-out node's input at one slot even if somehow multiply connected", () => {
+    const node = makeProcessingNode({
+      inputs: [
+        { index: 0, connected_id: "src1" },
+        { index: 1, connected_id: "src2" },
+      ],
+    });
+    const inHandles = handlesForProcessingNode(node).filter((h) => h.portType === "audio-in");
+    // Only ever one filled handle is shown for a non-growable side, and no
+    // trailing empty slot once it's occupied — matches buildSideHandles'
+    // existing non-multi-capable behavior.
+    expect(inHandles).toHaveLength(1);
+  });
+
+  it("grows a mixer node's inputs but caps its output at one slot", () => {
+    const node = makeProcessingNode({
+      kind: { kind: "mixer", input_gains_percent: [100, 100] },
+      inputs: [
+        { index: 0, connected_id: "src1" },
+        { index: 1, connected_id: "src2" },
+      ],
+      outputs: [{ index: 0, connected_id: "out1" }],
+    });
+    const handles = handlesForProcessingNode(node);
+    const inHandles = handles.filter((h) => h.portType === "audio-in");
+    const outHandles = handles.filter((h) => h.portType === "audio-out");
+    expect(inHandles.map((h) => h.id)).toEqual(["audio-in:src1", "audio-in:src2", "audio-in:empty"]);
+    expect(outHandles).toHaveLength(1);
+    expect(outHandles[0].id).toBe("audio-out:out1");
+  });
+
+  it("caps both sides of an EQ node at one slot", () => {
+    const node = makeProcessingNode({
+      kind: { kind: "eq5band", eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+      inputs: [{ index: 0, connected_id: "src1" }],
+      outputs: [{ index: 0, connected_id: "out1" }],
+    });
+    const handles = handlesForProcessingNode(node);
+    expect(handles.filter((h) => h.portType === "audio-in")).toHaveLength(1);
+    expect(handles.filter((h) => h.portType === "audio-out")).toHaveLength(1);
+  });
 });
 
 describe("graphEntityExists", () => {

@@ -115,6 +115,8 @@ function peerLabel(graph: RuntimeGraph, peerId: string): string {
   if (stream) return labelFor(stream);
   const device = findDevice(graph, peerId);
   if (device) return labelFor(device);
+  const node = findProcessingNode(graph, peerId);
+  if (node) return node.label;
   return peerId;
 }
 
@@ -125,13 +127,43 @@ function peerLabel(graph: RuntimeGraph, peerId: string): string {
  * `source` means its output is being dragged out to `target`; as `target`
  * means `source` is being dragged into one of its input ports.
  */
+/** A single `{node, direction, peerId}` connect action for one side of a
+ * drag. Shared by the node-to-node case (which needs to check and apply
+ * both ends) and the node-to-device/stream case (which only ever has one). */
+function resolveProcessingNodePortConnect(
+  graph: RuntimeGraph,
+  node: ProcessingNode,
+  direction: "input" | "output",
+  peerId: string,
+): { action: RoutingConnectionAction } | { error: string } {
+  const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
+  if (ports.some((port) => port.connected_id === peerId)) {
+    return { error: `"${peerLabel(graph, peerId)}" is already connected to "${node.label}".` };
+  }
+  return { action: { type: "processing_node_connect", nodeId: node.id, direction, peerId } };
+}
+
 function resolveProcessingNodeConnection(
   graph: RuntimeGraph,
   source: { kind: "stream" | "device" | "processingNode"; id: string },
   target: { kind: "stream" | "device" | "processingNode"; id: string },
 ): { action: RoutingConnectionAction } | { error: string } {
   if (source.kind === "processingNode" && target.kind === "processingNode") {
-    return { error: "Chaining two processing nodes together isn't supported yet." };
+    // Chaining: source's output feeds target's input. Only one side of a
+    // drag can actually be applied per action, so this resolves (and
+    // validates) the target's input side — `applyConnection.ts`'s single
+    // `invoke()` per action already updates both ends of the link
+    // server-side (a port's `connected_id` is derived from the live graph,
+    // not authored independently per node).
+    const sourceNode = findProcessingNode(graph, source.id);
+    const targetNode = findProcessingNode(graph, target.id);
+    if (!sourceNode || !targetNode) {
+      return { error: "Processing node not found." };
+    }
+    if (sourceNode.id === targetNode.id) {
+      return { error: "A processing node can't feed its own input." };
+    }
+    return resolveProcessingNodePortConnect(graph, targetNode, "input", sourceNode.id);
   }
 
   const nodeId = source.kind === "processingNode" ? source.id : target.id;
@@ -142,12 +174,21 @@ function resolveProcessingNodeConnection(
 
   const direction: "input" | "output" = source.kind === "processingNode" ? "output" : "input";
   const peerId = source.kind === "processingNode" ? target.id : source.id;
-  const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
-  if (ports.some((port) => port.connected_id === peerId)) {
-    return { error: `"${peerLabel(graph, peerId)}" is already connected to "${node.label}".` };
-  }
+  return resolveProcessingNodePortConnect(graph, node, direction, peerId);
+}
 
-  return { action: { type: "processing_node_connect", nodeId: node.id, direction, peerId } };
+function resolveProcessingNodePortDisconnect(
+  graph: RuntimeGraph,
+  node: ProcessingNode,
+  direction: "input" | "output",
+  peerId: string,
+): { action: RoutingConnectionAction } | { error: string } {
+  const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
+  const port = ports.find((entry) => entry.connected_id === peerId);
+  if (!port) {
+    return { error: `"${node.label}" isn't currently connected to "${peerLabel(graph, peerId)}" — nothing to disconnect.` };
+  }
+  return { action: { type: "processing_node_disconnect", nodeId: node.id, direction, portIndex: port.index } };
 }
 
 function resolveProcessingNodeDisconnect(
@@ -156,7 +197,15 @@ function resolveProcessingNodeDisconnect(
   target: { kind: "stream" | "device" | "processingNode"; id: string },
 ): { action: RoutingConnectionAction } | { error: string } {
   if (source.kind === "processingNode" && target.kind === "processingNode") {
-    return { error: "Nothing to disconnect." };
+    // Same direction convention as the connect side: source's output feeds
+    // target's input, so the disconnect is authored as removing the
+    // target's input port.
+    const sourceNode = findProcessingNode(graph, source.id);
+    const targetNode = findProcessingNode(graph, target.id);
+    if (!sourceNode || !targetNode) {
+      return { error: "Processing node not found." };
+    }
+    return resolveProcessingNodePortDisconnect(graph, targetNode, "input", sourceNode.id);
   }
 
   const nodeId = source.kind === "processingNode" ? source.id : target.id;
@@ -167,13 +216,7 @@ function resolveProcessingNodeDisconnect(
 
   const direction: "input" | "output" = source.kind === "processingNode" ? "output" : "input";
   const peerId = source.kind === "processingNode" ? target.id : source.id;
-  const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
-  const port = ports.find((entry) => entry.connected_id === peerId);
-  if (!port) {
-    return { error: `"${node.label}" isn't currently connected to "${peerLabel(graph, peerId)}" — nothing to disconnect.` };
-  }
-
-  return { action: { type: "processing_node_disconnect", nodeId: node.id, direction, portIndex: port.index } };
+  return resolveProcessingNodePortDisconnect(graph, node, direction, peerId);
 }
 
 function resolveStreamToDevice(

@@ -110,6 +110,16 @@ function onRename(alias: string) {
 }
 
 function onDelete() {
+  // PD-032: a processing node has no device-alias identity — it goes
+  // through remove_processing_node by RuntimeGraph id, not deleteDevice's
+  // system_name-keyed path (which would silently hit the wrong backend
+  // command for it — see NodeCardHeader's inline delete button, the one
+  // entry point that isn't gated through the right-click context menu's
+  // own pipe-deck-proc- routing check).
+  if (props.data.processingNodeKind) {
+    actions?.deleteProcessingNode(props.data.entityId, props.data.label);
+    return;
+  }
   if (!props.data.systemName) return;
   actions?.deleteDevice(props.data.systemName, props.data.label);
 }

@@ -188,14 +188,19 @@ export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHand
   const inConnected = (node.inputs ?? []).map((port) => port.connected_id).filter((id): id is string => !!id);
   const outConnected = (node.outputs ?? []).map((port) => port.connected_id).filter((id): id is string => !!id);
 
-  // Both sides always show a trailing empty slot to drag onto — the
-  // single-input-kinds cap (Fan-out/EQ/stub accept exactly one input) is
-  // enforced engine-side (`CoreEngine::connect_processing_node_port`), not
-  // by hiding the slot here, so a rejected second connection still gets a
-  // clear error toast instead of no drop target at all.
+  // Mirrors the engine's own growability rule
+  // (`CoreEngine::connect_processing_node_port`): a Mixer's inputs grow (N
+  // sources summed), a Fan-out's outputs grow (1 source to N
+  // destinations), every other side on every kind is capped at one —
+  // `buildSideHandles`'s non-multi-capable behavior already shows exactly
+  // one empty slot until it's filled, then none, so a capped side never
+  // grows a second (wrong) connection point once occupied.
+  const inputGrowable = node.kind.kind === "mixer";
+  const outputGrowable = node.kind.kind === "fan_out";
+
   const handles: RoutingGraphHandle[] = [];
-  handles.push(...buildSideHandles("audio-in", inConnected, true));
-  handles.push(...buildSideHandles("audio-out", outConnected, true));
+  handles.push(...buildSideHandles("audio-in", inConnected, inputGrowable));
+  handles.push(...buildSideHandles("audio-out", outConnected, outputGrowable));
   return handles;
 }
 

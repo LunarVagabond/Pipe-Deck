@@ -37,6 +37,10 @@ export interface RoutingGraphActions {
   closeMenu: () => void;
   renameDevice: (systemName: string, currentLabel: string, alias?: string) => void | Promise<void>;
   deleteDevice: (systemName: string, label: string) => void;
+  /** PD-032: a processing node (Mixer/Fan-out/EQ/stub) has no PipeWire
+   * device-alias identity — deleting it goes through `remove_processing_node`
+   * by its RuntimeGraph id, not `deleteDevice`'s system_name-keyed path. */
+  deleteProcessingNode: (nodeId: string, label: string) => void;
   renameGroup: (groupId: string, label: string) => void;
   setGroupColor: (groupId: string, color: string) => void;
   ungroup: (groupId: string) => void;

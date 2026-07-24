@@ -104,6 +104,10 @@ const graphActions = {
     contextMenu.value = null;
     void removeVirtualDevice(systemName, label);
   },
+  deleteProcessingNode(nodeId: string, label: string) {
+    contextMenu.value = null;
+    void removeProcessingNode(nodeId, label);
+  },
   renameGroup(groupId: string, label: string) {
     const group = groups.value.find((entry) => entry.id === groupId);
     if (!group) return;
@@ -236,8 +240,7 @@ function onContextMenuAction(action: "rename" | "delete") {
     void graphActions.renameDevice(target.systemName, target.label);
   } else if (action === "delete") {
     if (target.systemName.startsWith("pipe-deck-proc-")) {
-      contextMenu.value = null;
-      void removeProcessingNode(target.entityId, target.label);
+      graphActions.deleteProcessingNode(target.entityId, target.label);
     } else {
       graphActions.deleteDevice(target.systemName, target.label);
     }

@@ -17,6 +17,7 @@ describe("routingGraphActionsKey", () => {
       closeMenu: () => {},
       renameDevice: () => {},
       deleteDevice: () => {},
+      deleteProcessingNode: () => {},
       renameGroup: () => {},
       setGroupColor: () => {},
       ungroup: () => {},

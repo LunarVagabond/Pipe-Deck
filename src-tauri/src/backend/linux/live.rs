@@ -508,10 +508,31 @@ impl AudioBackend for LinuxPipeWireBackend {
             return Ok(());
         }
 
+        // A "sink-like" peer is anything addressable by system_name the same
+        // way a plain device is: a Device, or another processing node
+        // (PD-032 phase 5's chaining follow-up — Mixer -> Fan-out,
+        // Fan-out -> Mixer, etc. all resolve through here identically,
+        // since a processing node's own identity is just as system-name-
+        // addressable as a device's). Streams are handled separately below
+        // — they're pactl sink-inputs moved onto a target, not devices with
+        // ports to `pw-link`.
+        let resolve_sink_like = |id: &str| -> Option<(String, bool)> {
+            if let Some(device) = graph.devices.iter().find(|device| device.id == id) {
+                let target_is_virtual_source =
+                    device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input;
+                return Some((device.system_name.clone(), target_is_virtual_source));
+            }
+            graph
+                .processing_nodes
+                .iter()
+                .find(|peer_node| peer_node.id == id)
+                .map(|peer_node| (peer_node.system_name.clone(), false))
+        };
+
         match direction {
             PortDirection::Input => match peer_id {
                 Some(id) => {
-                    if let Some(device) = graph.devices.iter().find(|device| device.id == id) {
+                    if let Some((peer_system_name, _)) = resolve_sink_like(id) {
                         if is_mixer {
                             // Each input gets its own independent-gain feed
                             // sink (PD-032: the Mixer Node generalizes the
@@ -521,29 +542,40 @@ impl AudioBackend for LinuxPipeWireBackend {
                             // rather than a direct unity-gain link.
                             let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
                             let feed_name =
-                                pactl::ensure_feed_sink_for_mix_pair(system_name, &device.system_name, node_label)?;
-                            pw_link::link_capture_source_to_sink(&device.system_name, &feed_name)?;
+                                pactl::ensure_feed_sink_for_mix_pair(system_name, &peer_system_name, node_label)?;
+                            pw_link::link_capture_source_to_sink(&peer_system_name, &feed_name)?;
                             pactl::set_sink_volume_by_name(&feed_name, 100)?;
                             pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
                         } else {
-                            pw_link::link_sink_monitor_to_target(&device.system_name, system_name, false)
+                            pw_link::link_sink_monitor_to_target(&peer_system_name, system_name, false)
                         }
                     } else if graph.streams.iter().any(|stream| stream.id == id) {
                         if is_mixer {
-                            return Err(BackendError::Message(
-                                "a Mixer Node's inputs must be devices, not application streams".into(),
-                            ));
+                            // A stream is a sink-input, not a device with
+                            // ports to `pw-link` — move it onto its own
+                            // per-pair feed sink (same independent-gain
+                            // mechanism as a device source above) instead of
+                            // linking a monitor. Named off the raw peer id
+                            // (not the stream's own system_name, which may
+                            // still be unresolved) so connect and disconnect
+                            // always compute the identical feed sink name.
+                            let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
+                            let feed_name = pactl::ensure_feed_sink_for_mix_pair(system_name, id, node_label)?;
+                            pactl::move_stream_to_sink_name(graph, id, &feed_name)?;
+                            pactl::set_sink_volume_by_name(&feed_name, 100)?;
+                            pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
+                        } else {
+                            pactl::move_stream_to_sink_name(graph, id, system_name)
                         }
-                        pactl::move_stream_to_sink_name(graph, id, system_name)
                     } else {
                         Err(BackendError::Message(format!("relink peer not found: {id}")))
                     }
                 }
                 // Disconnecting a stream's route is a graph-model concept
                 // (forget the desired route), not a forced move — same
-                // semantics as `clear_stream_target` elsewhere. Only a
-                // device-fed input needs an actual `pw-link`/feed-sink
-                // teardown.
+                // semantics as `clear_stream_target` elsewhere, *unless*
+                // it's a Mixer input, whose stream feed sink is this node's
+                // own object to tear down (mirrors the device-source case).
                 None => {
                     let Some(node) = node else {
                         return Ok(());
@@ -553,19 +585,20 @@ impl AudioBackend for LinuxPipeWireBackend {
                     else {
                         return Ok(());
                     };
-                    if let Some(device) = graph.devices.iter().find(|device| device.id == previous_id) {
+                    if let Some((peer_system_name, _)) = resolve_sink_like(previous_id) {
                         if is_mixer {
-                            pactl::remove_feed_sink_for_mix_pair(system_name, &device.system_name)
+                            pactl::remove_feed_sink_for_mix_pair(system_name, &peer_system_name)
                         } else {
-                            pw_link::disconnect_sink_monitor_route(&device.system_name, system_name)
+                            pw_link::disconnect_sink_monitor_route(&peer_system_name, system_name)
                         }
+                    } else if is_mixer {
+                        pactl::remove_feed_sink_for_mix_pair(system_name, previous_id)
                     } else {
                         Ok(())
                     }
                 }
             },
             PortDirection::Output => {
-                let resolve = |id: &str| graph.devices.iter().find(|device| device.id == id);
                 // A node's *processed* output leaves via `effect_output.*`
                 // once live DSP is loaded (Eq5Band); falls back to the
                 // node's own sink monitor otherwise — same source-resolution
@@ -575,11 +608,9 @@ impl AudioBackend for LinuxPipeWireBackend {
                 let link_source = split_sink::effective_fan_out_source(system_name);
                 match peer_id {
                     Some(id) => {
-                        let target = resolve(id)
+                        let (target_system_name, target_is_virtual_source) = resolve_sink_like(id)
                             .ok_or_else(|| BackendError::Message(format!("relink target not found: {id}")))?;
-                        let target_is_virtual_source =
-                            target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
-                        pw_link::link_sink_monitor_to_target(&link_source, &target.system_name, target_is_virtual_source)
+                        pw_link::link_sink_monitor_to_target(&link_source, &target_system_name, target_is_virtual_source)
                     }
                     None => {
                         let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
@@ -593,8 +624,10 @@ impl AudioBackend for LinuxPipeWireBackend {
                         else {
                             return Ok(());
                         };
-                        match resolve(previous_id) {
-                            Some(target) => pw_link::disconnect_sink_monitor_route(&link_source, &target.system_name),
+                        match resolve_sink_like(previous_id) {
+                            Some((target_system_name, _)) => {
+                                pw_link::disconnect_sink_monitor_route(&link_source, &target_system_name)
+                            }
                             None => Ok(()),
                         }
                     }
