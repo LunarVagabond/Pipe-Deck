@@ -582,8 +582,8 @@ mod live_tests {
         // key scheme, established/pre-existing, not new in this phase), and
         // `pw-cli set-param` has been observed to time out against *both*
         // mechanisms in this specific sandbox's PipeWire/pw-cli combination
-        // — an environment quirk to note for the maintainer's own manual
-        // run, not a regression to gate this test on. The structural
+        // — an environment quirk worth a manual re-check on real hardware,
+        // not a regression to gate this test on. The structural
         // create/remove path below (real DSP node lifecycle, the actual
         // PD-032 correctness concern) is what's asserted.
         std::thread::sleep(std::time::Duration::from_millis(500));
