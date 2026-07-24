@@ -280,6 +280,17 @@ async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "m
   openNewDeviceDialog(type);
 }
 
+async function onAddStubNodeAction(stubKind: string, label: string) {
+  contextMenu.value = null;
+  try {
+    await invoke("create_processing_node", { label, kind: { kind: "stub", stub_kind: stubKind } });
+    handleApplyResult({ success: true }, "Effect node added");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleApplyResult({ success: false, message: `Couldn't add effect node: ${message}` }, "");
+  }
+}
+
 function onBringNodeHereAction(nodeId: string) {
   const target = contextMenu.value;
   if (!target || target.kind !== "pane") return;
@@ -890,6 +901,7 @@ onUnmounted(() => {
       @delete="onContextMenuAction('delete')"
       @copy-id="onCopyIdAction"
       @add-node="onAddNodeAction"
+      @add-stub-node="onAddStubNodeAction"
       @add-effect="onAddEffectAction"
       @bring-node-here="onBringNodeHereAction"
       @close="contextMenu = null"

@@ -496,6 +496,17 @@ impl AudioBackend for LinuxPipeWireBackend {
         let node = graph.processing_nodes.iter().find(|node| node.system_name == system_name);
         let is_mixer = matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Mixer { .. }));
 
+        // A Stub node (issue #293's 11 non-DSP kinds) has no backing
+        // PipeWire object at all — `load_processing_node` never creates one
+        // (see `ProcessingNodeKind::Stub`'s doc comment) — so there is
+        // nothing real to link or unlink here. The connection still exists
+        // as graph data (`CoreEngine::connect_processing_node_port` persists
+        // it regardless of kind); this is purely the "don't attempt a
+        // pw-link against a sink that was never created" guard.
+        if matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Stub { .. })) {
+            return Ok(());
+        }
+
         match direction {
             PortDirection::Input => match peer_id {
                 Some(id) => {

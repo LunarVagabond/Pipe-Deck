@@ -195,6 +195,55 @@ fn stub_processing_node_round_trips_without_error() {
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
+/// All 11 non-DSP stub kinds (issue #293) round-trip identically: create,
+/// connect a real input and output, disconnect, remove — pure pass-through
+/// graph bookkeeping, never `live`, and (per a real-backend regression this
+/// caught during phase 5) connect/disconnect must be a true no-op rather
+/// than attempting a `pw-link` against a sink a stub never actually creates.
+#[test]
+fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
+
+    let kinds = [
+        StubEffectKind::Limiter,
+        StubEffectKind::Compressor,
+        StubEffectKind::NoiseGate,
+        StubEffectKind::ReverbDelay,
+        StubEffectKind::Denoise,
+        StubEffectKind::DeEsser,
+        StubEffectKind::AutoGainLeveler,
+        StubEffectKind::Hpf,
+        StubEffectKind::StereoWidener,
+        StubEffectKind::PitchShift,
+        StubEffectKind::LoudnessNormalizer,
+        StubEffectKind::Saturation,
+    ];
+
+    let (mut engine, _guard) = mock_engine();
+    let upstream = engine.create_virtual_output("Stub Upstream").expect("create upstream");
+    let downstream = engine.create_virtual_output("Stub Downstream").expect("create downstream");
+
+    for stub_kind in kinds {
+        let node = engine
+            .create_processing_node(&format!("{stub_kind:?}"), ProcessingNodeSpecKind::Stub { stub_kind })
+            .unwrap_or_else(|error| panic!("create {stub_kind:?} node: {error}"));
+        assert!(!node.live, "{stub_kind:?} should never report live");
+
+        engine
+            .connect_processing_node_port(&node.id, PortDirection::Input, &upstream.device_id)
+            .unwrap_or_else(|error| panic!("connect {stub_kind:?} input: {error}"));
+        engine
+            .connect_processing_node_port(&node.id, PortDirection::Output, &downstream.device_id)
+            .unwrap_or_else(|error| panic!("connect {stub_kind:?} output: {error}"));
+
+        engine
+            .disconnect_processing_node_port(&node.id, PortDirection::Input, 0)
+            .unwrap_or_else(|error| panic!("disconnect {stub_kind:?} input: {error}"));
+
+        engine.remove_processing_node(&node.id).unwrap_or_else(|error| panic!("remove {stub_kind:?}: {error}"));
+    }
+}
+
 /// PD-032's "ambiguous relink is rejected, never guessed" rule — the direct
 /// #105 lesson applied to node removal. `apply_graph_update` is used here
 /// (rather than any live connect command, which doesn't exist until later

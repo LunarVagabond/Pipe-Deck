@@ -605,6 +605,59 @@ mod live_tests {
         assert!(sink_live_after_create, "EQ node's native-hosted sink did not appear after creation");
         assert!(sink_gone_after_removal, "removing the EQ node should unload its native chain");
     }
+
+    /// A Stub node never creates a real PipeWire sink (see
+    /// `ProcessingNodeKind::Stub`) — connecting/disconnecting its ports must
+    /// therefore be a true no-op rather than attempting a `pw-link` against
+    /// a sink name that was never registered. Caught for real during phase
+    /// 5 development: without the no-op guard in
+    /// `LinuxPipeWireBackend::relink_processing_node_port`, this failed with
+    /// "no output ports" against the real backend even though the identical
+    /// flow passed happily against the mock.
+    #[test]
+    #[ignore]
+    fn stub_node_connect_disconnect_is_a_true_no_op_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let upstream = engine.create_virtual_output("Pipe Deck Live Stub Upstream").expect("create upstream");
+        let downstream = engine.create_virtual_output("Pipe Deck Live Stub Downstream").expect("create downstream");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+            let _ = engine.remove_virtual_device(&upstream.system_name);
+            let _ = engine.remove_virtual_device(&downstream.system_name);
+        };
+
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Stub",
+            ProcessingNodeSpecKind::Stub { stub_kind: crate::core::models::StubEffectKind::ReverbDelay },
+        ) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+        let no_sink_created = !pactl::sink_exists(&node.system_name).unwrap_or(true);
+
+        let connect_input = engine.connect_processing_node_port(&node.id, PortDirection::Input, &upstream.device_id);
+        let connect_output = engine.connect_processing_node_port(&node.id, PortDirection::Output, &downstream.device_id);
+        let disconnect_input = engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0);
+        let remove_result = engine.remove_processing_node(&node.id);
+
+        cleanup(&mut engine, None);
+
+        assert!(no_sink_created, "a stub node must never create a real PipeWire sink");
+        connect_input.expect("connecting a stub's input should be a no-op, not an error");
+        connect_output.expect("connecting a stub's output should be a no-op, not an error");
+        disconnect_input.expect("disconnecting a stub's input should be a no-op, not an error");
+        remove_result.expect("removing a stub node should succeed");
+    }
 }
 
 #[cfg(test)]

@@ -13,6 +13,24 @@ interface AvailableEffect {
 
 const EFFECT_CATALOG: AvailableEffect[] = [{ kind: "eq5band", label: "5-Band EQ" }];
 
+/** issue #293's 11 non-DSP effect kinds — addable to the graph as visibly
+ * "Not implemented yet" pass-through stub nodes (PD-032 phase 5), ahead of
+ * real DSP landing for each in follow-up tickets. */
+const STUB_EFFECT_CATALOG: { kind: string; label: string }[] = [
+  { kind: "limiter", label: "Limiter" },
+  { kind: "compressor", label: "Compressor" },
+  { kind: "noise_gate", label: "Noise Gate" },
+  { kind: "reverb_delay", label: "Reverb/Delay" },
+  { kind: "denoise", label: "Noise Suppression" },
+  { kind: "de_esser", label: "De-esser" },
+  { kind: "auto_gain_leveler", label: "Auto Gain/Leveler" },
+  { kind: "hpf", label: "High-Pass Filter" },
+  { kind: "stereo_widener", label: "Stereo Widener" },
+  { kind: "pitch_shift", label: "Pitch Shift/Voice Changer" },
+  { kind: "loudness_normalizer", label: "Loudness Normalizer" },
+  { kind: "saturation", label: "Saturation/Distortion" },
+];
+
 const props = defineProps<{
   target: RoutingGraphMenuTarget | null;
   /** Every node currently on the board — the source list for "Bring node
@@ -26,6 +44,7 @@ const emit = defineEmits<{
   "copy-id": [];
   close: [];
   "add-node": [type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band"];
+  "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
 }>();
@@ -40,16 +59,23 @@ const availableEffects = computed<AvailableEffect[]>(() => {
 });
 
 const nodePickerOpen = ref(false);
+const stubEffectPickerOpen = ref(false);
 watch(
   () => props.target,
   () => {
     nodePickerOpen.value = false;
+    stubEffectPickerOpen.value = false;
   },
 );
 
 function onPickNode(nodeId: string) {
   nodePickerOpen.value = false;
   emit("bring-node-here", nodeId);
+}
+
+function onPickStubEffect(stubKind: string, label: string) {
+  stubEffectPickerOpen.value = false;
+  emit("add-stub-node", stubKind, label);
 }
 </script>
 
@@ -104,6 +130,19 @@ function onPickNode(nodeId: string) {
       <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-out Node</button>
       <button type="button" @click="emit('add-node', 'mixer')">+ Mixer Node</button>
       <button type="button" @click="emit('add-node', 'eq5band')">+ 5-Band EQ Node</button>
+      <div class="routing-graph-node-picker-anchor">
+        <button type="button" @click="stubEffectPickerOpen = !stubEffectPickerOpen">+ Effect node (not yet implemented)…</button>
+        <div v-if="stubEffectPickerOpen" class="routing-graph-node-picker">
+          <button
+            v-for="effect in STUB_EFFECT_CATALOG"
+            :key="effect.kind"
+            type="button"
+            @click="onPickStubEffect(effect.kind, effect.label)"
+          >
+            {{ effect.label }}
+          </button>
+        </div>
+      </div>
 
       <hr class="routing-graph-context-menu-separator" />
       <div class="routing-graph-node-picker-anchor">
