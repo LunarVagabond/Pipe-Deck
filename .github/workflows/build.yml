@@ -16,7 +16,16 @@ env:
 
 jobs:
   release:
-    runs-on: ubuntu-22.04
+    # 24.04, not 22.04: 22.04's apt libpipewire-0.3-dev is 0.3.48, which
+    # predates PipeWire 0.3.65 converting spa_meta_first/spa_meta_region_is_valid
+    # and the spa_video_info_raw flags/modifier fields from header macros to
+    # real symbols — the pinned `pipewire`/`libspa` v0.10 crates (see
+    # src-tauri/Cargo.toml, issue #148) fail to compile without them. 24.04's
+    # apt libpipewire-0.3-dev is 1.0.5, well past that threshold. This is a
+    # compile-time-only requirement — the daemon only calls stable, long-lived
+    # core client APIs (pw_context_load_module et al.), so it doesn't raise
+    # the effective minimum PipeWire version users need at runtime.
+    runs-on: ubuntu-24.04
     timeout-minutes: 90
     env:
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
