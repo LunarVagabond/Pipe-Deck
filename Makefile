@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke screenshots release release-checks
+.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke screenshots release release-checks release-skip-tests
 
 NPM ?= npm
 CARGO ?= cargo
@@ -105,10 +105,14 @@ release-checks: ## Run the pre-release validation gate (type-check, frontend tes
 ## - Bumps package.json, Cargo.toml, tauri.conf.json, and AppStream metainfo.
 release:
 	@set -euo pipefail; \
-	echo "release: running pre-release checks (scripts/release-checks.sh)"; \
-	if ! bash scripts/release-checks.sh; then \
-		echo "release: pre-release checks failed — nothing was changed, fix and re-run 'make release'"; \
-		exit 1; \
+	if [ "$(SKIP_CHECKS)" = "1" ]; then \
+		echo "release: skipping pre-release checks (SKIP_CHECKS=1) — only use this if you already ran and passed them"; \
+	else \
+		echo "release: running pre-release checks (scripts/release-checks.sh)"; \
+		if ! bash scripts/release-checks.sh; then \
+			echo "release: pre-release checks failed — nothing was changed, fix and re-run 'make release'"; \
+			exit 1; \
+		fi; \
 	fi; \
 	ver="$(strip $(VER))"; \
 	current_ver="$$(node -p 'require("./package.json").version' 2>/dev/null || true)"; \
@@ -169,3 +173,9 @@ release:
 	git tag -a "$$tag_name" -m "$$tag_name"; \
 	echo "release done: $$tag_name"; \
 	echo "Next: git push origin main --tags"
+
+.PHONY: release-skip-tests
+## Same as 'release', but skips scripts/release-checks.sh.
+## Only use this when you already ran the checks (or are otherwise highly confident they pass) and don't want to re-run/wait on them.
+release-skip-tests: SKIP_CHECKS=1
+release-skip-tests: release
