@@ -270,7 +270,7 @@ function onPaneContextMenu(event: MouseEvent) {
 async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band") {
   contextMenu.value = null;
   if (type === "fan_out" || type === "mixer" || type === "eq5band") {
-    const label = type === "fan_out" ? "Fan-out" : type === "mixer" ? "Mixer" : "5-Band EQ";
+    const label = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : "5-Band EQ";
     try {
       await invoke("create_processing_node", { label, kind: { kind: type } });
       handleApplyResult({ success: true }, `${label} node added`);

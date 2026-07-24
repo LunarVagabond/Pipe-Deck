@@ -127,7 +127,7 @@ function onPickStubEffect(stubKind: string, label: string) {
       <button type="button" @click="emit('add-node', 'bus')">+ Bus</button>
       <button type="button" @click="emit('add-node', 'output')">+ Output (virtual)</button>
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
-      <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-out Node</button>
+      <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-Out Node</button>
       <button type="button" @click="emit('add-node', 'mixer')">+ Mixer Node</button>
       <button type="button" @click="emit('add-node', 'eq5band')">+ 5-Band EQ Node</button>
       <div class="routing-graph-node-picker-anchor">

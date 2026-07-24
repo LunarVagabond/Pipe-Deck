@@ -241,7 +241,7 @@ function deviceNodeKind(
 
 const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> = {
   mixer: "Mixer",
-  fan_out: "Fan-out",
+  fan_out: "Fan-Out",
   eq5band: "5-Band EQ",
   stub: "Not implemented yet",
 };
