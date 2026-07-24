@@ -3,8 +3,8 @@ pub mod mock;
 pub mod stub;
 
 use crate::core::models::{
-    Device, DeviceDirection, EffectChainConfig, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
-    VirtualRole,
+    Device, DeviceDirection, EffectChainConfig, MixSourceSpec, PortDirection, ProcessingNode, RuntimeGraph,
+    VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -240,6 +240,48 @@ pub trait AudioBackend: Send + Sync {
     /// equivalent of today's `pw_cli::set_params` live-slider path.
     fn set_effect_chain_live_params(&self, _device_system_name: &str, _config: &EffectChainConfig) -> Result<(), BackendError> {
         Err(BackendError::Message("set_effect_chain_live_params: not implemented".into()))
+    }
+
+    // --- Processing nodes (PD-032: Mixer/Fan-out/EQ/stub graph nodes) ---
+    //
+    // Deliberately shaped like the effects methods just above: `load`/
+    // `unload`/`is_loaded`/relink, all defaulting to "not implemented"/`false`
+    // so `MockAudioBackend`/`StubBackend` don't need real bodies unless they
+    // opt in. `Stub`-kind nodes never call any of these — they're a pure
+    // pass-through with nothing to load (see `ProcessingNodeKind::Stub`).
+
+    /// Loads (or replaces, under the same `system_name`) the PipeWire object
+    /// backing `node`. Whatever transport backs `load_effect_chain` today
+    /// backs this too — no new transport is introduced for processing nodes
+    /// (PD-032).
+    fn load_processing_node(&self, _node: &ProcessingNode) -> Result<(), BackendError> {
+        Err(BackendError::Message("load_processing_node: not implemented".into()))
+    }
+
+    /// Unloads a previously loaded processing node's native module. Does not
+    /// relink anything on its own — callers capture and restore links
+    /// separately (mirrors `unload_effect_chain`/`revert_to_plain_device`'s
+    /// split responsibility).
+    fn unload_processing_node(&self, _system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message("unload_processing_node: not implemented".into()))
+    }
+
+    /// Whether a processing node is currently loaded — same out-of-process,
+    /// correct-by-construction reasoning as `is_effect_chain_loaded`.
+    fn is_processing_node_loaded(&self, _system_name: &str) -> bool {
+        false
+    }
+
+    /// Re-points a processing node's `port_index` (on the `direction` side)
+    /// to `peer_system_name`, or disconnects it if `None`.
+    fn relink_processing_node_port(
+        &self,
+        _system_name: &str,
+        _port_index: u32,
+        _direction: PortDirection,
+        _peer_system_name: Option<&str>,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("relink_processing_node_port: not implemented".into()))
     }
 }
 

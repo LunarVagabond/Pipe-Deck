@@ -4,6 +4,7 @@ use crate::core::rules::{self, ApplyRulesContext};
 use std::collections::HashSet;
 use tauri::{AppHandle, Emitter};
 
+use super::processing_node_ops::merge_processing_nodes;
 use super::virtual_ops::merge_virtual_devices;
 use super::{CoreEngine, EngineError};
 
@@ -14,6 +15,7 @@ impl CoreEngine {
             .fetch_graph()
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
         merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
+        merge_processing_nodes(&mut self.graph, self.adapter.as_ref());
         self.sync_live_graph();
         self.reconcile_effect_chain_liveness_after_refresh();
         self.finalize_graph_snapshot();
@@ -33,6 +35,7 @@ impl CoreEngine {
     pub fn apply_graph_update(&mut self, graph: RuntimeGraph) {
         self.graph = graph;
         merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
+        merge_processing_nodes(&mut self.graph, self.adapter.as_ref());
         self.sync_live_graph();
         self.reconcile_effect_chain_liveness_after_refresh();
         self.finalize_graph_snapshot();

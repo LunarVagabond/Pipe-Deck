@@ -147,6 +147,16 @@ pub struct ProcessingNodePort {
     pub connected_id: Option<String>,
 }
 
+/// Disambiguates a `ProcessingNode`'s `inputs` list from its `outputs` list
+/// when addressing a port purely by `(system_name, index)` — needed because
+/// a node's input port 0 and output port 0 are different physical ports.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PortDirection {
+    Input,
+    Output,
+}
+
 /// What a `ProcessingNode` does, and its kind-specific config. One variant
 /// per kind, not one bespoke struct per kind, so `ProcessingNode` itself
 /// stays uniform across Mixer/Fan-out/EQ/stub (PD-032).

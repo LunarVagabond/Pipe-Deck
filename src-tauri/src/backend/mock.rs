@@ -1,6 +1,7 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, RuntimeGraph, SinkMode,
-    Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
+    Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, PortDirection,
+    ProcessingNode, RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
+    VirtualRole,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -22,6 +23,10 @@ pub struct MockAudioBackend {
     /// mutations persist across a `fetch_graph()` the way a real backend's
     /// live state would.
     loaded_effect_chains: Mutex<HashSet<String>>,
+    /// Same reasoning as `loaded_effect_chains`, for processing nodes
+    /// (PD-032) — tracked so `is_processing_node_loaded` reflects real
+    /// load/unload calls instead of always answering `false`.
+    loaded_processing_nodes: Mutex<HashSet<String>>,
 }
 
 impl Default for MockAudioBackend {
@@ -35,6 +40,7 @@ impl MockAudioBackend {
         Self {
             graph: Mutex::new(Self::sample_graph()),
             loaded_effect_chains: Mutex::new(HashSet::new()),
+            loaded_processing_nodes: Mutex::new(HashSet::new()),
         }
     }
 
@@ -724,6 +730,51 @@ impl AudioBackend for MockAudioBackend {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .contains(device_system_name)
+    }
+
+    fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
+        self.loaded_processing_nodes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(node.system_name.clone());
+        // Mock has no config-backed merge step the way the real Linux
+        // backend does (`processing_node_ops::merge_processing_nodes`) — its
+        // own graph *is* the source of truth, so existence lives here
+        // directly, the same way `push_virtual_device` is how a mock device
+        // comes to exist at all.
+        let mut graph = self.lock();
+        if let Some(existing) = graph.processing_nodes.iter_mut().find(|existing| existing.system_name == node.system_name) {
+            *existing = node.clone();
+        } else {
+            graph.processing_nodes.push(node.clone());
+        }
+        Ok(())
+    }
+
+    fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        self.loaded_processing_nodes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(system_name);
+        self.lock().processing_nodes.retain(|node| node.system_name != system_name);
+        Ok(())
+    }
+
+    fn is_processing_node_loaded(&self, system_name: &str) -> bool {
+        self.loaded_processing_nodes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(system_name)
+    }
+
+    fn relink_processing_node_port(
+        &self,
+        _system_name: &str,
+        _port_index: u32,
+        _direction: PortDirection,
+        _peer_system_name: Option<&str>,
+    ) -> Result<(), BackendError> {
+        Ok(())
     }
 
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {

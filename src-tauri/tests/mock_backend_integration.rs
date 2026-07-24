@@ -152,6 +152,77 @@ fn virtual_device_create_remove_cycle_leaves_no_residue() {
     }
 }
 
+/// PD-032 Phase 1: bare create/remove round trip for the new `ProcessingNode`
+/// graph model — no real DSP/PipeWire wiring yet, just proving the node
+/// shows up in `RuntimeGraph.processing_nodes` and cleanly disappears again,
+/// the processing-node equivalent of `virtual_device_create_remove_cycle_leaves_no_residue`.
+#[test]
+fn processing_node_create_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Game Mixer", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+    assert_eq!(node.system_name, "pipe-deck-proc-mixer-game-mixer");
+    assert!(matches!(node.kind, ProcessingNodeKind::Mixer { .. }));
+    assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+
+    let result = engine.remove_processing_node(&node.id).expect("remove mixer node");
+    assert!(result.success);
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Stub effect kinds (issue #293's 11 non-DSP kinds) round-trip the same way
+/// as real kinds through the graph model even though — per PD-032 — nothing
+/// ever calls `AudioBackend::load_processing_node`'s PipeWire path for them
+/// in anger; this only proves the create/remove *bookkeeping* is uniform
+/// across kinds, not that Phase 5's pass-through wiring exists yet.
+#[test]
+fn stub_processing_node_round_trips_without_error() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind, StubEffectKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Reverb", ProcessingNodeSpecKind::Stub { stub_kind: StubEffectKind::ReverbDelay })
+        .expect("create stub node");
+    assert!(matches!(node.kind, ProcessingNodeKind::Stub { stub_kind: StubEffectKind::ReverbDelay }));
+    assert!(!node.live);
+
+    engine.remove_processing_node(&node.id).expect("remove stub node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// PD-032's "ambiguous relink is rejected, never guessed" rule — the direct
+/// #105 lesson applied to node removal. `apply_graph_update` is used here
+/// (rather than any live connect command, which doesn't exist until later
+/// phases) purely to seed both of a Mixer's input ports as connected.
+#[test]
+fn removing_a_processing_node_with_multiple_connected_inputs_is_rejected() {
+    use pipe_deck_lib::core::models::{ProcessingNodePort, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+
+    let mut graph = engine.runtime_graph().clone();
+    if let Some(n) = graph.processing_nodes.iter_mut().find(|n| n.id == node.id) {
+        n.inputs = vec![
+            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()) },
+            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()) },
+        ];
+    }
+    engine.apply_graph_update(graph);
+
+    let error = engine.remove_processing_node(&node.id).expect_err("ambiguous removal should be rejected");
+    assert!(error.to_string().contains("ambiguous"), "{error}");
+    assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
 #[test]
 fn virtual_output_can_chain_into_another_virtual_output() {
     let (mut engine, _guard) = mock_engine();
