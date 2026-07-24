@@ -32,7 +32,8 @@ The branching model, commit format, and process rules below are a starting point
 
 - `main` — integration branch
 - `<issue#>-short-description` — topic branches off `main`, named after the GitHub issue number (e.g. `42-submodule-detection`); no `feature/`, `bug/`, or similar prefix, the issue number is the lookup
-- `noissue-short-description` — maintainer-only, mirroring the `[noissue]` commit/PR restriction below. If you see a branch like this, it's a maintainer hotfix, not a pattern open to other contributors
+- `noissue-short-description` — maintainer-only, mirroring the `[noissue]` commit/PR restriction below. If you see a branch like this, it's a maintainer quick fix, not a pattern open to other contributors
+- `hotfix-short-description` — maintainer-only, mirroring the `[hotfix]` commit/PR restriction below. If you see a branch like this, it's a maintainer hotfix, not a pattern open to other contributors
 
 ## Work Tracking
 
@@ -60,10 +61,14 @@ Open an issue first when the work is non-trivial. The issue carries context (fea
 [#<issue>] - <short description>
 ```
 
-**`[noissue]` is restricted.** It exists only for the maintainer and a small, explicitly-named set of trusted core developers to hotfix trivial things (typo, comment, one-line fix) without ticket overhead — it is the wrong way to handle most work, and is deliberately not available to general contributors or to AI agents. If you are not on that short list, every commit and PR needs a real issue number:
+**`[noissue]` and `[hotfix]` are restricted.** Both exist only for the maintainer and a small, explicitly-named set of trusted core developers, and both skip ticket overhead — they are the wrong way to handle most work, and are deliberately not available to general contributors or to AI agents. If you are not on that short list, every commit and PR needs a real issue number. The two tags mean different things:
+
+- `[noissue]` — trivial, no ticket is warranted at all (typo, comment, one-line fix).
+- `[hotfix]` — must be fixed now and there's a clear path to the fix, but there wasn't time to write up a ticket first. Reaching for this signals "this was a real bug/issue," not "there was nothing to file."
 
 ```
 [noissue] - <short description>
+[hotfix] - <short description>
 ```
 
 Examples:
@@ -71,6 +76,7 @@ Examples:
 - `[#123] - Add bass slider to mixer panel`
 - `[#123] - Wire bass slider to channel gain`
 - `[noissue] - Fix typo in Contributing commit examples` (maintainer/core-only example)
+- `[hotfix] - Guard against null device id crashing the mixer` (maintainer/core-only example)
 
 Keep descriptions focused on **what changed** in that commit. Use the issue number from GitHub (`#123`) when one exists. One logical change per commit when practical.
 
@@ -83,9 +89,10 @@ Use the same pattern as commits:
 ```
 [#123] - Add bass slider to mixer panel
 [noissue] - Fix typo in README quick start
+[hotfix] - Guard against null device id crashing the mixer
 ```
 
-`[noissue]` follows the same restriction as commit messages above — maintainer and named core developers only. Everyone else opens an issue first and references it in the title. The PR body can go deeper on approach and testing.
+`[noissue]` and `[hotfix]` follow the same restriction as commit messages above — maintainer and named core developers only. Everyone else opens an issue first and references it in the title. The PR body can go deeper on approach and testing.
 
 A CI check enforces this title format the same way as commit messages — a malformed title fails the check rather than waiting on a reviewer to catch it by eye.
 
@@ -105,7 +112,7 @@ This is optional and about being open, not a requirement — reviewers still hol
 
 Follow the conventions in this file the same as any contributor would: `[#<issue>] - <short description>` commit and PR titles, one logical change per commit, docs updated alongside behavior changes. In addition:
 
-- **Never use `[noissue]`, and never use a `noissue-*` branch name.** Both are restricted to the maintainer and a small named set of core developers — every commit, PR, and branch you make needs a real issue number. If no issue exists yet for the work, that's a sign to open one first, not to reach for `[noissue]`.
+- **Never use `[noissue]` or `[hotfix]`, and never use a `noissue-*` or `hotfix-*` branch name.** All are restricted to the maintainer and a small named set of core developers — every commit, PR, and branch you make needs a real issue number. If no issue exists yet for the work, that's a sign to open one first, not to reach for `[noissue]`/`[hotfix]`.
 - Apply the `Co-Authored-By: <Tool> <email>` trailer above to every commit and PR you create or materially author.
 - Don't add any other AI-attribution mention beyond that single trailer line (no extra notes in the commit body or PR description) unless explicitly asked to.
 - If you're unsure whether the trailer applies in a given situation, ask rather than guessing.

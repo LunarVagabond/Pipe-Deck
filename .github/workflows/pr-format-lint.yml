@@ -17,12 +17,12 @@ jobs:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          pattern='^(\[#[0-9]+\]|\[noissue\]) - .+$'
+          pattern='^(\[#[0-9]+\]|\[noissue\]|\[hotfix\]) - .+$'
           if ! [[ "$TITLE" =~ $pattern ]]; then
             echo "PR title does not match the required format:"
             echo "  $TITLE"
             echo
-            echo "Expected: '[#<issue>] - <short description>' or '[noissue] - <short description>'."
+            echo "Expected: '[#<issue>] - <short description>', '[noissue] - <short description>', or '[hotfix] - <short description>'."
             echo "See .github/CONTRIBUTING.md -> Pull Request Titles."
             exit 1
           fi
@@ -39,7 +39,7 @@ jobs:
       - name: Check non-merge commit messages follow convention
         run: |
           set -euo pipefail
-          pattern='^(\[#[0-9]+\]|\[noissue\]) - .+$'
+          pattern='^(\[#[0-9]+\]|\[noissue\]|\[hotfix\]) - .+$'
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
 
@@ -59,7 +59,7 @@ jobs:
 
           if [ "$failures" -ne 0 ]; then
             echo
-            echo "Expected: '[#<issue>] - <short description>' or '[noissue] - <short description>'."
+            echo "Expected: '[#<issue>] - <short description>', '[noissue] - <short description>', or '[hotfix] - <short description>'."
             echo "See .github/CONTRIBUTING.md -> Commit Messages."
             exit 1
           fi

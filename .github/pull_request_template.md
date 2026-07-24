@@ -1,6 +1,6 @@
 ## Issue
 
-Closes #<!-- omit for [noissue] maintainer quick fixes -->
+Closes #<!-- omit for [noissue]/[hotfix] maintainer quick fixes -->
 
 ## What changed
 
