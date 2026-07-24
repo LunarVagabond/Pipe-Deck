@@ -551,6 +551,17 @@ pub struct ProcessingNodeSpec {
     /// `FanOut` node's single input duplicates out to several).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub output_targets: Vec<String>,
+    /// Keeps the node wired exactly as-is but passes audio through
+    /// unprocessed — same "isolate this one out without touching
+    /// connections" meaning as `EffectChainConfig::bypassed` for a
+    /// device-attached effect. Only `Eq5Band` currently enforces this (it
+    /// reuses that same neutral-live-params mechanism); persisted for every
+    /// kind so the flag round-trips once a real-DSP stub kind picks it up
+    /// too, but Mixer/FanOut/Stub have no backend behavior change yet —
+    /// there's no "unprocessed" state for a node that doesn't itself
+    /// shape the signal beyond routing/summing it.
+    #[serde(default)]
+    pub bypassed: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

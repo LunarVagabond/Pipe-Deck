@@ -46,6 +46,10 @@ export interface RoutingGraphNodeData {
    * kind this is (PD-032), so the node body can render kind-specific
    * controls (per-input gain rows, a "Not implemented yet" badge, ...). */
   processingNodeKind?: ProcessingNode["kind"];
+  /** Keeps the node wired exactly as-is but passes audio through
+   * unprocessed — set only for `nodeKind: "processingNode"`. Only Eq5Band
+   * currently enforces this backend-side. */
+  processingNodeBypassed?: boolean;
 }
 
 export interface RoutingGraphGroupData {
@@ -263,6 +267,7 @@ function processingNodeNodeKind(node: ProcessingNode): RoutingGraphNodeData {
     // volume row nor the effects-attachment body for them.
     supportsEffects: false,
     processingNodeKind: node.kind,
+    processingNodeBypassed: node.bypassed,
   };
 }
 

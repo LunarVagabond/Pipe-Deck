@@ -151,6 +151,15 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_processing_node_bypassed(&self, node_id: &str, bypassed: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        node.bypassed = bypassed;
+        self.save_config(&config)
+    }
+
     /// Persists `peer_system_name` at `port_index` on the given `direction`
     /// for the named node — extending the port list if `port_index` is one
     /// past the current end (a freshly grown port), overwriting in place
@@ -647,6 +656,7 @@ fn migrate_mix_sources_to_mixer_nodes(config: &mut AppConfig) -> bool {
                 })
                 .collect(),
             output_targets: vec![target_system_name],
+            bypassed: false,
         });
         migrated_specs.push(spec.id.clone());
     }

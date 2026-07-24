@@ -308,7 +308,10 @@ pub trait AudioBackend: Send + Sync {
     /// chain — the PD-017 two-speed fast path, same mechanism
     /// `CoreEngine::set_effect_chain_live_params` already uses for a
     /// device's attached EQ, just addressed by `system_name` directly
-    /// rather than through a `Device`.
+    /// rather than through a `Device`. `bypassed` reuses that same
+    /// mechanism's neutral-live-params-regardless-of-configured-values
+    /// behavior (`fx_validate::live_params`) — connections stay exactly as
+    /// wired, only the signal itself passes through unprocessed.
     #[allow(clippy::too_many_arguments)]
     fn set_processing_node_eq_params(
         &self,
@@ -319,6 +322,7 @@ pub trait AudioBackend: Send + Sync {
         _eq_treble: i32,
         _eq_air: i32,
         _output_gain: i32,
+        _bypassed: bool,
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_eq_params: not implemented".into()))
     }

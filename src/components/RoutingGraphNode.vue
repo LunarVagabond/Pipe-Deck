@@ -223,6 +223,7 @@ function onToggleMute() {
         :eq-treble="data.processingNodeKind.eq_treble"
         :eq-air="data.processingNodeKind.eq_air"
         :output-gain="data.processingNodeKind.output_gain"
+        :bypassed="data.processingNodeBypassed ?? false"
       />
       <p v-else-if="data.processingNodeKind?.kind === 'stub'" class="routing-graph-node-stub-label">
         Not implemented yet

@@ -475,6 +475,7 @@ export interface ProcessingNodeSpec {
   kind: ProcessingNodeSpecKind;
   input_sources?: ProcessingNodePortSpec[];
   output_targets?: string[];
+  bypassed?: boolean;
 }
 
 export type AppView =

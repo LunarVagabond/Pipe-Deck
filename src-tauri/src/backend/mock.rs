@@ -887,6 +887,7 @@ impl AudioBackend for MockAudioBackend {
         eq_treble: i32,
         eq_air: i32,
         output_gain: i32,
+        bypassed: bool,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
@@ -895,6 +896,7 @@ impl AudioBackend for MockAudioBackend {
         if let ProcessingNodeKind::Eq5Band { .. } = &node.kind {
             node.kind = ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
         }
+        node.bypassed = bypassed;
         Ok(())
     }
 

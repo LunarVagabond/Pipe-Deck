@@ -9,6 +9,7 @@ const props = defineProps<{
   eqTreble: number;
   eqAir: number;
   outputGain: number;
+  bypassed: boolean;
 }>();
 
 const BANDS = [
@@ -36,10 +37,26 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
     outputGain: param === "output_gain" ? value : props.outputGain,
   });
 }
+
+/** Keeps every connection exactly as wired — only whether the signal comes
+ * through processed or not changes. */
+async function onToggleBypass() {
+  await invoke("set_processing_node_bypassed", { nodeId: props.nodeId, bypassed: !props.bypassed });
+}
 </script>
 
 <template>
-  <div class="routing-graph-node-eq5band nodrag">
+  <div class="routing-graph-node-eq5band nodrag" :class="{ 'is-bypassed': bypassed }">
+    <button
+      type="button"
+      class="routing-graph-node-eq5band-bypass"
+      :class="{ active: bypassed }"
+      :aria-pressed="bypassed"
+      :title="bypassed ? 'Bypassed — passing through unprocessed' : 'Bypass — keep wiring, skip processing'"
+      @click="onToggleBypass"
+    >
+      {{ bypassed ? "Bypassed" : "Bypass" }}
+    </button>
     <div v-for="band in BANDS" :key="band.key" class="routing-graph-node-eq5band-row">
       <span class="routing-graph-node-eq5band-label">{{ band.label }}</span>
       <input
@@ -48,6 +65,7 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
         min="-12"
         max="12"
         :value="valueFor(band.key)"
+        :disabled="bypassed"
         :aria-label="`${band.label} gain`"
         @change="onBandChange(band.param, $event)"
       />

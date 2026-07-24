@@ -188,12 +188,67 @@ impl CoreEngine {
         }
 
         self.adapter
-            .set_processing_node_eq_params(&node.system_name, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
+            .set_processing_node_eq_params(
+                &node.system_name,
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+                node.bypassed,
+            )
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
                 .update_processing_node_eq(node_id, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+        Ok(ApplyResult { success: true, message: None })
+    }
+
+    /// Keeps a node wired exactly as-is but toggles whether audio passes
+    /// through it processed or not — connections/ports never change, only
+    /// the signal itself. Only `Eq5Band` currently enforces this backend-
+    /// side (reuses the same neutral-live-params mechanism
+    /// `EffectChainConfig::bypassed` already has); every other kind
+    /// persists the flag without a behavior change yet, since there's no
+    /// "unprocessed" state for a node that only routes/sums rather than
+    /// shaping the signal itself.
+    pub fn set_processing_node_bypassed(&mut self, node_id: &str, bypassed: bool) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        // Real backend: only Eq5Band has anything to actually push live (the
+        // real DSP node exists to receive it). Mock: always push regardless
+        // of kind, purely so `bypassed` round-trips into the mock's own
+        // graph the same way `set_processing_node_eq_params` already
+        // updates it unconditionally — mock has no config-backed merge step
+        // to fall back on (see `merge_processing_nodes`).
+        let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
+        if is_eq || self.graph.data_source == "mock" {
+            let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
+                ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => {
+                    (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
+                }
+                _ => (0, 0, 0, 0, 0, 0),
+            };
+            self.adapter
+                .set_processing_node_eq_params(&node.system_name, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain, bypassed)
+                .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        }
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .set_processing_node_bypassed(node_id, bypassed)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
@@ -226,6 +281,7 @@ impl CoreEngine {
             kind,
             input_sources: Vec::new(),
             output_targets: Vec::new(),
+            bypassed: false,
         };
 
         if self.graph.data_source != "mock" {
@@ -409,7 +465,7 @@ pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &Runti
         label: spec.label.clone(),
         kind,
         system_name,
-        bypassed: false,
+        bypassed: spec.bypassed,
         live: false,
         inputs,
         outputs,
@@ -697,6 +753,7 @@ mod tests {
             kind: ProcessingNodeSpecKind::Mixer,
             input_sources: Vec::new(),
             output_targets: Vec::new(),
+            bypassed: false,
         };
         let node = processing_node_from_spec(&spec, &empty_graph());
         assert_eq!(node.system_name, "pipe-deck-proc-mixer-game");
@@ -736,6 +793,7 @@ mod tests {
                 muted: false,
             }],
             output_targets: Vec::new(),
+            bypassed: false,
         };
         let node = processing_node_from_spec(&spec, &graph);
         assert_eq!(node.inputs.len(), 1);

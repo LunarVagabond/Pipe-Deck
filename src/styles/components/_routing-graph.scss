@@ -581,6 +581,27 @@
   gap: 0.2rem;
   padding-top: 0.35rem;
   border-top: 1px dashed rgba(255, 255, 255, 0.1);
+
+  &.is-bypassed {
+    opacity: 0.6;
+  }
+}
+
+.routing-graph-node-eq5band-bypass {
+  align-self: flex-start;
+  margin-bottom: 0.15rem;
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--accent-amber, #e0a030);
+    color: var(--accent-amber, #e0a030);
+  }
 }
 
 .routing-graph-node-eq5band-row {

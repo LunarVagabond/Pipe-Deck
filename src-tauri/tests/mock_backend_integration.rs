@@ -422,6 +422,36 @@ fn eq5band_node_create_update_remove_round_trips() {
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
+/// Bypass keeps a node wired exactly as-is (nothing disconnects) while
+/// flagging it as passed-through-unprocessed — same "isolate this one out"
+/// meaning as the existing device-attached effect bypass.
+#[test]
+fn bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node(
+            "Voice EQ",
+            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+        )
+        .expect("create eq node");
+    let source = engine.create_virtual_output("EQ Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
 #[test]
 fn eq_param_update_rejects_a_non_eq_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;

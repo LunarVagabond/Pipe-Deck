@@ -441,6 +441,7 @@ impl AudioBackend for LinuxPipeWireBackend {
                         eq_air: *eq_air,
                         output_gain: *output_gain,
                     }],
+                    bypassed: node.bypassed,
                     ..Default::default()
                 };
                 let capabilities = crate::pipewire::fx_capability::probe_capabilities();
@@ -623,6 +624,7 @@ impl AudioBackend for LinuxPipeWireBackend {
         eq_treble: i32,
         eq_air: i32,
         output_gain: i32,
+        bypassed: bool,
     ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
             stages: vec![crate::core::models::EffectStage::Eq5Band {
@@ -634,6 +636,7 @@ impl AudioBackend for LinuxPipeWireBackend {
                 eq_air,
                 output_gain,
             }],
+            bypassed,
             ..Default::default()
         };
         let capabilities = crate::pipewire::fx_capability::probe_capabilities();
