@@ -37,6 +37,24 @@ impl CoreEngine {
         let peer_system_name = resolve_system_name_for_id(&self.graph, peer_id)
             .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?;
 
+        // A terminal Output (virtual) (#287) is a true dead end — it can't
+        // feed a Mixer's mix any more than it could feed the old mic-mix
+        // mechanism this generalizes; only a Bus (still routable onward)
+        // qualifies as an input source.
+        if direction == PortDirection::Input && matches!(node.kind, ProcessingNodeKind::Mixer { .. }) {
+            if let Some(device) = self.graph.devices.iter().find(|device| device.id == peer_id) {
+                let is_terminal_output = device.kind == crate::core::models::DeviceKind::Virtual
+                    && device.direction == crate::core::models::DeviceDirection::Output
+                    && device.virtual_role != Some(crate::core::models::VirtualRole::Bus);
+                if is_terminal_output {
+                    return Err(EngineError::InvalidInput(format!(
+                        "{} is a terminal output and can't feed a Mixer node - only a physical input or a Bus can",
+                        device.label
+                    )));
+                }
+            }
+        }
+
         let ports = match direction {
             PortDirection::Input => &node.inputs,
             PortDirection::Output => &node.outputs,

@@ -45,7 +45,6 @@ function makeEdge(
   linkId: string,
   sourceId: string,
   targetId: string,
-  options: { mix?: boolean } = {},
 ): BuiltGraphEdge | null {
   const processingNodes = graph.processing_nodes ?? [];
   if (!graphEntityExists(graph.streams, graph.devices, sourceId, processingNodes)) {
@@ -83,29 +82,22 @@ function makeEdge(
     target,
     sourceHandle,
     targetHandle,
-    animated: !options.mix,
-    updatable: !options.mix,
+    animated: true,
+    updatable: true,
     interactionWidth: 22,
     type: isBackward ? "smoothstep" : undefined,
-    // Mic-mix (additive merge onto mix_sources) is a genuinely different
-    // relationship from a replace-route or fan-out link — dashed/thinner so
-    // it reads as "feeds into the mix" rather than "the" route for either
-    // node, and non-updatable since dragging it off isn't how a mix source
-    // is removed (see mic_mix_remove in connectionRules.ts).
-    class: `routing-edge ${edgeClassForPort()}${options.mix ? " routing-edge--mix" : ""}`,
-    style: options.mix
-      ? { stroke: edgeColorForPorts(), strokeWidth: "1.5", strokeDasharray: "6 4" }
-      : { stroke: edgeColorForPorts(), strokeWidth: "2.5" },
+    class: `routing-edge ${edgeClassForPort()}`,
+    style: { stroke: edgeColorForPorts(), strokeWidth: "2.5" },
   };
 }
 
-/** Collect deduplicated routing edges from graph links, multi-sink fan-out, and mic-mix merges. */
+/** Collect deduplicated routing edges from graph links, multi-sink fan-out, and processing node ports. */
 export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   const edges = new Map<string, BuiltGraphEdge>();
   const streamSourceSeen = new Set<string>();
   const captureStreamSeen = new Set<string>();
 
-  function addEdge(linkId: string, sourceId: string, targetId: string, options: { mix?: boolean } = {}) {
+  function addEdge(linkId: string, sourceId: string, targetId: string) {
     const streamSource = graph.streams.find(
       (stream) =>
         stream.id === sourceId &&
@@ -138,7 +130,7 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
       captureStreamSeen.add(targetId);
     }
 
-    const edge = makeEdge(graph, linkId, sourceId, targetId, options);
+    const edge = makeEdge(graph, linkId, sourceId, targetId);
     if (!edge) {
       return;
     }
@@ -162,19 +154,9 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
     }
   }
 
-  // Mic-mix merges (Device.mix_sources) previously had no edge at all — a mic
-  // feeding a virtual-mic mix showed as two occupied ports with nothing
-  // connecting them. Draw one, dashed to read as "feeds the mix" rather than
-  // an ordinary route (see makeEdge's `mix` option).
-  for (const device of graph.devices) {
-    for (const mixSource of device.mix_sources ?? []) {
-      addEdge(`mix-source-${mixSource.device_id}-${device.id}`, mixSource.device_id, device.id, { mix: true });
-    }
-  }
-
-  // Processing node ports (PD-032) — a 4th edge shape alongside links,
-  // multi-sink fan-out, and mic-mix: every occupied input/output port draws
-  // one edge between the node and whatever peer id it's wired to.
+  // Processing node ports (PD-032, the Mixer Node kind generalizes and
+  // retires the old mic-mix mechanism) — every occupied input/output port
+  // draws one edge between the node and whatever peer id it's wired to.
   for (const node of graph.processing_nodes ?? []) {
     for (const port of node.inputs ?? []) {
       if (port.connected_id) {

@@ -12,8 +12,8 @@ use pipe_deck_lib::backend::AudioBackend;
 use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{
-    Device, DeviceDirection, DeviceKind, MixSource, Profile, Rule, RuleAction, RuleCondition,
-    RuntimeGraph, Stream, StreamDirection, VirtualDeviceSpec, VirtualRole,
+    Device, DeviceDirection, DeviceKind, Profile, Rule, RuleAction, RuleCondition, RuntimeGraph, Stream,
+    StreamDirection, VirtualDeviceSpec, VirtualRole,
 };
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -482,40 +482,37 @@ fn create_virtual_output_role_creates_a_distinct_terminal_output() {
 }
 
 #[test]
-fn terminal_output_rejected_as_mic_mix_source() {
-    // #287: a terminal Output is a true dead end — it can't feed a mic mix
-    // any more than it can fan out to another sink; only a Bus qualifies.
+fn terminal_output_rejected_as_mixer_node_input() {
+    // #287: a terminal Output is a true dead end — it can't feed a Mixer
+    // node any more than it could feed the old mic-mix mechanism; only a
+    // Bus qualifies.
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
     let (mut engine, _guard) = mock_engine();
     let terminal = engine
         .create_virtual_output_role("Terminal Source", VirtualRole::Output)
         .expect("create terminal output");
-    let input = engine.create_virtual_input("Mic Mix Target").expect("create input");
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let error = engine
-        .set_virtual_mic_mix(&input.device_id, &[MixSource {
-            device_id: terminal.device_id.clone(),
-            volume_percent: 100,
-            muted: false,
-        }])
-        .expect_err("terminal output must not be a valid mic-mix source");
-    assert!(error.to_string().contains("virtual bus"));
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &terminal.device_id)
+        .expect_err("terminal output must not be a valid mixer input");
+    assert!(error.to_string().contains("terminal output"), "{error}");
 }
 
 #[test]
-fn bus_still_qualifies_as_a_mic_mix_source() {
+fn bus_still_qualifies_as_a_mixer_node_input() {
     // Positive-path regression alongside the rejection test above — a Bus
-    // (today's virtual-output behavior) must still work as a mic-mix source.
+    // (today's virtual-output behavior) must still work as a mixer input.
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
     let (mut engine, _guard) = mock_engine();
     let bus = engine.create_virtual_output("Bus Source").expect("create bus");
-    let input = engine.create_virtual_input("Mic Mix Target").expect("create input");
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let result = engine
-        .set_virtual_mic_mix(&input.device_id, &[MixSource {
-            device_id: bus.device_id.clone(),
-            volume_percent: 100,
-            muted: false,
-        }])
-        .expect("bus should be a valid mic-mix source");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &bus.device_id)
+        .expect("bus should be a valid mixer input");
     assert!(result.success, "{:?}", result.message);
 }
 
@@ -596,9 +593,14 @@ fn device_alias_rename_is_visible_after_refresh() {
 }
 
 #[test]
-fn virtual_mic_mix_add_and_volume_adjust() {
+fn mixer_node_accepts_a_physical_mic_as_an_input() {
+    // Mixer Node's replacement for the old mic-mix mechanism (PD-032) must
+    // still accept a physical input device as a source, same as mic-mix did
+    // — gain/mute tracking itself is covered generically by
+    // `mixer_node_sums_inputs_with_independent_gain`.
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
     let (mut engine, _guard) = mock_engine();
-    let input = engine.create_virtual_input("Integration Mic").expect("create input");
     let physical_source = engine
         .runtime_graph()
         .devices
@@ -607,27 +609,16 @@ fn virtual_mic_mix_add_and_volume_adjust() {
         .expect("sample graph should have a physical input")
         .id
         .clone();
+    let mixer = engine.create_processing_node("Mic Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let result = engine
-        .set_virtual_mic_mix(&input.device_id, &[MixSource {
-            device_id: physical_source.clone(),
-            volume_percent: 80,
-            muted: false,
-        }])
-        .expect("set_virtual_mic_mix");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &physical_source)
+        .expect("connect physical mic to mixer");
     assert!(result.success, "{:?}", result.message);
 
-    let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
-    assert_eq!(mic.mix_sources.len(), 1);
-    assert_eq!(mic.mix_sources[0].device_id, physical_source);
-
-    engine.set_mix_source_volume(&input.device_id, &physical_source, 55).expect("set_mix_source_volume");
-    let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
-    assert_eq!(mic.mix_sources[0].volume_percent, 55);
-
-    engine.set_mix_source_mute(&input.device_id, &physical_source, true).expect("set_mix_source_mute");
-    let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
-    assert!(mic.mix_sources[0].muted);
+    let node = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap();
+    assert_eq!(node.inputs.len(), 1);
+    assert_eq!(node.inputs[0].connected_id.as_deref(), Some(physical_source.as_str()));
 }
 
 #[test]
@@ -845,20 +836,21 @@ fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_
     // repaired. Native transport's per-device `unload_chain` makes this
     // whole class of collateral damage structurally impossible — this locks
     // that in for the input-direction case specifically.
-    use pipe_deck_lib::core::models::{EffectStage, MixSource};
+    use pipe_deck_lib::core::models::{EffectStage, PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
     let output = engine.create_virtual_output("Unrelated Output").expect("create output");
     let mic = engine.create_virtual_input("Live Mic").expect("create mic");
     let mic_source = engine.create_virtual_output("Mic Feed Source").expect("create mic feed source");
+    let mixer = engine.create_processing_node("Mic Mixer", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     engine.set_device_targets(&output.device_id, &["sink-headphones".to_string()]).unwrap();
     engine
-        .set_virtual_mic_mix(
-            &mic.device_id,
-            &[MixSource { device_id: mic_source.device_id.clone(), volume_percent: 100, muted: false }],
-        )
-        .expect("set up mic mix");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &mic_source.device_id)
+        .expect("connect mixer input");
+    engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Output, &mic.device_id)
+        .expect("connect mixer output to mic");
     engine.refresh_graph().unwrap();
 
     let eq_stage = |id: &str| EffectStage::Eq5Band {
@@ -883,11 +875,11 @@ fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_
         engine.is_effect_chain_live(&mic.device_id),
         "removing effects from an unrelated output device must not disturb the mic's own live chain"
     );
-    let mic_after = engine.runtime_graph().devices.iter().find(|d| d.id == mic.device_id).unwrap().clone();
+    let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
     assert_eq!(
-        mic_after.mix_sources.len(),
-        1,
-        "mic's mix-source feed must survive an unrelated device's effect removal"
+        mixer_after.outputs.first().and_then(|port| port.connected_id.clone()),
+        Some(mic.device_id.clone()),
+        "mic's mixer feed must survive an unrelated device's effect removal"
     );
 }
 

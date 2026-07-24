@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeDevice, makeGraph, makeStream } from "../../test/graphFixtures";
-import { isMicMixCandidate, isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
+import { isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
 import { resolveConnectionAction, type PreviousEdge } from "./connectionRules";
 
 describe("isMicPassthroughCandidate", () => {
@@ -20,38 +20,6 @@ describe("isMicPassthroughCandidate", () => {
     const stream = makeStream({ direction: "playback" });
     const device = makeDevice({ kind: "physical", direction: "output" });
     expect(isMicPassthroughCandidate(stream, device)).toBe(false);
-  });
-});
-
-describe("isMicMixCandidate", () => {
-  it("is true for a physical mic into a virtual input", () => {
-    const source = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
-    const target = makeDevice({ id: "mic2", kind: "virtual", direction: "input" });
-    expect(isMicMixCandidate(source, target)).toBe(true);
-  });
-
-  it("is true for a virtual output into a virtual input", () => {
-    const source = makeDevice({ id: "out1", kind: "virtual", direction: "output" });
-    const target = makeDevice({ id: "mic2", kind: "virtual", direction: "input" });
-    expect(isMicMixCandidate(source, target)).toBe(true);
-  });
-
-  it("is false when the source is a physical output", () => {
-    const source = makeDevice({ id: "out1", kind: "physical", direction: "output" });
-    const target = makeDevice({ id: "mic2", kind: "virtual", direction: "input" });
-    expect(isMicMixCandidate(source, target)).toBe(false);
-  });
-
-  it("is false when the target isn't a virtual input", () => {
-    const source = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
-    const target = makeDevice({ id: "out1", kind: "virtual", direction: "output" });
-    expect(isMicMixCandidate(source, target)).toBe(false);
-  });
-
-  it("is false for a terminal Output (virtual) source — #287, a true dead end can't feed a mic mix", () => {
-    const source = makeDevice({ id: "out1", kind: "virtual", direction: "output", virtual_role: "output" });
-    const target = makeDevice({ id: "mic2", kind: "virtual", direction: "input" });
-    expect(isMicMixCandidate(source, target)).toBe(false);
   });
 });
 
@@ -112,28 +80,6 @@ describe("connect-time and disconnect-time classification agree", () => {
     );
     expect(disconnectResult).toEqual({
       action: { type: "device_targets", sourceDeviceId: "vout1", targetDeviceIds: [] },
-    });
-  });
-
-  it("treats a mic-mix pair identically for isMicMixCandidate regardless of connect/disconnect direction", () => {
-    const source = makeDevice({ id: "mic1", label: "Headset Mic", kind: "physical", direction: "input" });
-    const target = makeDevice({
-      id: "mic2",
-      label: "Virtual Mic",
-      kind: "virtual",
-      direction: "input",
-      mix_sources: [{ device_id: "mic1", volume_percent: 100, muted: false }],
-    });
-    expect(isMicMixCandidate(source, target)).toBe(isMicMixCandidate(source, target));
-
-    const graph = makeGraph([source, target], []);
-    const disconnectResult = resolveConnectionAction(
-      graph,
-      { source: null, target: null, sourceHandle: null, targetHandle: null } as never,
-      { mode: "edge_disconnect", previousEdge: { source: "device:mic1", target: "device:mic2" } },
-    );
-    expect(disconnectResult).toEqual({
-      action: { type: "mic_mix_remove", virtualMicDeviceId: "mic2", sourceDeviceId: "mic1" },
     });
   });
 });

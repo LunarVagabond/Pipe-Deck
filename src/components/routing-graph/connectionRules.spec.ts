@@ -161,7 +161,7 @@ describe("resolveConnectionAction — connect mode", () => {
     });
   });
 
-  it("adds a mic-mix source for a physical mic into a virtual input", () => {
+  it("rejects dragging a physical mic directly onto a virtual input — mixing now goes through a Mixer Node", () => {
     const physMic = makeDevice({ id: "mic1", label: "Headset Mic", kind: "physical", direction: "input" });
     const virtualMic = makeDevice({ id: "mic2", label: "Virtual Mic", kind: "virtual", direction: "input" });
     const graph = makeGraph([physMic, virtualMic], []);
@@ -175,31 +175,8 @@ describe("resolveConnectionAction — connect mode", () => {
       }),
     );
     expect(result).toEqual({
-      action: { type: "mic_mix_add", virtualMicDeviceId: "mic2", sourceDeviceId: "mic1" },
-    });
-  });
-
-  it("errors when the mic is already mixed into the target", () => {
-    const physMic = makeDevice({ id: "mic1", label: "Headset Mic", kind: "physical", direction: "input" });
-    const virtualMic = makeDevice({
-      id: "mic2",
-      label: "Virtual Mic",
-      kind: "virtual",
-      direction: "input",
-      mix_sources: [{ device_id: "mic1", volume_percent: 100, muted: false }],
-    });
-    const graph = makeGraph([physMic, virtualMic], []);
-    const result = resolveConnectionAction(
-      graph,
-      connection({
-        source: "device:mic1",
-        target: "device:mic2",
-        sourceHandle: "audio-out:empty",
-        targetHandle: "audio-in:empty",
-      }),
-    );
-    expect(result).toEqual({
-      error: '"Headset Mic" is already mixed into "Virtual Mic".',
+      error:
+        '"Headset Mic" isn\'t a virtual output sink, so it can\'t be routed directly to another device. Drag an application stream instead.',
     });
   });
 
@@ -428,41 +405,16 @@ describe("resolveConnectionAction — edge_disconnect mode", () => {
     expect(result).toEqual({ error: "Nothing to disconnect." });
   });
 
-  it("removes a mic-mix source when the edge matches the current mix", () => {
+  it("rejects disconnecting a physical-device-to-virtual-input edge — mixing now goes through a Mixer Node", () => {
     const physMic = makeDevice({ id: "mic1", label: "Headset Mic", kind: "physical", direction: "input" });
-    const virtualMic = makeDevice({
-      id: "mic2",
-      label: "Virtual Mic",
-      kind: "virtual",
-      direction: "input",
-      mix_sources: [{ device_id: "mic1", volume_percent: 100, muted: false }],
-    });
+    const virtualMic = makeDevice({ id: "mic2", label: "Virtual Mic", kind: "virtual", direction: "input" });
     const graph = makeGraph([physMic, virtualMic], []);
     const result = resolveConnectionAction(graph, connection({}), {
       mode: "edge_disconnect",
       previousEdge: { source: "device:mic1", target: "device:mic2" },
     });
     expect(result).toEqual({
-      action: { type: "mic_mix_remove", virtualMicDeviceId: "mic2", sourceDeviceId: "mic1" },
-    });
-  });
-
-  it("errors when the mic-mix edge no longer matches the current mix", () => {
-    const physMic = makeDevice({ id: "mic1", label: "Headset Mic", kind: "physical", direction: "input" });
-    const virtualMic = makeDevice({
-      id: "mic2",
-      label: "Virtual Mic",
-      kind: "virtual",
-      direction: "input",
-      mix_sources: [],
-    });
-    const graph = makeGraph([physMic, virtualMic], []);
-    const result = resolveConnectionAction(graph, connection({}), {
-      mode: "edge_disconnect",
-      previousEdge: { source: "device:mic1", target: "device:mic2" },
-    });
-    expect(result).toEqual({
-      error: '"Headset Mic" isn\'t currently mixed into "Virtual Mic" — nothing to disconnect.',
+      error: '"Headset Mic" isn\'t a virtual sink route — only virtual-output connections can be dragged off to disconnect them.',
     });
   });
 

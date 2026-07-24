@@ -8,18 +8,13 @@ import {
 } from "../../utils/routingLayout";
 import { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 import { canConnectPorts } from "./portTypes";
-import { isMicMixCandidate, isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
+import { isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
 
 export type RoutingConnectionAction =
   | { type: "stream_target"; streamId: string; targetDeviceId: string }
   | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
   | { type: "device_route"; sourceDeviceId: string; targetDeviceId: string }
   | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] }
-  // Computed server-side against the engine's own graph (see
-  // `add_mix_source`/`remove_mix_source`) rather than a client-computed full
-  // list, so two mixing actions fired close together can't race and drop one.
-  | { type: "mic_mix_add"; virtualMicDeviceId: string; sourceDeviceId: string }
-  | { type: "mic_mix_remove"; virtualMicDeviceId: string; sourceDeviceId: string }
   | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string }
   // PD-032 processing nodes: `peerId` is a device or stream id, resolved
   // server-side against the engine's own graph (`connect_processing_node_port`),
@@ -241,20 +236,6 @@ function resolveDeviceToDevice(
     return { error: "Device not found." };
   }
 
-  if (isMicMixCandidate(source, target)) {
-    const existingMix = target.mix_sources ?? [];
-    if (existingMix.some((mixSource) => mixSource.device_id === source.id)) {
-      return { error: `"${source.label}" is already mixed into "${target.label}".` };
-    }
-    return {
-      action: {
-        type: "mic_mix_add",
-        virtualMicDeviceId: target.id,
-        sourceDeviceId: source.id,
-      },
-    };
-  }
-
   const allowed = targetsForVirtualSink(graph.devices, source);
   if (!allowed.some((entry) => entry.id === targetDeviceId)) {
     return {
@@ -369,20 +350,6 @@ function resolveEdgeDisconnect(
   const targetDevice = findDevice(graph, target.id);
   if (!device || !targetDevice) {
     return { error: "Device not found." };
-  }
-
-  if (isMicMixCandidate(device, targetDevice)) {
-    const existingMix = targetDevice.mix_sources ?? [];
-    if (!existingMix.some((mixSource) => mixSource.device_id === device.id)) {
-      return { error: `"${device.label}" isn't currently mixed into "${targetDevice.label}" — nothing to disconnect.` };
-    }
-    return {
-      action: {
-        type: "mic_mix_remove",
-        virtualMicDeviceId: targetDevice.id,
-        sourceDeviceId: device.id,
-      },
-    };
   }
 
   if (!isRoutableVirtualOutput(device)) {

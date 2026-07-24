@@ -33,7 +33,7 @@ describe("collectRoutingEdges", () => {
     expect(edges[0]).toMatchObject({ source: "device:mic1", target: "stream:s1" });
   });
 
-  it("builds a dashed mic-mix edge from a device's mix_sources", () => {
+  it("draws no edge from a device's legacy mix_sources — retired in favor of the Mixer Node", () => {
     const physMic = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
     const virtualMic = makeDevice({
       id: "mic2",
@@ -43,34 +43,7 @@ describe("collectRoutingEdges", () => {
     });
     const graph = makeGraph([physMic, virtualMic], [], []);
 
-    const edges = collectRoutingEdges(graph);
-
-    expect(edges).toHaveLength(1);
-    expect(edges[0]).toMatchObject({ source: "device:mic1", target: "device:mic2" });
-    // Visually distinct from a replace-route/fan-out edge — a mic-mix merge
-    // reads as "feeds the mix", not "the" route for either node.
-    expect(edges[0].class).toContain("routing-edge--mix");
-    expect(edges[0].style?.strokeDasharray).toBeTruthy();
-  });
-
-  it("builds one dashed mic-mix edge per source when a virtual mic mixes multiple physical mics", () => {
-    const mic1 = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
-    const mic2 = makeDevice({ id: "mic2", kind: "physical", direction: "input" });
-    const virtualMic = makeDevice({
-      id: "mic3",
-      kind: "virtual",
-      direction: "input",
-      mix_sources: [
-        { device_id: "mic1", volume_percent: 100, muted: false },
-        { device_id: "mic2", volume_percent: 80, muted: false },
-      ],
-    });
-    const graph = makeGraph([mic1, mic2, virtualMic], [], []);
-
-    const edges = collectRoutingEdges(graph);
-
-    expect(edges).toHaveLength(2);
-    expect(edges.map((edge) => edge.source).sort()).toEqual(["device:mic1", "device:mic2"]);
+    expect(collectRoutingEdges(graph)).toHaveLength(0);
   });
 
   it("builds one edge per fan-out target for a multi-sink virtual output", () => {

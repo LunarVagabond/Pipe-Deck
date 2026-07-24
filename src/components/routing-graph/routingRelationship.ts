@@ -8,20 +8,6 @@ export function isMicPassthroughCandidate(stream: Stream, target: Device): boole
   return stream.direction === "playback" && target.kind === "virtual" && target.direction === "input";
 }
 
-export function isMicMixCandidate(source: Device, target: Device): boolean {
-  const sourceIsPhysicalMic = source.kind === "physical" && source.direction === "input";
-  // A terminal Output (virtual) (#287) is a true dead end — it can't feed a
-  // mic mix any more than it can fan out to another sink; only a Bus
-  // (still routable onward) qualifies as a mic-mix source.
-  const sourceIsVirtualBus =
-    source.kind === "virtual" && source.direction === "output" && source.virtual_role === "bus";
-  return (
-    (sourceIsPhysicalMic || sourceIsVirtualBus) &&
-    target.kind === "virtual" &&
-    target.direction === "input"
-  );
-}
-
 /** Whether a device is a virtual-output sink whose targets can be set/cleared
  * directly (single-target replace-route or multi-sink fan-out). Shared by
  * connect-time (`resolveDeviceToDevice`) and disconnect-time
