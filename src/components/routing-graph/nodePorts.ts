@@ -55,6 +55,22 @@ export function computeDeviceConnections(graph: RuntimeGraph): Map<string, Devic
     }
   }
 
+  // A processing node's ports (PD-032) can connect to a device on either
+  // side — without this, a device fed by a Fan-out/Mixer's output (or
+  // feeding one) never gets a filled handle on its own side, even though
+  // `collectEdges.ts` draws the edge anyway: the edge would point at a
+  // handle id `handlesForDevice` never actually creates.
+  for (const node of graph.processing_nodes ?? []) {
+    for (const port of node.inputs ?? []) {
+      if (!port.connected_id) continue;
+      entry(port.connected_id).out.push(node.id);
+    }
+    for (const port of node.outputs ?? []) {
+      if (!port.connected_id) continue;
+      entry(port.connected_id).in.push(node.id);
+    }
+  }
+
   return map;
 }
 

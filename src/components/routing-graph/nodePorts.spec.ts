@@ -62,6 +62,22 @@ describe("computeDeviceConnections", () => {
     expect(connections.get("mic2")?.in).toEqual(["mic1"]);
     expect(connections.get("mic1")?.out).toEqual(["mic2"]);
   });
+
+  it("tracks a processing node's ports on the devices at either end", () => {
+    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
+    const target = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const node = makeProcessingNode({
+      id: "proc1",
+      inputs: [{ index: 0, connected_id: "src1" }],
+      outputs: [{ index: 0, connected_id: "out1" }],
+    });
+    const graph = makeGraph([source, target], [], [], [node]);
+
+    const connections = computeDeviceConnections(graph);
+
+    expect(connections.get("src1")?.out).toEqual(["proc1"]);
+    expect(connections.get("out1")?.in).toEqual(["proc1"]);
+  });
 });
 
 describe("handlesForStream", () => {
