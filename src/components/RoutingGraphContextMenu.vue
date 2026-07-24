@@ -25,7 +25,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "bus" | "output" | "input" | "fan_out" | "mixer"];
+  "add-node": [type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band"];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
 }>();
@@ -103,6 +103,7 @@ function onPickNode(nodeId: string) {
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
       <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-out Node</button>
       <button type="button" @click="emit('add-node', 'mixer')">+ Mixer Node</button>
+      <button type="button" @click="emit('add-node', 'eq5band')">+ 5-Band EQ Node</button>
 
       <hr class="routing-graph-context-menu-separator" />
       <div class="routing-graph-node-picker-anchor">

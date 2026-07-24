@@ -573,6 +573,38 @@
   opacity: 0.75;
 }
 
+// PD-032 5-Band EQ processing node — reuses the same compact-row shape as
+// the Mixer's gain rows above, one row per band plus output trim.
+.routing-graph-node-eq5band {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+}
+
+.routing-graph-node-eq5band-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.routing-graph-node-eq5band-label {
+  flex: 0 0 3rem;
+  font-size: 0.7rem;
+}
+
+.routing-graph-node-eq5band-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.routing-graph-node-eq5band-value {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
 // PD-032 stub effect nodes (issue #293's 11 non-DSP kinds) — a plain
 // pass-through with nothing to configure, visibly labeled so it's never
 // mistaken for a working effect.

@@ -125,6 +125,27 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_processing_node_eq(
+        &self,
+        node_id: &str,
+        eq_sub: i32,
+        eq_bass: i32,
+        eq_mid: i32,
+        eq_treble: i32,
+        eq_air: i32,
+        output_gain: i32,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Eq5Band { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
+        }
+        self.save_config(&config)
+    }
+
     /// Persists `peer_system_name` at `port_index` on the given `direction`
     /// for the named node — extending the port list if `port_index` is one
     /// past the current end (a freshly grown port), overwriting in place

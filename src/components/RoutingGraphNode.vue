@@ -5,6 +5,7 @@ import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
+import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useEffectChain } from "../composables/useEffectChain";
@@ -212,6 +213,16 @@ function onToggleMute() {
         :node-id="data.entityId"
         :input-gains-percent="data.processingNodeKind.input_gains_percent"
         :inputs="inHandles.filter((h) => !h.empty).map((h, i) => ({ index: i, connectedId: h.connectedId }))"
+      />
+      <RoutingGraphNodeEq5Band
+        v-else-if="data.processingNodeKind?.kind === 'eq5band'"
+        :node-id="data.entityId"
+        :eq-sub="data.processingNodeKind.eq_sub"
+        :eq-bass="data.processingNodeKind.eq_bass"
+        :eq-mid="data.processingNodeKind.eq_mid"
+        :eq-treble="data.processingNodeKind.eq_treble"
+        :eq-air="data.processingNodeKind.eq_air"
+        :output-gain="data.processingNodeKind.output_gain"
       />
       <p v-else-if="data.processingNodeKind?.kind === 'stub'" class="routing-graph-node-stub-label">
         Not implemented yet

@@ -403,10 +403,9 @@ impl AudioBackend for LinuxPipeWireBackend {
         crate::daemon::ipc::client::NativeHostClient::is_loaded(device_system_name)
     }
 
-    // --- Processing nodes (PD-032). Fan-out and Mixer for now (issue #293
-    // phases 2-3) — EQ5Band falls through to the trait's "not implemented"
-    // default until its own phase; Stub never reaches here at all
-    // (CoreEngine never calls this trait for a Stub kind).
+    // --- Processing nodes (PD-032). Fan-out, Mixer, and EQ5Band (issue #293
+    // phases 2-4). Stub never reaches here at all (CoreEngine never calls
+    // this trait for a Stub kind — see `ProcessingNodeKind::Stub`).
 
     fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
         match &node.kind {
@@ -417,20 +416,61 @@ impl AudioBackend for LinuxPipeWireBackend {
                 pactl::create_null_sink(&node.system_name, &node.label)?;
                 Ok(())
             }
-            _ => Err(BackendError::Message(
-                "load_processing_node: not yet implemented for this kind".into(),
-            )),
+            ProcessingNodeKind::Eq5Band {
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            } => {
+                // Real DSP from creation, unlike a device's swap-by-identity
+                // effect chain (PD-020) which pivots an *already-existing*
+                // plain sink between plain and filter-chain mode — an EQ
+                // node has no "plain" precursor state to preserve, so this
+                // loads the chain directly rather than reusing
+                // `effects_ops.rs`'s capture/rollback machinery, which is
+                // built specifically for that pivot.
+                let config = crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Eq5Band {
+                        id: "eq".into(),
+                        eq_sub: *eq_sub,
+                        eq_bass: *eq_bass,
+                        eq_mid: *eq_mid,
+                        eq_treble: *eq_treble,
+                        eq_air: *eq_air,
+                        output_gain: *output_gain,
+                    }],
+                    ..Default::default()
+                };
+                let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+                let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+                if !preflight.ok {
+                    return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+                }
+                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                Ok(())
+            }
+            ProcessingNodeKind::Stub { .. } => Ok(()),
         }
     }
 
     fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        if system_name.starts_with("pipe-deck-proc-eq5band-") {
+            if crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name) {
+                crate::daemon::ipc::client::NativeHostClient::unload_chain(system_name)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+            }
+            return Ok(());
+        }
+
         // A Mixer's per-input feed sinks (see `relink_processing_node_port`)
         // are owned by this node and have no independent lifetime — GC them
         // all before unloading the node's own sink, the same
         // capture-nothing/tear-down-everything reasoning
         // `disconnect_all_virtual_mic_mixes` already applies to a plain
-        // virtual mic. Harmless no-op for a Fan-out/EQ node, which never has
-        // any.
+        // virtual mic. Harmless no-op for a Fan-out node, which never has any.
         let _ = pactl::gc_feed_sinks_for_mix_pairs(system_name, &std::collections::HashSet::new());
         if let Some(module_id) = pactl::find_module_id_by_sink_name(system_name)? {
             pactl::unload_module(&module_id)?;
@@ -439,6 +479,9 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn is_processing_node_loaded(&self, system_name: &str) -> bool {
+        if system_name.starts_with("pipe-deck-proc-eq5band-") {
+            return crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name);
+        }
         pactl::sink_exists(system_name).unwrap_or(false)
     }
 
@@ -511,13 +554,20 @@ impl AudioBackend for LinuxPipeWireBackend {
             },
             PortDirection::Output => {
                 let resolve = |id: &str| graph.devices.iter().find(|device| device.id == id);
+                // A node's *processed* output leaves via `effect_output.*`
+                // once live DSP is loaded (Eq5Band); falls back to the
+                // node's own sink monitor otherwise — same source-resolution
+                // rule `split_sink::effective_fan_out_source` already
+                // applies to a Device, generalized here since it only ever
+                // needed a system_name in the first place.
+                let link_source = split_sink::effective_fan_out_source(system_name);
                 match peer_id {
                     Some(id) => {
                         let target = resolve(id)
                             .ok_or_else(|| BackendError::Message(format!("relink target not found: {id}")))?;
                         let target_is_virtual_source =
                             target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
-                        pw_link::link_sink_monitor_to_target(system_name, &target.system_name, target_is_virtual_source)
+                        pw_link::link_sink_monitor_to_target(&link_source, &target.system_name, target_is_virtual_source)
                     }
                     None => {
                         let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
@@ -532,7 +582,7 @@ impl AudioBackend for LinuxPipeWireBackend {
                             return Ok(());
                         };
                         match resolve(previous_id) {
-                            Some(target) => pw_link::disconnect_sink_monitor_route(system_name, &target.system_name),
+                            Some(target) => pw_link::disconnect_sink_monitor_route(&link_source, &target.system_name),
                             None => Ok(()),
                         }
                     }
@@ -551,6 +601,39 @@ impl AudioBackend for LinuxPipeWireBackend {
         let feed_name = pactl::feed_sink_name_for_mix_pair(system_name, peer_system_name);
         pactl::set_sink_volume_by_name(&feed_name, gain_percent)?;
         pactl::set_sink_mute_by_name(&feed_name, muted)
+    }
+
+    fn set_processing_node_eq_params(
+        &self,
+        system_name: &str,
+        eq_sub: i32,
+        eq_bass: i32,
+        eq_mid: i32,
+        eq_treble: i32,
+        eq_air: i32,
+        output_gain: i32,
+    ) -> Result<(), BackendError> {
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".into(),
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            }],
+            ..Default::default()
+        };
+        let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+        let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+        if !preflight.ok {
+            return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+        }
+        let Some(pw_node_id) = crate::pipewire::pw_cli::find_node_id_by_name(system_name)? else {
+            return Err(BackendError::Message("live EQ isn't loaded yet for this node".into()));
+        };
+        crate::pipewire::pw_cli::set_params(pw_node_id, &crate::pipewire::fx_validate::live_params(&config))
     }
 }
 

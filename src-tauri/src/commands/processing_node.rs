@@ -65,6 +65,27 @@ pub async fn update_processing_node_input_gain(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn update_processing_node_eq_params(
+    node_id: String,
+    eq_sub: i32,
+    eq_bass: i32,
+    eq_mid: i32,
+    eq_treble: i32,
+    eq_air: i32,
+    output_gain: i32,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .update_processing_node_eq_params(&node_id, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn disconnect_processing_node_port(
     node_id: String,
     direction: PortDirection,

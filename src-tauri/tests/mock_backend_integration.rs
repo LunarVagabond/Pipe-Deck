@@ -344,6 +344,48 @@ fn mixer_node_input_gain_update_rejects_a_disconnected_port() {
     assert!(error.to_string().contains("isn't connected"), "{error}");
 }
 
+/// 5-Band EQ Node round-trip (issue #293's one fully-functional effect
+/// kind): create, live-update band gains, remove.
+#[test]
+fn eq5band_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Voice EQ",
+            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+        )
+        .expect("create eq node");
+    assert_eq!(node.system_name, "pipe-deck-proc-eq5band-voice-eq");
+
+    engine
+        .update_processing_node_eq_params(&node.id, 2, 4, 0, -2, 1, 3)
+        .expect("update eq params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Eq5Band { eq_sub: 2, eq_bass: 4, eq_mid: 0, eq_treble: -2, eq_air: 1, output_gain: 3 }
+    );
+
+    engine.remove_processing_node(&node.id).expect("remove eq node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+#[test]
+fn eq_param_update_rejects_a_non_eq_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_eq_params(&node.id, 0, 0, 0, 0, 0, 0)
+        .expect_err("eq update on a non-EQ node should be rejected");
+    assert!(error.to_string().contains("has no EQ params"), "{error}");
+}
+
 #[test]
 fn virtual_output_can_chain_into_another_virtual_output() {
     let (mut engine, _guard) = mock_engine();

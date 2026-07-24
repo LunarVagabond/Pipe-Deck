@@ -264,10 +264,10 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer") {
+async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band") {
   contextMenu.value = null;
-  if (type === "fan_out" || type === "mixer") {
-    const label = type === "fan_out" ? "Fan-out" : "Mixer";
+  if (type === "fan_out" || type === "mixer" || type === "eq5band") {
+    const label = type === "fan_out" ? "Fan-out" : type === "mixer" ? "Mixer" : "5-Band EQ";
     try {
       await invoke("create_processing_node", { label, kind: { kind: type } });
       handleApplyResult({ success: true }, `${label} node added`);

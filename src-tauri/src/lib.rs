@@ -91,6 +91,7 @@ pub fn run() {
             commands::processing_node::connect_processing_node_port,
             commands::processing_node::disconnect_processing_node_port,
             commands::processing_node::update_processing_node_input_gain,
+            commands::processing_node::update_processing_node_eq_params,
             commands::virtual_device::create_virtual_output,
             commands::virtual_device::create_virtual_multi_output,
             commands::virtual_device::create_virtual_input,

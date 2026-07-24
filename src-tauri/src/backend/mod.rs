@@ -303,6 +303,25 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_input_gain: not implemented".into()))
     }
+
+    /// Live-updates an EQ5Band node's band gains without reloading the
+    /// chain — the PD-017 two-speed fast path, same mechanism
+    /// `CoreEngine::set_effect_chain_live_params` already uses for a
+    /// device's attached EQ, just addressed by `system_name` directly
+    /// rather than through a `Device`.
+    #[allow(clippy::too_many_arguments)]
+    fn set_processing_node_eq_params(
+        &self,
+        _system_name: &str,
+        _eq_sub: i32,
+        _eq_bass: i32,
+        _eq_mid: i32,
+        _eq_treble: i32,
+        _eq_air: i32,
+        _output_gain: i32,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_eq_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

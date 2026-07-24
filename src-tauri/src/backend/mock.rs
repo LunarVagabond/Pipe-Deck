@@ -878,6 +878,26 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn set_processing_node_eq_params(
+        &self,
+        system_name: &str,
+        eq_sub: i32,
+        eq_bass: i32,
+        eq_mid: i32,
+        eq_treble: i32,
+        eq_air: i32,
+        output_gain: i32,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::Eq5Band { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
+        }
+        Ok(())
+    }
+
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
         Ok(())
     }
