@@ -1,6 +1,7 @@
 use crate::core::models::{
-    AppConfig, DeviceAliasEntry, EffectChainConfig, Preferences, ProfileIndexEntry,
-    Rule, RoutingRulesConfig, VirtualDeviceSpec,
+    AppConfig, DeviceAliasEntry, EffectChainConfig, Preferences, ProcessingNodePortSpec,
+    ProcessingNodeSpec, ProcessingNodeSpecKind, ProfileIndexEntry, Rule, RoutingRulesConfig,
+    VirtualDeviceSpec,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -69,6 +70,7 @@ impl ConfigStore {
             routing_rules: RoutingRulesConfig::default(),
             rules: Vec::new(),
             virtual_devices: Vec::new(),
+            processing_nodes: Vec::new(),
             plugins: HashMap::new(),
         }
     }
@@ -93,8 +95,34 @@ impl ConfigStore {
 
         let contents = fs::read_to_string(&path)
             .map_err(|error| ConfigError::Read(format!("{path:?}: {error}")))?;
-        serde_yaml::from_str(&contents)
-            .map_err(|error| ConfigError::Read(format!("{path:?}: {error}")))
+        let mut config: AppConfig = serde_yaml::from_str(&contents)
+            .map_err(|error| ConfigError::Read(format!("{path:?}: {error}")))?;
+        migrate_mix_sources_to_mixer_nodes(&mut config);
+        Ok(config)
+    }
+
+    pub fn processing_nodes(&self) -> Vec<ProcessingNodeSpec> {
+        self.load_config()
+            .map(|config| config.processing_nodes)
+            .unwrap_or_default()
+    }
+
+    pub fn save_processing_nodes(&self, nodes: &[ProcessingNodeSpec]) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.processing_nodes = nodes.to_vec();
+        self.save_config(&config)
+    }
+
+    pub fn add_processing_node(&self, spec: ProcessingNodeSpec) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.processing_nodes.push(spec);
+        self.save_config(&config)
+    }
+
+    pub fn remove_processing_node(&self, id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.processing_nodes.retain(|node| node.id != id);
+        self.save_config(&config)
     }
 
     pub fn save_config(&self, config: &AppConfig) -> Result<(), ConfigError> {
@@ -464,6 +492,54 @@ impl ConfigStore {
     }
 }
 
+/// PD-032: mic-mix is retired as a distinct mechanism in favor of the
+/// generic Mixer processing-node kind. Any virtual input device with
+/// `mix_sources` still configured the old way, and no `Mixer` node already
+/// feeding it, gets an equivalent `ProcessingNodeSpec::Mixer` synthesized
+/// here — same idempotent, deserialize-time-adjacent migration pattern as
+/// `EffectChainConfig`'s legacy flat-`eq_*`-fields migration. Legacy
+/// `mix_sources` is left in place (not cleared) as a read-only fallback for
+/// one release; nothing writes to it after this ships. Idempotent: run on
+/// every `load_config`, skips any target that already has a Mixer node.
+fn migrate_mix_sources_to_mixer_nodes(config: &mut AppConfig) {
+    let already_migrated: std::collections::HashSet<String> = config
+        .processing_nodes
+        .iter()
+        .filter(|node| matches!(node.kind, ProcessingNodeSpecKind::Mixer))
+        .flat_map(|node| node.output_targets.iter().cloned())
+        .collect();
+
+    let mut synthesized = Vec::new();
+    for spec in &config.virtual_devices {
+        if spec.direction != crate::core::models::DeviceDirection::Input || spec.mix_sources.is_empty() {
+            continue;
+        }
+        let target_system_name = format!("pipe-deck-{}", spec.slug);
+        if already_migrated.contains(&target_system_name) {
+            continue;
+        }
+        synthesized.push(ProcessingNodeSpec {
+            id: format!("processing-mixer-{}", spec.slug),
+            slug: format!("mixer-{}", spec.slug),
+            label: format!("{} Mixer", spec.label),
+            created_at: spec.created_at.clone(),
+            kind: ProcessingNodeSpecKind::Mixer,
+            input_sources: spec
+                .mix_sources
+                .iter()
+                .map(|source| ProcessingNodePortSpec {
+                    source_system_name: source.system_name.clone(),
+                    gain_percent: source.volume_percent,
+                    muted: source.muted,
+                })
+                .collect(),
+            output_targets: vec![target_system_name],
+        });
+    }
+
+    config.processing_nodes.extend(synthesized);
+}
+
 /// Serializes any test (in this file or elsewhere in the crate) that mutates
 /// the process-wide `PIPE_DECK_CONFIG_DIR` env var via `std::env::set_var`.
 /// `cargo test`'s default parallel runner races concurrent `set_var`/
@@ -626,6 +702,45 @@ mod tests {
 
             let loaded = store.virtual_devices();
             assert_eq!(loaded[0].mix_sources, sources);
+        });
+    }
+
+    #[test]
+    fn legacy_mix_sources_migrates_to_an_equivalent_mixer_node_on_load() {
+        use crate::core::models::{MixSourceSpec, ProcessingNodeSpecKind};
+
+        with_temp_config(|store| {
+            let spec = VirtualDeviceSpec {
+                id: "virtual-mic".into(),
+                slug: "mic".into(),
+                label: "Mic".into(),
+                direction: crate::core::models::DeviceDirection::Input,
+                created_at: "2026-07-09T10:00:00Z".into(),
+                multi: false,
+                virtual_role: crate::core::models::VirtualRole::Bus,
+                mix_sources: vec![
+                    MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
+                    MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
+                ],
+            };
+            store.add_virtual_device(spec).unwrap();
+
+            let nodes = store.processing_nodes();
+            assert_eq!(nodes.len(), 1);
+            assert!(matches!(nodes[0].kind, ProcessingNodeSpecKind::Mixer));
+            assert_eq!(nodes[0].output_targets, vec!["pipe-deck-mic".to_string()]);
+            assert_eq!(nodes[0].input_sources.len(), 2);
+            assert_eq!(nodes[0].input_sources[0].source_system_name, "alsa_input.headset");
+            assert_eq!(nodes[0].input_sources[0].gain_percent, 60);
+            assert!(!nodes[0].input_sources[0].muted);
+            assert_eq!(nodes[0].input_sources[1].source_system_name, "alsa_input.webcam");
+            assert!(nodes[0].input_sources[1].muted);
+
+            // Legacy field survives untouched, and re-loading doesn't duplicate
+            // the synthesized node.
+            let loaded = store.virtual_devices();
+            assert_eq!(loaded[0].mix_sources.len(), 2);
+            assert_eq!(store.processing_nodes().len(), 1);
         });
     }
 

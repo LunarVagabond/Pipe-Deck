@@ -382,6 +382,7 @@ mod tests {
             data_source: "pipewire".to_string(),
             notice: None,
             recent_stream_identities: Vec::new(),
+            processing_nodes: Vec::new(),
         };
         let bundle = format_diagnostics_bundle(
             &InstallKind::Deb,
@@ -415,6 +416,7 @@ mod tests {
             data_source: "pipewire".to_string(),
             notice: None,
             recent_stream_identities: Vec::new(),
+            processing_nodes: Vec::new(),
         };
         let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, "unknown", None, None, &graph);
 
@@ -436,6 +438,7 @@ mod tests {
             data_source: "pipewire".to_string(),
             notice: None,
             recent_stream_identities: Vec::new(),
+            processing_nodes: Vec::new(),
         };
         let summary = format_graph_summary(&graph);
 
@@ -456,6 +459,7 @@ mod tests {
             data_source: "pipewire".to_string(),
             notice: None,
             recent_stream_identities: Vec::new(),
+            processing_nodes: Vec::new(),
         };
         let summary = format_graph_summary(&graph);
 
