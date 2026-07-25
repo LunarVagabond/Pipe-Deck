@@ -451,6 +451,17 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
                 crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
                     .map_err(|error| BackendError::Message(error.to_string()))?;
+                // Unlike the device-attached EQ path (`effects_ops.rs`'s
+                // `apply_effect_chain_structural`), which pivots an
+                // *already-existing* plain sink that inherited a sane
+                // volume/mute state from its original `pactl` creation, this
+                // sink has never existed in PipeWire before — nothing has
+                // ever set its volume, so it's at the mercy of whatever
+                // default WirePlumber/PipeWire applies to a brand-new
+                // filter-chain node (observed: silence). Force a known-good
+                // state explicitly rather than relying on that default.
+                let _ = pactl::set_sink_volume_by_name(&node.system_name, 100);
+                let _ = pactl::set_sink_mute_by_name(&node.system_name, false);
                 Ok(())
             }
             ProcessingNodeKind::Stub { .. } => Ok(()),
