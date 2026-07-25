@@ -85,6 +85,19 @@ impl VirtualDeviceRegistry {
             if devices.contains_key(&system_name) {
                 continue;
             }
+            // A leftover legacy `virtual_devices:` config entry can share a
+            // slug with a dedicated processing node's `pipe-deck-proc-*`
+            // sink (e.g. prototyped as a plain Bus device before PD-032
+            // introduced the separate `processing_nodes:` config section).
+            // Without this guard such an entry gets backfilled here as a
+            // second, misclassified `Device` alongside the correctly
+            // classified `ProcessingNode` with the same system name — this
+            // predicate is the same one `list_pipe_deck_modules` uses above
+            // and is exactly what PD-032's naming allowlist exists to keep
+            // processing nodes out of the plain device registry.
+            if !pactl::belongs_in_virtual_device_registry(&system_name) {
+                continue;
+            }
             if !pactl::pipe_deck_device_is_live(&system_name, spec.direction.clone()) {
                 continue;
             }

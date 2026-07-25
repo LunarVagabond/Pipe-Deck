@@ -298,7 +298,7 @@ pub fn find_module_id_by_sink_name(sink_name: &str) -> Result<Option<String>, Ba
 /// "enrichment doesn't recognize the new object" failure PD-032 exists to
 /// prevent. See `naming_allowlist_coverage` below for the cross-file
 /// assertion this predicate is meant to keep true.
-fn belongs_in_virtual_device_registry(system_name: &str) -> bool {
+pub(crate) fn belongs_in_virtual_device_registry(system_name: &str) -> bool {
     system_name.starts_with("pipe-deck-")
         && !system_name.starts_with("pipe-deck-feed-")
         && !system_name.starts_with("pipe-deck-proc-")

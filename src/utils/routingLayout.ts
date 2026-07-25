@@ -52,7 +52,10 @@ export function columnRank(column: NodeColumn): number {
 }
 
 export function deviceColumn(device: Device): NodeColumn | null {
-  if (device.system_name.startsWith("pipe-deck-feed-")) {
+  if (
+    device.system_name.startsWith("pipe-deck-feed-") ||
+    device.system_name.startsWith("pipe-deck-proc-")
+  ) {
     return null;
   }
   if (device.direction === "output" || device.direction === "duplex") {
