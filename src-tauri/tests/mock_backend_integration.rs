@@ -270,6 +270,52 @@ fn processing_nodes_can_chain_into_each_other() {
     assert_eq!(fan_out_after.outputs[0].connected_id.as_deref(), Some(mixer.id.as_str()));
 }
 
+/// Regression for a real bug found in manual live-PipeWire testing: chaining
+/// a growable-side node (Fan-out's output) into a peer whose *own*
+/// single-capacity port is already occupied by something else must be
+/// rejected, not silently mirrored as a phantom extra port on the peer.
+/// Before the fix, `mirror_peer_processing_node_port_connect` only ever
+/// checked the calling node's own port capacity — never the peer's — so this
+/// connect would succeed at the primary side while corrupting the peer's own
+/// bookkeeping (Eq5Band claiming two inputs it doesn't have) and leaving the
+/// peer's persisted `input_sources` and live wiring disagreeing about who's
+/// actually connected.
+#[test]
+fn chaining_into_a_peers_already_occupied_single_port_is_rejected() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let eq = engine
+        .create_processing_node(
+            "EQ",
+            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+        )
+        .expect("create eq node");
+    let fan_out = engine
+        .create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .expect("create fan-out");
+    let device = engine.create_virtual_output("Device A").expect("create device a");
+
+    engine
+        .connect_processing_node_port(&eq.id, PortDirection::Input, &device.device_id)
+        .expect("connect device into eq's single input");
+
+    let error = engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Output, &eq.id)
+        .expect_err("chaining into eq's already-occupied input should be rejected");
+    assert!(error.to_string().contains("only one input"), "{error}");
+
+    // The rejected connect must leave both sides' bookkeeping untouched —
+    // eq still shows exactly one input (the device), fan-out shows no
+    // output connection at all.
+    let eq_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == eq.id).unwrap().clone();
+    assert_eq!(eq_after.inputs.len(), 1);
+    assert_eq!(eq_after.inputs[0].connected_id.as_deref(), Some(device.device_id.as_str()));
+
+    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    assert!(fan_out_after.outputs.is_empty() || fan_out_after.outputs[0].connected_id.is_none());
+}
+
 /// PD-032's "ambiguous relink is rejected, never guessed" rule — the direct
 /// #105 lesson applied to node removal. `apply_graph_update` is used here
 /// (rather than any live connect command, which doesn't exist until later

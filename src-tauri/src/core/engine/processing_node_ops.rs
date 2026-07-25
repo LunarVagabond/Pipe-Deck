@@ -8,6 +8,21 @@ use chrono::Utc;
 
 use super::{CoreEngine, EngineError};
 
+/// A Mixer's inputs grow (N sources summed); a Fan-out's outputs grow (1
+/// source duplicated to N destinations). Every other side on every kind — a
+/// Mixer's own single output, a Fan-out's single input, both sides of an
+/// EQ/stub — is capped at one connection. Shared by `connect_processing_node_port`
+/// (checking the node the caller named) and its peer-mirroring counterpart
+/// (checking the *other* end of a node-to-node chain the same way), so a
+/// chain connect can't leave one side's single port over-subscribed just
+/// because only one end of the pair was ever validated.
+fn processing_node_port_growable(direction: PortDirection, kind: &ProcessingNodeKind) -> bool {
+    matches!(
+        (direction, kind),
+        (PortDirection::Input, ProcessingNodeKind::Mixer { .. }) | (PortDirection::Output, ProcessingNodeKind::FanOut { .. })
+    )
+}
+
 impl CoreEngine {
     pub fn list_processing_nodes(&self) -> &[ProcessingNode] {
         &self.graph.processing_nodes
@@ -59,21 +74,39 @@ impl CoreEngine {
             PortDirection::Input => &node.inputs,
             PortDirection::Output => &node.outputs,
         };
-        // A Mixer's inputs grow (N sources summed); a Fan-out's outputs grow
-        // (1 source duplicated to N destinations). Every other side on every
-        // kind — a Mixer's own single output, a Fan-out's single input,
-        // both sides of an EQ/stub — is capped at one connection.
-        let is_growable = match (direction, &node.kind) {
-            (PortDirection::Input, ProcessingNodeKind::Mixer { .. }) => true,
-            (PortDirection::Output, ProcessingNodeKind::FanOut { .. }) => true,
-            _ => false,
-        };
+        let is_growable = processing_node_port_growable(direction, &node.kind);
         if !is_growable && ports.iter().any(|port| port.connected_id.is_some()) {
             let side = if direction == PortDirection::Input { "input" } else { "output" };
             return Err(EngineError::InvalidInput(format!(
                 "{node_id} accepts only one {side} - disconnect the existing one first"
             )));
         }
+
+        // The peer's own opposite-direction port list needs the same
+        // capacity check — without this, chaining into an already-occupied
+        // single-capacity peer port (e.g. a second node trying to feed an
+        // EQ's one input) silently corrupts the peer's bookkeeping instead
+        // of being rejected (`mirror_peer_processing_node_port_connect`
+        // below relies on this having already been validated).
+        if let Some(peer_node) = self.graph.processing_nodes.iter().find(|n| n.id == peer_id) {
+            let peer_direction = match direction {
+                PortDirection::Input => PortDirection::Output,
+                PortDirection::Output => PortDirection::Input,
+            };
+            let peer_ports = match peer_direction {
+                PortDirection::Input => &peer_node.inputs,
+                PortDirection::Output => &peer_node.outputs,
+            };
+            let peer_growable = processing_node_port_growable(peer_direction, &peer_node.kind);
+            if !peer_growable && peer_ports.iter().any(|port| port.connected_id.as_deref() != Some(node_id) && port.connected_id.is_some())
+            {
+                let side = if peer_direction == PortDirection::Input { "input" } else { "output" };
+                return Err(EngineError::InvalidInput(format!(
+                    "{peer_id} accepts only one {side} - disconnect the existing one first"
+                )));
+            }
+        }
+
         let port_index = ports
             .iter()
             .find(|port| port.connected_id.is_none())
@@ -169,11 +202,24 @@ impl CoreEngine {
             PortDirection::Input => &peer_node.inputs,
             PortDirection::Output => &peer_node.outputs,
         };
-        let peer_port_index = peer_ports
-            .iter()
-            .find(|port| port.connected_id.is_none())
-            .map(|port| port.index)
-            .unwrap_or(peer_ports.len() as u32);
+        // The caller (`connect_processing_node_port`) has already validated
+        // capacity on this exact peer/direction before making any live or
+        // config change, so a non-growable peer either has a free slot
+        // already (nothing connected yet) or is being re-pointed at the same
+        // `node_id` it's already wired to — either way, reuse its one port
+        // index rather than the growable path's "append past the end",
+        // which would otherwise leave a non-growable peer's port list with
+        // more entries than its live PipeWire object actually has.
+        let peer_growable = processing_node_port_growable(peer_direction, &peer_node.kind);
+        let peer_port_index = if peer_growable {
+            peer_ports
+                .iter()
+                .find(|port| port.connected_id.is_none())
+                .map(|port| port.index)
+                .unwrap_or(peer_ports.len() as u32)
+        } else {
+            peer_ports.first().map(|port| port.index).unwrap_or(0)
+        };
 
         if self.graph.data_source == "mock" {
             self.adapter
@@ -258,11 +304,26 @@ impl CoreEngine {
             .and_then(|port| port.connected_id.as_deref())
             .ok_or_else(|| EngineError::InvalidInput(format!("input {port_index} on {node_id} isn't connected")))?
             .to_string();
-        let peer_system_name = resolve_system_name_for_id(&self.graph, &peer_id)
-            .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?;
+        // Must match whatever `relink_processing_node_port`'s Mixer-input arm
+        // (`live.rs`) actually named the feed sink at connect time. For a
+        // stream peer, that's the raw graph `id` (the stream's own
+        // `system_name` may still be unresolved at connect time — see the
+        // comment on that arm), NOT `stream.system_name`, which is what
+        // `resolve_system_name_for_id` returns for a stream. Using the
+        // resolved system_name here computed a *different* feed-sink name
+        // than the one connect actually created, so the gain/mute update
+        // silently targeted a nonexistent sink while the real one kept
+        // carrying audio at unity gain. Device/processing-node peers are
+        // unaffected — connect time already uses their system_name too.
+        let peer_feed_key = if self.graph.streams.iter().any(|stream| stream.id == peer_id) {
+            peer_id.clone()
+        } else {
+            resolve_system_name_for_id(&self.graph, &peer_id)
+                .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?
+        };
 
         self.adapter
-            .set_processing_node_input_gain(&node.system_name, &peer_system_name, gain_percent, muted)
+            .set_processing_node_input_gain(&node.system_name, &peer_feed_key, gain_percent, muted)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
@@ -338,7 +399,19 @@ impl CoreEngine {
             return Err(EngineError::InvalidInput(format!("{node_id} has no EQ params to update")));
         }
 
-        self.adapter
+        // Unlike the device-attached EQ's Live Params fast path
+        // (`effects_ops.rs::set_effect_chain_live_params`), this function is
+        // the *only* place Eq5Band values ever get persisted — there's no
+        // separate "Structural Apply" step for a processing node. A slider
+        // drag racing ahead of the node actually registering as loaded
+        // (`pw_cli::find_node_id_by_name` in the live backend can lag behind
+        // `NativeHostClient::is_loaded`, which is what the UI's `node.live`
+        // reflects) is an expected transient state, same as the device path
+        // — but unlike that path, we must still persist here, or the user's
+        // dragged value is silently lost and the slider reverts to whatever
+        // was last saved (0, for a never-yet-applied node).
+        let live_apply_error = self
+            .adapter
             .set_processing_node_eq_params(
                 &node.system_name,
                 eq_sub,
@@ -349,7 +422,7 @@ impl CoreEngine {
                 output_gain,
                 node.bypassed,
             )
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+            .err();
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
@@ -358,6 +431,10 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
+
+        if let Some(error) = live_apply_error {
+            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+        }
         Ok(ApplyResult { success: true, message: None })
     }
 

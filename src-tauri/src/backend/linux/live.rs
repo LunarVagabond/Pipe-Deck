@@ -705,7 +705,17 @@ impl AudioBackend for LinuxPipeWireBackend {
         let Some(pw_node_id) = crate::pipewire::pw_cli::find_node_id_by_name(system_name)? else {
             return Err(BackendError::Message("live EQ isn't loaded yet for this node".into()));
         };
-        crate::pipewire::pw_cli::set_params(pw_node_id, &crate::pipewire::fx_validate::live_params(&config))
+        crate::pipewire::pw_cli::set_params(pw_node_id, &crate::pipewire::fx_validate::live_params(&config))?;
+
+        // The forced known-good volume/mute in `load_processing_node`'s
+        // Eq5Band arm only ever runs once, at initial creation — if the
+        // chain gets reloaded, or the sink's volume/mute otherwise drifts
+        // between then and now, nothing else re-asserts it. Re-forcing it on
+        // every successful live-params push (not just creation) keeps the
+        // node audible without depending on that one-time guard alone.
+        let _ = pactl::set_sink_volume_by_name(system_name, 100);
+        let _ = pactl::set_sink_mute_by_name(system_name, false);
+        Ok(())
     }
 }
 
