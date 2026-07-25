@@ -109,8 +109,11 @@ pub fn set_params(node_id: u32, params: &[(String, f64)]) -> Result<(), BackendE
 
     // `pw-cli` always exits 0 regardless of outcome (verified live) — it only
     // reports failure as an "Error: ..." line on stderr, so that's what we
-    // have to check instead of the exit status.
-    if stderr.contains("Error") {
+    // have to check instead of the exit status. Match on a line actually
+    // starting with that marker rather than a bare `contains("Error")`: the
+    // broad substring check would misclassify any incidental warning text
+    // that happens to mention the word as a hard failure.
+    if stderr.lines().any(|line| line.trim_start().starts_with("Error:")) {
         return Err(BackendError::Message(format!(
             "pw-cli set-param failed: {}",
             stderr.trim()

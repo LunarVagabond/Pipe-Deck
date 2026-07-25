@@ -47,6 +47,13 @@ pub enum IpcOp {
     IsLoaded {
         device_system_name: String,
     },
+    SetParam {
+        device_system_name: String,
+        /// `(control_name, value)` pairs — same naming/shape as
+        /// `pipewire::fx_validate::live_params`'s output (e.g.
+        /// `"eq_bass:Gain"`), pushed as a single `Props` param update.
+        params: Vec<(String, f64)>,
+    },
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -130,6 +137,14 @@ mod tests {
     fn is_loaded_roundtrips() {
         roundtrips(IpcOp::IsLoaded {
             device_system_name: "pipe-deck-mic".to_string(),
+        });
+    }
+
+    #[test]
+    fn set_param_roundtrips() {
+        roundtrips(IpcOp::SetParam {
+            device_system_name: "pipe-deck-proc-eq5band-test".to_string(),
+            params: vec![("eq_bass:Gain".to_string(), 3.0)],
         });
     }
 

@@ -74,5 +74,11 @@ fn dispatch(op: IpcOp) -> IpcResult {
         IpcOp::IsLoaded { device_system_name } => {
             IpcResult::Ok { payload: IpcOkPayload::Loaded { loaded: native_host::is_loaded(&device_system_name) } }
         }
+        IpcOp::SetParam { device_system_name, params } => {
+            match native_host::set_param(&device_system_name, &params) {
+                Ok(()) => IpcResult::Ok { payload: IpcOkPayload::Unit },
+                Err(error) => IpcResult::Error { message: error.to_string() },
+            }
+        }
     }
 }

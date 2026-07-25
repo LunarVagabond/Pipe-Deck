@@ -553,6 +553,16 @@ impl AudioBackend for LinuxPipeWireBackend {
             PortDirection::Input => match peer_id {
                 Some(id) => {
                     if let Some((peer_system_name, _)) = resolve_sink_like(id) {
+                        // Route peer-source resolution through the same
+                        // post-DSP `effect_output.*` preference the Output
+                        // arm below already uses (`split_sink::
+                        // effective_fan_out_source`) — a plain device peer
+                        // falls straight through to its own system_name
+                        // unchanged, but a processing-node peer whose real
+                        // audio lives on an effect output (currently only
+                        // EQ5Band) would otherwise get linked from its raw,
+                        // pre-DSP sink monitor instead.
+                        let peer_source = split_sink::effective_fan_out_source(&peer_system_name);
                         if is_mixer {
                             // Each input gets its own independent-gain feed
                             // sink (PD-032: the Mixer Node generalizes the
@@ -563,11 +573,11 @@ impl AudioBackend for LinuxPipeWireBackend {
                             let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
                             let feed_name =
                                 pactl::ensure_feed_sink_for_mix_pair(system_name, &peer_system_name, node_label)?;
-                            pw_link::link_capture_source_to_sink(&peer_system_name, &feed_name)?;
+                            pw_link::link_capture_source_to_sink(&peer_source, &feed_name)?;
                             pactl::set_sink_volume_by_name(&feed_name, 100)?;
                             pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
                         } else {
-                            pw_link::link_sink_monitor_to_target(&peer_system_name, system_name, false)
+                            pw_link::link_sink_monitor_to_target(&peer_source, system_name, false)
                         }
                     } else if graph.streams.iter().any(|stream| stream.id == id) {
                         if is_mixer {
@@ -609,7 +619,15 @@ impl AudioBackend for LinuxPipeWireBackend {
                         if is_mixer {
                             pactl::remove_feed_sink_for_mix_pair(system_name, &peer_system_name)
                         } else {
-                            pw_link::disconnect_sink_monitor_route(&peer_system_name, system_name)
+                            // Must resolve the same effective source the
+                            // connect side used above, or a torn-down link
+                            // that was actually made from a peer's
+                            // `effect_output.*` port never gets disconnected
+                            // — leaving live, unaccounted-for audio behind
+                            // exactly like the retarget-leak bug bb25d6d
+                            // fixed for the device-side case.
+                            let peer_source = split_sink::effective_fan_out_source(&peer_system_name);
+                            pw_link::disconnect_sink_monitor_route(&peer_source, system_name)
                         }
                     } else if is_mixer {
                         pactl::remove_feed_sink_for_mix_pair(system_name, previous_id)
@@ -702,21 +720,43 @@ impl AudioBackend for LinuxPipeWireBackend {
         if !preflight.ok {
             return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
         }
-        let Some(pw_node_id) = crate::pipewire::pw_cli::find_node_id_by_name(system_name)? else {
-            return Err(BackendError::Message("live EQ isn't loaded yet for this node".into()));
-        };
-        crate::pipewire::pw_cli::set_params(pw_node_id, &crate::pipewire::fx_validate::live_params(&config))?;
-
-        // The forced known-good volume/mute in `load_processing_node`'s
-        // Eq5Band arm only ever runs once, at initial creation — if the
-        // chain gets reloaded, or the sink's volume/mute otherwise drifts
-        // between then and now, nothing else re-asserts it. Re-forcing it on
-        // every successful live-params push (not just creation) keeps the
-        // node audible without depending on that one-time guard alone.
-        let _ = pactl::set_sink_volume_by_name(system_name, 100);
-        let _ = pactl::set_sink_mute_by_name(system_name, false);
-        Ok(())
+        // Pushed over the daemon's persistent native PipeWire connection
+        // (`native_host::set_param`) instead of shelling out to
+        // `pw-dump`+`pw-cli set-param` per slider tick — removes both the
+        // node-id lookup shell-out and the brittle stderr-scraping success
+        // check from this hot path. `pw_cli::set_params` stays in place for
+        // the device-attached EQ path (PD-020, `effects_ops.rs`), which
+        // isn't part of this migration.
+        let params = crate::pipewire::fx_validate::live_params(&config);
+        push_eq_params_and_reforce_volume(
+            || {
+                crate::daemon::ipc::client::NativeHostClient::set_param(system_name, &params)
+                    .map_err(|error| BackendError::Message(error.to_string()))
+            },
+            || {
+                let _ = pactl::set_sink_volume_by_name(system_name, 100);
+                let _ = pactl::set_sink_mute_by_name(system_name, false);
+            },
+        )
     }
+}
+
+/// Runs `push`, then unconditionally runs `reforce`, then returns `push`'s
+/// own result — split out from `set_processing_node_eq_params` so the
+/// ordering itself (reforce must run even when push fails) is a plain
+/// function `push_eq_params_and_reforce_volume_reforces_even_when_push_fails`
+/// below can assert on without touching PipeWire. This is the exact bug
+/// class that shipped before: `push_result?` short-circuited past the
+/// volume/mute reforce whenever the live param push errored, leaving a
+/// freshly-created EQ node's sink muted with no way to un-stick it short of
+/// a slider drag that happened to succeed.
+fn push_eq_params_and_reforce_volume(
+    push: impl FnOnce() -> Result<(), BackendError>,
+    reforce: impl FnOnce(),
+) -> Result<(), BackendError> {
+    let push_result = push();
+    reforce();
+    push_result
 }
 
 fn query_pipewire_version() -> Option<String> {
@@ -852,7 +892,9 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, BackendError> {
 
 #[cfg(test)]
 mod version_tests {
-    use super::parse_pipewire_version;
+    use super::{parse_pipewire_version, push_eq_params_and_reforce_volume};
+    use crate::backend::BackendError;
+    use std::cell::Cell;
 
     #[test]
     fn parses_linked_with_line() {
@@ -863,5 +905,24 @@ mod version_tests {
     #[test]
     fn none_for_unexpected_output() {
         assert_eq!(parse_pipewire_version("command not found"), None);
+    }
+
+    #[test]
+    fn push_eq_params_and_reforce_volume_reforces_even_when_push_fails() {
+        let reforced = Cell::new(false);
+        let result = push_eq_params_and_reforce_volume(
+            || Err(BackendError::Message("simulated push failure".into())),
+            || reforced.set(true),
+        );
+        assert!(reforced.get(), "volume/mute reforce must run even when the live param push errors");
+        assert!(result.is_err(), "the original push error must still be surfaced to the caller");
+    }
+
+    #[test]
+    fn push_eq_params_and_reforce_volume_reforces_and_succeeds_on_a_clean_push() {
+        let reforced = Cell::new(false);
+        let result = push_eq_params_and_reforce_volume(|| Ok(()), || reforced.set(true));
+        assert!(reforced.get());
+        assert!(result.is_ok());
     }
 }
