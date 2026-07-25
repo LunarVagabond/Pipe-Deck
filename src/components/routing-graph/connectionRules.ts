@@ -21,7 +21,23 @@ export type RoutingConnectionAction =
   // same "computed against live state, not a client-built full list" caution
   // as the mic-mix actions above.
   | { type: "processing_node_connect"; nodeId: string; direction: "input" | "output"; peerId: string }
-  | { type: "processing_node_disconnect"; nodeId: string; direction: "input" | "output"; portIndex: number };
+  | { type: "processing_node_disconnect"; nodeId: string; direction: "input" | "output"; portIndex: number }
+  // Retargeting an edge that used to touch a processing-node port — dragging
+  // either end to a new peer, even one that isn't itself a processing node
+  // (e.g. moving a Mixer input's stream to route straight to a device
+  // instead) — must disconnect the old port before applying whatever the
+  // new drop resolves to. A growable side (a Mixer's inputs, a Fan-out's
+  // outputs) has no capacity check to fall back on, and even a non-growable
+  // side's "already occupied" rejection doesn't help once the *new*
+  // connection no longer targets that node at all — without this, the old
+  // connection is silently left live (still summed into the mix, still
+  // gain-controlled by a slider the graph no longer visually shows it
+  // connected to) instead of being replaced.
+  | {
+      type: "processing_node_retarget";
+      disconnect: { nodeId: string; direction: "input" | "output"; portIndex: number };
+      then: Exclude<RoutingConnectionAction, { type: "processing_node_retarget" }>;
+    };
 
 export interface PreviousEdge {
   source: string;
@@ -69,6 +85,27 @@ export function resolveConnectionAction(
     return { error: "Could not identify one end of this connection — try refreshing the routing view." };
   }
 
+  const primary = resolvePrimaryConnectionAction(graph, source, target, context);
+  if ("error" in primary) {
+    return primary;
+  }
+
+  if (context.mode === "edge_update" && context.previousEdge) {
+    const staleDisconnect = resolveStaleProcessingNodePortDisconnect(graph, context.previousEdge, primary.action);
+    if (staleDisconnect && primary.action.type !== "processing_node_retarget") {
+      return { action: { type: "processing_node_retarget", disconnect: staleDisconnect, then: primary.action } };
+    }
+  }
+
+  return primary;
+}
+
+function resolvePrimaryConnectionAction(
+  graph: RuntimeGraph,
+  source: { kind: "stream" | "device" | "processingNode"; id: string },
+  target: { kind: "stream" | "device" | "processingNode"; id: string },
+  context: ConnectionContext,
+): { action: RoutingConnectionAction } | { error: string } {
   if (source.kind === "stream" && target.kind === "device") {
     return resolveStreamToDevice(graph, source.id, target.id);
   }
@@ -141,6 +178,63 @@ function resolveProcessingNodePortConnect(
     return { error: `"${peerLabel(graph, peerId)}" is already connected to "${node.label}".` };
   }
   return { action: { type: "processing_node_connect", nodeId: node.id, direction, peerId } };
+}
+
+/**
+ * Detects a retarget drag whose OLD edge touched a processing-node port that
+ * the NEW connection (`primaryAction`, already resolved against whatever the
+ * drop actually landed on — a device, a stream, or another processing node)
+ * no longer represents. Deliberately independent of what kind the new
+ * connection is: dragging a Mixer input's stream away to route straight to
+ * a device instead resolves to a plain `stream_target` action that has no
+ * idea a Mixer was ever involved, so the check can't be scoped to "both ends
+ * are still processing nodes" the way the old, narrower version of this fix
+ * was — that gap is exactly what left a moved Mixer input still live and
+ * still gain-controlled after the edge visually moved elsewhere.
+ */
+function resolveStaleProcessingNodePortDisconnect(
+  graph: RuntimeGraph,
+  previousEdge: PreviousEdge,
+  primaryAction: RoutingConnectionAction,
+): { nodeId: string; direction: "input" | "output"; portIndex: number } | null {
+  const previousSource = parseGraphNodeId(previousEdge.source);
+  const previousTarget = parseGraphNodeId(previousEdge.target);
+  if (!previousSource || !previousTarget) {
+    return null;
+  }
+
+  const candidates: Array<{ nodeId: string; direction: "input" | "output"; peerId: string }> = [];
+  if (previousSource.kind === "processingNode") {
+    candidates.push({ nodeId: previousSource.id, direction: "output", peerId: previousTarget.id });
+  }
+  if (previousTarget.kind === "processingNode") {
+    candidates.push({ nodeId: previousTarget.id, direction: "input", peerId: previousSource.id });
+  }
+
+  for (const candidate of candidates) {
+    // Nothing to do if the new drop resolved to exactly the same node/
+    // direction/peer still being connected — a no-op re-drop, not a retarget.
+    if (
+      primaryAction.type === "processing_node_connect" &&
+      primaryAction.nodeId === candidate.nodeId &&
+      primaryAction.direction === candidate.direction &&
+      primaryAction.peerId === candidate.peerId
+    ) {
+      continue;
+    }
+
+    const node = findProcessingNode(graph, candidate.nodeId);
+    if (!node) {
+      continue;
+    }
+    const ports = (candidate.direction === "input" ? node.inputs : node.outputs) ?? [];
+    const oldPort = ports.find((port) => port.connected_id === candidate.peerId);
+    if (oldPort) {
+      return { nodeId: node.id, direction: candidate.direction, portIndex: oldPort.index };
+    }
+  }
+
+  return null;
 }
 
 function resolveProcessingNodeConnection(

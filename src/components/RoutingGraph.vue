@@ -270,23 +270,40 @@ function onPaneContextMenu(event: MouseEvent) {
 async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band") {
   contextMenu.value = null;
   if (type === "fan_out" || type === "mixer" || type === "eq5band") {
-    const label = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : "5-Band EQ";
+    const defaultLabel = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : "5-Band EQ";
+    // Node ids are derived from this label (`processing-{kind}-{slug}`), so
+    // creating a second node of the same kind needs a distinct name — a
+    // fixed default would collide with the first and be rejected outright.
+    const label = await prompt({
+      title: `Name this ${defaultLabel} node`,
+      defaultValue: defaultLabel,
+      confirmLabel: "Add",
+    });
+    if (!label?.trim()) return;
     try {
-      await invoke("create_processing_node", { label, kind: { kind: type } });
-      handleApplyResult({ success: true }, `${label} node added`);
+      await invoke("create_processing_node", { label: label.trim(), kind: { kind: type } });
+      handleApplyResult({ success: true }, `${label.trim()} node added`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      handleApplyResult({ success: false, message: `Couldn't add ${label.toLowerCase()} node: ${message}` }, "");
+      handleApplyResult({ success: false, message: `Couldn't add ${defaultLabel.toLowerCase()} node: ${message}` }, "");
     }
     return;
   }
   openNewDeviceDialog(type);
 }
 
-async function onAddStubNodeAction(stubKind: string, label: string) {
+async function onAddStubNodeAction(stubKind: string, defaultLabel: string) {
   contextMenu.value = null;
+  // Same node-id-from-label collision as the fan_out/mixer/eq5band case
+  // above — a second node of the same stub kind needs a distinct name too.
+  const label = await prompt({
+    title: `Name this ${defaultLabel} node`,
+    defaultValue: defaultLabel,
+    confirmLabel: "Add",
+  });
+  if (!label?.trim()) return;
   try {
-    await invoke("create_processing_node", { label, kind: { kind: "stub", stub_kind: stubKind } });
+    await invoke("create_processing_node", { label: label.trim(), kind: { kind: "stub", stub_kind: stubKind } });
     handleApplyResult({ success: true }, "Effect node added");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

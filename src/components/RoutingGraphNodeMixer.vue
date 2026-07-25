@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { inject } from "vue";
+import { inject, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { routingGraphActionsKey } from "../composables/routingGraphContext";
+import { useApplyResult } from "../stores/notices";
 
 interface MixerInputHandle {
   index: number;
@@ -17,23 +18,38 @@ const props = defineProps<{
 }>();
 
 const actions = inject(routingGraphActionsKey, null);
+const { handleApplyResult } = useApplyResult();
+
+/** Keeps the dragged value on screen until the next graph push confirms (or
+ * overrides) it — without this, a slow round trip or a soft backend failure
+ * (e.g. a stream-peer feed sink briefly unresolvable) visibly snaps the
+ * slider back to the last server-echoed value mid-drag. */
+const pendingGains = ref<Record<number, number>>({});
 
 function labelFor(id: string): string {
   return actions?.labelForEntity(id) ?? id;
 }
 
 function gainFor(index: number): number {
-  return props.inputGainsPercent[index] ?? 100;
+  return pendingGains.value[index] ?? props.inputGainsPercent[index] ?? 100;
 }
 
 async function onGainChange(index: number, event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
-  await invoke("update_processing_node_input_gain", {
-    nodeId: props.nodeId,
-    portIndex: index,
-    gainPercent: value,
-    muted: false,
-  });
+  pendingGains.value[index] = value;
+  try {
+    const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_input_gain", {
+      nodeId: props.nodeId,
+      portIndex: index,
+      gainPercent: value,
+      muted: false,
+    });
+    if (!response.success) {
+      handleApplyResult(response, "");
+    }
+  } catch (error) {
+    handleApplyResult({ success: false, message: error instanceof Error ? error.message : String(error) }, "");
+  }
 }
 </script>
 

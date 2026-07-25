@@ -1,5 +1,7 @@
 <script setup lang="ts">
+import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { useApplyResult } from "../stores/notices";
 
 const props = defineProps<{
   nodeId: string;
@@ -12,6 +14,8 @@ const props = defineProps<{
   bypassed: boolean;
 }>();
 
+const { handleApplyResult } = useApplyResult();
+
 const BANDS = [
   { key: "eqSub", label: "Sub", param: "eq_sub" },
   { key: "eqBass", label: "Bass", param: "eq_bass" },
@@ -21,13 +25,25 @@ const BANDS = [
   { key: "outputGain", label: "Gain", param: "output_gain" },
 ] as const;
 
+/** Keeps a dragged band's value on screen until the next graph push confirms
+ * it — the backend now always persists a drag even when it can't push it
+ * live yet (see `update_processing_node_eq_params`'s soft-failure contract),
+ * but that live-apply step can still race the node's own readiness right
+ * after creation, and without local state here the slider would visibly
+ * snap back to the last server-echoed value for that entire window. */
+const pending = ref<Partial<Record<(typeof BANDS)[number]["key"], number>>>({});
+
 function valueFor(key: (typeof BANDS)[number]["key"]): number {
-  return props[key];
+  return pending.value[key] ?? props[key];
 }
 
 async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
-  await invoke("update_processing_node_eq_params", {
+  const band = BANDS.find((entry) => entry.param === param);
+  if (band) {
+    pending.value[band.key] = value;
+  }
+  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_eq_params", {
     nodeId: props.nodeId,
     eqSub: param === "eq_sub" ? value : props.eqSub,
     eqBass: param === "eq_bass" ? value : props.eqBass,
@@ -36,6 +52,9 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
     eqAir: param === "eq_air" ? value : props.eqAir,
     outputGain: param === "output_gain" ? value : props.outputGain,
   });
+  if (!response.success) {
+    handleApplyResult(response, "");
+  }
 }
 
 /** Keeps every connection exactly as wired — only whether the signal comes
