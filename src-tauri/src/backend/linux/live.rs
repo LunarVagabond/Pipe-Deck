@@ -409,7 +409,16 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
         match &node.kind {
-            ProcessingNodeKind::FanOut | ProcessingNodeKind::Mixer { .. } => {
+            ProcessingNodeKind::FanOut { volume_percent, muted } => {
+                if pactl::sink_exists(&node.system_name)? {
+                    return Ok(());
+                }
+                pactl::create_null_sink(&node.system_name, &node.label)?;
+                let _ = pactl::set_sink_volume_by_name(&node.system_name, *volume_percent);
+                let _ = pactl::set_sink_mute_by_name(&node.system_name, *muted);
+                Ok(())
+            }
+            ProcessingNodeKind::Mixer { .. } => {
                 if pactl::sink_exists(&node.system_name)? {
                     return Ok(());
                 }
@@ -657,6 +666,11 @@ impl AudioBackend for LinuxPipeWireBackend {
         let feed_name = pactl::feed_sink_name_for_mix_pair(system_name, peer_system_name);
         pactl::set_sink_volume_by_name(&feed_name, gain_percent)?;
         pactl::set_sink_mute_by_name(&feed_name, muted)
+    }
+
+    fn set_processing_node_volume(&self, system_name: &str, volume_percent: u8, muted: bool) -> Result<(), BackendError> {
+        pactl::set_sink_volume_by_name(system_name, volume_percent)?;
+        pactl::set_sink_mute_by_name(system_name, muted)
     }
 
     fn set_processing_node_eq_params(

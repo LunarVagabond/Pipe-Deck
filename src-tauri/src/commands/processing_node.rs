@@ -65,6 +65,22 @@ pub async fn update_processing_node_input_gain(
 }
 
 #[tauri::command]
+pub async fn update_processing_node_volume(
+    node_id: String,
+    volume_percent: u8,
+    muted: bool,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .update_processing_node_volume(&node_id, volume_percent, muted)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub async fn update_processing_node_eq_params(
     node_id: String,

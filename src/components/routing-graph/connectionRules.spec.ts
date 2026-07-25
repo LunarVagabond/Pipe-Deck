@@ -525,7 +525,7 @@ describe("resolveConnectionAction — processing nodes (PD-032)", () => {
   });
 
   it("chains one processing node's output into another's input", () => {
-    const nodeA = makeProcessingNode({ id: "proc-a", kind: { kind: "fan_out" } });
+    const nodeA = makeProcessingNode({ id: "proc-a", kind: { kind: "fan_out", volume_percent: 100, muted: false } });
     const nodeB = makeProcessingNode({ id: "proc-b", kind: { kind: "mixer", input_gains_percent: [] } });
     const graph = makeGraph([], [], [], [nodeA, nodeB]);
     const result = resolveConnectionAction(

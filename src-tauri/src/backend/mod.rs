@@ -304,6 +304,13 @@ pub trait AudioBackend: Send + Sync {
         Err(BackendError::Message("set_processing_node_input_gain: not implemented".into()))
     }
 
+    /// Live-updates a Fan-Out node's own output volume/mute — a plain
+    /// device-style volume on the node's backing sink, not a shaping gain
+    /// (Fan-Out has no DSP). Only meaningful for `ProcessingNodeKind::FanOut`.
+    fn set_processing_node_volume(&self, _system_name: &str, _volume_percent: u8, _muted: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_volume: not implemented".into()))
+    }
+
     /// Live-updates an EQ5Band node's band gains without reloading the
     /// chain — the PD-017 two-speed fast path, same mechanism
     /// `CoreEngine::set_effect_chain_live_params` already uses for a

@@ -37,7 +37,7 @@ export function makeProcessingNode(overrides: Partial<ProcessingNode> = {}): Pro
   return {
     id: "proc-1",
     label: "Fan-out",
-    kind: { kind: "fan_out" },
+    kind: { kind: "fan_out", volume_percent: 100, muted: false },
     system_name: "pipe-deck-proc-fan_out-1",
     bypassed: false,
     live: false,

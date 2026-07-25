@@ -65,7 +65,7 @@ impl CoreEngine {
         // both sides of an EQ/stub — is capped at one connection.
         let is_growable = match (direction, &node.kind) {
             (PortDirection::Input, ProcessingNodeKind::Mixer { .. }) => true,
-            (PortDirection::Output, ProcessingNodeKind::FanOut) => true,
+            (PortDirection::Output, ProcessingNodeKind::FanOut { .. }) => true,
             _ => false,
         };
         if !is_growable && ports.iter().any(|port| port.connected_id.is_some()) {
@@ -268,6 +268,43 @@ impl CoreEngine {
         if self.graph.data_source != "mock" {
             ConfigStore::new()
                 .set_processing_node_input_gain(node_id, port_index, gain_percent, muted)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+        Ok(ApplyResult { success: true, message: None })
+    }
+
+    /// Live-updates a Fan-Out node's own output volume/mute — a plain
+    /// device-style volume, not a shaping gain (Fan-Out has no DSP; see
+    /// `ProcessingNodeKind::FanOut` field doc). Addressed by `system_name`
+    /// directly rather than through a `Device`, same as
+    /// `update_processing_node_input_gain`.
+    pub fn update_processing_node_volume(
+        &mut self,
+        node_id: &str,
+        volume_percent: u8,
+        muted: bool,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        if !matches!(node.kind, ProcessingNodeKind::FanOut { .. }) {
+            return Err(EngineError::InvalidInput(format!("{node_id} has no volume to update")));
+        }
+
+        self.adapter
+            .set_processing_node_volume(&node.system_name, volume_percent, muted)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .set_processing_node_volume(node_id, volume_percent, muted)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
@@ -483,7 +520,7 @@ pub(super) fn merge_processing_nodes(graph: &mut RuntimeGraph, adapter: &dyn cra
 fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
     match kind {
         ProcessingNodeSpecKind::Mixer => "mixer",
-        ProcessingNodeSpecKind::FanOut => "fan_out",
+        ProcessingNodeSpecKind::FanOut { .. } => "fan_out",
         ProcessingNodeSpecKind::Eq5Band { .. } => "eq5band",
         ProcessingNodeSpecKind::Stub { .. } => "stub",
     }
@@ -552,7 +589,9 @@ pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &Runti
         ProcessingNodeSpecKind::Mixer => ProcessingNodeKind::Mixer {
             input_gains_percent: spec.input_sources.iter().map(|port| port.gain_percent).collect(),
         },
-        ProcessingNodeSpecKind::FanOut => ProcessingNodeKind::FanOut,
+        ProcessingNodeSpecKind::FanOut { volume_percent, muted } => {
+            ProcessingNodeKind::FanOut { volume_percent: *volume_percent, muted: *muted }
+        }
         ProcessingNodeSpecKind::Eq5Band {
             eq_sub,
             eq_bass,
@@ -632,7 +671,10 @@ mod live_tests {
             let _ = engine.remove_virtual_device(&output_b.system_name);
         };
 
-        let node = match engine.create_processing_node("Pipe Deck Live Fan-out", ProcessingNodeSpecKind::FanOut) {
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Fan-out",
+            ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+        ) {
             Ok(node) => node,
             Err(error) => {
                 cleanup(&mut engine, None);

@@ -127,7 +127,14 @@ export type ProcessingNodeKind =
        * this lives once, on the node, never re-synthesized per edge. */
       input_gains_percent: number[];
     }
-  | { kind: "fan_out" }
+  | {
+      kind: "fan_out";
+      /** Plain output volume on the node's own backing sink — not a
+       * shaping gain (Fan-Out has no DSP), same meaning as a device's
+       * volume_percent. */
+      volume_percent: number;
+      muted: boolean;
+    }
   | {
       kind: "eq5band";
       eq_sub: number;
@@ -452,7 +459,7 @@ export interface ProcessingNodePortSpec {
 
 export type ProcessingNodeSpecKind =
   | { kind: "mixer" }
-  | { kind: "fan_out" }
+  | { kind: "fan_out"; volume_percent: number; muted: boolean }
   | {
       kind: "eq5band";
       eq_sub: number;

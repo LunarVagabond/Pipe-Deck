@@ -252,7 +252,7 @@ fn processing_nodes_can_chain_into_each_other() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut).expect("create fan-out");
+    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out");
     let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
     let source = engine.create_virtual_output("Source").expect("create source");
 
@@ -308,7 +308,7 @@ fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut)
+        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
         .expect("create fan-out node");
     let output_a = engine.create_virtual_output("Fan A").expect("create target a");
     let output_b = engine.create_virtual_output("Fan B").expect("create target b");
@@ -341,7 +341,7 @@ fn single_input_processing_node_rejects_a_second_input_connection() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut)
+        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
         .expect("create fan-out node");
     let source_a = engine.create_virtual_output("Source A").expect("create source a");
     let source_b = engine.create_virtual_output("Source B").expect("create source b");
@@ -505,7 +505,7 @@ fn eq_param_update_rejects_a_non_eq_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut).expect("create fan-out node");
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
 
     let error = engine
         .update_processing_node_eq_params(&node.id, 0, 0, 0, 0, 0, 0)

@@ -878,6 +878,17 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn set_processing_node_volume(&self, system_name: &str, volume_percent: u8, muted: bool) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::FanOut { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::FanOut { volume_percent, muted };
+        }
+        Ok(())
+    }
+
     fn set_processing_node_eq_params(
         &self,
         system_name: &str,

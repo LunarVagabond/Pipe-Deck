@@ -151,6 +151,17 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::FanOut { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::FanOut { volume_percent, muted };
+        }
+        self.save_config(&config)
+    }
+
     pub fn set_processing_node_bypassed(&self, node_id: &str, bypassed: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {

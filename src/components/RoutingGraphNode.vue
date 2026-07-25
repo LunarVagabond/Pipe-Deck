@@ -6,6 +6,7 @@ import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
+import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useEffectChain } from "../composables/useEffectChain";
@@ -234,6 +235,12 @@ function onToggleMute() {
         :eq-air="data.processingNodeKind.eq_air"
         :output-gain="data.processingNodeKind.output_gain"
         :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeFanOut
+        v-else-if="data.processingNodeKind?.kind === 'fan_out'"
+        :node-id="data.entityId"
+        :volume-percent="data.processingNodeKind.volume_percent"
+        :muted="data.processingNodeKind.muted"
       />
       <p v-else-if="data.processingNodeKind?.kind === 'stub'" class="routing-graph-node-stub-label">
         Not implemented yet

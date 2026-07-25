@@ -172,7 +172,16 @@ pub enum ProcessingNodeKind {
         input_gains_percent: Vec<u8>,
     },
     #[serde(rename = "fan_out")]
-    FanOut,
+    FanOut {
+        /// Plain output volume on the node's own backing sink — unlike
+        /// Mixer's per-input `gain`, this isn't a shaping control (Fan-Out
+        /// has no DSP), so it's named and modeled the same as a device's
+        /// `volume_percent`/`muted`, not gain.
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
     #[serde(rename = "eq5band")]
     Eq5Band {
         #[serde(default)]
@@ -200,7 +209,7 @@ impl ProcessingNodeKind {
     pub fn kind_str(&self) -> &'static str {
         match self {
             ProcessingNodeKind::Mixer { .. } => "mixer",
-            ProcessingNodeKind::FanOut => "fan_out",
+            ProcessingNodeKind::FanOut { .. } => "fan_out",
             ProcessingNodeKind::Eq5Band { .. } => "eq5band",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
@@ -591,7 +600,12 @@ pub enum ProcessingNodeSpecKind {
     #[serde(rename = "mixer")]
     Mixer,
     #[serde(rename = "fan_out")]
-    FanOut,
+    FanOut {
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
     #[serde(rename = "eq5band")]
     Eq5Band {
         #[serde(default)]
