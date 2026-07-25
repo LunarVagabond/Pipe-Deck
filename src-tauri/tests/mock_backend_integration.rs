@@ -270,6 +270,64 @@ fn processing_nodes_can_chain_into_each_other() {
     assert_eq!(fan_out_after.outputs[0].connected_id.as_deref(), Some(mixer.id.as_str()));
 }
 
+/// Directional counterpart to `processing_nodes_can_chain_into_each_other`
+/// above (which only chains Fan-out's *output* into a Mixer's input): issue
+/// #293's manual live testing specifically reported a *Mixer's* output into
+/// a Fan-out's input failing live despite "passing in mock tests" — a claim
+/// that didn't hold up under review, since no existing test exercised this
+/// exact direction end to end through `CoreEngine` (the only prior coverage
+/// was a pure frontend unit test of which Tauri command *would* be called,
+/// never one that actually drove the engine/mock-adapter connect path).
+#[test]
+fn mixer_output_chains_into_fan_out_input() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out");
+    let source = engine.create_virtual_output("Source").expect("create source");
+
+    engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &source.device_id)
+        .expect("connect source into mixer");
+    engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Input, &mixer.id)
+        .expect("chain mixer output into fan-out input");
+
+    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    assert_eq!(fan_out_after.inputs[0].connected_id.as_deref(), Some(mixer.id.as_str()));
+
+    let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    assert_eq!(mixer_after.outputs[0].connected_id.as_deref(), Some(fan_out.id.as_str()));
+}
+
+/// Also reported broken live in issue #293 ("Mixer-to-Mixer chaining"), with
+/// no explicit validation-layer rule found to block it on review. Confirms
+/// a second Mixer can be a first Mixer's downstream target the same way a
+/// Fan-out or EQ node can.
+#[test]
+fn mixer_output_chains_into_another_mixers_input() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let upstream = engine.create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer).expect("create upstream mixer");
+    let downstream = engine.create_processing_node("Master Mix", ProcessingNodeSpecKind::Mixer).expect("create downstream mixer");
+    let source = engine.create_virtual_output("Source").expect("create source");
+
+    engine
+        .connect_processing_node_port(&upstream.id, PortDirection::Input, &source.device_id)
+        .expect("connect source into upstream mixer");
+    engine
+        .connect_processing_node_port(&downstream.id, PortDirection::Input, &upstream.id)
+        .expect("chain upstream mixer output into downstream mixer input");
+
+    let downstream_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == downstream.id).unwrap().clone();
+    assert_eq!(downstream_after.inputs[0].connected_id.as_deref(), Some(upstream.id.as_str()));
+
+    let upstream_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == upstream.id).unwrap().clone();
+    assert_eq!(upstream_after.outputs[0].connected_id.as_deref(), Some(downstream.id.as_str()));
+}
+
 /// Regression for a real bug found in manual live-PipeWire testing: chaining
 /// a growable-side node (Fan-out's output) into a peer whose *own*
 /// single-capacity port is already occupied by something else must be
