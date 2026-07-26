@@ -640,6 +640,27 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
     }
 }
 
+/// Synthetic prefix for a stream peer's persisted identity — see
+/// `resolve_system_name_for_id`'s doc comment for why a stream can't use its
+/// real `system_name` here the way a device safely can.
+const STREAM_PEER_PREFIX: &str = "pipe-deck-stream-";
+
+/// A device's `system_name` is a real, stable PipeWire identity — safe to
+/// persist and re-resolve later. A *stream*'s `system_name` (PipeWire
+/// `node.name`) is not: multiple simultaneous streams from the same app
+/// (e.g. two Firefox tabs both playing audio) commonly report the exact
+/// same `node.name`. Persisting that shared string as a Mixer input port's
+/// identity means every such stream re-resolves to whichever one happens to
+/// be first in the live list on the next refresh — the other looks
+/// permanently unconnected (no port, no gain slider, no rendered handle for
+/// its edge to land on) even though it's genuinely wired in. `Stream.id`
+/// (the live PipeWire object id, e.g. `"node-42"`) is unique per instance
+/// within the session, so a stream peer's identity is persisted as a
+/// synthetic `"pipe-deck-stream-{id}"` string instead — resolved back by
+/// `resolve_id_for_system_name` recognizing the prefix, never by matching
+/// against `Stream.system_name`. This never reaches live PipeWire calls
+/// (those resolve a stream peer by id directly, see `live.rs`'s Mixer input
+/// arm), so it only affects this persistence/reconstruction layer.
 fn resolve_system_name_for_id(graph: &RuntimeGraph, id: &str) -> Option<String> {
     graph
         .devices
@@ -651,7 +672,7 @@ fn resolve_system_name_for_id(graph: &RuntimeGraph, id: &str) -> Option<String> 
                 .streams
                 .iter()
                 .find(|stream| stream.id == id)
-                .and_then(|stream| stream.system_name.clone())
+                .map(|stream| format!("{STREAM_PEER_PREFIX}{}", stream.id))
         })
         // A peer can itself be another processing node (chaining — PD-032
         // phase 5's follow-up: Mixer -> Fan-out, Fan-out -> Mixer, etc.).
@@ -665,18 +686,18 @@ fn resolve_system_name_for_id(graph: &RuntimeGraph, id: &str) -> Option<String> 
 }
 
 fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option<String> {
+    if let Some(stream_id) = system_name.strip_prefix(STREAM_PEER_PREFIX) {
+        return graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == stream_id)
+            .map(|stream| stream.id.clone());
+    }
     graph
         .devices
         .iter()
         .find(|device| device.system_name == system_name)
         .map(|device| device.id.clone())
-        .or_else(|| {
-            graph
-                .streams
-                .iter()
-                .find(|stream| stream.system_name.as_deref() == Some(system_name))
-                .map(|stream| stream.id.clone())
-        })
         .or_else(|| {
             graph
                 .processing_nodes
