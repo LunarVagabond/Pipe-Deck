@@ -460,49 +460,45 @@ fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
     assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
 }
 
-/// Fan-out/EQ/stub kinds take exactly one input — a second connect attempt
-/// on an already-occupied single input port is rejected outright rather than
-/// silently accepted (nothing downstream a second input would even mean).
-#[test]
-fn single_input_processing_node_rejects_a_second_input_connection() {
-    use pipe_deck_lib::core::models::PortDirection;
-
-    let (mut engine, _guard) = mock_engine();
-
-    let node = engine
-        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
-        .expect("create fan-out node");
-    let source_a = engine.create_virtual_output("Source A").expect("create source a");
-    let source_b = engine.create_virtual_output("Source B").expect("create source b");
-
-    engine
-        .connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
-        .expect("connect first input");
-    let error = engine
-        .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
-        .expect_err("second input should be rejected");
-    assert!(error.to_string().contains("only one input"), "{error}");
-}
-
-/// A Mixer's inputs grow but its output doesn't — only Fan-out's output
-/// grows. Regression for a real bug: the original single-port cap only
+/// A non-growable port side rejects a second connection outright rather
+/// than silently accepting one nothing downstream would even mean — checked
+/// on both a growable-kind's *non*-growable side (Fan-out's single input)
+/// and a different growable-kind's own non-growable side (Mixer's single
+/// output), since both exercise the same `processing_node_port_growable`
+/// false-branch and previously shared a real bug: the original cap only
 /// checked the input side for every kind, so every kind's output side was
-/// silently unlimited (a Mixer/EQ/stub showed a growable, wrong output port).
+/// silently unlimited (a Mixer/EQ/stub showed a growable, wrong output
+/// port). One test covers both sides deliberately, rather than one test per
+/// kind, since the two prior tests never exercised a different code path —
+/// only different (kind, direction) labels on the identical check.
 #[test]
-fn mixer_node_output_is_capped_at_one_connection() {
+fn a_non_growable_port_side_rejects_a_second_connection() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
+
+    let fan_out = engine
+        .create_processing_node("Stream Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .expect("create fan-out node");
+    let source_a = engine.create_virtual_output("Source A").expect("create source a");
+    let source_b = engine.create_virtual_output("Source B").expect("create source b");
+    engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source_a.device_id)
+        .expect("connect first input");
+    let error = engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source_b.device_id)
+        .expect_err("fan-out's second input should be rejected");
+    assert!(error.to_string().contains("only one input"), "{error}");
+
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
     let target_a = engine.create_virtual_output("Target A").expect("create target a");
     let target_b = engine.create_virtual_output("Target B").expect("create target b");
-
     engine
-        .connect_processing_node_port(&node.id, PortDirection::Output, &target_a.device_id)
+        .connect_processing_node_port(&mixer.id, PortDirection::Output, &target_a.device_id)
         .expect("connect first output");
     let error = engine
-        .connect_processing_node_port(&node.id, PortDirection::Output, &target_b.device_id)
-        .expect_err("second output should be rejected");
+        .connect_processing_node_port(&mixer.id, PortDirection::Output, &target_b.device_id)
+        .expect_err("mixer's second output should be rejected");
     assert!(error.to_string().contains("only one output"), "{error}");
 }
 
@@ -642,24 +638,47 @@ fn eq_param_update_rejects_a_non_eq_node() {
     assert!(error.to_string().contains("has no EQ params"), "{error}");
 }
 
+/// Any device kind can feed a Mixer node's input — a virtual output device
+/// (regression coverage for #293's VirtualRole::Bus removal: a plain
+/// virtual output device can no longer route onward to another device, but
+/// feeding its monitor into a Mixer's input is a separate, unaffected
+/// capability) and a physical input device (Mixer Node's replacement for
+/// the old mic-mix mechanism, PD-032, must still accept a physical source
+/// the same way mic-mix did). `connect_processing_node_port`'s validation
+/// doesn't branch on device kind at all, so one test connecting both kinds
+/// into the same Mixer covers this rather than two near-identical ones;
+/// gain/mute tracking itself is covered generically by
+/// `mixer_node_sums_inputs_with_independent_gain`.
 #[test]
-fn a_virtual_output_device_qualifies_as_a_mixer_node_input() {
-    // Regression coverage for #293's VirtualRole::Bus removal: a plain
-    // virtual output device can no longer route onward to another device
-    // (that whole mechanism, and the Bus/terminal-Output distinction that
-    // gated it, is retired), but feeding its monitor into a Mixer node's
-    // input is a separate, unaffected capability — same as a physical
-    // device already could.
+fn a_mixer_node_input_accepts_any_device_kind() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let output = engine.create_virtual_output("Output Source").expect("create output");
     let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
+    let output = engine.create_virtual_output("Output Source").expect("create output");
     let result = engine
         .connect_processing_node_port(&mixer.id, PortDirection::Input, &output.device_id)
         .expect("a virtual output device should be a valid mixer input");
     assert!(result.success, "{:?}", result.message);
+
+    let physical_source = engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .find(|d| d.kind == DeviceKind::Physical && d.direction == DeviceDirection::Input)
+        .expect("sample graph should have a physical input")
+        .id
+        .clone();
+    let result = engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &physical_source)
+        .expect("a physical input device should also be a valid mixer input");
+    assert!(result.success, "{:?}", result.message);
+
+    let node = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap();
+    assert_eq!(node.inputs.len(), 2);
+    assert_eq!(node.inputs[0].connected_id.as_deref(), Some(output.device_id.as_str()));
+    assert_eq!(node.inputs[1].connected_id.as_deref(), Some(physical_source.as_str()));
 }
 
 #[test]
