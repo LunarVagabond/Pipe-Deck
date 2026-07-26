@@ -89,6 +89,61 @@ impl CoreEngine {
             }
         }
 
+        // A device/stream peer can only ever be genuinely wired into one
+        // place at a time — moving it onto a fresh sink-input/feed-sink
+        // target implicitly abandons wherever it was previously plugged in,
+        // the same way `pactl move-sink-input` only ever has one live
+        // destination. Without this check, dragging the same stream onto a
+        // second processing node's input leaves the *first* node's port
+        // bookkeeping (and its own PipeWire-side feed sink) stale — still
+        // shown as connected and still gain-controlled by a slider, even
+        // though the peer's audio has actually moved elsewhere. Mirrors the
+        // same "disconnect the stale side first" principle bb25d6d already
+        // applies to an edge_update retarget, generalized here to cover a
+        // brand-new connect gesture landing on a different node entirely.
+        // Only applies to device/stream peers — a processing-node peer's own
+        // output-side capacity is already enforced by the peer-capacity
+        // check above (non-growable single-output kinds reject a second
+        // connect outright).
+        if self.graph.processing_nodes.iter().find(|n| n.id == peer_id).is_none() {
+            let stale: Vec<(String, u32)> = self
+                .graph
+                .processing_nodes
+                .iter()
+                .filter(|other| other.id != node_id)
+                .flat_map(|other| {
+                    let other_ports = match direction {
+                        PortDirection::Input => &other.inputs,
+                        PortDirection::Output => &other.outputs,
+                    };
+                    other_ports
+                        .iter()
+                        .filter(|port| port.connected_id.as_deref() == Some(peer_id))
+                        .map(|port| (other.id.clone(), port.index))
+                        .collect::<Vec<_>>()
+                })
+                .collect();
+            for (stale_node_id, stale_port_index) in stale {
+                self.disconnect_processing_node_port(&stale_node_id, direction, stale_port_index)?;
+            }
+        }
+
+        // Re-borrow: the stale-disconnect pass above (if it ran) mutated
+        // `self.graph` via `refresh_graph()`, so `node`'s port list captured
+        // before it may be out of date — recompute the insertion index
+        // against current state rather than the possibly-stale `ports`
+        // local.
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+        let ports = match direction {
+            PortDirection::Input => &node.inputs,
+            PortDirection::Output => &node.outputs,
+        };
         let port_index = ports
             .iter()
             .find(|port| port.connected_id.is_none())

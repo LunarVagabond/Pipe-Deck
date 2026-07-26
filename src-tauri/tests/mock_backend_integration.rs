@@ -315,6 +315,44 @@ fn mixer_output_chains_into_another_mixers_input() {
     assert_eq!(upstream_after.outputs[0].connected_id.as_deref(), Some(downstream.id.as_str()));
 }
 
+/// Regression for a real bug found in manual live-PipeWire testing: dragging
+/// the same stream/device onto a second processing node's input (e.g. into
+/// both a Mixer and a Fan-Out) must move it, not leave it double-booked. A
+/// device/stream peer can only ever be wired into one place at a time — the
+/// first node's port bookkeeping must be disconnected automatically when the
+/// same peer connects to a second node, mirroring bb25d6d's "disconnect the
+/// stale side first" fix for edge-retargets, generalized to a brand-new
+/// connect landing on a different node entirely.
+#[test]
+fn connecting_a_peer_to_a_second_processing_node_disconnects_the_first() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out");
+    let source = engine.create_virtual_output("Source").expect("create source");
+
+    engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &source.device_id)
+        .expect("connect source into mixer");
+    let mixer_after_first = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    assert_eq!(mixer_after_first.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source.device_id)
+        .expect("connect the same source into fan-out");
+
+    let mixer_after_second = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    assert!(
+        mixer_after_second.inputs.iter().all(|port| port.connected_id.is_none()),
+        "mixer's input must be disconnected once the same source moves to fan-out, not left stale: {:?}",
+        mixer_after_second.inputs
+    );
+
+    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    assert_eq!(fan_out_after.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
 /// Regression for a real bug found in manual live-PipeWire testing: chaining
 /// a growable-side node (Fan-out's output) into a peer whose *own*
 /// single-capacity port is already occupied by something else must be
