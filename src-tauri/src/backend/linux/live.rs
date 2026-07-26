@@ -894,6 +894,15 @@ mod version_tests {
         assert_eq!(parse_pipewire_version("command not found"), None);
     }
 
+    // These two tests cover *only* the reforce-ordering bug fixed in
+    // `push_eq_params_and_reforce_volume` — the volume/mute reforce running
+    // unconditionally regardless of push success/failure. They say nothing
+    // about whether the EQ node's DSP actually processes audio once live:
+    // that turned out to still be broken (issue #303, muted audio through
+    // the whole chain) via a different mechanism these injected closures
+    // never touch (the real `pw-cli`/native IPC push and the filter-chain's
+    // own signal path). Do not read a pass here as "EQ live-push is
+    // solid" — it only means this one ordering bug stays fixed.
     #[test]
     fn push_eq_params_and_reforce_volume_reforces_even_when_push_fails() {
         let reforced = Cell::new(false);

@@ -614,6 +614,20 @@ impl CoreEngine {
 /// `load_processing_node`/`unload_processing_node`'s mock implementation),
 /// so re-deriving from `ConfigStore` here would be a second, divergent
 /// source of truth for the same data.
+///
+/// **Test coverage gap, not just a code comment**: this early return means
+/// no mock-backed `tests/mock_backend_integration.rs` test can ever execute
+/// this function's actual body — including the from-scratch batch-conversion
+/// ordering that caused a real live-only bug (a processing-node-to-
+/// processing-node port could never resolve, since `graph.processing_nodes`
+/// is empty/stale at the time each spec converts; see
+/// `processing_node_from_spec_with_siblings`'s doc comment). The closest
+/// coverage is the unit test `spec_to_node_resolves_a_processing_node_peer_via_the_sibling_map`,
+/// which calls the sibling-resolution helper directly with a hand-built
+/// `specs`/`siblings` map — real, but it doesn't exercise this function
+/// itself, `ConfigStore`, or a real `AudioBackend`. Any future change here
+/// needs a live/manual check; nothing automated will catch a regression in
+/// this function's own batching logic.
 pub(super) fn merge_processing_nodes(graph: &mut RuntimeGraph, adapter: &dyn crate::backend::AudioBackend) {
     if graph.data_source == "mock" {
         return;
