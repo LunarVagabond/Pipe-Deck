@@ -620,15 +620,36 @@ pub(super) fn merge_processing_nodes(graph: &mut RuntimeGraph, adapter: &dyn cra
     }
 
     let specs = ConfigStore::new().processing_nodes();
+    // A port referencing another processing node (Mixer -> Fan-Out chaining
+    // etc.) can't be resolved against `graph.processing_nodes` here — that
+    // field is empty/stale at this point, since this loop is what's about
+    // to (re)populate it from scratch, and `graph` isn't updated until every
+    // spec has already been converted. Without this, a node-to-node
+    // connection's `connected_id` came back `None` on every single live
+    // refresh (confirmed live: `pipe-deck graph` showed both sides of a
+    // real Mixer -> Fan-Out link with no `connected_id` at all despite both
+    // being correctly persisted in config.yaml) — never reproduced by the
+    // mock backend, which bypasses this whole spec-reconstruction path and
+    // returns its own already-consistent in-memory state directly. Resolve
+    // processing-node peers against this sibling map (built from the same
+    // `specs` this loop is converting) instead.
+    let sibling_ids: std::collections::HashMap<String, String> = specs
+        .iter()
+        .map(|spec| (processing_node_system_name(spec), spec.id.clone()))
+        .collect();
     let nodes: Vec<ProcessingNode> = specs
         .iter()
         .map(|spec| {
-            let mut node = processing_node_from_spec(spec, graph);
+            let mut node = processing_node_from_spec_with_siblings(spec, graph, &sibling_ids);
             node.live = adapter.is_processing_node_loaded(&node.system_name);
             node
         })
         .collect();
     graph.processing_nodes = nodes;
+}
+
+fn processing_node_system_name(spec: &ProcessingNodeSpec) -> String {
+    format!("pipe-deck-proc-{}-{}", spec_kind_slug(&spec.kind), spec.slug)
 }
 
 fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
@@ -685,7 +706,11 @@ fn resolve_system_name_for_id(graph: &RuntimeGraph, id: &str) -> Option<String> 
         })
 }
 
-fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option<String> {
+fn resolve_id_for_system_name(
+    graph: &RuntimeGraph,
+    system_name: &str,
+    siblings: &std::collections::HashMap<String, String>,
+) -> Option<String> {
     if let Some(stream_id) = system_name.strip_prefix(STREAM_PEER_PREFIX) {
         return graph
             .streams
@@ -705,6 +730,7 @@ fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option
                 .find(|node| node.system_name == system_name)
                 .map(|node| node.id.clone())
         })
+        .or_else(|| siblings.get(system_name).cloned())
 }
 
 /// Converts a persisted `ProcessingNodeSpec` into its runtime `ProcessingNode`
@@ -717,6 +743,19 @@ fn resolve_id_for_system_name(graph: &RuntimeGraph, system_name: &str) -> Option
 /// to it right now — same "unresolved is not an error" reasoning as
 /// `Device.current_target`).
 pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &RuntimeGraph) -> ProcessingNode {
+    processing_node_from_spec_with_siblings(spec, graph, &std::collections::HashMap::new())
+}
+
+/// `siblings` is an extra `system_name -> id` lookup for processing-node
+/// peers, consulted alongside `graph.processing_nodes` (see
+/// `merge_processing_nodes`'s doc comment for why the latter alone isn't
+/// enough during a from-scratch batch rebuild). Empty for every other
+/// caller, where `graph.processing_nodes` is already complete/correct.
+fn processing_node_from_spec_with_siblings(
+    spec: &ProcessingNodeSpec,
+    graph: &RuntimeGraph,
+    siblings: &std::collections::HashMap<String, String>,
+) -> ProcessingNode {
     let kind_slug = spec_kind_slug(&spec.kind);
     let system_name = format!("pipe-deck-proc-{kind_slug}-{}", spec.slug);
 
@@ -751,7 +790,7 @@ pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &Runti
         .enumerate()
         .map(|(index, port)| ProcessingNodePort {
             index: index as u32,
-            connected_id: resolve_id_for_system_name(graph, &port.source_system_name),
+            connected_id: resolve_id_for_system_name(graph, &port.source_system_name, siblings),
         })
         .collect();
     let outputs = spec
@@ -760,7 +799,7 @@ pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &Runti
         .enumerate()
         .map(|(index, target)| ProcessingNodePort {
             index: index as u32,
-            connected_id: resolve_id_for_system_name(graph, target),
+            connected_id: resolve_id_for_system_name(graph, target, siblings),
         })
         .collect();
 
@@ -1108,5 +1147,69 @@ mod tests {
             node.kind,
             ProcessingNodeKind::Mixer { ref input_gains_percent } if input_gains_percent == &vec![80]
         ));
+    }
+
+    /// Regression for a real bug found in manual live-PipeWire testing:
+    /// `merge_processing_nodes` converts every persisted spec into a
+    /// `ProcessingNode` in one pass, assigning `graph.processing_nodes` only
+    /// after the whole batch finishes — so a port referencing *another*
+    /// processing node (Mixer -> Fan-Out chaining) could never resolve
+    /// against `graph.processing_nodes` during that same pass, since it was
+    /// always empty/stale at the time each individual spec was converted.
+    /// Confirmed live: both sides of a real Mixer -> Fan-Out connection
+    /// showed `connected_id: null` despite being correctly persisted in
+    /// config.yaml on both ends. Never reproduced by the mock backend,
+    /// which bypasses this whole spec-reconstruction path entirely.
+    #[test]
+    fn spec_to_node_resolves_a_processing_node_peer_via_the_sibling_map() {
+        let mixer_spec = ProcessingNodeSpec {
+            id: "processing-mixer-mixer".into(),
+            slug: "mixer".into(),
+            label: "Mixer".into(),
+            created_at: "2026-07-26T00:00:00Z".into(),
+            kind: ProcessingNodeSpecKind::Mixer,
+            input_sources: Vec::new(),
+            output_targets: vec!["pipe-deck-proc-fan_out-fan-out".into()],
+            bypassed: false,
+        };
+        let fan_out_spec = ProcessingNodeSpec {
+            id: "processing-fan_out-fan-out".into(),
+            slug: "fan-out".into(),
+            label: "Fan-Out".into(),
+            created_at: "2026-07-26T00:00:00Z".into(),
+            kind: ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+            input_sources: vec![ProcessingNodePortSpec {
+                source_system_name: "pipe-deck-proc-mixer-mixer".into(),
+                gain_percent: 100,
+                muted: false,
+            }],
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+
+        // Mirrors `merge_processing_nodes`: build the sibling map from all
+        // specs up front, then convert each spec against a `graph` whose
+        // `processing_nodes` field is still empty (as it always is mid-batch).
+        let siblings: std::collections::HashMap<String, String> = [&mixer_spec, &fan_out_spec]
+            .into_iter()
+            .map(|spec| (processing_node_system_name(spec), spec.id.clone()))
+            .collect();
+        let graph = empty_graph();
+
+        let mixer_node = processing_node_from_spec_with_siblings(&mixer_spec, &graph, &siblings);
+        assert_eq!(mixer_node.outputs.len(), 1);
+        assert_eq!(
+            mixer_node.outputs[0].connected_id.as_deref(),
+            Some("processing-fan_out-fan-out"),
+            "Mixer's output must resolve to the Fan-Out node, not come back unresolved"
+        );
+
+        let fan_out_node = processing_node_from_spec_with_siblings(&fan_out_spec, &graph, &siblings);
+        assert_eq!(fan_out_node.inputs.len(), 1);
+        assert_eq!(
+            fan_out_node.inputs[0].connected_id.as_deref(),
+            Some("processing-mixer-mixer"),
+            "Fan-Out's input must resolve to the Mixer node, not come back unresolved"
+        );
     }
 }

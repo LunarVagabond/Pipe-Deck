@@ -122,10 +122,32 @@ pub fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {
         true
     });
 
+    // A stream's `current_target` resolving to a processing node (a stream
+    // currently parked on a Mixer's per-input feed sink, see
+    // `stream_match::resolve_playback_target_device_id`'s Mixer special
+    // case) must never generate a generic `route-stream-*` link here — that
+    // connection is already fully represented by the node's own `inputs`/
+    // `outputs` port arrays (`collectEdges.ts` draws it from there). Drawing
+    // it a second time from `current_target` too is not just redundant: if
+    // the *specific* stream instance that was originally wired into the
+    // port goes away and a new one reappears with the same app identity
+    // (e.g. a browser tab reloading), the new stream's sink-input often
+    // lands back on the same still-live feed sink — so `current_target`
+    // picks it up correctly — but the processing node's own persisted port
+    // still names the old, now-gone stream id and never re-resolves to the
+    // new one. The result was a second, disagreeing edge with no
+    // corresponding port/handle for it to attach to, rendered floating at
+    // the node's default anchor instead of a real connection point.
+    let processing_node_ids: HashSet<&str> =
+        graph.processing_nodes.iter().map(|node| node.id.as_str()).collect();
+
     for stream in &graph.streams {
         let Some(target_id) = &stream.current_target else {
             continue;
         };
+        if processing_node_ids.contains(target_id.as_str()) {
+            continue;
+        }
 
         match stream.direction {
             StreamDirection::Playback => {
@@ -375,5 +397,61 @@ mod tests {
         assert_eq!(graph.links[0].source_id, "firefox");
         assert_eq!(graph.links[0].target_id, "headset");
         assert!(graph.links[0].id.starts_with("route-stream-"));
+    }
+
+    /// Regression for a real bug found in manual live-PipeWire testing: a
+    /// stream parked on a Mixer's per-input feed sink resolves
+    /// `current_target` to the Mixer's processing-node id
+    /// (`stream_match::resolve_playback_target_device_id`'s Mixer special
+    /// case) — that must never also produce a generic `route-stream-*` link
+    /// here, since the connection is already fully represented by the
+    /// node's own `inputs` port array. Drawing it twice caused a floating,
+    /// no-handle edge whenever the exact stream instance the port's
+    /// bookkeeping named went away and a same-app-identity one reappeared
+    /// (e.g. a browser tab reload) still parked on the same feed sink: the
+    /// live-mirrored `current_target` picked the new stream up correctly,
+    /// but the processing node's own port still named the old, gone stream
+    /// id, so the two edges disagreed.
+    #[test]
+    fn normalize_stream_routing_links_skips_a_processing_node_target() {
+        use crate::core::models::{ProcessingNode, ProcessingNodeKind, ProcessingNodePort};
+
+        let mut graph = RuntimeGraph {
+            streams: vec![Stream {
+                id: "node-97".into(),
+                app_name: "Firefox".into(),
+                executable: Some("firefox".into()),
+                window_class: None,
+                system_name: Some("Firefox".into()),
+                direction: StreamDirection::Playback,
+                current_target: Some("processing-mixer-mixer".into()),
+                media_name: None,
+                is_system: false,
+                volume_percent: None,
+                muted: None,
+                route_explanation: None,
+            }],
+            processing_nodes: vec![ProcessingNode {
+                id: "processing-mixer-mixer".into(),
+                label: "Mixer".into(),
+                kind: ProcessingNodeKind::Mixer { input_gains_percent: vec![100] },
+                system_name: "pipe-deck-proc-mixer-mixer".into(),
+                bypassed: false,
+                live: true,
+                inputs: vec![ProcessingNodePort { index: 0, connected_id: Some("node-97".into()) }],
+                outputs: Vec::new(),
+            }],
+            data_source: "pipewire".into(),
+            notice: None,
+            ..Default::default()
+        };
+
+        normalize_stream_routing_links(&mut graph);
+
+        assert!(
+            graph.links.is_empty(),
+            "a stream parked on a processing node's feed sink must not also get a route-stream-* link: {:?}",
+            graph.links
+        );
     }
 }
