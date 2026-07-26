@@ -3,8 +3,8 @@ pub mod mock;
 pub mod stub;
 
 use crate::core::models::{
-    Device, DeviceDirection, EffectChainConfig, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
-    VirtualRole,
+    Device, DeviceDirection, EffectChainConfig, MixSourceSpec, PortDirection, ProcessingNode, RuntimeGraph,
+    VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -240,6 +240,98 @@ pub trait AudioBackend: Send + Sync {
     /// equivalent of today's `pw_cli::set_params` live-slider path.
     fn set_effect_chain_live_params(&self, _device_system_name: &str, _config: &EffectChainConfig) -> Result<(), BackendError> {
         Err(BackendError::Message("set_effect_chain_live_params: not implemented".into()))
+    }
+
+    // --- Processing nodes (PD-032: Mixer/Fan-out/EQ/stub graph nodes) ---
+    //
+    // Deliberately shaped like the effects methods just above: `load`/
+    // `unload`/`is_loaded`/relink, all defaulting to "not implemented"/`false`
+    // so `MockAudioBackend`/`StubBackend` don't need real bodies unless they
+    // opt in. `Stub`-kind nodes never call any of these — they're a pure
+    // pass-through with nothing to load (see `ProcessingNodeKind::Stub`).
+
+    /// Loads (or replaces, under the same `system_name`) the PipeWire object
+    /// backing `node`. Whatever transport backs `load_effect_chain` today
+    /// backs this too — no new transport is introduced for processing nodes
+    /// (PD-032).
+    fn load_processing_node(&self, _node: &ProcessingNode) -> Result<(), BackendError> {
+        Err(BackendError::Message("load_processing_node: not implemented".into()))
+    }
+
+    /// Unloads a previously loaded processing node's native module. Does not
+    /// relink anything on its own — callers capture and restore links
+    /// separately (mirrors `unload_effect_chain`/`revert_to_plain_device`'s
+    /// split responsibility).
+    fn unload_processing_node(&self, _system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message("unload_processing_node: not implemented".into()))
+    }
+
+    /// Whether a processing node is currently loaded — same out-of-process,
+    /// correct-by-construction reasoning as `is_effect_chain_loaded`.
+    fn is_processing_node_loaded(&self, _system_name: &str) -> bool {
+        false
+    }
+
+    /// Re-points a processing node's `port_index` (on the `direction` side)
+    /// to `peer_id` (a device or stream id, resolved against `graph` the
+    /// same way `route_stream`/`route_device` resolve their targets — a
+    /// stream needs `pactl` sink-input move, a device needs a `pw-link`
+    /// monitor link, and only the backend can tell those apart), or
+    /// disconnects the port if `None`.
+    fn relink_processing_node_port(
+        &self,
+        _graph: &RuntimeGraph,
+        _system_name: &str,
+        _port_index: u32,
+        _direction: PortDirection,
+        _peer_id: Option<&str>,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("relink_processing_node_port: not implemented".into()))
+    }
+
+    /// Live-updates one already-connected Mixer input's gain/mute without
+    /// touching linking — the fast path for a slider drag, same PD-017
+    /// two-speed contract as `set_effect_chain_live_params`. Only meaningful
+    /// for `ProcessingNodeKind::Mixer` inputs; other kinds have no per-port
+    /// gain concept and never call this.
+    fn set_processing_node_input_gain(
+        &self,
+        _system_name: &str,
+        _peer_system_name: &str,
+        _gain_percent: u8,
+        _muted: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_input_gain: not implemented".into()))
+    }
+
+    /// Live-updates a Fan-Out node's own output volume/mute — a plain
+    /// device-style volume on the node's backing sink, not a shaping gain
+    /// (Fan-Out has no DSP). Only meaningful for `ProcessingNodeKind::FanOut`.
+    fn set_processing_node_volume(&self, _system_name: &str, _volume_percent: u8, _muted: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_volume: not implemented".into()))
+    }
+
+    /// Live-updates an EQ5Band node's band gains without reloading the
+    /// chain — the PD-017 two-speed fast path, same mechanism
+    /// `CoreEngine::set_effect_chain_live_params` already uses for a
+    /// device's attached EQ, just addressed by `system_name` directly
+    /// rather than through a `Device`. `bypassed` reuses that same
+    /// mechanism's neutral-live-params-regardless-of-configured-values
+    /// behavior (`fx_validate::live_params`) — connections stay exactly as
+    /// wired, only the signal itself passes through unprocessed.
+    #[allow(clippy::too_many_arguments)]
+    fn set_processing_node_eq_params(
+        &self,
+        _system_name: &str,
+        _eq_sub: i32,
+        _eq_bass: i32,
+        _eq_mid: i32,
+        _eq_treble: i32,
+        _eq_air: i32,
+        _output_gain: i32,
+        _bypassed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_eq_params: not implemented".into()))
     }
 }
 

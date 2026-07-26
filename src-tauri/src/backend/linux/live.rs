@@ -1,6 +1,6 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
-    VirtualRole,
+    Device, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind,
+    RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -401,6 +401,321 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn is_effect_chain_loaded(&self, device_system_name: &str) -> bool {
         crate::daemon::ipc::client::NativeHostClient::is_loaded(device_system_name)
+    }
+
+    // --- Processing nodes (PD-032). Fan-out, Mixer, and EQ5Band (issue #293
+    // phases 2-4). Stub never reaches here at all (CoreEngine never calls
+    // this trait for a Stub kind — see `ProcessingNodeKind::Stub`).
+
+    fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
+        match &node.kind {
+            ProcessingNodeKind::FanOut { volume_percent, muted } => {
+                if pactl::sink_exists(&node.system_name)? {
+                    return Ok(());
+                }
+                pactl::create_null_sink(&node.system_name, &node.label)?;
+                let _ = pactl::set_sink_volume_by_name(&node.system_name, *volume_percent);
+                let _ = pactl::set_sink_mute_by_name(&node.system_name, *muted);
+                Ok(())
+            }
+            ProcessingNodeKind::Mixer { .. } => {
+                if pactl::sink_exists(&node.system_name)? {
+                    return Ok(());
+                }
+                pactl::create_null_sink(&node.system_name, &node.label)?;
+                Ok(())
+            }
+            ProcessingNodeKind::Eq5Band {
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            } => {
+                // Real DSP from creation, unlike a device's swap-by-identity
+                // effect chain (PD-020) which pivots an *already-existing*
+                // plain sink between plain and filter-chain mode — an EQ
+                // node has no "plain" precursor state to preserve, so this
+                // loads the chain directly rather than reusing
+                // `effects_ops.rs`'s capture/rollback machinery, which is
+                // built specifically for that pivot.
+                let config = crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Eq5Band {
+                        id: "eq".into(),
+                        eq_sub: *eq_sub,
+                        eq_bass: *eq_bass,
+                        eq_mid: *eq_mid,
+                        eq_treble: *eq_treble,
+                        eq_air: *eq_air,
+                        output_gain: *output_gain,
+                    }],
+                    bypassed: node.bypassed,
+                    ..Default::default()
+                };
+                let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+                let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+                if !preflight.ok {
+                    return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+                }
+                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                // Unlike the device-attached EQ path (`effects_ops.rs`'s
+                // `apply_effect_chain_structural`), which pivots an
+                // *already-existing* plain sink that inherited a sane
+                // volume/mute state from its original `pactl` creation, this
+                // sink has never existed in PipeWire before — nothing has
+                // ever set its volume, so it's at the mercy of whatever
+                // default WirePlumber/PipeWire applies to a brand-new
+                // filter-chain node (observed: silence). Force a known-good
+                // state explicitly rather than relying on that default.
+                let _ = pactl::set_sink_volume_by_name(&node.system_name, 100);
+                let _ = pactl::set_sink_mute_by_name(&node.system_name, false);
+                Ok(())
+            }
+            ProcessingNodeKind::Stub { .. } => Ok(()),
+        }
+    }
+
+    fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        if system_name.starts_with("pipe-deck-proc-eq5band-") {
+            if crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name) {
+                crate::daemon::ipc::client::NativeHostClient::unload_chain(system_name)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+            }
+            return Ok(());
+        }
+
+        // A Mixer's per-input feed sinks (see `relink_processing_node_port`)
+        // are owned by this node and have no independent lifetime — GC them
+        // all before unloading the node's own sink, the same
+        // capture-nothing/tear-down-everything reasoning
+        // `disconnect_all_virtual_mic_mixes` already applies to a plain
+        // virtual mic. Harmless no-op for a Fan-out node, which never has any.
+        let _ = pactl::gc_feed_sinks_for_mix_pairs(system_name, &std::collections::HashSet::new());
+        if let Some(module_id) = pactl::find_module_id_by_sink_name(system_name)? {
+            pactl::unload_module(&module_id)?;
+        }
+        Ok(())
+    }
+
+    fn is_processing_node_loaded(&self, system_name: &str) -> bool {
+        if system_name.starts_with("pipe-deck-proc-eq5band-") {
+            return crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name);
+        }
+        pactl::sink_exists(system_name).unwrap_or(false)
+    }
+
+    fn relink_processing_node_port(
+        &self,
+        graph: &RuntimeGraph,
+        system_name: &str,
+        port_index: u32,
+        direction: PortDirection,
+        peer_id: Option<&str>,
+    ) -> Result<(), BackendError> {
+        let node = graph.processing_nodes.iter().find(|node| node.system_name == system_name);
+        let is_mixer = matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Mixer { .. }));
+
+        // A Stub node (issue #293's 11 non-DSP kinds) has no backing
+        // PipeWire object at all — `load_processing_node` never creates one
+        // (see `ProcessingNodeKind::Stub`'s doc comment) — so there is
+        // nothing real to link or unlink here. The connection still exists
+        // as graph data (`CoreEngine::connect_processing_node_port` persists
+        // it regardless of kind); this is purely the "don't attempt a
+        // pw-link against a sink that was never created" guard.
+        if matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Stub { .. })) {
+            return Ok(());
+        }
+
+        // A "sink-like" peer is anything addressable by system_name the same
+        // way a plain device is: a Device, or another processing node
+        // (PD-032 phase 5's chaining follow-up — Mixer -> Fan-out,
+        // Fan-out -> Mixer, etc. all resolve through here identically,
+        // since a processing node's own identity is just as system-name-
+        // addressable as a device's). Streams are handled separately below
+        // — they're pactl sink-inputs moved onto a target, not devices with
+        // ports to `pw-link`.
+        let resolve_sink_like = |id: &str| -> Option<(String, bool)> {
+            if let Some(device) = graph.devices.iter().find(|device| device.id == id) {
+                let target_is_virtual_source =
+                    device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input;
+                return Some((device.system_name.clone(), target_is_virtual_source));
+            }
+            graph
+                .processing_nodes
+                .iter()
+                .find(|peer_node| peer_node.id == id)
+                .map(|peer_node| (peer_node.system_name.clone(), false))
+        };
+
+        match direction {
+            PortDirection::Input => match peer_id {
+                Some(id) => {
+                    if let Some((peer_system_name, _)) = resolve_sink_like(id) {
+                        if is_mixer {
+                            // Each input gets its own independent-gain feed
+                            // sink (PD-032: the Mixer Node generalizes the
+                            // existing mic-mix mechanism — see
+                            // `virtual_mic_mix::apply_virtual_mic_mix` for
+                            // the device-scoped original this mirrors)
+                            // rather than a direct unity-gain link.
+                            let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
+                            let feed_name =
+                                pactl::ensure_feed_sink_for_mix_pair(system_name, &peer_system_name, node_label)?;
+                            pw_link::link_capture_source_to_sink(&peer_system_name, &feed_name)?;
+                            pactl::set_sink_volume_by_name(&feed_name, 100)?;
+                            pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
+                        } else {
+                            pw_link::link_sink_monitor_to_target(&peer_system_name, system_name, false)
+                        }
+                    } else if graph.streams.iter().any(|stream| stream.id == id) {
+                        if is_mixer {
+                            // A stream is a sink-input, not a device with
+                            // ports to `pw-link` — move it onto its own
+                            // per-pair feed sink (same independent-gain
+                            // mechanism as a device source above) instead of
+                            // linking a monitor. Named off the raw peer id
+                            // (not the stream's own system_name, which may
+                            // still be unresolved) so connect and disconnect
+                            // always compute the identical feed sink name.
+                            let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
+                            let feed_name = pactl::ensure_feed_sink_for_mix_pair(system_name, id, node_label)?;
+                            pactl::move_stream_to_sink_name(graph, id, &feed_name)?;
+                            pactl::set_sink_volume_by_name(&feed_name, 100)?;
+                            pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
+                        } else {
+                            pactl::move_stream_to_sink_name(graph, id, system_name)
+                        }
+                    } else {
+                        Err(BackendError::Message(format!("relink peer not found: {id}")))
+                    }
+                }
+                // Disconnecting a stream's route is a graph-model concept
+                // (forget the desired route), not a forced move — same
+                // semantics as `clear_stream_target` elsewhere, *unless*
+                // it's a Mixer input, whose stream feed sink is this node's
+                // own object to tear down (mirrors the device-source case).
+                None => {
+                    let Some(node) = node else {
+                        return Ok(());
+                    };
+                    let Some(previous_id) =
+                        node.inputs.iter().find(|port| port.index == port_index).and_then(|port| port.connected_id.as_deref())
+                    else {
+                        return Ok(());
+                    };
+                    if let Some((peer_system_name, _)) = resolve_sink_like(previous_id) {
+                        if is_mixer {
+                            pactl::remove_feed_sink_for_mix_pair(system_name, &peer_system_name)
+                        } else {
+                            pw_link::disconnect_sink_monitor_route(&peer_system_name, system_name)
+                        }
+                    } else if is_mixer {
+                        pactl::remove_feed_sink_for_mix_pair(system_name, previous_id)
+                    } else {
+                        Ok(())
+                    }
+                }
+            },
+            PortDirection::Output => {
+                // A node's *processed* output leaves via `effect_output.*`
+                // once live DSP is loaded (Eq5Band); falls back to the
+                // node's own sink monitor otherwise — same source-resolution
+                // rule `split_sink::effective_fan_out_source` already
+                // applies to a Device, generalized here since it only ever
+                // needed a system_name in the first place.
+                let link_source = split_sink::effective_fan_out_source(system_name);
+                match peer_id {
+                    Some(id) => {
+                        let (target_system_name, target_is_virtual_source) = resolve_sink_like(id)
+                            .ok_or_else(|| BackendError::Message(format!("relink target not found: {id}")))?;
+                        pw_link::link_sink_monitor_to_target(&link_source, &target_system_name, target_is_virtual_source)
+                    }
+                    None => {
+                        let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
+                            return Ok(());
+                        };
+                        let Some(previous_id) = node
+                            .outputs
+                            .iter()
+                            .find(|port| port.index == port_index)
+                            .and_then(|port| port.connected_id.as_deref())
+                        else {
+                            return Ok(());
+                        };
+                        match resolve_sink_like(previous_id) {
+                            Some((target_system_name, _)) => {
+                                pw_link::disconnect_sink_monitor_route(&link_source, &target_system_name)
+                            }
+                            None => Ok(()),
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn set_processing_node_input_gain(
+        &self,
+        system_name: &str,
+        peer_system_name: &str,
+        gain_percent: u8,
+        muted: bool,
+    ) -> Result<(), BackendError> {
+        let feed_name = pactl::feed_sink_name_for_mix_pair(system_name, peer_system_name);
+        pactl::set_sink_volume_by_name(&feed_name, gain_percent)?;
+        pactl::set_sink_mute_by_name(&feed_name, muted)
+    }
+
+    fn set_processing_node_volume(&self, system_name: &str, volume_percent: u8, muted: bool) -> Result<(), BackendError> {
+        pactl::set_sink_volume_by_name(system_name, volume_percent)?;
+        pactl::set_sink_mute_by_name(system_name, muted)
+    }
+
+    fn set_processing_node_eq_params(
+        &self,
+        system_name: &str,
+        eq_sub: i32,
+        eq_bass: i32,
+        eq_mid: i32,
+        eq_treble: i32,
+        eq_air: i32,
+        output_gain: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".into(),
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            }],
+            bypassed,
+            ..Default::default()
+        };
+        let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+        let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+        if !preflight.ok {
+            return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+        }
+        let Some(pw_node_id) = crate::pipewire::pw_cli::find_node_id_by_name(system_name)? else {
+            return Err(BackendError::Message("live EQ isn't loaded yet for this node".into()));
+        };
+        crate::pipewire::pw_cli::set_params(pw_node_id, &crate::pipewire::fx_validate::live_params(&config))?;
+
+        // The forced known-good volume/mute in `load_processing_node`'s
+        // Eq5Band arm only ever runs once, at initial creation — if the
+        // chain gets reloaded, or the sink's volume/mute otherwise drifts
+        // between then and now, nothing else re-asserts it. Re-forcing it on
+        // every successful live-params push (not just creation) keeps the
+        // node audible without depending on that one-time guard alone.
+        let _ = pactl::set_sink_volume_by_name(system_name, 100);
+        let _ = pactl::set_sink_mute_by_name(system_name, false);
+        Ok(())
     }
 }
 

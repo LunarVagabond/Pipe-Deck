@@ -6,6 +6,26 @@ use crate::core::stream_identity::{identity_matches, stream_identity_key};
 use crate::backend::AudioBackend;
 use std::collections::HashSet;
 
+/// Resolves a `current_target` id to the system_name of whatever it points
+/// at — a plain `Device`, or (PD-032) a processing node such as a Mixer's
+/// own feed sink. Both manual-override detection functions below need this,
+/// not just a device lookup — without the processing-node fallback, a
+/// stream currently routed into a Mixer's feed sink never registers as
+/// overridden (its `current_target` resolves to the Mixer's id, which isn't
+/// in `graph.devices`), so the routing-rules reconciler treats it as
+/// unrouted and keeps reasserting whatever rule used to apply before it was
+/// manually wired into the Mixer.
+fn resolve_target_system_name<'a>(graph: &'a RuntimeGraph, target_id: &str) -> Option<&'a str> {
+    if let Some(device) = graph.devices.iter().find(|device| device.id == target_id) {
+        return Some(&device.system_name);
+    }
+    graph
+        .processing_nodes
+        .iter()
+        .find(|node| node.id == target_id)
+        .map(|node| node.system_name.as_str())
+}
+
 pub fn should_track_manual_override(
     stream: &Stream,
     target_system_name: &str,
@@ -33,17 +53,13 @@ pub fn detect_external_manual_overrides(
         let Some(current_target_id) = &stream.current_target else {
             continue;
         };
-        let Some(device) = graph
-            .devices
-            .iter()
-            .find(|device| device.id == *current_target_id)
-        else {
+        let Some(target_system_name) = resolve_target_system_name(graph, current_target_id) else {
             continue;
         };
 
         if should_track_manual_override(
             stream,
-            &device.system_name,
+            target_system_name,
             authored_rules,
             persisted_rules,
         ) {
@@ -122,16 +138,12 @@ pub fn reconcile_manual_overrides(
             let Some(current_target_id) = &stream.current_target else {
                 return false;
             };
-            let Some(device) = graph
-                .devices
-                .iter()
-                .find(|device| device.id == *current_target_id)
-            else {
+            let Some(target_system_name) = resolve_target_system_name(graph, current_target_id) else {
                 return false;
             };
             !should_track_manual_override(
                 stream,
-                &device.system_name,
+                target_system_name,
                 authored_rules,
                 persisted_rules,
             )

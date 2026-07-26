@@ -5,6 +5,7 @@ pub mod effects;
 pub mod graph;
 pub mod mixer;
 pub mod plugins;
+pub mod processing_node;
 pub mod profile;
 pub mod routing;
 pub mod rules;

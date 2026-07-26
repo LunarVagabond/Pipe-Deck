@@ -101,6 +101,138 @@ impl MixSource {
     }
 }
 
+/// A first-class routable processing node — Mixer, Fan-out, or a single
+/// effect DSP stage (PD-032). Distinct from `Device`/`Stream`: it has
+/// explicit, independently-addressable input/output ports rather than at
+/// most one implicit stream of audio in and out, which is exactly the
+/// property `Device` has no field for.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessingNode {
+    pub id: String,
+    pub label: String,
+    pub kind: ProcessingNodeKind,
+    /// Stable PipeWire node name, `pipe-deck-proc-{kind}-{slug}` (PD-032) —
+    /// deliberately a sibling prefix to `pipe-deck-feed-`/`pipe-deck-split-`,
+    /// never one of those two, so `filter_chain::is_pipe_deck_device`
+    /// recognizes it with no code change, while `pactl::list_pipe_deck_modules`/
+    /// `VirtualDeviceRegistry::discover_from_pactl` explicitly exclude it so
+    /// it never gets merged into `RuntimeGraph.devices`.
+    pub system_name: String,
+    #[serde(default)]
+    pub bypassed: bool,
+    /// Whether a real PipeWire object currently backs this node — the same
+    /// PD-017-style live-vs-persisted-only signal as `EffectChainConfig::live`.
+    /// Always `false` for `Stub` kinds, which are never backed by a PipeWire
+    /// object at all (see `ProcessingNodeKind::Stub`).
+    #[serde(default)]
+    pub live: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub inputs: Vec<ProcessingNodePort>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub outputs: Vec<ProcessingNodePort>,
+}
+
+/// One addressable input or output port on a `ProcessingNode`. `index` is
+/// the stable address a kind's own per-port config (e.g. `Mixer`'s
+/// `input_gains_percent`) is keyed by — never re-derived from position in
+/// `inputs`/`outputs`, so reordering ports never silently reassigns a gain
+/// to a different physical port.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessingNodePort {
+    pub index: u32,
+    /// Device id or stream id currently wired to this port, if any.
+    /// Denormalized convenience mirroring `Device.current_target`;
+    /// `RuntimeGraph.links` is the source of truth, not this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connected_id: Option<String>,
+}
+
+/// Disambiguates a `ProcessingNode`'s `inputs` list from its `outputs` list
+/// when addressing a port purely by `(system_name, index)` — needed because
+/// a node's input port 0 and output port 0 are different physical ports.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PortDirection {
+    Input,
+    Output,
+}
+
+/// What a `ProcessingNode` does, and its kind-specific config. One variant
+/// per kind, not one bespoke struct per kind, so `ProcessingNode` itself
+/// stays uniform across Mixer/Fan-out/EQ/stub (PD-032).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind")]
+pub enum ProcessingNodeKind {
+    #[serde(rename = "mixer")]
+    Mixer {
+        /// Per-input gain, indexed by `ProcessingNodePort.index`. This is
+        /// the single durable shaping point PD-032 relies on to avoid
+        /// reproducing #105's per-connection feed-sink mistake: it lives
+        /// once, on the node, and is never re-synthesized per edge.
+        input_gains_percent: Vec<u8>,
+    },
+    #[serde(rename = "fan_out")]
+    FanOut {
+        /// Plain output volume on the node's own backing sink — unlike
+        /// Mixer's per-input `gain`, this isn't a shaping control (Fan-Out
+        /// has no DSP), so it's named and modeled the same as a device's
+        /// `volume_percent`/`muted`, not gain.
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
+    #[serde(rename = "eq5band")]
+    Eq5Band {
+        #[serde(default)]
+        eq_sub: i32,
+        #[serde(default, alias = "eq_low")]
+        eq_bass: i32,
+        #[serde(default)]
+        eq_mid: i32,
+        #[serde(default)]
+        eq_treble: i32,
+        #[serde(default, alias = "eq_high")]
+        eq_air: i32,
+        #[serde(default)]
+        output_gain: i32,
+    },
+    /// One of issue #293's eleven non-DSP effect kinds — addable to the
+    /// graph and wired like any other node, but a pure pass-through: never
+    /// backed by a PipeWire object (`ProcessingNode::live` is always
+    /// `false` here), rendered with a visible "Not implemented yet" label.
+    #[serde(rename = "stub")]
+    Stub { stub_kind: StubEffectKind },
+}
+
+impl ProcessingNodeKind {
+    pub fn kind_str(&self) -> &'static str {
+        match self {
+            ProcessingNodeKind::Mixer { .. } => "mixer",
+            ProcessingNodeKind::FanOut { .. } => "fan_out",
+            ProcessingNodeKind::Eq5Band { .. } => "eq5band",
+            ProcessingNodeKind::Stub { .. } => "stub",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StubEffectKind {
+    Limiter,
+    Compressor,
+    NoiseGate,
+    ReverbDelay,
+    Denoise,
+    DeEsser,
+    AutoGainLeveler,
+    Hpf,
+    StereoWidener,
+    PitchShift,
+    LoudnessNormalizer,
+    Saturation,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Stream {
     pub id: String,
@@ -163,6 +295,11 @@ pub struct RuntimeGraph {
     pub notice: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub recent_stream_identities: Vec<RecentStreamIdentity>,
+    /// Mixer/Fan-out/EQ/stub nodes (PD-032) — a separate top-level
+    /// collection, not folded into `devices`, since these have N
+    /// addressable ports rather than at most one implicit stream in/out.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub processing_nodes: Vec<ProcessingNode>,
 }
 
 fn default_data_source() -> String {
@@ -400,6 +537,94 @@ where
         .collect())
 }
 
+/// Persisted counterpart to `ProcessingNode` (PD-032) — config.yaml storage,
+/// analogous to `VirtualDeviceSpec` for plain virtual devices. Wiring
+/// (`input_sources`/`output_targets`) is stored directly on the spec, the
+/// same way `VirtualDeviceSpec.mix_sources` already stores a mic-mix's
+/// contributors, rather than through `Profile.routing_intents` — a
+/// processing node's own configuration, like a virtual device's own
+/// existence, isn't something that varies by active profile.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessingNodeSpec {
+    pub id: String,
+    pub slug: String,
+    pub label: String,
+    pub created_at: String,
+    pub kind: ProcessingNodeSpecKind,
+    /// System names feeding this node's input port(s), addressed by
+    /// position (index 0 == input port 0, etc.) — one entry per occupied
+    /// port. Not every kind uses more than one.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub input_sources: Vec<ProcessingNodePortSpec>,
+    /// System names this node's output port currently feeds (plural since a
+    /// `FanOut` node's single input duplicates out to several).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub output_targets: Vec<String>,
+    /// Keeps the node wired exactly as-is but passes audio through
+    /// unprocessed — same "isolate this one out without touching
+    /// connections" meaning as `EffectChainConfig::bypassed` for a
+    /// device-attached effect. Only `Eq5Band` currently enforces this (it
+    /// reuses that same neutral-live-params mechanism); persisted for every
+    /// kind so the flag round-trips once a real-DSP stub kind picks it up
+    /// too, but Mixer/FanOut/Stub have no backend behavior change yet —
+    /// there's no "unprocessed" state for a node that doesn't itself
+    /// shape the signal beyond routing/summing it.
+    #[serde(default)]
+    pub bypassed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ProcessingNodePortSpec {
+    pub source_system_name: String,
+    /// Only meaningful for `Mixer` — other kinds ignore this and leave it at
+    /// the default.
+    #[serde(default = "default_mix_volume")]
+    pub gain_percent: u8,
+    #[serde(default)]
+    pub muted: bool,
+}
+
+impl ProcessingNodePortSpec {
+    pub fn unity(source_system_name: impl Into<String>) -> Self {
+        Self {
+            source_system_name: source_system_name.into(),
+            gain_percent: default_mix_volume(),
+            muted: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind")]
+pub enum ProcessingNodeSpecKind {
+    #[serde(rename = "mixer")]
+    Mixer,
+    #[serde(rename = "fan_out")]
+    FanOut {
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
+    #[serde(rename = "eq5band")]
+    Eq5Band {
+        #[serde(default)]
+        eq_sub: i32,
+        #[serde(default, alias = "eq_low")]
+        eq_bass: i32,
+        #[serde(default)]
+        eq_mid: i32,
+        #[serde(default)]
+        eq_treble: i32,
+        #[serde(default, alias = "eq_high")]
+        eq_air: i32,
+        #[serde(default)]
+        output_gain: i32,
+    },
+    #[serde(rename = "stub")]
+    Stub { stub_kind: StubEffectKind },
+}
+
 fn default_config_version() -> u32 {
     1
 }
@@ -420,6 +645,12 @@ pub struct AppConfig {
     pub rules: Vec<Rule>,
     #[serde(default)]
     pub virtual_devices: Vec<VirtualDeviceSpec>,
+    /// Mixer/Fan-out/EQ/stub nodes (PD-032). Migrated from legacy
+    /// `VirtualDeviceSpec.mix_sources` by
+    /// `config::store::migrate_mix_sources_to_mixer_nodes`, called from
+    /// `ConfigStore::load_config`.
+    #[serde(default)]
+    pub processing_nodes: Vec<ProcessingNodeSpec>,
     #[serde(default)]
     pub plugins: std::collections::HashMap<String, PluginEntry>,
 }

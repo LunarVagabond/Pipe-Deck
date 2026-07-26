@@ -46,7 +46,7 @@ pipe-deck plugins list
 
 ## First-party plugins
 
-`pipe-deck-effects` ships bundled and demonstrates the full v1 contract. Community plugins follow the same manifest format. Its Settings toggle is always-on and non-interactive (#209) — effects are a native, always-available node attachment (see "Effects as Attachments" in [UI Spec](../specs/UI_Spec.md)), not something this plugin's enabled state gates.
+`pipe-deck-effects` ships bundled and demonstrates the full v1 contract. Community plugins follow the same manifest format. Its Settings toggle is always-on and non-interactive (#209) — effects are a native, always-available capability (both the legacy per-device attachment mechanism and, per PD-032, dedicated processing nodes — see "Processing Nodes" in [UI Spec](../specs/UI_Spec.md)), not something this plugin's enabled state gates.
 
 ## Review
 

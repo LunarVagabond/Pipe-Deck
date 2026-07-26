@@ -841,7 +841,9 @@ mod live_tests {
     /// but for a virtual **input** (mic) device — confirms the capture-
     /// direction template actually swaps in, that the device still reports
     /// as `Audio/Source/Virtual` (not silently reverted to a plain sink),
-    /// and that its mic-mix feed survives both the apply and the removal.
+    /// and that its Mixer Node feed (PD-032's replacement for the old
+    /// mic-mix mechanism this test used to set up directly) survives both
+    /// the apply and the removal.
     #[test]
     #[ignore]
     fn apply_effect_chain_structural_round_trips_on_a_virtual_input() {
@@ -857,20 +859,36 @@ mod live_tests {
             .create_virtual_output("Pipe Deck Live Input Test Source")
             .expect("create disposable test mix source");
 
-        let cleanup = |engine: &mut CoreEngine| {
+        let cleanup = |engine: &mut CoreEngine, mixer_id: Option<&str>| {
+            if let Some(id) = mixer_id {
+                let _ = engine.remove_processing_node(id);
+            }
             let _ = engine.remove_virtual_device(&mic.system_name);
             let _ = engine.remove_virtual_device(&source.system_name);
         };
 
         let device_id = mic.device_id.clone();
-        let mix_sources = vec![crate::core::models::MixSource {
-            device_id: source.device_id.clone(),
-            volume_percent: 100,
-            muted: false,
-        }];
-        if let Err(error) = engine.set_virtual_mic_mix(&device_id, &mix_sources) {
-            cleanup(&mut engine);
-            panic!("failed to set up mic mix before testing effects: {error}");
+        let mixer = match engine.create_processing_node(
+            "Pipe Deck Live Input Test Mixer",
+            crate::core::models::ProcessingNodeSpecKind::Mixer,
+        ) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("failed to create mixer node before testing effects: {error}");
+            }
+        };
+        if let Err(error) =
+            engine.connect_processing_node_port(&mixer.id, crate::core::models::PortDirection::Input, &source.device_id)
+        {
+            cleanup(&mut engine, Some(&mixer.id));
+            panic!("failed to connect mixer input before testing effects: {error}");
+        }
+        if let Err(error) =
+            engine.connect_processing_node_port(&mixer.id, crate::core::models::PortDirection::Output, &device_id)
+        {
+            cleanup(&mut engine, Some(&mixer.id));
+            panic!("failed to connect mixer output before testing effects: {error}");
         }
 
         let config = EffectChainConfig {
@@ -888,35 +906,35 @@ mod live_tests {
 
         let apply_result = engine.apply_effect_chain_structural(&device_id, &config);
         if let Err(error) = &apply_result {
-            cleanup(&mut engine);
+            cleanup(&mut engine, Some(&mixer.id));
             panic!("structural apply failed: {error}");
         }
 
         let source_live = pactl::source_exists(&mic.system_name).unwrap_or(false);
         if !source_live {
-            cleanup(&mut engine);
+            cleanup(&mut engine, Some(&mixer.id));
             panic!("effects source did not appear as Audio/Source/Virtual after structural apply");
         }
 
         let feeders_after_apply = pw_link::list_capture_sources_for_sink(&filter_chain::effect_input_name_for_device(
             &mic.system_name,
         ));
-        if !feeders_after_apply.iter().any(|name| name == &source.system_name) {
-            cleanup(&mut engine);
-            panic!("mic-mix feed did not survive the structural apply: {feeders_after_apply:?}");
+        if !feeders_after_apply.iter().any(|name| name == &mixer.system_name) {
+            cleanup(&mut engine, Some(&mixer.id));
+            panic!("mixer feed did not survive the structural apply: {feeders_after_apply:?}");
         }
 
         let remove_result = engine.remove_effect_chain_structural(&device_id);
         if let Err(error) = &remove_result {
-            cleanup(&mut engine);
+            cleanup(&mut engine, Some(&mixer.id));
             panic!("remove_effect_chain_structural failed: {error}");
         }
 
         let feeders_after_remove = pw_link::list_capture_sources_for_virtual_input(&mic.system_name);
-        cleanup(&mut engine);
+        cleanup(&mut engine, Some(&mixer.id));
         assert!(
-            feeders_after_remove.iter().any(|name| name == &source.system_name),
-            "mic-mix feed did not survive removal: {feeders_after_remove:?}"
+            feeders_after_remove.iter().any(|name| name == &mixer.system_name),
+            "mixer feed did not survive removal: {feeders_after_remove:?}"
         );
     }
 

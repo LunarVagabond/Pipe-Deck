@@ -1,4 +1,4 @@
-import type { Device, RuntimeGraph, Stream } from "../../types/graph";
+import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
 import {
   deviceColumn,
   deviceSubtitle,
@@ -8,15 +8,15 @@ import {
   streamSubtitle,
 } from "../../utils/routingLayout";
 import { actionStatusLabel, routeWarningLevel } from "../../utils/routeExplanation";
-import { computeDeviceConnections, handlesForDevice, handlesForStream } from "./nodePorts";
+import { computeDeviceConnections, handlesForDevice, handlesForProcessingNode, handlesForStream } from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
-import { deviceNodeId, streamNodeId } from "./nodeIds";
+import { deviceNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 import type { GraphGroup } from "./groups";
 
 export type { RoutingGraphHandle };
 
-export type RoutingNodeKind = "stream" | "captureStream" | "virtualSink" | "output" | "input";
+export type RoutingNodeKind = "stream" | "captureStream" | "virtualSink" | "output" | "input" | "processingNode";
 
 export interface RoutingGraphNodeData {
   label: string;
@@ -42,6 +42,14 @@ export interface RoutingGraphNodeData {
    * blocked route otherwise leaves no edge and no other on-graph trace. */
   routeWarning?: "blocked" | "unavailable";
   routeWarningTitle?: string;
+  /** Set only for `nodeKind: "processingNode"` — which Mixer/Fan-out/EQ/stub
+   * kind this is (PD-032), so the node body can render kind-specific
+   * controls (per-input gain rows, a "Not implemented yet" badge, ...). */
+  processingNodeKind?: ProcessingNode["kind"];
+  /** Keeps the node wired exactly as-is but passes audio through
+   * unprocessed — set only for `nodeKind: "processingNode"`. Only Eq5Band
+   * currently enforces this backend-side. */
+  processingNodeBypassed?: boolean;
 }
 
 export interface RoutingGraphGroupData {
@@ -89,6 +97,7 @@ const LAYOUT_KEY = "pipe-deck-routing-layout";
 // forward-reading instead, without moving or removing any input-lane device.
 const LANE_X: Record<RoutingNodeKind, number> = {
   stream: 40,
+  processingNode: 190,
   virtualSink: 340,
   output: 640,
   input: 940,
@@ -145,7 +154,7 @@ function positionFor(
   return position;
 }
 
-export { deviceNodeId, parseGraphNodeId, streamNodeId } from "./nodeIds";
+export { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 
 function streamNodeKind(stream: Stream): RoutingGraphNodeData {
   const playback = stream.direction === "playback";
@@ -230,6 +239,38 @@ function deviceNodeKind(
   };
 }
 
+const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> = {
+  mixer: "Mixer",
+  fan_out: "Fan-Out",
+  eq5band: "5-Band EQ",
+  stub: "Not implemented yet",
+};
+
+function processingNodeNodeKind(node: ProcessingNode): RoutingGraphNodeData {
+  return {
+    label: node.label,
+    subtitle: PROCESSING_NODE_SUBTITLE[node.kind.kind],
+    nodeKind: "processingNode",
+    entityId: node.id,
+    handles: handlesForProcessingNode(node),
+    nodeClass: `processing-node processing-node--${node.kind.kind}`,
+    systemName: node.system_name,
+    // Rename isn't wired up for processing nodes yet — `set_device_alias`
+    // writes into a generic system_name-keyed alias map that
+    // `processing_node_from_spec` doesn't read from, so a rename would
+    // silently appear to succeed without changing anything. Left
+    // non-editable until that's built rather than shipping a broken affordance.
+    editable: false,
+    deletable: true,
+    // Processing nodes are never volume/mute-shaped devices — no
+    // `channelType`, so `RoutingGraphNode.vue` renders neither the pinned
+    // volume row nor the effects-attachment body for them.
+    supportsEffects: false,
+    processingNodeKind: node.kind,
+    processingNodeBypassed: node.bypassed,
+  };
+}
+
 function slotIndexForY(y: number): number {
   return Math.round((y - LANE_Y_OFFSET) / LANE_ROW_HEIGHT);
 }
@@ -248,6 +289,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   for (const device of graph.devices) {
     if (deviceColumn(device)) liveNodeIds.add(deviceNodeId(device.id));
   }
+  for (const node of graph.processing_nodes ?? []) liveNodeIds.add(processingNodeNodeId(node.id));
   for (const group of groups) liveNodeIds.add(group.id);
 
   let layoutChanged = false;
@@ -260,6 +302,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
 
   const occupiedSlots: Record<RoutingNodeKind, Set<number>> = {
     stream: new Set(),
+    processingNode: new Set(),
     virtualSink: new Set(),
     output: new Set(),
     input: new Set(),
@@ -269,6 +312,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   // auto-placed) so a brand new node can't be handed a slot that collides with one.
   for (const position of Object.values(layout)) {
     if (position.x === LANE_X.stream) occupiedSlots.stream.add(slotIndexForY(position.y));
+    else if (position.x === LANE_X.processingNode) occupiedSlots.processingNode.add(slotIndexForY(position.y));
     else if (position.x === LANE_X.virtualSink) occupiedSlots.virtualSink.add(slotIndexForY(position.y));
     else if (position.x === LANE_X.output) occupiedSlots.output.add(slotIndexForY(position.y));
     else if (position.x === LANE_X.input) occupiedSlots.input.add(slotIndexForY(position.y));
@@ -338,6 +382,18 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     const data = deviceNodeKind(device, deviceConnections.get(device.id) ?? { in: [], out: [] });
     if (!data) continue;
     const id = deviceNodeId(device.id);
+    nodes.push({
+      id,
+      type: "routingNode",
+      ...withGroup(id, trackedPositionFor(id, data.nodeKind)),
+      data,
+    });
+  }
+
+  const sortedProcessingNodes = [...(graph.processing_nodes ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+  for (const node of sortedProcessingNodes) {
+    const data = processingNodeNodeKind(node);
+    const id = processingNodeNodeId(node.id);
     nodes.push({
       id,
       type: "routingNode",

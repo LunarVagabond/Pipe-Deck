@@ -33,6 +33,27 @@ pub fn resolve_playback_target_device_id(
     }
 
     let slug = sink_system_name.strip_prefix("pipe-deck-feed-")?;
+
+    // A Mixer processing node's own per-input feed sink (PD-032 generalizes
+    // the mix-pair mechanism beyond virtual-input devices) — checked before
+    // the virtual-input device fallback below, since a Mixer's system_name
+    // (`pipe-deck-proc-mixer-{slug}`) can't be reconstructed by that
+    // fallback's flat `pipe-deck-{slug}` assumption. Without this, a stream
+    // moved into a Mixer's feed sink never resolves `current_target` back to
+    // the Mixer at all — it looks unrouted to every downstream consumer
+    // (manual-override detection, the routing-rules reconciler), so a saved
+    // rule keeps reasserting the stream's old target and silently moves it
+    // right back out of the Mixer's gain-controlled feed sink.
+    if let Some(node) = graph.processing_nodes.iter().find(|node| {
+        matches!(node.kind, crate::core::models::ProcessingNodeKind::Mixer { .. })
+            && slug.starts_with(&format!(
+                "{}-",
+                node.system_name.strip_prefix("pipe-deck-").unwrap_or(&node.system_name)
+            ))
+    }) {
+        return Some(node.id.clone());
+    }
+
     let virtual_input_name = format!("pipe-deck-{slug}");
     graph
         .devices

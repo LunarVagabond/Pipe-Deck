@@ -65,7 +65,16 @@ pub(super) fn apply_graph_routing(graph: &mut RuntimeGraph, ctx: &ApplyRulesCont
 }
 
 fn gc_feed_sinks(graph: &RuntimeGraph) {
-    let known_virtual_inputs: HashSet<String> = graph
+    // A per-pair mix-source feed sink (`pipe-deck-feed-{owner}-{source}`) can
+    // now be owned by either a virtual-mic `Device` (the original mechanism)
+    // or a Mixer processing node (PD-032, which generalizes it) — both need
+    // to be in this set, or `pactl::gc_feed_sinks`'s `is_per_pair_mix_feed_sink`
+    // guard won't recognize the Mixer's feed sinks as legitimately owned and
+    // will tear them straight back down on the very next refresh (caught by
+    // `mixer_node_round_trips_on_a_real_pipewire_session` — the exact
+    // "existing call site doesn't know about the new owner" failure mode
+    // PD-032 exists to guard against, not hypothetical).
+    let known_virtual_inputs = graph
         .devices
         .iter()
         .filter(|device| {
@@ -73,10 +82,16 @@ fn gc_feed_sinks(graph: &RuntimeGraph) {
                 && device.kind == DeviceKind::Virtual
                 && device.system_name.starts_with("pipe-deck-")
         })
-        .map(|device| device.system_name.clone())
-        .collect();
+        .map(|device| device.system_name.clone());
+    let known_mixer_nodes = graph
+        .processing_nodes
+        .iter()
+        .filter(|node| matches!(node.kind, crate::core::models::ProcessingNodeKind::Mixer { .. }))
+        .map(|node| node.system_name.clone());
 
-    let _ = pactl::gc_feed_sinks(&known_virtual_inputs);
+    let known_feed_owners: HashSet<String> = known_virtual_inputs.chain(known_mixer_nodes).collect();
+
+    let _ = pactl::gc_feed_sinks(&known_feed_owners);
 }
 
 pub fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {

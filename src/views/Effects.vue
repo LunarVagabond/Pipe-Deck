@@ -99,6 +99,11 @@ watch(
       it applies immediately, no separate enable step. This page is the same effect chains as a flat
       list, useful when you'd rather not hunt across the graph.
     </p>
+    <p class="effects-help">
+      This covers effects attached directly to an existing device. Mixer, Fan-out, and 5-Band EQ are
+      also available as dedicated processing nodes you drag into the Routing graph — right-click the
+      canvas and choose "Add node" to add one.
+    </p>
 
     <p v-if="isMockData" class="notice-banner mock">
       {{ graph.notice ?? "Showing sample data (PIPE_DECK_USE_MOCK=1)." }}

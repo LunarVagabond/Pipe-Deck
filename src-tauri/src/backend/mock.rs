@@ -1,6 +1,7 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, RuntimeGraph, SinkMode,
-    Stream, StreamDirection, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
+    Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, PortDirection,
+    ProcessingNode, ProcessingNodeKind, RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo,
+    VirtualDeviceResult, VirtualRole,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -22,6 +23,10 @@ pub struct MockAudioBackend {
     /// mutations persist across a `fetch_graph()` the way a real backend's
     /// live state would.
     loaded_effect_chains: Mutex<HashSet<String>>,
+    /// Same reasoning as `loaded_effect_chains`, for processing nodes
+    /// (PD-032) — tracked so `is_processing_node_loaded` reflects real
+    /// load/unload calls instead of always answering `false`.
+    loaded_processing_nodes: Mutex<HashSet<String>>,
 }
 
 impl Default for MockAudioBackend {
@@ -35,6 +40,7 @@ impl MockAudioBackend {
         Self {
             graph: Mutex::new(Self::sample_graph()),
             loaded_effect_chains: Mutex::new(HashSet::new()),
+            loaded_processing_nodes: Mutex::new(HashSet::new()),
         }
     }
 
@@ -724,6 +730,185 @@ impl AudioBackend for MockAudioBackend {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .contains(device_system_name)
+    }
+
+    fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
+        self.loaded_processing_nodes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(node.system_name.clone());
+        // Mock has no config-backed merge step the way the real Linux
+        // backend does (`processing_node_ops::merge_processing_nodes`) — its
+        // own graph *is* the source of truth, so existence lives here
+        // directly, the same way `push_virtual_device` is how a mock device
+        // comes to exist at all.
+        let mut graph = self.lock();
+        if let Some(existing) = graph.processing_nodes.iter_mut().find(|existing| existing.system_name == node.system_name) {
+            *existing = node.clone();
+        } else {
+            graph.processing_nodes.push(node.clone());
+        }
+        Ok(())
+    }
+
+    fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        self.loaded_processing_nodes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .remove(system_name);
+        self.lock().processing_nodes.retain(|node| node.system_name != system_name);
+        Ok(())
+    }
+
+    fn is_processing_node_loaded(&self, system_name: &str) -> bool {
+        self.loaded_processing_nodes
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains(system_name)
+    }
+
+    fn relink_processing_node_port(
+        &self,
+        _graph: &RuntimeGraph,
+        system_name: &str,
+        port_index: u32,
+        direction: PortDirection,
+        peer_id: Option<&str>,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        let ports = match direction {
+            PortDirection::Input => &mut node.inputs,
+            PortDirection::Output => &mut node.outputs,
+        };
+        // Tracks what actually happened to the port list so a Mixer's
+        // per-input gain array (a second, parallel `Vec` on `node.kind`, not
+        // part of `ProcessingNodePort` itself) can be kept in exact lockstep
+        // — grown/removed at the *same* index, not just resized to the same
+        // final length, which would silently shift every later input's gain
+        // down by one instead of dropping the disconnected one specifically.
+        enum PortEdit {
+            Grew,
+            RemovedAt(usize),
+            Unchanged,
+        }
+        let edit = match peer_id {
+            Some(peer) => match ports.iter_mut().find(|port| port.index == port_index) {
+                Some(port) => {
+                    port.connected_id = Some(peer.to_string());
+                    PortEdit::Unchanged
+                }
+                // A fresh port one past the current end — this is how a
+                // Mixer's inputs / Fan-out's outputs grow with each
+                // connection (see `CoreEngine::connect_processing_node_port`).
+                None => {
+                    ports.push(crate::core::models::ProcessingNodePort {
+                        index: port_index,
+                        connected_id: Some(peer.to_string()),
+                    });
+                    PortEdit::Grew
+                }
+            },
+            // Disconnect removes the port entirely and re-indexes what's
+            // left, rather than leaving a hole — matches how the real
+            // backend's persisted `output_targets`/`input_sources` (plain
+            // `Vec`s, re-derived by position on every merge) behave.
+            None => match ports.iter().position(|port| port.index == port_index) {
+                Some(position) => {
+                    ports.remove(position);
+                    for port in ports.iter_mut() {
+                        if port.index > port_index {
+                            port.index -= 1;
+                        }
+                    }
+                    PortEdit::RemovedAt(position)
+                }
+                None => PortEdit::Unchanged,
+            },
+        };
+        if direction == PortDirection::Input {
+            if let ProcessingNodeKind::Mixer { input_gains_percent } = &mut node.kind {
+                match edit {
+                    PortEdit::Grew => input_gains_percent.push(100),
+                    PortEdit::RemovedAt(position) => {
+                        if position < input_gains_percent.len() {
+                            input_gains_percent.remove(position);
+                        }
+                    }
+                    PortEdit::Unchanged => {}
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn set_processing_node_input_gain(
+        &self,
+        system_name: &str,
+        peer_system_name: &str,
+        gain_percent: u8,
+        _muted: bool,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        // `ProcessingNodePort.connected_id` holds a device/stream *id*, not a
+        // system name — resolve the other way round first, same as the real
+        // Linux backend receives a device/stream id from the engine and
+        // resolves it against `graph` itself.
+        let peer_id = graph
+            .devices
+            .iter()
+            .find(|device| device.system_name == peer_system_name)
+            .map(|device| device.id.clone());
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        let Some(port_index) = peer_id
+            .and_then(|id| node.inputs.iter().find(|port| port.connected_id.as_deref() == Some(id.as_str())).map(|port| port.index))
+            .map(|index| index as usize)
+        else {
+            return Err(BackendError::Message(format!("input not connected: {peer_system_name}")));
+        };
+        if let ProcessingNodeKind::Mixer { input_gains_percent } = &mut node.kind {
+            if let Some(slot) = input_gains_percent.get_mut(port_index) {
+                *slot = gain_percent;
+            }
+        }
+        Ok(())
+    }
+
+    fn set_processing_node_volume(&self, system_name: &str, volume_percent: u8, muted: bool) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::FanOut { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::FanOut { volume_percent, muted };
+        }
+        Ok(())
+    }
+
+    fn set_processing_node_eq_params(
+        &self,
+        system_name: &str,
+        eq_sub: i32,
+        eq_bass: i32,
+        eq_mid: i32,
+        eq_treble: i32,
+        eq_air: i32,
+        output_gain: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::Eq5Band { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
+        }
+        node.bypassed = bypassed;
+        Ok(())
     }
 
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {

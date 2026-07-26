@@ -95,6 +95,74 @@ export interface RecentStreamIdentity {
   is_live?: boolean;
 }
 
+/** One addressable input/output port on a `ProcessingNode`. `index` is the
+ * stable address a kind's own per-port config (e.g. Mixer's per-input gain)
+ * is keyed by — never re-derived from array position. */
+export interface ProcessingNodePort {
+  index: number;
+  connected_id?: string;
+}
+
+/** issue #293's eleven non-DSP effect kinds — addable to the graph, wired
+ * like any other node, pure pass-through (never backed by a PipeWire
+ * object), rendered with a visible "Not implemented yet" label. */
+export type StubEffectKind =
+  | "limiter"
+  | "compressor"
+  | "noise_gate"
+  | "reverb_delay"
+  | "denoise"
+  | "de_esser"
+  | "auto_gain_leveler"
+  | "hpf"
+  | "stereo_widener"
+  | "pitch_shift"
+  | "loudness_normalizer"
+  | "saturation";
+
+export type ProcessingNodeKind =
+  | {
+      kind: "mixer";
+      /** Per-input gain, indexed by `ProcessingNodePort.index` — see PD-032:
+       * this lives once, on the node, never re-synthesized per edge. */
+      input_gains_percent: number[];
+    }
+  | {
+      kind: "fan_out";
+      /** Plain output volume on the node's own backing sink — not a
+       * shaping gain (Fan-Out has no DSP), same meaning as a device's
+       * volume_percent. */
+      volume_percent: number;
+      muted: boolean;
+    }
+  | {
+      kind: "eq5band";
+      eq_sub: number;
+      eq_bass: number;
+      eq_mid: number;
+      eq_treble: number;
+      eq_air: number;
+      output_gain: number;
+    }
+  | { kind: "stub"; stub_kind: StubEffectKind };
+
+/** A first-class routable processing node — Mixer, Fan-out, or a single
+ * effect DSP stage (PD-032). Distinct from `Device`/`Stream`: has explicit,
+ * independently-addressable input/output ports rather than at most one
+ * implicit stream of audio in and out. */
+export interface ProcessingNode {
+  id: string;
+  label: string;
+  kind: ProcessingNodeKind;
+  system_name: string;
+  bypassed: boolean;
+  /** Whether a real PipeWire object currently backs this node. Always
+   * `false` for `stub` kinds, which are never backed by one. */
+  live: boolean;
+  inputs?: ProcessingNodePort[];
+  outputs?: ProcessingNodePort[];
+}
+
 export interface RuntimeGraph {
   devices: Device[];
   streams: Stream[];
@@ -102,6 +170,7 @@ export interface RuntimeGraph {
   data_source?: string;
   notice?: string;
   recent_stream_identities?: RecentStreamIdentity[];
+  processing_nodes?: ProcessingNode[];
 }
 
 export interface DeviceAliasEntry {
@@ -379,6 +448,41 @@ export interface VirtualDeviceSpec {
   created_at: string;
   multi?: boolean;
   mix_sources?: MixSourceSpec[];
+}
+
+export interface ProcessingNodePortSpec {
+  source_system_name: string;
+  /** Only meaningful for `mixer` — other kinds ignore this. */
+  gain_percent: number;
+  muted: boolean;
+}
+
+export type ProcessingNodeSpecKind =
+  | { kind: "mixer" }
+  | { kind: "fan_out"; volume_percent: number; muted: boolean }
+  | {
+      kind: "eq5band";
+      eq_sub: number;
+      eq_bass: number;
+      eq_mid: number;
+      eq_treble: number;
+      eq_air: number;
+      output_gain: number;
+    }
+  | { kind: "stub"; stub_kind: StubEffectKind };
+
+/** Persisted counterpart to `ProcessingNode` (PD-032) — config.yaml storage,
+ * analogous to `VirtualDeviceSpec`. Wiring lives directly on the spec (like
+ * `VirtualDeviceSpec.mix_sources` already does), not per-profile. */
+export interface ProcessingNodeSpec {
+  id: string;
+  slug: string;
+  label: string;
+  created_at: string;
+  kind: ProcessingNodeSpecKind;
+  input_sources?: ProcessingNodePortSpec[];
+  output_targets?: string[];
+  bypassed?: boolean;
 }
 
 export type AppView =

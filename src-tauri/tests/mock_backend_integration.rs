@@ -12,8 +12,8 @@ use pipe_deck_lib::backend::AudioBackend;
 use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{
-    Device, DeviceDirection, DeviceKind, MixSource, Profile, Rule, RuleAction, RuleCondition,
-    RuntimeGraph, Stream, StreamDirection, VirtualDeviceSpec, VirtualRole,
+    Device, DeviceDirection, DeviceKind, Profile, Rule, RuleAction, RuleCondition, RuntimeGraph, Stream,
+    StreamDirection, VirtualDeviceSpec, VirtualRole,
 };
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -152,6 +152,413 @@ fn virtual_device_create_remove_cycle_leaves_no_residue() {
     }
 }
 
+/// PD-032 Phase 1: bare create/remove round trip for the new `ProcessingNode`
+/// graph model — no real DSP/PipeWire wiring yet, just proving the node
+/// shows up in `RuntimeGraph.processing_nodes` and cleanly disappears again,
+/// the processing-node equivalent of `virtual_device_create_remove_cycle_leaves_no_residue`.
+#[test]
+fn processing_node_create_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Game Mixer", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+    assert_eq!(node.system_name, "pipe-deck-proc-mixer-game-mixer");
+    assert!(matches!(node.kind, ProcessingNodeKind::Mixer { .. }));
+    assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+
+    let result = engine.remove_processing_node(&node.id).expect("remove mixer node");
+    assert!(result.success);
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Stub effect kinds (issue #293's 11 non-DSP kinds) round-trip the same way
+/// as real kinds through the graph model even though — per PD-032 — nothing
+/// ever calls `AudioBackend::load_processing_node`'s PipeWire path for them
+/// in anger; this only proves the create/remove *bookkeeping* is uniform
+/// across kinds, not that Phase 5's pass-through wiring exists yet.
+#[test]
+fn stub_processing_node_round_trips_without_error() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind, StubEffectKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Reverb", ProcessingNodeSpecKind::Stub { stub_kind: StubEffectKind::ReverbDelay })
+        .expect("create stub node");
+    assert!(matches!(node.kind, ProcessingNodeKind::Stub { stub_kind: StubEffectKind::ReverbDelay }));
+    assert!(!node.live);
+
+    engine.remove_processing_node(&node.id).expect("remove stub node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// All 11 non-DSP stub kinds (issue #293) round-trip identically: create,
+/// connect a real input and output, disconnect, remove — pure pass-through
+/// graph bookkeeping, never `live`, and (per a real-backend regression this
+/// caught during phase 5) connect/disconnect must be a true no-op rather
+/// than attempting a `pw-link` against a sink a stub never actually creates.
+#[test]
+fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
+
+    let kinds = [
+        StubEffectKind::Limiter,
+        StubEffectKind::Compressor,
+        StubEffectKind::NoiseGate,
+        StubEffectKind::ReverbDelay,
+        StubEffectKind::Denoise,
+        StubEffectKind::DeEsser,
+        StubEffectKind::AutoGainLeveler,
+        StubEffectKind::Hpf,
+        StubEffectKind::StereoWidener,
+        StubEffectKind::PitchShift,
+        StubEffectKind::LoudnessNormalizer,
+        StubEffectKind::Saturation,
+    ];
+
+    let (mut engine, _guard) = mock_engine();
+    let upstream = engine.create_virtual_output("Stub Upstream").expect("create upstream");
+    let downstream = engine.create_virtual_output("Stub Downstream").expect("create downstream");
+
+    for stub_kind in kinds {
+        let node = engine
+            .create_processing_node(&format!("{stub_kind:?}"), ProcessingNodeSpecKind::Stub { stub_kind })
+            .unwrap_or_else(|error| panic!("create {stub_kind:?} node: {error}"));
+        assert!(!node.live, "{stub_kind:?} should never report live");
+
+        engine
+            .connect_processing_node_port(&node.id, PortDirection::Input, &upstream.device_id)
+            .unwrap_or_else(|error| panic!("connect {stub_kind:?} input: {error}"));
+        engine
+            .connect_processing_node_port(&node.id, PortDirection::Output, &downstream.device_id)
+            .unwrap_or_else(|error| panic!("connect {stub_kind:?} output: {error}"));
+
+        engine
+            .disconnect_processing_node_port(&node.id, PortDirection::Input, 0)
+            .unwrap_or_else(|error| panic!("disconnect {stub_kind:?} input: {error}"));
+
+        engine.remove_processing_node(&node.id).unwrap_or_else(|error| panic!("remove {stub_kind:?}: {error}"));
+    }
+}
+
+/// Processing nodes can chain into each other (Fan-out -> Mixer, and the
+/// reverse) — a peer id can itself be another processing node, not just a
+/// device or stream.
+#[test]
+fn processing_nodes_can_chain_into_each_other() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out");
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let source = engine.create_virtual_output("Source").expect("create source");
+
+    engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source.device_id)
+        .expect("connect source into fan-out");
+    engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &fan_out.id)
+        .expect("chain fan-out into mixer");
+
+    let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    assert_eq!(mixer_after.inputs[0].connected_id.as_deref(), Some(fan_out.id.as_str()));
+
+    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    assert_eq!(fan_out_after.outputs[0].connected_id.as_deref(), Some(mixer.id.as_str()));
+}
+
+/// Regression for a real bug found in manual live-PipeWire testing: chaining
+/// a growable-side node (Fan-out's output) into a peer whose *own*
+/// single-capacity port is already occupied by something else must be
+/// rejected, not silently mirrored as a phantom extra port on the peer.
+/// Before the fix, `mirror_peer_processing_node_port_connect` only ever
+/// checked the calling node's own port capacity — never the peer's — so this
+/// connect would succeed at the primary side while corrupting the peer's own
+/// bookkeeping (Eq5Band claiming two inputs it doesn't have) and leaving the
+/// peer's persisted `input_sources` and live wiring disagreeing about who's
+/// actually connected.
+#[test]
+fn chaining_into_a_peers_already_occupied_single_port_is_rejected() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let eq = engine
+        .create_processing_node(
+            "EQ",
+            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+        )
+        .expect("create eq node");
+    let fan_out = engine
+        .create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .expect("create fan-out");
+    let device = engine.create_virtual_output("Device A").expect("create device a");
+
+    engine
+        .connect_processing_node_port(&eq.id, PortDirection::Input, &device.device_id)
+        .expect("connect device into eq's single input");
+
+    let error = engine
+        .connect_processing_node_port(&fan_out.id, PortDirection::Output, &eq.id)
+        .expect_err("chaining into eq's already-occupied input should be rejected");
+    assert!(error.to_string().contains("only one input"), "{error}");
+
+    // The rejected connect must leave both sides' bookkeeping untouched —
+    // eq still shows exactly one input (the device), fan-out shows no
+    // output connection at all.
+    let eq_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == eq.id).unwrap().clone();
+    assert_eq!(eq_after.inputs.len(), 1);
+    assert_eq!(eq_after.inputs[0].connected_id.as_deref(), Some(device.device_id.as_str()));
+
+    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    assert!(fan_out_after.outputs.is_empty() || fan_out_after.outputs[0].connected_id.is_none());
+}
+
+/// PD-032's "ambiguous relink is rejected, never guessed" rule — the direct
+/// #105 lesson applied to node removal. `apply_graph_update` is used here
+/// (rather than any live connect command, which doesn't exist until later
+/// phases) purely to seed both of a Mixer's input ports as connected.
+#[test]
+fn removing_a_processing_node_with_multiple_connected_inputs_is_rejected() {
+    use pipe_deck_lib::core::models::{ProcessingNodePort, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+
+    let mut graph = engine.runtime_graph().clone();
+    if let Some(n) = graph.processing_nodes.iter_mut().find(|n| n.id == node.id) {
+        n.inputs = vec![
+            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()) },
+            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()) },
+        ];
+    }
+    engine.apply_graph_update(graph);
+
+    let error = engine.remove_processing_node(&node.id).expect_err("ambiguous removal should be rejected");
+    assert!(error.to_string().contains("ambiguous"), "{error}");
+    assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// A Fan-out Node's defining shape: one input, N outputs, each output
+/// growing the port list on connect and shrinking it (dense, re-indexed) on
+/// disconnect — proven here against two virtual outputs as targets.
+#[test]
+fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .expect("create fan-out node");
+    let output_a = engine.create_virtual_output("Fan A").expect("create target a");
+    let output_b = engine.create_virtual_output("Fan B").expect("create target b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
+        .expect("connect output a");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id)
+        .expect("connect output b");
+
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.outputs.len(), 2);
+    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_a.device_id.as_str()));
+    assert_eq!(refreshed.outputs[1].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+
+    engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0).expect("disconnect output a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.outputs.len(), 1);
+    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+}
+
+/// Fan-out/EQ/stub kinds take exactly one input — a second connect attempt
+/// on an already-occupied single input port is rejected outright rather than
+/// silently accepted (nothing downstream a second input would even mean).
+#[test]
+fn single_input_processing_node_rejects_a_second_input_connection() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .expect("create fan-out node");
+    let source_a = engine.create_virtual_output("Source A").expect("create source a");
+    let source_b = engine.create_virtual_output("Source B").expect("create source b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
+        .expect("connect first input");
+    let error = engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
+        .expect_err("second input should be rejected");
+    assert!(error.to_string().contains("only one input"), "{error}");
+}
+
+/// A Mixer's inputs grow but its output doesn't — only Fan-out's output
+/// grows. Regression for a real bug: the original single-port cap only
+/// checked the input side for every kind, so every kind's output side was
+/// silently unlimited (a Mixer/EQ/stub showed a growable, wrong output port).
+#[test]
+fn mixer_node_output_is_capped_at_one_connection() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
+    let target_a = engine.create_virtual_output("Target A").expect("create target a");
+    let target_b = engine.create_virtual_output("Target B").expect("create target b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &target_a.device_id)
+        .expect("connect first output");
+    let error = engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &target_b.device_id)
+        .expect_err("second output should be rejected");
+    assert!(error.to_string().contains("only one output"), "{error}");
+}
+
+/// A Mixer Node's defining shape: N growable inputs, each with its own gain,
+/// summed into a single output — the generalized replacement for mic-mix
+/// (PD-032). Two sources connect, one gets a live gain update, then one
+/// disconnects without disturbing the other's gain or connection.
+#[test]
+fn mixer_node_sums_inputs_with_independent_gain() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+    let source_a = engine.create_virtual_output("Mic A").expect("create source a");
+    let source_b = engine.create_virtual_output("Mic B").expect("create source b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
+        .expect("connect input a");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
+        .expect("connect input b");
+
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.inputs.len(), 2);
+    match &refreshed.kind {
+        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![100, 100]),
+        other => panic!("expected Mixer, got {other:?}"),
+    }
+
+    engine
+        .update_processing_node_input_gain(&node.id, 0, 60, false)
+        .expect("update gain for input a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    match &refreshed.kind {
+        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![60, 100]),
+        other => panic!("expected Mixer, got {other:?}"),
+    }
+
+    engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0).expect("disconnect input a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.inputs.len(), 1);
+    assert_eq!(refreshed.inputs[0].connected_id.as_deref(), Some(source_b.device_id.as_str()));
+    match &refreshed.kind {
+        // Input b's gain (still at unity) survives disconnecting input a and
+        // re-indexing down to slot 0.
+        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![100]),
+        other => panic!("expected Mixer, got {other:?}"),
+    }
+}
+
+#[test]
+fn mixer_node_input_gain_update_rejects_a_disconnected_port() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
+
+    let error = engine
+        .update_processing_node_input_gain(&node.id, 0, 50, false)
+        .expect_err("gain update on a disconnected port should be rejected");
+    assert!(error.to_string().contains("isn't connected"), "{error}");
+}
+
+/// 5-Band EQ Node round-trip (issue #293's one fully-functional effect
+/// kind): create, live-update band gains, remove.
+#[test]
+fn eq5band_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Voice EQ",
+            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+        )
+        .expect("create eq node");
+    assert_eq!(node.system_name, "pipe-deck-proc-eq5band-voice-eq");
+
+    engine
+        .update_processing_node_eq_params(&node.id, 2, 4, 0, -2, 1, 3)
+        .expect("update eq params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Eq5Band { eq_sub: 2, eq_bass: 4, eq_mid: 0, eq_treble: -2, eq_air: 1, output_gain: 3 }
+    );
+
+    engine.remove_processing_node(&node.id).expect("remove eq node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass keeps a node wired exactly as-is (nothing disconnects) while
+/// flagging it as passed-through-unprocessed — same "isolate this one out"
+/// meaning as the existing device-attached effect bypass.
+#[test]
+fn bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node(
+            "Voice EQ",
+            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+        )
+        .expect("create eq node");
+    let source = engine.create_virtual_output("EQ Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn eq_param_update_rejects_a_non_eq_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_eq_params(&node.id, 0, 0, 0, 0, 0, 0)
+        .expect_err("eq update on a non-EQ node should be rejected");
+    assert!(error.to_string().contains("has no EQ params"), "{error}");
+}
+
 #[test]
 fn virtual_output_can_chain_into_another_virtual_output() {
     let (mut engine, _guard) = mock_engine();
@@ -199,40 +606,37 @@ fn create_virtual_output_role_creates_a_distinct_terminal_output() {
 }
 
 #[test]
-fn terminal_output_rejected_as_mic_mix_source() {
-    // #287: a terminal Output is a true dead end — it can't feed a mic mix
-    // any more than it can fan out to another sink; only a Bus qualifies.
+fn terminal_output_rejected_as_mixer_node_input() {
+    // #287: a terminal Output is a true dead end — it can't feed a Mixer
+    // node any more than it could feed the old mic-mix mechanism; only a
+    // Bus qualifies.
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
     let (mut engine, _guard) = mock_engine();
     let terminal = engine
         .create_virtual_output_role("Terminal Source", VirtualRole::Output)
         .expect("create terminal output");
-    let input = engine.create_virtual_input("Mic Mix Target").expect("create input");
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let error = engine
-        .set_virtual_mic_mix(&input.device_id, &[MixSource {
-            device_id: terminal.device_id.clone(),
-            volume_percent: 100,
-            muted: false,
-        }])
-        .expect_err("terminal output must not be a valid mic-mix source");
-    assert!(error.to_string().contains("virtual bus"));
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &terminal.device_id)
+        .expect_err("terminal output must not be a valid mixer input");
+    assert!(error.to_string().contains("terminal output"), "{error}");
 }
 
 #[test]
-fn bus_still_qualifies_as_a_mic_mix_source() {
+fn bus_still_qualifies_as_a_mixer_node_input() {
     // Positive-path regression alongside the rejection test above — a Bus
-    // (today's virtual-output behavior) must still work as a mic-mix source.
+    // (today's virtual-output behavior) must still work as a mixer input.
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
     let (mut engine, _guard) = mock_engine();
     let bus = engine.create_virtual_output("Bus Source").expect("create bus");
-    let input = engine.create_virtual_input("Mic Mix Target").expect("create input");
+    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let result = engine
-        .set_virtual_mic_mix(&input.device_id, &[MixSource {
-            device_id: bus.device_id.clone(),
-            volume_percent: 100,
-            muted: false,
-        }])
-        .expect("bus should be a valid mic-mix source");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &bus.device_id)
+        .expect("bus should be a valid mixer input");
     assert!(result.success, "{:?}", result.message);
 }
 
@@ -313,9 +717,14 @@ fn device_alias_rename_is_visible_after_refresh() {
 }
 
 #[test]
-fn virtual_mic_mix_add_and_volume_adjust() {
+fn mixer_node_accepts_a_physical_mic_as_an_input() {
+    // Mixer Node's replacement for the old mic-mix mechanism (PD-032) must
+    // still accept a physical input device as a source, same as mic-mix did
+    // — gain/mute tracking itself is covered generically by
+    // `mixer_node_sums_inputs_with_independent_gain`.
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
     let (mut engine, _guard) = mock_engine();
-    let input = engine.create_virtual_input("Integration Mic").expect("create input");
     let physical_source = engine
         .runtime_graph()
         .devices
@@ -324,27 +733,16 @@ fn virtual_mic_mix_add_and_volume_adjust() {
         .expect("sample graph should have a physical input")
         .id
         .clone();
+    let mixer = engine.create_processing_node("Mic Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let result = engine
-        .set_virtual_mic_mix(&input.device_id, &[MixSource {
-            device_id: physical_source.clone(),
-            volume_percent: 80,
-            muted: false,
-        }])
-        .expect("set_virtual_mic_mix");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &physical_source)
+        .expect("connect physical mic to mixer");
     assert!(result.success, "{:?}", result.message);
 
-    let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
-    assert_eq!(mic.mix_sources.len(), 1);
-    assert_eq!(mic.mix_sources[0].device_id, physical_source);
-
-    engine.set_mix_source_volume(&input.device_id, &physical_source, 55).expect("set_mix_source_volume");
-    let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
-    assert_eq!(mic.mix_sources[0].volume_percent, 55);
-
-    engine.set_mix_source_mute(&input.device_id, &physical_source, true).expect("set_mix_source_mute");
-    let mic = engine.runtime_graph().devices.iter().find(|d| d.id == input.device_id).unwrap();
-    assert!(mic.mix_sources[0].muted);
+    let node = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap();
+    assert_eq!(node.inputs.len(), 1);
+    assert_eq!(node.inputs[0].connected_id.as_deref(), Some(physical_source.as_str()));
 }
 
 #[test]
@@ -562,20 +960,21 @@ fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_
     // repaired. Native transport's per-device `unload_chain` makes this
     // whole class of collateral damage structurally impossible — this locks
     // that in for the input-direction case specifically.
-    use pipe_deck_lib::core::models::{EffectStage, MixSource};
+    use pipe_deck_lib::core::models::{EffectStage, PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
     let output = engine.create_virtual_output("Unrelated Output").expect("create output");
     let mic = engine.create_virtual_input("Live Mic").expect("create mic");
     let mic_source = engine.create_virtual_output("Mic Feed Source").expect("create mic feed source");
+    let mixer = engine.create_processing_node("Mic Mixer", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     engine.set_device_targets(&output.device_id, &["sink-headphones".to_string()]).unwrap();
     engine
-        .set_virtual_mic_mix(
-            &mic.device_id,
-            &[MixSource { device_id: mic_source.device_id.clone(), volume_percent: 100, muted: false }],
-        )
-        .expect("set up mic mix");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &mic_source.device_id)
+        .expect("connect mixer input");
+    engine
+        .connect_processing_node_port(&mixer.id, PortDirection::Output, &mic.device_id)
+        .expect("connect mixer output to mic");
     engine.refresh_graph().unwrap();
 
     let eq_stage = |id: &str| EffectStage::Eq5Band {
@@ -600,11 +999,11 @@ fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_
         engine.is_effect_chain_live(&mic.device_id),
         "removing effects from an unrelated output device must not disturb the mic's own live chain"
     );
-    let mic_after = engine.runtime_graph().devices.iter().find(|d| d.id == mic.device_id).unwrap().clone();
+    let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
     assert_eq!(
-        mic_after.mix_sources.len(),
-        1,
-        "mic's mix-source feed must survive an unrelated device's effect removal"
+        mixer_after.outputs.first().and_then(|port| port.connected_id.clone()),
+        Some(mic.device_id.clone()),
+        "mic's mixer feed must survive an unrelated device's effect removal"
     );
 }
 
@@ -848,6 +1247,7 @@ fn rule_added_after_a_stream_already_exists_is_applied_on_next_refresh() {
         data_source: "mock".into(),
         notice: None,
         recent_stream_identities: Vec::new(),
+        processing_nodes: Vec::new(),
     };
     engine.apply_graph_update(graph.clone());
 
@@ -884,6 +1284,7 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
         data_source: "mock".into(),
         notice: None,
         recent_stream_identities: Vec::new(),
+        processing_nodes: Vec::new(),
     };
     engine.apply_graph_update(base_graph);
     let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
@@ -898,6 +1299,7 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
         data_source: "mock".into(),
         notice: None,
         recent_stream_identities: Vec::new(),
+        processing_nodes: Vec::new(),
     };
     engine.apply_graph_update(next_graph);
 

@@ -104,6 +104,10 @@ const graphActions = {
     contextMenu.value = null;
     void removeVirtualDevice(systemName, label);
   },
+  deleteProcessingNode(nodeId: string, label: string) {
+    contextMenu.value = null;
+    void removeProcessingNode(nodeId, label);
+  },
   renameGroup(groupId: string, label: string) {
     const group = groups.value.find((entry) => entry.id === groupId);
     if (!group) return;
@@ -183,6 +187,28 @@ async function saveDeviceAlias(systemName: string, alias: string) {
   }
 }
 
+async function removeProcessingNode(nodeId: string, label: string) {
+  const confirmed = await confirm(`Delete "${label}"?`, {
+    title: "Delete processing node",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  try {
+    const response = await invoke<{ success: boolean; message?: string }>("remove_processing_node", { id: nodeId });
+    handleApplyResult(response, "Processing node removed");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleApplyResult(
+      { success: false, message: `Couldn't delete "${label}": ${message}` },
+      "",
+    );
+  }
+}
+
 async function removeVirtualDevice(systemName: string, label: string) {
   const confirmed = await confirm(`Delete virtual device "${label}"?`, {
     title: "Delete virtual device",
@@ -213,7 +239,11 @@ function onContextMenuAction(action: "rename" | "delete") {
   if (action === "rename") {
     void graphActions.renameDevice(target.systemName, target.label);
   } else if (action === "delete") {
-    graphActions.deleteDevice(target.systemName, target.label);
+    if (target.systemName.startsWith("pipe-deck-proc-")) {
+      graphActions.deleteProcessingNode(target.entityId, target.label);
+    } else {
+      graphActions.deleteDevice(target.systemName, target.label);
+    }
   }
 }
 
@@ -237,9 +267,48 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-function onAddNodeAction(type: "bus" | "output" | "input") {
+async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band") {
   contextMenu.value = null;
+  if (type === "fan_out" || type === "mixer" || type === "eq5band") {
+    const defaultLabel = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : "5-Band EQ";
+    // Node ids are derived from this label (`processing-{kind}-{slug}`), so
+    // creating a second node of the same kind needs a distinct name — a
+    // fixed default would collide with the first and be rejected outright.
+    const label = await prompt({
+      title: `Name this ${defaultLabel} node`,
+      defaultValue: defaultLabel,
+      confirmLabel: "Add",
+    });
+    if (!label?.trim()) return;
+    try {
+      await invoke("create_processing_node", { label: label.trim(), kind: { kind: type } });
+      handleApplyResult({ success: true }, `${label.trim()} node added`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      handleApplyResult({ success: false, message: `Couldn't add ${defaultLabel.toLowerCase()} node: ${message}` }, "");
+    }
+    return;
+  }
   openNewDeviceDialog(type);
+}
+
+async function onAddStubNodeAction(stubKind: string, defaultLabel: string) {
+  contextMenu.value = null;
+  // Same node-id-from-label collision as the fan_out/mixer/eq5band case
+  // above — a second node of the same stub kind needs a distinct name too.
+  const label = await prompt({
+    title: `Name this ${defaultLabel} node`,
+    defaultValue: defaultLabel,
+    confirmLabel: "Add",
+  });
+  if (!label?.trim()) return;
+  try {
+    await invoke("create_processing_node", { label: label.trim(), kind: { kind: "stub", stub_kind: stubKind } });
+    handleApplyResult({ success: true }, "Effect node added");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleApplyResult({ success: false, message: `Couldn't add effect node: ${message}` }, "");
+  }
 }
 
 function onBringNodeHereAction(nodeId: string) {
@@ -852,6 +921,7 @@ onUnmounted(() => {
       @delete="onContextMenuAction('delete')"
       @copy-id="onCopyIdAction"
       @add-node="onAddNodeAction"
+      @add-stub-node="onAddStubNodeAction"
       @add-effect="onAddEffectAction"
       @bring-node-here="onBringNodeHereAction"
       @close="contextMenu = null"

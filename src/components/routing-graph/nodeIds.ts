@@ -6,9 +6,15 @@ export function deviceNodeId(deviceId: string): string {
   return `device:${deviceId}`;
 }
 
-export function parseGraphNodeId(nodeId: string): { kind: "stream" | "device"; id: string } | null {
+export function processingNodeNodeId(nodeId: string): string {
+  return `processingNode:${nodeId}`;
+}
+
+export function parseGraphNodeId(
+  nodeId: string,
+): { kind: "stream" | "device" | "processingNode"; id: string } | null {
   const [kind, ...rest] = nodeId.split(":");
-  if ((kind !== "stream" && kind !== "device") || rest.length === 0) {
+  if ((kind !== "stream" && kind !== "device" && kind !== "processingNode") || rest.length === 0) {
     return null;
   }
   return { kind, id: rest.join(":") };

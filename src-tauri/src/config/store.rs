@@ -1,6 +1,7 @@
 use crate::core::models::{
-    AppConfig, DeviceAliasEntry, EffectChainConfig, Preferences, ProfileIndexEntry,
-    Rule, RoutingRulesConfig, VirtualDeviceSpec,
+    AppConfig, DeviceAliasEntry, EffectChainConfig, Preferences, ProcessingNodePortSpec,
+    ProcessingNodeSpec, ProcessingNodeSpecKind, ProfileIndexEntry, Rule, RoutingRulesConfig,
+    VirtualDeviceSpec,
 };
 use std::collections::HashMap;
 use std::fs;
@@ -69,6 +70,7 @@ impl ConfigStore {
             routing_rules: RoutingRulesConfig::default(),
             rules: Vec::new(),
             virtual_devices: Vec::new(),
+            processing_nodes: Vec::new(),
             plugins: HashMap::new(),
         }
     }
@@ -93,8 +95,165 @@ impl ConfigStore {
 
         let contents = fs::read_to_string(&path)
             .map_err(|error| ConfigError::Read(format!("{path:?}: {error}")))?;
-        serde_yaml::from_str(&contents)
-            .map_err(|error| ConfigError::Read(format!("{path:?}: {error}")))
+        let mut config: AppConfig = serde_yaml::from_str(&contents)
+            .map_err(|error| ConfigError::Read(format!("{path:?}: {error}")))?;
+        if migrate_mix_sources_to_mixer_nodes(&mut config) {
+            // Best-effort: a failed write here just means this same
+            // migration re-runs (harmlessly, idempotently) on the next load
+            // instead of being durable yet.
+            let _ = self.save_config(&config);
+        }
+        Ok(config)
+    }
+
+    pub fn processing_nodes(&self) -> Vec<ProcessingNodeSpec> {
+        self.load_config()
+            .map(|config| config.processing_nodes)
+            .unwrap_or_default()
+    }
+
+    pub fn save_processing_nodes(&self, nodes: &[ProcessingNodeSpec]) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.processing_nodes = nodes.to_vec();
+        self.save_config(&config)
+    }
+
+    pub fn add_processing_node(&self, spec: ProcessingNodeSpec) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.processing_nodes.push(spec);
+        self.save_config(&config)
+    }
+
+    pub fn remove_processing_node(&self, id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.processing_nodes.retain(|node| node.id != id);
+        self.save_config(&config)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn update_processing_node_eq(
+        &self,
+        node_id: &str,
+        eq_sub: i32,
+        eq_bass: i32,
+        eq_mid: i32,
+        eq_treble: i32,
+        eq_air: i32,
+        output_gain: i32,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Eq5Band { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
+        }
+        self.save_config(&config)
+    }
+
+    pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::FanOut { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::FanOut { volume_percent, muted };
+        }
+        self.save_config(&config)
+    }
+
+    pub fn set_processing_node_bypassed(&self, node_id: &str, bypassed: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        node.bypassed = bypassed;
+        self.save_config(&config)
+    }
+
+    /// Persists `peer_system_name` at `port_index` on the given `direction`
+    /// for the named node — extending the port list if `port_index` is one
+    /// past the current end (a freshly grown port), overwriting in place
+    /// otherwise. A no-op (not an error) if the node itself was removed out
+    /// from under a still-in-flight connect call.
+    pub fn upsert_processing_node_port(
+        &self,
+        node_id: &str,
+        direction: crate::core::models::PortDirection,
+        port_index: u32,
+        peer_system_name: &str,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        let index = port_index as usize;
+        match direction {
+            crate::core::models::PortDirection::Input => {
+                let entry = ProcessingNodePortSpec {
+                    source_system_name: peer_system_name.to_string(),
+                    gain_percent: 100,
+                    muted: false,
+                };
+                if index < node.input_sources.len() {
+                    node.input_sources[index] = entry;
+                } else {
+                    node.input_sources.push(entry);
+                }
+            }
+            crate::core::models::PortDirection::Output => {
+                if index < node.output_targets.len() {
+                    node.output_targets[index] = peer_system_name.to_string();
+                } else {
+                    node.output_targets.push(peer_system_name.to_string());
+                }
+            }
+        }
+        self.save_config(&config)
+    }
+
+    pub fn set_processing_node_input_gain(
+        &self,
+        node_id: &str,
+        port_index: u32,
+        gain_percent: u8,
+        muted: bool,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let Some(entry) = node.input_sources.get_mut(port_index as usize) {
+            entry.gain_percent = gain_percent;
+            entry.muted = muted;
+        }
+        self.save_config(&config)
+    }
+
+    pub fn remove_processing_node_port(
+        &self,
+        node_id: &str,
+        direction: crate::core::models::PortDirection,
+        port_index: u32,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        let index = port_index as usize;
+        match direction {
+            crate::core::models::PortDirection::Input => {
+                if index < node.input_sources.len() {
+                    node.input_sources.remove(index);
+                }
+            }
+            crate::core::models::PortDirection::Output => {
+                if index < node.output_targets.len() {
+                    node.output_targets.remove(index);
+                }
+            }
+        }
+        self.save_config(&config)
     }
 
     pub fn save_config(&self, config: &AppConfig) -> Result<(), ConfigError> {
@@ -464,6 +623,68 @@ impl ConfigStore {
     }
 }
 
+/// PD-032: mic-mix is retired in favor of the generic Mixer processing-node
+/// kind. Any virtual input device with `mix_sources` still configured the
+/// old way, and no `Mixer` node already feeding it, gets an equivalent
+/// `ProcessingNodeSpec::Mixer` synthesized here — same pattern as
+/// `EffectChainConfig`'s legacy flat-`eq_*`-fields migration, except this
+/// one also clears the source `mix_sources` it migrated from, so the
+/// rewrite is durable once `load_config` saves it back rather than
+/// re-running against stale data forever. Returns whether anything changed,
+/// so the caller only writes to disk when there was something to migrate.
+/// Idempotent either way: skips any target that already has a Mixer node.
+fn migrate_mix_sources_to_mixer_nodes(config: &mut AppConfig) -> bool {
+    let already_migrated: std::collections::HashSet<String> = config
+        .processing_nodes
+        .iter()
+        .filter(|node| matches!(node.kind, ProcessingNodeSpecKind::Mixer))
+        .flat_map(|node| node.output_targets.iter().cloned())
+        .collect();
+
+    let mut synthesized = Vec::new();
+    let mut migrated_specs = Vec::new();
+    for spec in &config.virtual_devices {
+        if spec.direction != crate::core::models::DeviceDirection::Input || spec.mix_sources.is_empty() {
+            continue;
+        }
+        let target_system_name = format!("pipe-deck-{}", spec.slug);
+        if already_migrated.contains(&target_system_name) {
+            continue;
+        }
+        synthesized.push(ProcessingNodeSpec {
+            id: format!("processing-mixer-{}", spec.slug),
+            slug: format!("mixer-{}", spec.slug),
+            label: format!("{} Mixer", spec.label),
+            created_at: spec.created_at.clone(),
+            kind: ProcessingNodeSpecKind::Mixer,
+            input_sources: spec
+                .mix_sources
+                .iter()
+                .map(|source| ProcessingNodePortSpec {
+                    source_system_name: source.system_name.clone(),
+                    gain_percent: source.volume_percent,
+                    muted: source.muted,
+                })
+                .collect(),
+            output_targets: vec![target_system_name],
+            bypassed: false,
+        });
+        migrated_specs.push(spec.id.clone());
+    }
+
+    if synthesized.is_empty() {
+        return false;
+    }
+
+    for spec in &mut config.virtual_devices {
+        if migrated_specs.contains(&spec.id) {
+            spec.mix_sources.clear();
+        }
+    }
+    config.processing_nodes.extend(synthesized);
+    true
+}
+
 /// Serializes any test (in this file or elsewhere in the crate) that mutates
 /// the process-wide `PIPE_DECK_CONFIG_DIR` env var via `std::env::set_var`.
 /// `cargo test`'s default parallel runner races concurrent `set_var`/
@@ -599,8 +820,14 @@ mod tests {
     }
 
     #[test]
-    fn mix_source_volume_round_trip_persists() {
-        use crate::core::models::MixSourceSpec;
+    fn set_virtual_mic_mix_sources_migrates_into_a_mixer_node_on_next_load() {
+        // `set_virtual_mic_mix_sources` itself is now only reachable via
+        // `enable_stream_mic_passthrough`'s internal use of the same
+        // per-pair-feed-sink mechanism (PD-032 retired the rest of the old
+        // mic-mix authoring surface) — its raw write still round-trips, but
+        // the *next* load durably migrates it into an equivalent Mixer node,
+        // same as any other legacy `mix_sources`.
+        use crate::core::models::{MixSourceSpec, ProcessingNodeSpecKind};
 
         with_temp_config(|store| {
             store.ensure_layout().unwrap();
@@ -624,18 +851,68 @@ mod tests {
                 .set_virtual_mic_mix_sources("pipe-deck-mic", &sources)
                 .expect("save mix sources");
 
+            let nodes = store.processing_nodes();
+            assert_eq!(nodes.len(), 1);
+            assert!(matches!(nodes[0].kind, ProcessingNodeSpecKind::Mixer));
+            assert_eq!(nodes[0].input_sources.len(), 2);
+            assert!(store.virtual_devices()[0].mix_sources.is_empty());
+        });
+    }
+
+    #[test]
+    fn legacy_mix_sources_migrates_to_an_equivalent_mixer_node_on_load() {
+        use crate::core::models::{MixSourceSpec, ProcessingNodeSpecKind};
+
+        with_temp_config(|store| {
+            let spec = VirtualDeviceSpec {
+                id: "virtual-mic".into(),
+                slug: "mic".into(),
+                label: "Mic".into(),
+                direction: crate::core::models::DeviceDirection::Input,
+                created_at: "2026-07-09T10:00:00Z".into(),
+                multi: false,
+                virtual_role: crate::core::models::VirtualRole::Bus,
+                mix_sources: vec![
+                    MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
+                    MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
+                ],
+            };
+            store.add_virtual_device(spec).unwrap();
+
+            let nodes = store.processing_nodes();
+            assert_eq!(nodes.len(), 1);
+            assert!(matches!(nodes[0].kind, ProcessingNodeSpecKind::Mixer));
+            assert_eq!(nodes[0].output_targets, vec!["pipe-deck-mic".to_string()]);
+            assert_eq!(nodes[0].input_sources.len(), 2);
+            assert_eq!(nodes[0].input_sources[0].source_system_name, "alsa_input.headset");
+            assert_eq!(nodes[0].input_sources[0].gain_percent, 60);
+            assert!(!nodes[0].input_sources[0].muted);
+            assert_eq!(nodes[0].input_sources[1].source_system_name, "alsa_input.webcam");
+            assert!(nodes[0].input_sources[1].muted);
+
+            // Migration is durable — the legacy field is cleared and the
+            // clearing is persisted, so re-loading doesn't duplicate the
+            // synthesized node or find anything left to migrate again.
             let loaded = store.virtual_devices();
-            assert_eq!(loaded[0].mix_sources, sources);
+            assert!(loaded[0].mix_sources.is_empty());
+            assert_eq!(store.processing_nodes().len(), 1);
         });
     }
 
     #[test]
     fn legacy_mix_sources_shape_deserializes_at_unity_gain() {
+        // Deliberately `direction: output` here, not `input` — an `input`
+        // device with non-empty `mix_sources` would immediately migrate into
+        // a Mixer node and clear the field (see
+        // `legacy_mix_sources_migrates_to_an_equivalent_mixer_node_on_load`),
+        // which this test isn't after: it's isolating the legacy
+        // bare-`Vec<String>`-to-`MixSourceSpec` deserialization shape itself
+        // from that higher-level migration behavior.
         with_temp_config(|store| {
             fs::create_dir_all(store.config_dir()).unwrap();
             fs::write(
                 store.config_dir().join("config.yaml"),
-                "version: 1\nprofile_index: []\nvirtual_devices:\n  - id: virtual-mic\n    slug: mic\n    label: Mic\n    direction: input\n    created_at: '2026-07-09T10:00:00Z'\n    mix_sources:\n      - alsa_input.headset\n",
+                "version: 1\nprofile_index: []\nvirtual_devices:\n  - id: virtual-mic\n    slug: mic\n    label: Mic\n    direction: output\n    created_at: '2026-07-09T10:00:00Z'\n    mix_sources:\n      - alsa_input.headset\n",
             )
             .unwrap();
             let config = store.load_config().unwrap();

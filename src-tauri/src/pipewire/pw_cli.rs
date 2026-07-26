@@ -73,9 +73,15 @@ pub fn set_params(node_id: u32, params: &[(String, f64)]) -> Result<(), BackendE
     // — it echoes the parsed param object before doing anything else) could
     // otherwise fill the OS pipe buffer and deadlock the child against us.
     // stderr stays piped since we need it for the `Error` check below, and
-    // pw-cli's error output is always short.
+    // pw-cli's error output is always short. `stdin` is explicitly closed
+    // (null) rather than left to inherit the daemon's own stdin — a
+    // plausible explanation for `set-param` specifically hanging (vs.
+    // `info`/`ls`/`enum-params`, which don't) is `pw-cli` blocking on a
+    // stdin read its other subcommands never attempt, if the daemon's
+    // inherited stdin never delivers EOF.
     let mut child = sysproc::command("pw-cli")
         .args(["set-param", &node_id.to_string(), "Props", &param_json])
+        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
