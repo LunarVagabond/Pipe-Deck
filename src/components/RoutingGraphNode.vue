@@ -37,6 +37,14 @@ const effectsState = computed<"none" | "live" | "bypassed">(() => {
 
 const hasEffectStages = computed(() => effectsState.value !== "none");
 
+// `nodeClass` is CSS-class-shaped (e.g. "processing-node processing-node--mixer",
+// for the multi-class `:class` binding below) — not a single `NodeTypeIcon`
+// kind, so a processing node always fell through to the generic dot
+// fallback. Icon lookup uses the node's own `kind.kind` slug instead for
+// that case; every other node kind's `nodeClass` was already a single word
+// matching `NodeTypeIcon`'s expected values.
+const iconKind = computed(() => props.data.processingNodeKind?.kind ?? props.data.nodeClass);
+
 const effectsBadgeTitle = computed(() =>
   effectsState.value === "live" ? "Effects live" : effectsState.value === "bypassed" ? "Effects bypassed" : "",
 );
@@ -186,7 +194,7 @@ function onToggleMute() {
           class="routing-graph-node-swatch"
           :style="{ background: data.accent }"
         />
-        <NodeTypeIcon :kind="data.nodeClass" class="routing-graph-node-icon" />
+        <NodeTypeIcon :kind="iconKind" class="routing-graph-node-icon" />
         <span
           v-if="effectsState !== 'none'"
           class="routing-graph-node-effects-badge"
