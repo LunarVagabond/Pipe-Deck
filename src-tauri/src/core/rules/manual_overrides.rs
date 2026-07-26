@@ -1,9 +1,6 @@
-use crate::core::models::{DeviceDirection, DeviceKind, DeviceRouteRule, Rule, RuntimeGraph, Stream, StreamRouteRule};
-use crate::core::routing_rules::find_device_by_system_name;
+use crate::core::models::{Rule, RuntimeGraph, Stream, StreamRouteRule};
 use crate::core::rules::evaluation::evaluate_stream_route;
-use crate::core::rules::matching::device_matches_rule;
 use crate::core::stream_identity::{identity_matches, stream_identity_key};
-use crate::backend::AudioBackend;
 use std::collections::HashSet;
 
 /// Resolves a `current_target` id to the system_name of whatever it points
@@ -68,57 +65,6 @@ pub fn detect_external_manual_overrides(
     }
 }
 
-pub fn detect_external_device_manual_overrides(
-    graph: &RuntimeGraph,
-    overrides: &mut HashSet<String>,
-    device_rules: &[DeviceRouteRule],
-    backend: &dyn AudioBackend,
-) {
-    for rule in device_rules {
-        let Some(source) = find_device_by_system_name(graph, &rule.source_system_name) else {
-            continue;
-        };
-        if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
-            continue;
-        }
-        let actual = crate::core::rules::matching::actual_device_target_system_names(graph, source, backend);
-        if actual.is_empty() {
-            continue;
-        }
-        if !device_matches_rule(graph, source, rule, backend) {
-            overrides.insert(source.id.clone());
-        }
-    }
-}
-
-pub fn reconcile_device_manual_overrides(
-    graph: &RuntimeGraph,
-    overrides: &mut HashSet<String>,
-    device_rules: &[DeviceRouteRule],
-    backend: &dyn AudioBackend,
-) {
-    let stale: Vec<String> = overrides
-        .iter()
-        .filter(|source_id| {
-            let Some(source) = graph.devices.iter().find(|device| device.id == **source_id) else {
-                return true;
-            };
-            let Some(rule) = device_rules
-                .iter()
-                .find(|rule| rule.source_system_name == source.system_name)
-            else {
-                return true;
-            };
-            device_matches_rule(graph, source, rule, backend)
-        })
-        .cloned()
-        .collect();
-
-    for source_id in stale {
-        overrides.remove(&source_id);
-    }
-}
-
 pub fn reconcile_manual_overrides(
     graph: &RuntimeGraph,
     overrides: &mut HashSet<crate::core::stream_identity::StreamIdentityKey>,
@@ -159,9 +105,7 @@ pub fn reconcile_manual_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::{
-        Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection, VirtualRole,
-    };
+    use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection};
     use crate::core::stream_identity::stream_identity_key;
 
     fn sample_stream(app_name: &str, executable: Option<&str>, media_name: Option<&str>) -> Stream {
@@ -228,7 +172,6 @@ mod tests {
                     kind: DeviceKind::Physical,
                     direction: DeviceDirection::Output,
                     sink_mode: None,
-                    virtual_role: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
@@ -242,7 +185,6 @@ mod tests {
                     kind: DeviceKind::Physical,
                     direction: DeviceDirection::Output,
                     sink_mode: None,
-                    virtual_role: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
@@ -267,56 +209,5 @@ mod tests {
         let mut overrides = HashSet::new();
         detect_external_manual_overrides(&graph, &mut overrides, &[], &persisted);
         assert!(overrides.contains(&stream_identity_key(&graph.streams[0])));
-    }
-
-    #[test]
-    fn device_rule_mismatch_tracks_manual_override() {
-        let graph = RuntimeGraph {
-            devices: vec![
-                Device {
-                    id: "virtual-chat".into(),
-                    system_name: "pipe-deck-chat".into(),
-                    label: "Chat".into(),
-                    kind: DeviceKind::Virtual,
-                    direction: DeviceDirection::Output,
-                    sink_mode: None,
-                    virtual_role: Some(VirtualRole::Bus),
-                    volume_percent: None,
-                    muted: None,
-                    current_target: Some("headphones".into()),
-                    current_targets: Vec::new(),
-                    mix_sources: Vec::new(),
-                },
-                Device {
-                    id: "headphones".into(),
-                    system_name: "alsa-headphones".into(),
-                    label: "Headphones".into(),
-                    kind: DeviceKind::Physical,
-                    direction: DeviceDirection::Output,
-                    sink_mode: None,
-                    virtual_role: None,
-                    volume_percent: None,
-                    muted: None,
-                    current_target: None,
-                    current_targets: Vec::new(),
-                    mix_sources: Vec::new(),
-                },
-            ],
-            streams: Vec::new(),
-            links: Vec::new(),
-            data_source: "test".into(),
-            notice: None,
-            ..Default::default()
-        };
-        let device_rules = vec![DeviceRouteRule {
-            source_system_name: "pipe-deck-chat".into(),
-            target_system_name: Some("alsa-speakers".into()),
-            target_system_names: Vec::new(),
-            safeguards: Default::default(),
-        }];
-        let mut overrides = HashSet::new();
-        let backend = crate::backend::mock::MockAudioBackend::new();
-        detect_external_device_manual_overrides(&graph, &mut overrides, &device_rules, &backend);
-        assert!(overrides.contains("virtual-chat"));
     }
 }

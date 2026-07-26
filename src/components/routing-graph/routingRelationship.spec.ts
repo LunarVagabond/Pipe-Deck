@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { makeDevice, makeGraph, makeStream } from "../../test/graphFixtures";
-import { isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
+import { isMicPassthroughCandidate } from "./routingRelationship";
 import { resolveConnectionAction, type PreviousEdge } from "./connectionRules";
 
 describe("isMicPassthroughCandidate", () => {
@@ -23,63 +23,45 @@ describe("isMicPassthroughCandidate", () => {
   });
 });
 
-describe("isRoutableVirtualOutput", () => {
-  it("is true for a virtual output device", () => {
-    expect(isRoutableVirtualOutput(makeDevice({ kind: "virtual", direction: "output" }))).toBe(true);
-  });
-
-  it("is false for a virtual input device", () => {
-    expect(isRoutableVirtualOutput(makeDevice({ kind: "virtual", direction: "input" }))).toBe(false);
-  });
-
-  it("is false for a physical output device", () => {
-    expect(isRoutableVirtualOutput(makeDevice({ kind: "physical", direction: "output" }))).toBe(false);
-  });
-
-  it("is false for a terminal Output (virtual) device — #287, it can't route onward", () => {
-    expect(
-      isRoutableVirtualOutput(makeDevice({ kind: "virtual", direction: "output", virtual_role: "output" })),
-    ).toBe(false);
-  });
-});
-
-describe("connect-time and disconnect-time classification agree", () => {
-  it("treats an already-routed virtual-output -> device pair as the same relationship in both directions", () => {
+describe("device-to-device routing (retired, #293)", () => {
+  it("rejects dragging a virtual output device directly onto another device", () => {
     const source = makeDevice({
       id: "vout1",
       label: "Virtual Output",
       kind: "virtual",
       direction: "output",
-      current_target: "speakers",
     });
     const target = makeDevice({ id: "speakers", label: "Speakers", kind: "physical", direction: "output" });
     const graph = makeGraph([source, target], []);
 
-    // Connect-time: dragging the same pair again should be classified as
-    // "already routed" (a routable virtual-output relationship), not fall
-    // through to some other relationship kind.
+    // A virtual output device has no output handle at all now (nodePorts.ts),
+    // so a real drag could never produce this connection in the first place
+    // — this exercises resolveConnectionAction's own fallback rejection
+    // directly, bypassing the handle-presence check the UI would otherwise
+    // enforce first.
     const connectResult = resolveConnectionAction(graph, {
       source: "device:vout1",
       target: "device:speakers",
       sourceHandle: "audio-out",
-      targetHandle: "audio-in:someone-else",
+      targetHandle: "audio-in:empty",
     } as never);
     expect(connectResult).toEqual({
       error:
-        "Connect an output port to an open input slot — this target's slot is already in use or the wrong direction.",
+        "\"Virtual Output\" can't be routed directly to \"Speakers\" — plain devices no longer route onward to each other. Use a Mixer or Fan-Out node, or drag an application stream instead.",
     });
+  });
 
-    // Disconnect-time: dragging the existing edge off should be classified
-    // as the same routable virtual-output relationship and produce a
-    // device_targets clear, not an "isn't a virtual sink route" error.
+  it("has nothing to disconnect for a device-to-device edge, since none can exist", () => {
+    const source = makeDevice({ id: "vout1", label: "Virtual Output", kind: "virtual", direction: "output" });
+    const target = makeDevice({ id: "speakers", label: "Speakers", kind: "physical", direction: "output" });
+    const graph = makeGraph([source, target], []);
+
     const previousEdge: PreviousEdge = { source: "device:vout1", target: "device:speakers" };
     const disconnectResult = resolveConnectionAction(
       graph,
       { source: null, target: null, sourceHandle: null, targetHandle: null } as never,
       { mode: "edge_disconnect", previousEdge },
     );
-    expect(disconnectResult).toEqual({
-      action: { type: "device_targets", sourceDeviceId: "vout1", targetDeviceIds: [] },
-    });
+    expect(disconnectResult).toEqual({ error: "Nothing to disconnect." });
   });
 });

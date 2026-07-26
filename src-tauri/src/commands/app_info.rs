@@ -297,7 +297,7 @@ mod tests {
     use super::{format_diagnostics_bundle, format_graph_summary, release_version_from_revision, InstallKind};
     use crate::core::models::{
         ActionStatus, Device, DeviceDirection, DeviceKind, RouteExplanation, RouteSource, RuntimeGraph, Stream,
-        StreamDirection, VirtualRole,
+        StreamDirection,
     };
 
     fn sample_device(id: &str, label: &str, current_target: Option<&str>) -> Device {
@@ -308,7 +308,6 @@ mod tests {
             kind: DeviceKind::Virtual,
             direction: DeviceDirection::Output,
             sink_mode: None,
-            virtual_role: Some(VirtualRole::Bus),
             volume_percent: None,
             muted: None,
             current_target: current_target.map(str::to_string),

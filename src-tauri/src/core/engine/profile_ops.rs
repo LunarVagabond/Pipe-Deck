@@ -174,7 +174,6 @@ impl CoreEngine {
     pub fn swap_profile(&mut self, profile_id: &str) -> Result<ApplyResult, EngineError> {
         self.clear_last_error();
         self.manual_overrides.clear();
-        self.device_manual_overrides.clear();
         let store = ConfigStore::new();
         let config = store
             .load_config()

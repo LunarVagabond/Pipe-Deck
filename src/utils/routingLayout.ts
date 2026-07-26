@@ -52,7 +52,10 @@ export function columnRank(column: NodeColumn): number {
 }
 
 export function deviceColumn(device: Device): NodeColumn | null {
-  if (device.system_name.startsWith("pipe-deck-feed-")) {
+  if (
+    device.system_name.startsWith("pipe-deck-feed-") ||
+    device.system_name.startsWith("pipe-deck-proc-")
+  ) {
     return null;
   }
   if (device.direction === "output" || device.direction === "duplex") {
@@ -139,18 +142,13 @@ export function targetLabel(device: Device): string {
   return device.label;
 }
 
-// Every virtual Bus supports fanning out to multiple targets today — there
-// is no PipeWire-level difference between a "multi output" and a plain output
-// sink, both are the same null-sink under the hood. `sink_mode` is kept on
-// the model only for backward-compat deserialization of older persisted
-// devices/profiles; it no longer drives any behavioral distinction here. A
-// terminal Output (virtual) (#287) is excluded — it never fans out.
-export function isMultiSink(device: Device): boolean {
-  return (
-    device.kind === "virtual" &&
-    device.virtual_role === "bus" &&
-    (device.direction === "output" || device.direction === "duplex")
-  );
+// Multi-target fan-out from a plain virtual device was retired alongside
+// VirtualRole::Bus (#293) — the dedicated Fan-Out processing node is the
+// only way to fan a signal out to multiple destinations now. `sink_mode` is
+// kept on the model only for backward-compat deserialization of older
+// persisted devices/profiles; it no longer drives any behavior here.
+export function isMultiSink(_device: Device): boolean {
+  return false;
 }
 
 export function deviceTargetIds(device: Device): string[] {
@@ -166,7 +164,7 @@ export function deviceSubtitle(device: Device): string {
   }
   if (device.direction === "output" || device.direction === "duplex") {
     if (device.kind === "virtual") {
-      return device.virtual_role === "output" ? "Virtual Output" : "Bus";
+      return "Virtual Output";
     }
     return "Hardware Output";
   }
@@ -214,19 +212,6 @@ export function sinksForStream(devices: Device[], stream: Stream): Device[] {
       );
     }
     return device.direction === "input" || device.direction === "duplex";
-  });
-}
-
-export function targetsForVirtualSink(devices: Device[], device: Device): Device[] {
-  return devices.filter((candidate) => {
-    if (candidate.id === device.id) return false;
-    if (candidate.kind === "physical" && candidate.direction === "output") {
-      return true;
-    }
-    if (candidate.kind === "virtual" && candidate.direction === "input") {
-      return true;
-    }
-    return candidate.kind === "virtual" && candidate.direction === "output";
   });
 }
 

@@ -176,66 +176,12 @@ describe("resolveConnectionAction — connect mode", () => {
     );
     expect(result).toEqual({
       error:
-        '"Headset Mic" isn\'t a virtual output sink, so it can\'t be routed directly to another device. Drag an application stream instead.',
+        '"Headset Mic" can\'t be routed directly to "Virtual Mic" — plain devices no longer route onward to each other. Use a Mixer or Fan-Out node, or drag an application stream instead.',
     });
   });
 
-  it("errors when a virtual sink targets something outside its allowed set", () => {
+  it("rejects dragging one device directly onto another — #293, plain devices no longer route onward", () => {
     const sink = makeDevice({ id: "sink1", label: "Virtual Sink", kind: "virtual", direction: "output" });
-    const physicalMic = makeDevice({
-      id: "mic1",
-      label: "Headset Mic",
-      kind: "physical",
-      direction: "input",
-    });
-    const graph = makeGraph([sink, physicalMic], []);
-    const result = resolveConnectionAction(
-      graph,
-      connection({
-        source: "device:sink1",
-        target: "device:mic1",
-        sourceHandle: "audio-out:empty",
-        targetHandle: "audio-in:empty",
-      }),
-    );
-    expect(result).toEqual({
-      error:
-        '"Virtual Sink" can only route to a physical output, another virtual output, or a virtual input — "Headset Mic" isn\'t one of those.',
-    });
-  });
-
-  it("errors when the source isn't a virtual output sink", () => {
-    const virtualInput = makeDevice({
-      id: "vin1",
-      label: "Virtual Input",
-      kind: "virtual",
-      direction: "input",
-    });
-    const physicalOut = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
-    const graph = makeGraph([virtualInput, physicalOut], []);
-    const result = resolveConnectionAction(
-      graph,
-      connection({
-        source: "device:vin1",
-        target: "device:out1",
-        sourceHandle: "audio-out:empty",
-        targetHandle: "audio-in:empty",
-      }),
-    );
-    expect(result).toEqual({
-      error:
-        '"Virtual Input" isn\'t a virtual output sink, so it can\'t be routed directly to another device. Drag an application stream instead.',
-    });
-  });
-
-  it("errors when a multi-sink output is already connected to that target", () => {
-    const sink = makeDevice({
-      id: "sink1",
-      label: "Virtual Sink",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out1"],
-    });
     const out = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
     const graph = makeGraph([sink, out], []);
     const result = resolveConnectionAction(
@@ -247,94 +193,9 @@ describe("resolveConnectionAction — connect mode", () => {
         targetHandle: "audio-in:empty",
       }),
     );
-    expect(result).toEqual({ error: '"Virtual Sink" is already routed to "Speakers".' });
-  });
-
-  it("adds a new fan-out target for a multi-sink virtual output", () => {
-    const sink = makeDevice({
-      id: "sink1",
-      label: "Virtual Sink",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out1"],
-    });
-    const out1 = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
-    const out2 = makeDevice({ id: "out2", label: "Headphones", kind: "physical", direction: "output" });
-    const graph = makeGraph([sink, out1, out2], []);
-    const result = resolveConnectionAction(
-      graph,
-      connection({
-        source: "device:sink1",
-        target: "device:out2",
-        sourceHandle: "audio-out:empty",
-        targetHandle: "audio-in:empty",
-      }),
-    );
     expect(result).toEqual({
-      action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out1", "out2"] },
-    });
-  });
-
-  it("re-targets a multi-sink output during an edge_update drag", () => {
-    const sink = makeDevice({
-      id: "sink1",
-      label: "Virtual Sink",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out1"],
-    });
-    const out1 = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
-    const out2 = makeDevice({ id: "out2", label: "Headphones", kind: "physical", direction: "output" });
-    const graph = makeGraph([sink, out1, out2], []);
-    const result = resolveConnectionAction(
-      graph,
-      connection({
-        source: "device:sink1",
-        target: "device:out2",
-        sourceHandle: "audio-out:empty",
-        targetHandle: "audio-in:empty",
-      }),
-      { mode: "edge_update", previousEdge: { source: "device:sink1", target: "device:out1" } },
-    );
-    expect(result).toEqual({
-      action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out2"] },
-    });
-  });
-
-  it("re-targets during an edge_update drag when the unmoved source handle is still occupied", () => {
-    // Reflects real drag behavior: only the dragged (target) end lands on an
-    // empty slot — the unmoved source end still carries its original,
-    // already-connected handle id, not a trailing `:empty` slot.
-    const sink = makeDevice({
-      id: "sink1",
-      label: "Virtual Sink",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out1"],
-    });
-    const out1 = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
-    const out2 = makeDevice({ id: "out2", label: "Headphones", kind: "physical", direction: "output" });
-    const graph = makeGraph([sink, out1, out2], []);
-    const result = resolveConnectionAction(
-      graph,
-      connection({
-        source: "device:sink1",
-        target: "device:out2",
-        sourceHandle: "audio-out:out1",
-        targetHandle: "audio-in:empty",
-      }),
-      {
-        mode: "edge_update",
-        previousEdge: {
-          source: "device:sink1",
-          target: "device:out1",
-          sourceHandle: "audio-out:out1",
-          targetHandle: "audio-in:empty",
-        },
-      },
-    );
-    expect(result).toEqual({
-      action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out2"] },
+      error:
+        '"Virtual Sink" can\'t be routed directly to "Speakers" — plain devices no longer route onward to each other. Use a Mixer or Fan-Out node, or drag an application stream instead.',
     });
   });
 });
@@ -405,20 +266,7 @@ describe("resolveConnectionAction — edge_disconnect mode", () => {
     expect(result).toEqual({ error: "Nothing to disconnect." });
   });
 
-  it("rejects disconnecting a physical-device-to-virtual-input edge — mixing now goes through a Mixer Node", () => {
-    const physMic = makeDevice({ id: "mic1", label: "Headset Mic", kind: "physical", direction: "input" });
-    const virtualMic = makeDevice({ id: "mic2", label: "Virtual Mic", kind: "virtual", direction: "input" });
-    const graph = makeGraph([physMic, virtualMic], []);
-    const result = resolveConnectionAction(graph, connection({}), {
-      mode: "edge_disconnect",
-      previousEdge: { source: "device:mic1", target: "device:mic2" },
-    });
-    expect(result).toEqual({
-      error: '"Headset Mic" isn\'t a virtual sink route — only virtual-output connections can be dragged off to disconnect them.',
-    });
-  });
-
-  it("errors when disconnecting a non-virtual-output device route", () => {
+  it("has nothing to disconnect for a device-to-device edge — #293, no such edge can exist anymore", () => {
     const physOut = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
     const sink = makeDevice({ id: "sink1", label: "Virtual Sink", kind: "virtual", direction: "output" });
     const graph = makeGraph([physOut, sink], []);
@@ -426,48 +274,7 @@ describe("resolveConnectionAction — edge_disconnect mode", () => {
       mode: "edge_disconnect",
       previousEdge: { source: "device:out1", target: "device:sink1" },
     });
-    expect(result).toEqual({
-      error:
-        '"Speakers" isn\'t a virtual sink route — only virtual-output connections can be dragged off to disconnect them.',
-    });
-  });
-
-  it("errors when the device-to-device edge no longer matches a live route", () => {
-    const sink = makeDevice({
-      id: "sink1",
-      label: "Virtual Sink",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out2"],
-    });
-    const out1 = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
-    const graph = makeGraph([sink, out1], []);
-    const result = resolveConnectionAction(graph, connection({}), {
-      mode: "edge_disconnect",
-      previousEdge: { source: "device:sink1", target: "device:out1" },
-    });
-    expect(result).toEqual({
-      error: '"Virtual Sink" isn\'t currently routed to "Speakers" — nothing to disconnect.',
-    });
-  });
-
-  it("removes a fan-out target from a multi-sink virtual output", () => {
-    const sink = makeDevice({
-      id: "sink1",
-      label: "Virtual Sink",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out1", "out2"],
-    });
-    const out1 = makeDevice({ id: "out1", label: "Speakers", kind: "physical", direction: "output" });
-    const graph = makeGraph([sink, out1], []);
-    const result = resolveConnectionAction(graph, connection({}), {
-      mode: "edge_disconnect",
-      previousEdge: { source: "device:sink1", target: "device:out1" },
-    });
-    expect(result).toEqual({
-      action: { type: "device_targets", sourceDeviceId: "sink1", targetDeviceIds: ["out2"] },
-    });
+    expect(result).toEqual({ error: "Nothing to disconnect." });
   });
 });
 

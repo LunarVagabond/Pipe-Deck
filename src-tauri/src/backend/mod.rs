@@ -4,7 +4,7 @@ pub mod stub;
 
 use crate::core::models::{
     Device, DeviceDirection, EffectChainConfig, MixSourceSpec, PortDirection, ProcessingNode, RuntimeGraph,
-    VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
+    VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -77,7 +77,6 @@ pub trait AudioBackend: Send + Sync {
         previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError>;
     fn route_stream(&self, graph: &RuntimeGraph, stream_id: &str, target_device_id: &str) -> Result<(), BackendError>;
-    fn route_device(&self, graph: &RuntimeGraph, source_device_id: &str, target_device_ids: &[String]) -> Result<(), BackendError>;
 
     // Graph/routing reconciliation. These stay call-granularity-agnostic on
     // purpose (see PD-019 and issue #68): the Linux impl internally discovers
@@ -115,7 +114,6 @@ pub trait AudioBackend: Send + Sync {
         &self,
         label: &str,
         multi: bool,
-        role: VirtualRole,
     ) -> Result<VirtualDeviceResult, BackendError>;
     fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError>;
     fn restore_virtual_device(
@@ -124,7 +122,6 @@ pub trait AudioBackend: Send + Sync {
         label: &str,
         direction: DeviceDirection,
         multi: bool,
-        role: VirtualRole,
         mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError>;
     fn remove_virtual_device(&self, system_name: &str) -> Result<(), BackendError>;
@@ -408,10 +405,6 @@ impl AudioBackend for EmptyAudioBackend {
         Err(BackendError::Message(self.notice.clone()))
     }
 
-    fn route_device(&self, _graph: &RuntimeGraph, _source_device_id: &str, _target_device_ids: &[String]) -> Result<(), BackendError> {
-        Err(BackendError::Message(self.notice.clone()))
-    }
-
     fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
 
     fn apply_user_cleared_routes(
@@ -454,7 +447,6 @@ impl AudioBackend for EmptyAudioBackend {
         &self,
         _label: &str,
         _multi: bool,
-        _role: VirtualRole,
     ) -> Result<VirtualDeviceResult, BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
@@ -469,7 +461,6 @@ impl AudioBackend for EmptyAudioBackend {
         _label: &str,
         _direction: DeviceDirection,
         _multi: bool,
-        _role: VirtualRole,
         _mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))

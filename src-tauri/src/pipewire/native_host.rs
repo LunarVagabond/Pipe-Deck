@@ -38,9 +38,16 @@
 use crate::core::models::EffectChainConfig;
 use crate::pipewire::{filter_chain, fx_validate};
 use pipewire as pw;
+use pipewire::spa;
+use pipewire::spa::pod::serialize::{PodSerialize, PodSerializer, SerializeSuccess};
+use pipewire::spa::pod::{Pod, PropertyFlags};
+use pipewire::spa::sys as spa_sys;
 use pipewire::sys as pw_sys;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::CString;
+use std::io::Cursor;
+use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
@@ -51,6 +58,50 @@ pub enum NativeHostError {
     LoadFailed(String),
     #[error("module args for {0} contained a NUL byte")]
     InvalidArgs(String),
+    #[error("no live PipeWire node found named {0}")]
+    NodeNotFound(String),
+    #[error("failed to bind a proxy for node {0}")]
+    BindFailed(String),
+    #[error("failed to build a Props pod: {0}")]
+    PodBuildFailed(String),
+}
+
+/// Wraps `(control_name, value)` pairs as the `Struct` pod filter-chain's
+/// `SPA_PROP_params` control expects — mirrors the *shape* `pw-cli set-param`
+/// sends as JSON (`{ "params": [ "name", value, ... ] }`, the array form;
+/// see `pipewire::pw_cli::set_params`'s doc comment for why the object/dict
+/// form silently no-ops), built here as a real SPA pod instead of shelled
+/// out through `pw-cli`.
+struct EffectParams<'a>(&'a [(String, f64)]);
+
+impl PodSerialize for EffectParams<'_> {
+    fn serialize<O: std::io::Write + std::io::Seek>(
+        &self,
+        serializer: PodSerializer<O>,
+    ) -> Result<SerializeSuccess<O>, spa::pod::serialize::GenError> {
+        let mut struct_serializer = serializer.serialize_struct()?;
+        for (name, value) in self.0 {
+            struct_serializer.serialize_field(name.as_str())?;
+            struct_serializer.serialize_field(value)?;
+        }
+        struct_serializer.end()
+    }
+}
+
+/// The `Props` object carrying `EffectParams` under `SPA_PROP_params` — the
+/// same object/property pair `pw-cli set-param <id> Props '...'` targets.
+struct EffectProps<'a>(&'a [(String, f64)]);
+
+impl PodSerialize for EffectProps<'_> {
+    fn serialize<O: std::io::Write + std::io::Seek>(
+        &self,
+        serializer: PodSerializer<O>,
+    ) -> Result<SerializeSuccess<O>, spa::pod::serialize::GenError> {
+        let mut obj_serializer =
+            serializer.serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
+        obj_serializer.serialize_property(spa_sys::SPA_PROP_params, &EffectParams(self.0), PropertyFlags::empty())?;
+        obj_serializer.end()
+    }
 }
 
 /// Wraps the raw module pointer returned by `pw_context_load_module`. Only
@@ -63,6 +114,13 @@ unsafe impl Send for ModuleHandle {}
 struct NativeHost {
     mainloop: pw::main_loop::MainLoopRc,
     context: pw::context::ContextRc,
+    // Held for the life of the process alongside `mainloop`/`context`, for
+    // the same reason: reused across every `set_param` call instead of
+    // reconnecting (and re-doing the sync handshake) per slider tick.
+    // `_core` must outlive `registry` — dropping it first would leave
+    // `registry` pointing at a torn-down connection.
+    registry: pw::registry::RegistryRc,
+    _core: pw::core::CoreRc,
     loaded: HashMap<String, ModuleHandle>,
 }
 
@@ -79,9 +137,14 @@ fn host() -> &'static Mutex<NativeHost> {
         PW_INIT.call_once(pw::init);
         let mainloop = pw::main_loop::MainLoopRc::new(None).expect("failed to create PipeWire main loop");
         let context = pw::context::ContextRc::new(&mainloop, None).expect("failed to create PipeWire context");
+        let core = context.connect_rc(None).expect("failed to connect to PipeWire core");
+        let registry = core.get_registry_rc().expect("failed to get PipeWire registry");
+        pump(mainloop.loop_());
         Mutex::new(NativeHost {
             mainloop,
             context,
+            registry,
+            _core: core,
             loaded: HashMap::new(),
         })
     })
@@ -154,4 +217,69 @@ pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
 /// Whether a chain is currently loaded for `device_system_name`.
 pub fn is_loaded(device_system_name: &str) -> bool {
     host().lock().expect("native host mutex poisoned").loaded.contains_key(device_system_name)
+}
+
+/// Pushes a live `Props` param update — `(control_name, value)` pairs — to
+/// the already-loaded filter-chain node named `device_system_name`, over
+/// this process's own persistent PipeWire connection rather than shelling
+/// out to `pw-dump`+`pw-cli set-param` per call (`pipewire::pw_cli`, still
+/// used by the device-attached EQ path, PD-020). Async, fire-and-forget on
+/// the node's `set_param` method itself (the native protocol gives no other
+/// per-call ack — see PipeWire's own native-protocol docs), but the registry
+/// lookup below only returns once the target node is actually found (or the
+/// scan times out), which is the meaningful confirmation that the push has
+/// somewhere real to land.
+pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(), NativeHostError> {
+    if params.is_empty() {
+        return Ok(());
+    }
+
+    let guard = host().lock().expect("native host mutex poisoned");
+
+    let found: Rc<RefCell<Option<pw::registry::GlobalObject<pw::properties::PropertiesBox>>>> =
+        Rc::new(RefCell::new(None));
+    let target_name = device_system_name.to_string();
+    let found_for_listener = Rc::clone(&found);
+    let listener = guard
+        .registry
+        .add_listener_local()
+        .global(move |global| {
+            if found_for_listener.borrow().is_some() {
+                return;
+            }
+            if global.type_ != pw::types::ObjectType::Node {
+                return;
+            }
+            let Some(props) = global.props.as_ref() else {
+                return;
+            };
+            if props.get("node.name") == Some(target_name.as_str()) {
+                *found_for_listener.borrow_mut() = Some(global.to_owned());
+            }
+        })
+        .register();
+
+    pump(guard.mainloop.loop_());
+    drop(listener);
+
+    let Some(global) = found.borrow_mut().take() else {
+        return Err(NativeHostError::NodeNotFound(device_system_name.to_string()));
+    };
+
+    let node: pw::node::Node = guard
+        .registry
+        .bind(&global)
+        .map_err(|_| NativeHostError::BindFailed(device_system_name.to_string()))?;
+
+    let mut bytes = Vec::new();
+    PodSerializer::serialize(Cursor::new(&mut bytes), &EffectProps(params))
+        .map_err(|error| NativeHostError::PodBuildFailed(format!("{error:?}")))?;
+    let pod = Pod::from_bytes(&bytes)
+        .ok_or_else(|| NativeHostError::PodBuildFailed("serialized pod bytes were malformed".into()))?;
+
+    node.set_param(spa::param::ParamType::from_raw(spa_sys::SPA_PARAM_Props), 0, pod);
+
+    pump(guard.mainloop.loop_());
+
+    Ok(())
 }

@@ -159,10 +159,10 @@ export function handlesForDevice(
   }
 
   const isVirtualInput = device.kind === "virtual" && device.direction === "input";
-  // A terminal Output (virtual) (#287) is a true dead end — no forward
-  // routing of any kind, so it never gets an output pin to drag from.
-  const isTerminalVirtualOutput =
-    device.kind === "virtual" && device.direction === "output" && device.virtual_role !== "bus";
+  // A virtual output device is a dead end — no forward routing of any kind
+  // (retired along with VirtualRole::Bus, #293), so it never gets an output
+  // pin to drag from; only a dedicated Mixer/Fan-Out/EQ node routes onward.
+  const isTerminalVirtualOutput = device.kind === "virtual" && device.direction === "output";
   const hasIn = column === "routing" || column === "outputs" || isVirtualInput;
   const hasOut = (column === "routing" || column === "inputs" || isVirtualInput) && !isTerminalVirtualOutput;
 

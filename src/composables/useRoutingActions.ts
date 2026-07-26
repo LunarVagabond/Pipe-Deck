@@ -38,50 +38,6 @@ export function useRoutingActions() {
     }
   }
 
-  async function setDeviceRoute(
-    sourceDeviceId: string,
-    targetDeviceId: string,
-    successMessage = "Device routing updated",
-  ): Promise<ApplyResultPayload | null> {
-    try {
-      const result = await invoke<ApplyResultPayload>("set_device_route", {
-        sourceDeviceId,
-        targetDeviceId,
-      });
-      handleApplyResult(result, successMessage);
-      return result;
-    } catch (error) {
-      const payload = {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
-      handleApplyResult(payload, "");
-      return payload;
-    }
-  }
-
-  async function setDeviceTargets(
-    sourceDeviceId: string,
-    targetDeviceIds: string[],
-    successMessage = "Sink routing updated",
-  ): Promise<ApplyResultPayload | null> {
-    try {
-      const result = await invoke<ApplyResultPayload>("set_device_targets", {
-        sourceDeviceId,
-        targetDeviceIds,
-      });
-      handleApplyResult(result, successMessage);
-      return result;
-    } catch (error) {
-      const payload = {
-        success: false,
-        message: error instanceof Error ? error.message : String(error),
-      };
-      handleApplyResult(payload, "");
-      return payload;
-    }
-  }
-
   async function clearStreamTarget(
     streamId: string,
     previousTargetDeviceId: string,
@@ -120,8 +76,6 @@ export function useRoutingActions() {
     canUndo,
     refreshCanUndo,
     setStreamTarget,
-    setDeviceRoute,
-    setDeviceTargets,
     clearStreamTarget,
     undoLastRouting,
   };

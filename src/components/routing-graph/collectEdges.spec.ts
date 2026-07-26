@@ -46,16 +46,23 @@ describe("collectRoutingEdges", () => {
     expect(collectRoutingEdges(graph)).toHaveLength(0);
   });
 
-  it("builds one edge per fan-out target for a multi-sink virtual output", () => {
-    const sink = makeDevice({
-      id: "sink1",
-      kind: "virtual",
-      direction: "output",
-      current_targets: ["out1", "out2"],
-    });
+  it("builds one edge per live fan-out target via graph.links, even for multiple targets from one source", () => {
+    // #293: multi-target fan-out edges are no longer synthesized from
+    // device.current_targets (that authoring mechanism is retired) — the
+    // live backend already emits one `pwlink-*` link per fan-out target
+    // directly (`graph_routing.rs::apply_pw_link_device_routes`), so
+    // rendering just needs to draw whatever's in graph.links.
+    const sink = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
     const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
     const out2 = makeDevice({ id: "out2", kind: "physical", direction: "output" });
-    const graph = makeGraph([sink, out1, out2], [], []);
+    const graph = makeGraph(
+      [sink, out1, out2],
+      [],
+      [
+        { id: "pwlink-sink1-out1", source_id: "sink1", target_id: "out1" },
+        { id: "pwlink-sink1-out2", source_id: "sink1", target_id: "out2" },
+      ],
+    );
 
     const edges = collectRoutingEdges(graph);
 

@@ -68,80 +68,6 @@ impl CoreEngine {
         self.set_stream_target(stream_id, primary)
     }
 
-    pub fn set_device_route(
-        &mut self,
-        source_device_id: &str,
-        target_device_id: &str,
-    ) -> Result<ApplyResult, EngineError> {
-        self.set_device_targets(source_device_id, &[target_device_id.to_string()])
-    }
-
-    pub fn set_device_targets(
-        &mut self,
-        source_device_id: &str,
-        target_device_ids: &[String],
-    ) -> Result<ApplyResult, EngineError> {
-        self.clear_last_error();
-        let snapshot = capture_routing_snapshot(&self.graph);
-        let resolved_targets: Vec<String> = target_device_ids
-            .iter()
-            .map(|id| self.resolve_device_id(id))
-            .collect();
-        let resolved_source = self.resolve_device_id(source_device_id);
-
-        let apply_result = self
-            .adapter
-            .route_device(&self.graph, &resolved_source, &resolved_targets)
-            .map_err(|error| EngineError::Routing(error.to_string()));
-
-        if let Err(error) = apply_result {
-            let message = error.to_string();
-            self.last_error = Some(message.clone());
-            return Ok(ApplyResult {
-                success: false,
-                message: Some(message),
-            });
-        }
-
-        if let Some(source) = self
-            .graph
-            .devices
-            .iter()
-            .find(|device| device.id == resolved_source)
-        {
-            let targets: Vec<_> = resolved_targets
-                .iter()
-                .filter_map(|id| self.graph.devices.iter().find(|d| d.id == *id).cloned())
-                .collect();
-            if targets.is_empty() {
-                let _ = crate::core::routing_rules::clear_device_route_rule(source);
-                self.cleared_device_routes.insert(resolved_source.clone());
-            } else {
-                let _ = crate::core::routing_rules::save_device_route_rule(source, &targets);
-                self.cleared_device_routes.remove(&resolved_source);
-            }
-        }
-
-        if resolved_targets.is_empty() {
-            if let Some(device) = self
-                .graph
-                .devices
-                .iter_mut()
-                .find(|device| device.id == resolved_source)
-            {
-                device.current_target = None;
-                device.current_targets.clear();
-            }
-        }
-
-        self.rollback_stack.push(snapshot);
-        self.refresh_graph()?;
-        Ok(ApplyResult {
-            success: true,
-            message: None,
-        })
-    }
-
     pub fn clear_stream_target(
         &mut self,
         stream_id: &str,
@@ -212,11 +138,6 @@ impl CoreEngine {
                     .ok_or_else(|| EngineError::Routing("routing intent has no target".into()))?;
                 self.adapter
                     .route_stream(&self.graph, &intent.stream_id, target)
-                    .map_err(|error| EngineError::Routing(error.to_string()))?;
-            }
-            for intent in &snapshot.device_intents {
-                self.adapter
-                    .route_device(&self.graph, &intent.source_device_id, &intent.target_ids())
                     .map_err(|error| EngineError::Routing(error.to_string()))?;
             }
             Ok(())

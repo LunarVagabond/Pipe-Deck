@@ -2,8 +2,6 @@ import type { RuntimeGraph } from "../../types/graph";
 import {
   columnRank,
   deviceColumn,
-  deviceTargetIds,
-  isMultiSink,
 } from "../../utils/routingLayout";
 import { graphEntityExists, handlesForLink } from "./nodePorts";
 import { edgeClassForPort, edgeColorForPorts } from "./portTypes";
@@ -143,15 +141,6 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
 
   for (const link of graph.links) {
     addEdge(link.id, link.source_id, link.target_id);
-  }
-
-  for (const device of graph.devices) {
-    if (!isMultiSink(device) || deviceColumn(device) !== "routing") {
-      continue;
-    }
-    for (const targetId of deviceTargetIds(device)) {
-      addEdge(`route-device-${device.id}-${targetId}`, device.id, targetId);
-    }
   }
 
   // Processing node ports (PD-032, the Mixer Node kind generalizes and

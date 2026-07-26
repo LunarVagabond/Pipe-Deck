@@ -1,20 +1,16 @@
 import type { Connection } from "@vue-flow/core";
 import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
 import {
-  isMultiSink,
   sinksForStream,
   streamDisplayLabel,
-  targetsForVirtualSink,
 } from "../../utils/routingLayout";
 import { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 import { canConnectPorts } from "./portTypes";
-import { isMicPassthroughCandidate, isRoutableVirtualOutput } from "./routingRelationship";
+import { isMicPassthroughCandidate } from "./routingRelationship";
 
 export type RoutingConnectionAction =
   | { type: "stream_target"; streamId: string; targetDeviceId: string }
   | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
-  | { type: "device_route"; sourceDeviceId: string; targetDeviceId: string }
-  | { type: "device_targets"; sourceDeviceId: string; targetDeviceIds: string[] }
   | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string }
   // PD-032 processing nodes: `peerId` is a device or stream id, resolved
   // server-side against the engine's own graph (`connect_processing_node_port`),
@@ -85,7 +81,7 @@ export function resolveConnectionAction(
     return { error: "Could not identify one end of this connection — try refreshing the routing view." };
   }
 
-  const primary = resolvePrimaryConnectionAction(graph, source, target, context);
+  const primary = resolvePrimaryConnectionAction(graph, source, target);
   if ("error" in primary) {
     return primary;
   }
@@ -104,7 +100,6 @@ function resolvePrimaryConnectionAction(
   graph: RuntimeGraph,
   source: { kind: "stream" | "device" | "processingNode"; id: string },
   target: { kind: "stream" | "device" | "processingNode"; id: string },
-  context: ConnectionContext,
 ): { action: RoutingConnectionAction } | { error: string } {
   if (source.kind === "stream" && target.kind === "device") {
     return resolveStreamToDevice(graph, source.id, target.id);
@@ -115,7 +110,13 @@ function resolvePrimaryConnectionAction(
   }
 
   if (source.kind === "device" && target.kind === "device") {
-    return resolveDeviceToDevice(graph, source.id, target.id, context);
+    const sourceDevice = findDevice(graph, source.id);
+    const targetDevice = findDevice(graph, target.id);
+    const sourceLabel = sourceDevice?.label ?? source.id;
+    const targetLabel = targetDevice?.label ?? target.id;
+    return {
+      error: `"${sourceLabel}" can't be routed directly to "${targetLabel}" — plain devices no longer route onward to each other. Use a Mixer or Fan-Out node, or drag an application stream instead.`,
+    };
   }
 
   if (source.kind === "processingNode" || target.kind === "processingNode") {
@@ -354,78 +355,6 @@ function resolveStreamToDevice(
   };
 }
 
-function existingDeviceTargets(device: Device): string[] {
-  if (device.current_targets?.length) {
-    return [...device.current_targets];
-  }
-  return device.current_target ? [device.current_target] : [];
-}
-
-function resolveDeviceToDevice(
-  graph: RuntimeGraph,
-  sourceDeviceId: string,
-  targetDeviceId: string,
-  context: ConnectionContext,
-): { action: RoutingConnectionAction } | { error: string } {
-  const source = findDevice(graph, sourceDeviceId);
-  const target = findDevice(graph, targetDeviceId);
-  if (!source || !target) {
-    return { error: "Device not found." };
-  }
-
-  const allowed = targetsForVirtualSink(graph.devices, source);
-  if (!allowed.some((entry) => entry.id === targetDeviceId)) {
-    return {
-      error: `"${source.label}" can only route to a physical output, another virtual output, or a virtual input — "${target.label}" isn't one of those.`,
-    };
-  }
-
-  if (!isRoutableVirtualOutput(source)) {
-    return {
-      error: `"${source.label}" isn't a virtual output sink, so it can't be routed directly to another device. Drag an application stream instead.`,
-    };
-  }
-
-  const existing = existingDeviceTargets(source);
-
-  if (context.mode === "edge_update" && context.previousEdge) {
-    const previousTarget = parseGraphNodeId(context.previousEdge.target);
-    if (previousTarget?.kind === "device") {
-      const withoutPrevious = existing.filter((id) => id !== previousTarget.id);
-      if (isMultiSink(source)) {
-        const next = [...withoutPrevious, targetDeviceId];
-        return {
-          action: {
-            type: "device_targets",
-            sourceDeviceId,
-            targetDeviceIds: [...new Set(next)],
-          },
-        };
-      }
-    }
-  }
-
-  if (isMultiSink(source)) {
-    if (existing.includes(targetDeviceId)) {
-      return { error: `"${source.label}" is already routed to "${target.label}".` };
-    }
-    return {
-      action: {
-        type: "device_targets",
-        sourceDeviceId,
-        targetDeviceIds: [...existing, targetDeviceId],
-      },
-    };
-  }
-
-  return {
-    action: {
-      type: "device_route",
-      sourceDeviceId,
-      targetDeviceId,
-    },
-  };
-}
 
 function resolveEdgeDisconnect(
   graph: RuntimeGraph,
@@ -479,35 +408,7 @@ function resolveEdgeDisconnect(
     return resolveProcessingNodeDisconnect(graph, source, target);
   }
 
-  if (source.kind !== "device" || target.kind !== "device") {
-    return { error: "Nothing to disconnect." };
-  }
-
-  const device = findDevice(graph, source.id);
-  const targetDevice = findDevice(graph, target.id);
-  if (!device || !targetDevice) {
-    return { error: "Device not found." };
-  }
-
-  if (!isRoutableVirtualOutput(device)) {
-    return {
-      error: `"${device.label}" isn't a virtual sink route — only virtual-output connections can be dragged off to disconnect them.`,
-    };
-  }
-
-  const existing = existingDeviceTargets(device);
-  const remaining = existing.filter((id) => id !== target.id);
-  if (remaining.length === existing.length) {
-    return { error: `"${device.label}" isn't currently routed to "${targetDevice.label}" — nothing to disconnect.` };
-  }
-
-  return {
-    action: {
-      type: "device_targets",
-      sourceDeviceId: source.id,
-      targetDeviceIds: remaining,
-    },
-  };
+  return { error: "Nothing to disconnect." };
 }
 
 function graphNodeIdFor(graph: RuntimeGraph, entityId: string): string {

@@ -7,13 +7,3 @@ import type { Device, Stream } from "../../types/graph";
 export function isMicPassthroughCandidate(stream: Stream, target: Device): boolean {
   return stream.direction === "playback" && target.kind === "virtual" && target.direction === "input";
 }
-
-/** Whether a device is a virtual-output sink whose targets can be set/cleared
- * directly (single-target replace-route or multi-sink fan-out). Shared by
- * connect-time (`resolveDeviceToDevice`) and disconnect-time
- * (`resolveEdgeDisconnect`) so the two never drift apart on what counts as a
- * routable device-to-device relationship. A terminal Output (virtual) (#287)
- * is excluded — it's a dead end, only a Bus can route onward. */
-export function isRoutableVirtualOutput(device: Device): boolean {
-  return device.kind === "virtual" && device.direction === "output" && device.virtual_role === "bus";
-}

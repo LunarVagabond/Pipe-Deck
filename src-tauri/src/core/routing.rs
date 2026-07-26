@@ -1,6 +1,4 @@
-use crate::core::models::{
-    DeviceDirection, DeviceKind, DeviceRouteIntent, Profile, RoutingIntent, RuntimeGraph, Stream,
-};
+use crate::core::models::{Profile, RoutingIntent, RuntimeGraph, Stream};
 use crate::backend::{AudioBackend, BackendError};
 use crate::backend::linux::split_sink;
 use thiserror::Error;
@@ -16,7 +14,6 @@ pub enum RoutingError {
 #[derive(Debug, Clone)]
 pub struct RoutingSnapshot {
     pub stream_intents: Vec<RoutingIntent>,
-    pub device_intents: Vec<DeviceRouteIntent>,
 }
 
 pub fn capture_routing_snapshot(graph: &RuntimeGraph) -> RoutingSnapshot {
@@ -29,21 +26,6 @@ pub fn capture_routing_snapshot(graph: &RuntimeGraph) -> RoutingSnapshot {
                     stream_id: stream.id.clone(),
                     target_device_id: Some(target.clone()),
                     target_device_ids: Vec::new(),
-                })
-            })
-            .collect(),
-        device_intents: graph
-            .devices
-            .iter()
-            .filter_map(|device| {
-                let targets = device.resolved_targets();
-                if targets.is_empty() {
-                    return None;
-                }
-                Some(DeviceRouteIntent {
-                    source_device_id: device.id.clone(),
-                    target_device_id: targets.first().cloned(),
-                    target_device_ids: targets,
                 })
             })
             .collect(),
@@ -63,15 +45,6 @@ pub fn apply_routing_intent(
     Ok(())
 }
 
-pub fn apply_device_route_intent(
-    graph: &RuntimeGraph,
-    intent: &DeviceRouteIntent,
-) -> Result<(), RoutingError> {
-    let targets = intent.target_ids();
-    split_sink::apply_sink_targets(graph, &intent.source_device_id, &targets)?;
-    Ok(())
-}
-
 pub fn apply_profile_routing(
     graph: &RuntimeGraph,
     profile: &Profile,
@@ -88,9 +61,6 @@ pub fn restore_routing_snapshot(
 ) -> Result<(), RoutingError> {
     for intent in &snapshot.stream_intents {
         apply_routing_intent(graph, intent)?;
-    }
-    for intent in &snapshot.device_intents {
-        apply_device_route_intent(graph, intent)?;
     }
     Ok(())
 }
@@ -116,22 +86,11 @@ pub fn apply_stream_to_sink(
     Ok(())
 }
 
-pub fn apply_sink_targets(
-    graph: &RuntimeGraph,
-    sink_device_id: &str,
-    target_device_ids: &[String],
-) -> Result<(), RoutingError> {
-    split_sink::apply_sink_targets(graph, sink_device_id, target_device_ids)?;
-    Ok(())
-}
-
 /// Confirms a route command actually took effect, instead of trusting
-/// whatever the next graph refresh happens to report. Reconciliation today
-/// (`apply_device_rules_pass`) issues `apply_sink_targets` and, on `Ok`,
-/// immediately writes the desired state into the graph model — a route
-/// that silently didn't take (the shell-out equivalent of a fire-and-forget
-/// write, exactly the failure mode behind issue #210) would otherwise go
-/// unnoticed until something else happened to catch the mismatch. Polls
+/// whatever the next graph refresh happens to report. A route that silently
+/// didn't take (the shell-out equivalent of a fire-and-forget write, exactly
+/// the failure mode behind issue #210) would otherwise go unnoticed until
+/// something else happened to catch the mismatch. Polls
 /// `backend.is_routed_to` (the same primitive `AudioBackend::is_routed_to`
 /// already exposes for the "already correctly routed" check) rather than
 /// re-deriving link state itself. Short timeout by design: this exists to
@@ -156,47 +115,6 @@ pub fn verify_route_applied(
         }
         std::thread::sleep(std::time::Duration::from_millis(150));
     }
-}
-
-pub fn validate_device_route_ids(
-    graph: &RuntimeGraph,
-    source_device_id: &str,
-    target_device_id: &str,
-) -> Result<(), RoutingError> {
-    let source = graph
-        .devices
-        .iter()
-        .find(|device| device.id == source_device_id)
-        .ok_or_else(|| RoutingError::Message(format!("source device not found: {source_device_id}")))?;
-    let target = graph
-        .devices
-        .iter()
-        .find(|device| device.id == target_device_id)
-        .ok_or_else(|| RoutingError::Message(format!("target device not found: {target_device_id}")))?;
-    validate_device_route(source, target)
-}
-
-fn validate_device_route(
-    source: &crate::core::models::Device,
-    target: &crate::core::models::Device,
-) -> Result<(), RoutingError> {
-    if source.kind != DeviceKind::Virtual || source.direction != DeviceDirection::Output {
-        return Err(RoutingError::Message(
-            "only virtual sinks can be routed to another device".into(),
-        ));
-    }
-
-    let valid_target = matches!(target.direction, DeviceDirection::Output | DeviceDirection::Input)
-        && (target.kind == DeviceKind::Physical
-            || (target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input));
-
-    if !valid_target {
-        return Err(RoutingError::Message(
-            "virtual sinks can route to hardware outputs or virtual inputs".into(),
-        ));
-    }
-
-    Ok(())
 }
 
 #[cfg(test)]

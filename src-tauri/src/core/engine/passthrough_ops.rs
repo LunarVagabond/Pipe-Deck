@@ -60,23 +60,23 @@ impl CoreEngine {
             .cloned();
 
         // A device we created ourselves (any Pipe Deck virtual output, single
-        // or multi) already has reliable monitor ports we can tap directly —
-        // no need to insert another sink in front of it. Anything else
-        // (a real hardware output) gets its own dedicated virtual sink so the
-        // stream keeps playing there unchanged while we get a tappable
-        // monitor to feed the mic from.
-        let mix_source_device_id = match &current_target_device {
-            Some(device) if device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output => {
-                device.id.clone()
-            }
-            _ => {
-                let split_label = format!("{} passthrough", stream.app_name);
-                let result = self.create_virtual_output(&split_label)?;
-                self.set_stream_target(stream_id, &result.device_id)?;
-                self.set_device_targets(&result.device_id, &[original_target_id])?;
-                result.device_id
-            }
+        // or multi) already has reliable monitor ports we can tap directly.
+        // A stream playing directly to a hardware device has no such
+        // tappable sink in front of it, and plain virtual devices can no
+        // longer be routed onward to synthesize one (device-to-device
+        // routing was retired — see the #293 Bus-removal pass) — passthrough
+        // for that case needs a new mechanism, tracked separately.
+        let Some(device) = &current_target_device else {
+            return Err(EngineError::InvalidInput(
+                "stream has no resolvable current destination to duplicate".to_string(),
+            ));
         };
+        if device.kind != DeviceKind::Virtual || device.direction != DeviceDirection::Output {
+            return Err(EngineError::InvalidInput(
+                "duplicating a stream playing directly to a hardware device isn't supported yet — route it through a virtual output first".to_string(),
+            ));
+        }
+        let mix_source_device_id = device.id.clone();
 
         self.add_mic_mix_source(mic_device_id, &mix_source_device_id)
     }

@@ -74,6 +74,19 @@ impl NativeHostClient {
         let op = IpcOp::IsLoaded { device_system_name: device_system_name.to_string() };
         matches!(request_with_timeout(op, REQUEST_TIMEOUT), Ok(IpcOkPayload::Loaded { loaded: true }))
     }
+
+    /// Pushes a live `Props` param update over the daemon's own persistent
+    /// PipeWire connection — the replacement for shelling out to
+    /// `pw-dump`+`pw-cli set-param` per call on the slider-drag hot path
+    /// (`pipewire::pw_cli::set_params`, still used by the device-attached EQ
+    /// path). Uses `REQUEST_TIMEOUT`, same as `load_chain`/`unload_chain`.
+    pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(), IpcClientError> {
+        let op = IpcOp::SetParam { device_system_name: device_system_name.to_string(), params: params.to_vec() };
+        match request_with_timeout(op, REQUEST_TIMEOUT)? {
+            IpcOkPayload::Unit => Ok(()),
+            _ => Err(IpcClientError::Protocol),
+        }
+    }
 }
 
 fn request_with_timeout(op: IpcOp, timeout: Duration) -> Result<IpcOkPayload, IpcClientError> {

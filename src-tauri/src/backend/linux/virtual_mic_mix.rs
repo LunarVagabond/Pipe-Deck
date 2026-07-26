@@ -120,7 +120,6 @@ pub fn relink_feeds_to(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::VirtualRole;
 
     fn sample_mic(direction: DeviceDirection) -> Device {
         Device {
@@ -128,10 +127,6 @@ mod tests {
             system_name: "pipe-deck-mic".into(),
             label: "Mic".into(),
             kind: DeviceKind::Virtual,
-            virtual_role: match &direction {
-                DeviceDirection::Output | DeviceDirection::Duplex => Some(VirtualRole::Bus),
-                DeviceDirection::Input => None,
-            },
             direction,
             sink_mode: None,
             volume_percent: None,
