@@ -1,7 +1,7 @@
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, PortDirection,
     ProcessingNode, ProcessingNodeKind, RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo,
-    VirtualDeviceResult, VirtualRole,
+    VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -53,7 +53,6 @@ impl MockAudioBackend {
         label: &str,
         direction: DeviceDirection,
         multi: bool,
-        role: VirtualRole,
     ) -> VirtualDeviceResult {
         let slug = crate::backend::slugify(label);
         let system_name = format!("pipe-deck-{slug}");
@@ -71,10 +70,6 @@ impl MockAudioBackend {
                 }
                 DeviceDirection::Input => None,
             },
-            virtual_role: match direction {
-                DeviceDirection::Output | DeviceDirection::Duplex => Some(role),
-                DeviceDirection::Input => None,
-            },
             volume_percent: Some(100),
             muted: Some(false),
             current_target: None,
@@ -86,7 +81,6 @@ impl MockAudioBackend {
             system_name,
             label: label.to_string(),
             multi,
-            virtual_role: role,
         }
     }
 
@@ -306,14 +300,6 @@ fn mock_device(
     kind: DeviceKind,
     direction: DeviceDirection,
 ) -> Device {
-    // Sample devices predate #287's Bus/terminal-Output split; default every
-    // virtual output/duplex to Bus, matching the real migration default for
-    // existing devices, so the mock graph exercises the same
-    // fan-out/effects/mic-mix-source capability a Bus has today.
-    let virtual_role = match (&kind, &direction) {
-        (DeviceKind::Virtual, DeviceDirection::Output | DeviceDirection::Duplex) => Some(VirtualRole::Bus),
-        _ => None,
-    };
     Device {
         id: id.into(),
         system_name: id.into(),
@@ -321,7 +307,6 @@ fn mock_device(
         kind,
         direction,
         sink_mode: None,
-        virtual_role,
         volume_percent: Some(70),
         muted: Some(false),
         current_target: None,
@@ -450,26 +435,6 @@ impl AudioBackend for MockAudioBackend {
             .find(|stream| stream.id == stream_id)
             .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
         stream.current_target = Some(target_device_id.to_string());
-        Ok(())
-    }
-
-    fn route_device(&self, _graph: &RuntimeGraph, source_device_id: &str, target_device_ids: &[String]) -> Result<(), BackendError> {
-        let mut graph = self.lock();
-        if !graph.devices.iter().any(|device| device.id == source_device_id) {
-            return Err(BackendError::Message(format!("source device not found: {source_device_id}")));
-        }
-        for target_id in target_device_ids {
-            if !graph.devices.iter().any(|device| device.id == *target_id) {
-                return Err(BackendError::Message(format!("target device not found: {target_id}")));
-            }
-        }
-        let device = graph
-            .devices
-            .iter_mut()
-            .find(|device| device.id == source_device_id)
-            .expect("source device presence checked above");
-        device.current_targets = target_device_ids.to_vec();
-        device.current_target = target_device_ids.first().cloned();
         Ok(())
     }
 
@@ -627,13 +592,12 @@ impl AudioBackend for MockAudioBackend {
         &self,
         label: &str,
         multi: bool,
-        role: VirtualRole,
     ) -> Result<VirtualDeviceResult, BackendError> {
-        Ok(self.push_virtual_device(label, DeviceDirection::Output, multi, role))
+        Ok(self.push_virtual_device(label, DeviceDirection::Output, multi))
     }
 
     fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError> {
-        Ok(self.push_virtual_device(label, DeviceDirection::Input, false, VirtualRole::Bus))
+        Ok(self.push_virtual_device(label, DeviceDirection::Input, false))
     }
 
     fn restore_virtual_device(
@@ -642,7 +606,6 @@ impl AudioBackend for MockAudioBackend {
         label: &str,
         direction: DeviceDirection,
         multi: bool,
-        role: VirtualRole,
         _mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
@@ -656,10 +619,6 @@ impl AudioBackend for MockAudioBackend {
                 DeviceDirection::Output | DeviceDirection::Duplex => {
                     Some(if multi { SinkMode::Multi } else { SinkMode::Single })
                 }
-                DeviceDirection::Input => None,
-            },
-            virtual_role: match direction {
-                DeviceDirection::Output | DeviceDirection::Duplex => Some(role),
                 DeviceDirection::Input => None,
             },
             volume_percent: Some(100),
@@ -687,7 +646,6 @@ impl AudioBackend for MockAudioBackend {
                 label: device.label.clone(),
                 direction: device.direction.clone(),
                 multi: device.sink_mode == Some(SinkMode::Multi),
-                virtual_role: device.virtual_role.unwrap_or(VirtualRole::Bus),
             })
             .collect()
     }

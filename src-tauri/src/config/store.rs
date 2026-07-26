@@ -807,7 +807,6 @@ mod tests {
                 direction: crate::core::models::DeviceDirection::Output,
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
-                virtual_role: crate::core::models::VirtualRole::Bus,
                 mix_sources: Vec::new(),
             };
             store.add_virtual_device(spec.clone()).unwrap();
@@ -838,7 +837,6 @@ mod tests {
                 direction: crate::core::models::DeviceDirection::Input,
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
-                virtual_role: crate::core::models::VirtualRole::Bus,
                 mix_sources: Vec::new(),
             };
             store.add_virtual_device(spec).unwrap();
@@ -871,7 +869,6 @@ mod tests {
                 direction: crate::core::models::DeviceDirection::Input,
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
-                virtual_role: crate::core::models::VirtualRole::Bus,
                 mix_sources: vec![
                     MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
                     MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
@@ -924,19 +921,22 @@ mod tests {
     }
 
     #[test]
-    fn legacy_virtual_device_config_migrates_to_bus() {
+    fn legacy_virtual_device_config_with_a_role_key_still_loads() {
+        // `virtual_role` (VirtualRole::Bus, #287) was removed outright, not
+        // migrated — a plain virtual device can no longer route onward or
+        // host effects at all (dedicated processing nodes replace both).
+        // Config written before this change may still have the now-unknown
+        // `virtual_role: bus` key on disk; it must be silently ignored
+        // rather than failing to deserialize.
         with_temp_config(|store| {
             fs::create_dir_all(store.config_dir()).unwrap();
             fs::write(
                 store.config_dir().join("config.yaml"),
-                "version: 1\nprofile_index: []\nvirtual_devices:\n  - id: virtual-game-mix\n    slug: game-mix\n    label: Game Mix\n    direction: output\n    created_at: '2026-07-09T10:00:00Z'\n    multi: false\n",
+                "version: 1\nprofile_index: []\nvirtual_devices:\n  - id: virtual-game-mix\n    slug: game-mix\n    label: Game Mix\n    direction: output\n    created_at: '2026-07-09T10:00:00Z'\n    multi: false\n    virtual_role: bus\n",
             )
             .unwrap();
             let config = store.load_config().unwrap();
-            assert_eq!(
-                config.virtual_devices[0].virtual_role,
-                crate::core::models::VirtualRole::Bus
-            );
+            assert_eq!(config.virtual_devices[0].id, "virtual-game-mix");
         });
     }
 

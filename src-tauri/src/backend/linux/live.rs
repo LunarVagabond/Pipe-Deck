@@ -1,6 +1,6 @@
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind,
-    RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
+    RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -62,9 +62,8 @@ impl LinuxPipeWireBackend {
         system_name: &str,
         label: &str,
         multi: bool,
-        role: VirtualRole,
     ) -> Result<VirtualDeviceEntry, BackendError> {
-        self.registry.create_output_for(system_name, label, multi, role)
+        self.registry.create_output_for(system_name, label, multi)
     }
 
     fn create_input_internal(&self, system_name: &str, label: &str) -> Result<VirtualDeviceEntry, BackendError> {
@@ -153,16 +152,6 @@ impl AudioBackend for LinuxPipeWireBackend {
             .map_err(|error| BackendError::Message(error.to_string()))
     }
 
-    fn route_device(&self, graph: &RuntimeGraph, source_device_id: &str, target_device_ids: &[String]) -> Result<(), BackendError> {
-        let intent = crate::core::models::DeviceRouteIntent {
-            source_device_id: source_device_id.to_string(),
-            target_device_id: target_device_ids.first().cloned(),
-            target_device_ids: target_device_ids.to_vec(),
-        };
-        crate::core::routing::apply_device_route_intent(graph, &intent)
-            .map_err(|error| BackendError::Message(error.to_string()))
-    }
-
     fn sync_live_routing_graph(&self, graph: &mut RuntimeGraph) {
         graph_routing::sync_live_routing_graph(graph);
     }
@@ -217,11 +206,10 @@ impl AudioBackend for LinuxPipeWireBackend {
         &self,
         label: &str,
         multi: bool,
-        role: VirtualRole,
     ) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(label));
         Ok(self
-            .create_output_internal(&system_name, label, multi, role)?
+            .create_output_internal(&system_name, label, multi)?
             .into_result())
     }
 
@@ -236,13 +224,12 @@ impl AudioBackend for LinuxPipeWireBackend {
         label: &str,
         direction: DeviceDirection,
         multi: bool,
-        role: VirtualRole,
         mix_sources: &[MixSourceSpec],
     ) -> Result<(), BackendError> {
         let entry = match direction {
             DeviceDirection::Input => self.create_input_internal(system_name, label)?,
             DeviceDirection::Output | DeviceDirection::Duplex => {
-                self.create_output_internal(system_name, label, multi, role)?
+                self.create_output_internal(system_name, label, multi)?
             }
         };
 

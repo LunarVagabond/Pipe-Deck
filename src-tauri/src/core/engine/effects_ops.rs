@@ -1,5 +1,5 @@
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage, VirtualRole};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage};
 use crate::pipewire::filter_chain;
 use crate::pipewire::fx_capability::{self, FxCapabilities};
 use crate::pipewire::fx_validate::{self, PreflightResult};
@@ -187,15 +187,14 @@ impl CoreEngine {
                 "effects may only be applied to pipe-deck virtual devices".to_string(),
             ));
         }
-        // A terminal Output (#287) is a true dead end — no effects, same as
-        // a physical output. Only a Bus (or a virtual input/mic) can host
-        // one.
-        if device.kind != DeviceKind::Virtual
-            || !matches!(device.direction, DeviceDirection::Output | DeviceDirection::Input)
-            || (device.direction == DeviceDirection::Output && device.virtual_role != Some(VirtualRole::Bus))
-        {
+        // Device-attached output effects (the old Bus mechanism, #287) were
+        // retired alongside VirtualRole::Bus — a virtual output device can
+        // no longer host effects directly. The dedicated EQ5Band processing
+        // node (PD-032) is the replacement. Virtual input (mic) devices are
+        // unaffected; that path never depended on Bus.
+        if device.kind != DeviceKind::Virtual || device.direction != DeviceDirection::Input {
             return Err(EngineError::InvalidInput(
-                "live effects currently only support virtual bus and input devices".to_string(),
+                "live effects currently only support virtual input (mic) devices - use a dedicated EQ node for output effects".to_string(),
             ));
         }
 
@@ -207,7 +206,11 @@ impl CoreEngine {
 
         let is_input = device.direction == DeviceDirection::Input;
 
-        let (downstream_target_ids, upstream_sources) = self.downstream_and_upstream_routes(&device, is_input);
+        // Only virtual input (mic) devices reach this point (see the gate
+        // above) — `downstream_and_upstream_routes` always returns an empty
+        // upstream list for `is_input`, since device-attached output effects
+        // (the only case that ever populated it) are retired.
+        let (downstream_target_ids, _upstream_sources) = self.downstream_and_upstream_routes(&device, is_input);
         let downstream_targets: Vec<_> = downstream_target_ids
             .iter()
             .filter_map(|id| self.graph.devices.iter().find(|d| &d.id == id).cloned())
@@ -229,27 +232,21 @@ impl CoreEngine {
 
         if let Err(error) = apply_result {
             let _ = self.adapter.unload_effect_chain(&device.system_name);
-            if is_input {
-                let _ = self.adapter.revert_to_plain_device(&device, false);
-                let _ = self
-                    .adapter
-                    .relink_mic_feeds(&mic_feeders, &device.system_name, &device.system_name, true);
-            } else {
-                let _ = self.adapter.revert_to_plain_device(&device, false);
-                let _ = crate::core::routing::apply_sink_targets(&self.graph, &device.id, &downstream_target_ids);
-                for (upstream_id, upstream_targets) in &upstream_sources {
-                    let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
-                }
-            }
+            // Only virtual input (mic) devices reach this point — device-
+            // attached output effects were retired with VirtualRole::Bus
+            // (see the gate above), so `downstream_target_ids`/
+            // `upstream_sources` are always empty here and this is always
+            // the input branch.
+            debug_assert!(is_input);
+            let _ = self.adapter.revert_to_plain_device(&device, false);
+            let _ = self
+                .adapter
+                .relink_mic_feeds(&mic_feeders, &device.system_name, &device.system_name, true);
             let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
             let _ = self.refresh_graph();
             return Err(EngineError::Adapter(format!(
                 "effects apply failed and was rolled back to no effects: {error}"
             )));
-        }
-
-        for (upstream_id, upstream_targets) in &upstream_sources {
-            let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
         }
 
         let _ = self.adapter.release_held_sink_inputs(&held_sink_inputs, &device.system_name);
@@ -398,23 +395,19 @@ impl CoreEngine {
                     true,
                 )
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        } else if self.graph.data_source != "mock" {
-            // `core::routing::apply_sink_targets` shells straight out to
-            // real `pw-link`, bypassing `AudioBackend`/the mock entirely
-            // (a pre-existing gap — see the module doc on
-            // `core::engine::effects_ops::effect_chain_liveness_tests`).
-            // `MockAudioBackend`'s own `revert_to_plain_device`/
-            // `unload_effect_chain` never touch `self.graph`'s routing
-            // fields, so this device's `current_targets` is already
-            // correct by the time we get here in mock mode — nothing to
-            // re-link, and calling out to a real `pw-link` that doesn't
-            // exist would only fail.
-            crate::core::routing::apply_sink_targets(&self.graph, &device.id, &downstream_target_ids)
-                .map_err(|error| EngineError::Routing(error.to_string()))?;
-            for (upstream_id, upstream_targets) in &upstream_sources {
-                let _ = crate::core::routing::apply_sink_targets(&self.graph, upstream_id, upstream_targets);
-            }
         }
+        // The output-direction branch that used to re-link
+        // `downstream_target_ids`/`upstream_sources` via
+        // `core::routing::apply_sink_targets` is gone along with
+        // device-attached output effects (VirtualRole::Bus retirement) — a
+        // pre-existing output device with a live legacy effect chain still
+        // has its effects removed above (`revert_to_plain_device`), it just
+        // won't be automatically re-linked to whatever it used to route to.
+        // New effect chains can only ever be attached to virtual input
+        // devices (see the gate in `apply_effect_chain_structural`), so
+        // `downstream_target_ids`/`upstream_sources` are always empty for
+        // any chain created after this change.
+        let _ = (&downstream_target_ids, &upstream_sources);
 
         ConfigStore::new()
             .remove_effect_chain(device_id)
@@ -603,8 +596,6 @@ impl CoreEngine {
             return;
         }
 
-        let was_live = self.effect_chain_liveness.get(system_name).copied().unwrap_or(is_live);
-
         let current_targets: Vec<String> = if !device.current_targets.is_empty() {
             device.current_targets.clone()
         } else {
@@ -614,11 +605,12 @@ impl CoreEngine {
             self.effect_chain_last_targets.insert(device.id.clone(), current_targets);
         }
 
-        if is_live && !was_live {
-            if let Some(targets) = self.effect_chain_last_targets.get(&device.id).cloned() {
-                let _ = crate::core::routing::apply_sink_targets(&self.graph, &device.id, &targets);
-            }
-        }
+        // Re-linking a reappeared chain's last-known downstream targets used
+        // `core::routing::apply_sink_targets`, retired along with
+        // device-attached output effects (VirtualRole::Bus). Only a
+        // pre-existing legacy output effect chain can still reach this
+        // method at all (see the `direction != Output` early return above);
+        // it no longer gets automatically re-linked on reappear.
 
         self.effect_chain_liveness.insert(system_name.to_string(), is_live);
     }
@@ -704,136 +696,6 @@ mod live_tests {
         let remove_result = engine.remove_effect_chain_structural(&device_id);
         cleanup(&mut engine);
         remove_result.expect("remove_effect_chain_structural should revert cleanly");
-    }
-
-    /// Regression for the exact live-session bug report behind PD-026's
-    /// follow-up fixes: bus A fans out to a physical output directly *and*
-    /// to bus B; bus B carries a live effect chain and routes to a second
-    /// physical output. Adjusting/reapplying B's effects must never make A's
-    /// direct physical-output leg carry the processed signal (the old
-    /// `try_apply_structural` downstream-relink bug), and B's own fan-out
-    /// must go out through `effect_output.*`, never B's raw monitor in
-    /// addition to it (the old `split_sink` effects-unaware fan-out bug) —
-    /// otherwise the physical target ends up hearing raw+processed audio
-    /// mixed together, or the effect audibly "leaks" onto an unrelated leg.
-    #[test]
-    #[ignore]
-    fn effects_on_a_chained_bus_do_not_leak_onto_an_unrelated_fan_out_leg() {
-        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
-
-        let mut engine = CoreEngine::new();
-        engine.refresh_graph().expect("initial graph refresh");
-
-        let physical_outputs: Vec<_> = engine
-            .runtime_graph()
-            .devices
-            .iter()
-            .filter(|d| d.kind == DeviceKind::Physical && d.direction == DeviceDirection::Output)
-            .map(|d| (d.id.clone(), d.system_name.clone()))
-            .collect();
-        assert!(
-            physical_outputs.len() >= 2,
-            "this live test needs at least two real physical outputs to exercise the chained fan-out; found {}",
-            physical_outputs.len()
-        );
-        let (leg_a_target_id, leg_a_target_name) = physical_outputs[0].clone();
-        let (leg_b_target_id, leg_b_target_name) = physical_outputs[1].clone();
-
-        let bus_a = engine.create_virtual_output("Pipe Deck Live Chain Test A").expect("create bus A");
-        let bus_b = engine.create_virtual_output("Pipe Deck Live Chain Test B").expect("create bus B");
-
-        let cleanup = |engine: &mut CoreEngine| {
-            let _ = engine.remove_virtual_device(&bus_a.system_name);
-            let _ = engine.remove_virtual_device(&bus_b.system_name);
-        };
-
-        // A fans out directly to physical leg A *and* into bus B.
-        match engine.set_device_targets(&bus_a.device_id, &[leg_a_target_id.clone(), bus_b.device_id.clone()]) {
-            Ok(result) if result.success => {}
-            other => {
-                cleanup(&mut engine);
-                panic!("failed to fan bus A out to leg A + bus B: {other:?}");
-            }
-        }
-        // B routes onward to physical leg B.
-        match engine.set_device_route(&bus_b.device_id, &leg_b_target_id) {
-            Ok(result) if result.success => {}
-            other => {
-                cleanup(&mut engine);
-                panic!("failed to route bus B to leg B: {other:?}");
-            }
-        }
-
-        let config = EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Eq5Band {
-                id: "eq".to_string(),
-                eq_bass: 6,
-                eq_sub: 0,
-                eq_mid: 0,
-                eq_treble: 0,
-                eq_air: 0,
-                output_gain: 0,
-            }],
-            ..Default::default()
-        };
-        if let Err(error) = engine.apply_effect_chain_structural(&bus_b.device_id, &config) {
-            cleanup(&mut engine);
-            panic!("structural apply on bus B failed: {error}");
-        }
-
-        // Regression for the Routing graph's "no arrow drawn to an
-        // effects-active node's target, even though the audio is genuinely
-        // connected" bug: current_target/current_targets is what the
-        // frontend draws edges from, and it used to get rediscovered purely
-        // from bus B's own raw monitor on every live refresh — which,
-        // correctly, carries nothing once effects are live — silently
-        // wiping the field back to empty on every single refresh even
-        // though bus B was still really routed via effect_output.*. Refresh
-        // several times in a row and confirm it stays populated instead of
-        // flickering/collapsing to None.
-        for _ in 0..3 {
-            engine.refresh_graph().expect("repeated refresh should succeed");
-            let current_target = engine
-                .runtime_graph()
-                .devices
-                .iter()
-                .find(|d| d.id == bus_b.device_id)
-                .expect("bus B should still be present in the graph")
-                .current_target
-                .clone();
-            if current_target.as_deref() != Some(leg_b_target_id.as_str()) {
-                cleanup(&mut engine);
-                panic!(
-                    "bus B's current_target should survive a live refresh while effects are active; got {current_target:?}"
-                );
-            }
-        }
-
-        let effect_output_name = filter_chain::effect_output_name_for_device(&bus_b.system_name);
-        let effect_output_targets: std::collections::HashSet<_> =
-            pw_link::list_all_monitor_routes_for_source(&effect_output_name).into_iter().collect();
-        let bus_b_raw_targets: std::collections::HashSet<_> =
-            pw_link::list_all_monitor_routes_for_source(&bus_b.system_name).into_iter().collect();
-        let bus_a_targets: std::collections::HashSet<_> =
-            pw_link::list_all_monitor_routes_for_source(&bus_a.system_name).into_iter().collect();
-
-        cleanup(&mut engine);
-
-        assert!(
-            effect_output_targets.contains(&leg_b_target_name),
-            "bus B's processed output should feed leg B; got {effect_output_targets:?}"
-        );
-        assert!(
-            bus_b_raw_targets.is_empty(),
-            "bus B's raw (pre-effect) monitor must not be linked to anything once effects are live \
-             — the target would hear the unprocessed signal mixed in with the processed one; \
-             found {bus_b_raw_targets:?}"
-        );
-        assert!(
-            !bus_a_targets.contains(&effect_output_name) && !effect_output_targets.contains(&leg_a_target_name),
-            "bus A's own direct fan-out leg to leg A must never end up carrying bus B's processed \
-             signal — bus A targets: {bus_a_targets:?}, effect_output targets: {effect_output_targets:?}"
-        );
     }
 
     /// PD-024: the same round trip as
@@ -1041,127 +903,5 @@ mod live_tests {
             Some(-4.0),
             "expected the live-updated eq_bass:Gain to read back as -4.0"
         );
-    }
-}
-
-#[cfg(test)]
-mod effect_chain_liveness_tests {
-    //! Issue #206: unlike `live_tests` above, `reconcile_one_effect_chain_liveness`
-    //! takes an explicit `is_live` rather than reading it from a real
-    //! native-effects PipeWire session, so the transition-detection/bookkeeping
-    //! logic is testable against `MockAudioBackend` without one. The re-link
-    //! it triggers on a reappear goes through `core::routing::apply_sink_targets`
-    //! -> `split_sink::apply_sink_targets`, which — like every other caller of
-    //! that function in this file — shells straight out to real `pw-link`,
-    //! bypassing `AudioBackend`/the mock entirely; that side of it can only be
-    //! verified against a real PipeWire session (see `live_tests` above), so
-    //! these tests assert the decision logic (does it correctly detect the
-    //! transition and retain the right target to reapply) rather than the
-    //! unmockable live-link outcome.
-    use super::*;
-    use crate::core::models::EffectStage;
-
-    fn mock_engine() -> CoreEngine {
-        let temp_dir = std::env::temp_dir().join(format!(
-            "pipe-deck-effect-liveness-test-{}",
-            std::process::id()
-        ));
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
-        std::env::set_var("PIPE_DECK_USE_MOCK", "1");
-        let mut engine = CoreEngine::new();
-        engine.refresh_graph().expect("initial refresh");
-        engine
-    }
-
-    #[test]
-    fn reappearing_effect_chain_restores_its_last_known_target() {
-        let _guard = crate::config::store::lock_config_dir_env();
-        let mut engine = mock_engine();
-
-        let output = engine.create_virtual_output("Liveness Test Bus").expect("create output");
-        let target = engine.runtime_graph().devices[0].id.clone();
-        engine.set_device_targets(&output.device_id, std::slice::from_ref(&target)).unwrap();
-        engine
-            .add_effect_stage(
-                &output.device_id,
-                EffectStage::Eq5Band {
-                    id: "eq".to_string(),
-                    eq_sub: 0,
-                    eq_bass: 3,
-                    eq_mid: 0,
-                    eq_treble: 0,
-                    eq_air: 0,
-                    output_gain: 0,
-                },
-            )
-            .expect("add effect stage");
-        engine.refresh_graph().unwrap();
-
-        // Seed liveness bookkeeping as "was live with this target" — the
-        // state a real refresh would have captured before the daemon died.
-        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
-        assert_eq!(
-            engine.effect_chain_last_targets.get(&output.device_id),
-            Some(&vec![target.clone()])
-        );
-
-        // The chain goes down (daemon crash) and its link is gone.
-        engine.set_device_targets(&output.device_id, &[]).unwrap();
-        engine.reconcile_one_effect_chain_liveness(&output.system_name, false);
-        let mid = engine.runtime_graph().devices.iter().find(|d| d.id == output.device_id).unwrap();
-        assert!(mid.current_targets.is_empty());
-
-        // It reappears (daemon recovered and reloaded the chain) — nothing
-        // re-linked it yet, since the daemon can't reach into the GUI's
-        // routing engine. The reconciliation pass must detect this as a
-        // real transition (not the first-ever-seen case, which intentionally
-        // no-ops) and still know the target to restore.
-        assert_eq!(
-            engine.effect_chain_liveness.get(&output.system_name),
-            Some(&false),
-            "sanity: chain should be recorded as down before the reappear"
-        );
-        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
-        assert_eq!(
-            engine.effect_chain_last_targets.get(&output.device_id),
-            Some(&vec![target]),
-            "the last-known target must survive the down period so the reappear has something to restore"
-        );
-        assert_eq!(engine.effect_chain_liveness.get(&output.system_name), Some(&true));
-    }
-
-    #[test]
-    fn liveness_flapping_without_ever_dropping_the_link_does_not_reapply_unnecessarily() {
-        let _guard = crate::config::store::lock_config_dir_env();
-        let mut engine = mock_engine();
-
-        let output = engine.create_virtual_output("Steady Bus").expect("create output");
-        let target = engine.runtime_graph().devices[0].id.clone();
-        engine.set_device_targets(&output.device_id, std::slice::from_ref(&target)).unwrap();
-        engine
-            .add_effect_stage(
-                &output.device_id,
-                EffectStage::Eq5Band {
-                    id: "eq".to_string(),
-                    eq_sub: 0,
-                    eq_bass: 3,
-                    eq_mid: 0,
-                    eq_treble: 0,
-                    eq_air: 0,
-                    output_gain: 0,
-                },
-            )
-            .expect("add effect stage");
-        engine.refresh_graph().unwrap();
-
-        // Staying live across repeated refreshes must not disturb routing.
-        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
-        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
-        engine.reconcile_one_effect_chain_liveness(&output.system_name, true);
-        engine.refresh_graph().unwrap();
-
-        let after = engine.runtime_graph().devices.iter().find(|d| d.id == output.device_id).unwrap();
-        assert_eq!(after.current_targets, vec![target]);
     }
 }

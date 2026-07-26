@@ -1,13 +1,10 @@
 use crate::config::store::ConfigStore;
 use crate::core::models::{
-    ActionStatus, DeviceDirection, DeviceKind, DeviceRouteRule, FallbackPolicy, RouteExplanation,
-    RouteSource, Rule, RuntimeGraph, SimulationResult, Stream, StreamDirection, StreamRouteRule,
-    VirtualRole,
+    ActionStatus, RouteExplanation,
+    RouteSource, Rule, RuntimeGraph, SimulationResult, Stream, StreamRouteRule,
 };
-use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::matching::{
-    collect_missing_metadata_skips, collect_stream_candidates, device_matches_rule,
-    find_safe_default_device, resolve_target_device,
+    collect_missing_metadata_skips, collect_stream_candidates, resolve_target_device,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_display_label, stream_identity_key};
@@ -184,182 +181,7 @@ pub fn apply_routing_rules_with_explanations(
         }
     }
 
-    apply_device_rules(graph, &config.routing_rules.device_rules, ctx)?;
     Ok(())
-}
-
-fn apply_device_rules(
-    graph: &mut RuntimeGraph,
-    device_rules: &[DeviceRouteRule],
-    ctx: &ApplyRulesContext<'_>,
-) -> Result<(), BackendError> {
-    if ctx.dry_run {
-        return Ok(());
-    }
-
-    // A single linear pass isn't enough once virtual outputs can chain into
-    // other virtual outputs (PD-026): if rule A wants device X routed into Y
-    // and rule B (evaluated later in the same pass) wants Y routed into Z,
-    // X's pass sees Y's *stale, not-yet-updated* `current_target` (whatever
-    // it was before this refresh) rather than Y's true end state. If that
-    // stale value happens to point back toward X, `apply_sink_targets`'s
-    // cycle guard (`split_sink::would_create_cycle`) reports a false-positive
-    // cycle and silently drops X's route for this pass — the route was never
-    // actually cyclic, only the mid-pass snapshot looked that way. Repeating
-    // the pass until nothing changes (bounded by the rule count, since each
-    // full pass can resolve at least one more link in any dependency chain)
-    // lets a later rule's now-correct target be visible to an earlier one on
-    // the next iteration, without changing behavior for the common
-    // single-rule-per-refresh case (which converges in one pass either way).
-    let max_passes = device_rules.len().max(1);
-    for _ in 0..max_passes {
-        let mut changed = false;
-        apply_device_rules_pass(graph, device_rules, ctx, &mut changed);
-        if !changed {
-            break;
-        }
-    }
-
-    Ok(())
-}
-
-fn apply_device_rules_pass(
-    graph: &mut RuntimeGraph,
-    device_rules: &[DeviceRouteRule],
-    ctx: &ApplyRulesContext<'_>,
-    changed: &mut bool,
-) {
-    for rule in device_rules {
-        if let Some(source) = find_device_by_system_name(graph, &rule.source_system_name) {
-            // A terminal Output (virtual) (#287) can never fan out — skip it
-            // here the same way an ineligible device already was, rather
-            // than attempting `apply_sink_targets` every refresh only to
-            // have it rejected by the backend's own gate. Without this, a
-            // rule whose source is a terminal Output retries and logs a
-            // failure on every graph refresh forever, since nothing about
-            // that failure is ever going to change.
-            if source.kind != DeviceKind::Virtual
-                || source.direction != DeviceDirection::Output
-                || source.virtual_role != Some(VirtualRole::Bus)
-            {
-                continue;
-            }
-            let source_id = source.id.clone();
-            if ctx.device_manual_overrides.contains(&source_id) {
-                continue;
-            }
-            let target_system_names = rule.target_system_names_resolved();
-            let target_devices: Vec<_> = target_system_names
-                .iter()
-                .filter_map(|system_name| find_device_by_system_name(graph, system_name).cloned())
-                .collect();
-            if target_devices.is_empty() {
-                if rule.safeguards.fallback_policy == FallbackPolicy::SafeDefault {
-                    if let Some(fallback_device) = find_safe_default_device(graph, StreamDirection::Playback)
-                    {
-                        let fallback_id = fallback_device.id.clone();
-                        let fallback_system_name = fallback_device.system_name.clone();
-                        let fallback_is_input = fallback_device.direction == DeviceDirection::Input;
-                        if fallback_id != source_id {
-                            let routed = if ctx.mock_graph_only {
-                                true
-                            } else {
-                                match crate::core::routing::apply_sink_targets(
-                                    graph,
-                                    &source_id,
-                                    std::slice::from_ref(&fallback_id),
-                                ) {
-                                    Ok(()) => {
-                                        if let Err(error) = crate::core::routing::verify_route_applied(
-                                            ctx.backend,
-                                            &source.system_name,
-                                            &fallback_system_name,
-                                            fallback_is_input,
-                                            std::time::Duration::from_millis(750),
-                                        ) {
-                                            eprintln!("device rule fallback route verification failed: {error}");
-                                        }
-                                        true
-                                    }
-                                    Err(error) => {
-                                        eprintln!(
-                                            "device rule fallback route failed for {source_id} -> {fallback_id}: {error}"
-                                        );
-                                        false
-                                    }
-                                }
-                            };
-                            if routed {
-                                if let Some(device) =
-                                    graph.devices.iter_mut().find(|device| device.id == source_id)
-                                {
-                                    if device.current_targets != vec![fallback_id.clone()] {
-                                        *changed = true;
-                                    }
-                                    device.current_targets = vec![fallback_id.clone()];
-                                    device.current_target = Some(fallback_id);
-                                }
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            let target_ids: Vec<String> = target_devices.iter().map(|device| device.id.clone()).collect();
-            let already = if source.is_multi_sink() {
-                device_matches_rule(graph, source, rule, ctx.backend)
-            } else if let Some(target) = target_devices.first() {
-                source
-                    .current_target
-                    .as_ref()
-                    .is_some_and(|id| id == &target.id)
-                    || ctx.backend.is_routed_to(
-                        &source.system_name,
-                        &target.system_name,
-                        target.direction == DeviceDirection::Input,
-                    )
-            } else {
-                false
-            };
-            let routed = if already || ctx.mock_graph_only {
-                true
-            } else {
-                match crate::core::routing::apply_sink_targets(graph, &source_id, &target_ids) {
-                    Ok(()) => {
-                        for target in &target_devices {
-                            if let Err(error) = crate::core::routing::verify_route_applied(
-                                ctx.backend,
-                                &source.system_name,
-                                &target.system_name,
-                                target.direction == DeviceDirection::Input,
-                                std::time::Duration::from_millis(750),
-                            ) {
-                                eprintln!("device rule route verification failed: {error}");
-                            }
-                        }
-                        true
-                    }
-                    Err(error) => {
-                        eprintln!("device rule route failed for {source_id} -> {target_ids:?}: {error}");
-                        false
-                    }
-                }
-            };
-            if routed {
-                if let Some(device) = graph
-                    .devices
-                    .iter_mut()
-                    .find(|device| device.id == source_id)
-                {
-                    if device.current_targets != target_ids {
-                        *changed = true;
-                    }
-                    device.current_targets = target_ids.clone();
-                    device.current_target = target_ids.first().cloned();
-                }
-            }
-        }
-    }
 }
 
 pub fn simulate_rules(
@@ -506,7 +328,6 @@ mod tests {
                     kind: DeviceKind::Physical,
                     direction: DeviceDirection::Output,
                     sink_mode: None,
-                    virtual_role: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
@@ -520,7 +341,6 @@ mod tests {
                     kind: DeviceKind::Physical,
                     direction: DeviceDirection::Output,
                     sink_mode: None,
-                    virtual_role: None,
                     volume_percent: None,
                     muted: None,
                     current_target: None,
@@ -755,7 +575,6 @@ mod tests {
         let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
-            device_manual_overrides: &HashSet::new(),
             dry_run: true,
             mock_graph_only: true,
             limit_to_stream_ids: Some(&limit),
@@ -772,77 +591,6 @@ mod tests {
         );
         let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
         assert!(firefox.route_explanation.is_none());
-
-        let _ = fs::remove_dir_all(&temp_dir);
-        std::env::remove_var("PIPE_DECK_CONFIG_DIR");
-    }
-
-    #[test]
-    fn device_rule_with_terminal_output_source_is_skipped_not_retried() {
-        // #287 follow-up: a persisted device rule whose source has since
-        // become (or was created as) a terminal Output (virtual) must never
-        // be attempted — it can structurally never fan out. Before this
-        // fix, `apply_device_rules_pass` only checked kind/direction, so a
-        // terminal-Output source fell through to `apply_sink_targets` on
-        // every single graph refresh, which the backend's own Bus-only gate
-        // rejects every time — spamming an identical failure log forever
-        // instead of being skipped once, up front, like any other
-        // ineligible device.
-        use crate::config::store::ConfigStore;
-        use crate::core::models::{DeviceRouteRule, VirtualRole};
-        use std::fs;
-
-        let _guard = crate::config::store::lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!(
-            "pipe-deck-rules-terminal-output-test-{}",
-            std::process::id()
-        ));
-        let _ = fs::remove_dir_all(&temp_dir);
-        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
-
-        let store = ConfigStore::new();
-        store.ensure_layout().expect("config layout");
-        let mut config = ConfigStore::default_config();
-        config.routing_rules.device_rules = vec![DeviceRouteRule {
-            source_system_name: "pipe-deck-terminal".into(),
-            target_system_name: Some("hdmi-out".into()),
-            target_system_names: Vec::new(),
-            safeguards: Default::default(),
-        }];
-        store.save_config(&config).expect("save config");
-
-        let mut graph = graph_with_outputs();
-        graph.devices.push(Device {
-            id: "terminal-output".into(),
-            system_name: "pipe-deck-terminal".into(),
-            label: "Terminal".into(),
-            kind: DeviceKind::Virtual,
-            direction: DeviceDirection::Output,
-            sink_mode: None,
-            virtual_role: Some(VirtualRole::Output),
-            volume_percent: None,
-            muted: None,
-            current_target: None,
-            current_targets: Vec::new(),
-            mix_sources: Vec::new(),
-        });
-
-        let backend = crate::backend::mock::MockAudioBackend::new();
-        let ctx = ApplyRulesContext {
-            manual_overrides: &HashSet::new(),
-            device_manual_overrides: &HashSet::new(),
-            dry_run: false,
-            mock_graph_only: true,
-            limit_to_stream_ids: None,
-            backend: &backend,
-        };
-        apply_routing_rules_with_explanations(&mut graph, &ctx).expect("apply rules");
-
-        let terminal = graph.devices.iter().find(|d| d.id == "terminal-output").unwrap();
-        assert!(
-            terminal.current_targets.is_empty(),
-            "a terminal Output must never be marked routed by a device rule"
-        );
 
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("PIPE_DECK_CONFIG_DIR");
@@ -887,7 +635,6 @@ mod tests {
         let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
-            device_manual_overrides: &HashSet::new(),
             dry_run: false,
             mock_graph_only: true,
             limit_to_stream_ids: None,
@@ -940,7 +687,6 @@ mod tests {
         let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
-            device_manual_overrides: &HashSet::new(),
             dry_run: false,
             mock_graph_only: true,
             limit_to_stream_ids: None,
@@ -1035,73 +781,4 @@ mod tests {
         assert_eq!(explanation.source, RouteSource::NoRule);
     }
 
-    fn graph_with_virtual_sink() -> RuntimeGraph {
-        let mut graph = graph_with_outputs();
-        graph.devices.push(Device {
-            id: "chat-sink".into(),
-            system_name: "pipe-deck-chat".into(),
-            label: "Chat Mix".into(),
-            kind: DeviceKind::Virtual,
-            direction: DeviceDirection::Output,
-            sink_mode: None,
-            virtual_role: Some(VirtualRole::Bus),
-            volume_percent: None,
-            muted: None,
-            current_target: None,
-            current_targets: Vec::new(),
-            mix_sources: Vec::new(),
-        });
-        graph
-    }
-
-    #[test]
-    fn device_rule_falls_back_to_safe_default_when_target_missing() {
-        let mut graph = graph_with_virtual_sink();
-        let device_rules = vec![DeviceRouteRule {
-            source_system_name: "pipe-deck-chat".into(),
-            target_system_name: Some("missing-target".into()),
-            target_system_names: Vec::new(),
-            safeguards: RuleSafeguards {
-                fallback_policy: FallbackPolicy::SafeDefault,
-            },
-        }];
-        let backend = crate::backend::mock::MockAudioBackend::new();
-        let ctx = ApplyRulesContext {
-            manual_overrides: &HashSet::new(),
-            device_manual_overrides: &HashSet::new(),
-            dry_run: false,
-            mock_graph_only: true,
-            limit_to_stream_ids: None,
-            backend: &backend,
-        };
-        apply_device_rules(&mut graph, &device_rules, &ctx).expect("apply device rules");
-
-        let source = graph.devices.iter().find(|device| device.id == "chat-sink").unwrap();
-        // find_safe_default_device sorts physical outputs by label; "HDMI" < "Speakers".
-        assert_eq!(source.current_target.as_deref(), Some("hdmi"));
-    }
-
-    #[test]
-    fn device_rule_stays_unrouted_when_target_missing_and_keep_current() {
-        let mut graph = graph_with_virtual_sink();
-        let device_rules = vec![DeviceRouteRule {
-            source_system_name: "pipe-deck-chat".into(),
-            target_system_name: Some("missing-target".into()),
-            target_system_names: Vec::new(),
-            safeguards: RuleSafeguards::default(),
-        }];
-        let backend = crate::backend::mock::MockAudioBackend::new();
-        let ctx = ApplyRulesContext {
-            manual_overrides: &HashSet::new(),
-            device_manual_overrides: &HashSet::new(),
-            dry_run: false,
-            mock_graph_only: true,
-            limit_to_stream_ids: None,
-            backend: &backend,
-        };
-        apply_device_rules(&mut graph, &device_rules, &ctx).expect("apply device rules");
-
-        let source = graph.devices.iter().find(|device| device.id == "chat-sink").unwrap();
-        assert_eq!(source.current_target, None);
-    }
 }

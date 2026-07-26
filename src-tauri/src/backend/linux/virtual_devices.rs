@@ -1,6 +1,6 @@
 use crate::config::ConfigStore;
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceInfo, VirtualDeviceResult, VirtualRole,
+    Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::backend::BackendError;
 use crate::backend::linux::pactl;
@@ -18,14 +18,6 @@ pub struct VirtualDeviceEntry {
     pub label: String,
     pub direction: DeviceDirection,
     pub multi: bool,
-    /// Only meaningful for `direction: Output`; `discover_from_pactl` has no
-    /// way to recover this from pactl module args (see #287 — role isn't
-    /// encoded in the sink name or module properties the way `multi` is via
-    /// the `pipe-deck-split-` prefix), so entries rebuilt from a live scan
-    /// default to `Bus` here and get corrected from persisted config by
-    /// `core::restore::merge_registry_into_graph`'s `role_by_name` overlay,
-    /// the same way that function already corrects `multi`/`SinkMode`.
-    pub role: VirtualRole,
 }
 
 #[derive(Default)]
@@ -60,7 +52,6 @@ impl VirtualDeviceRegistry {
                     label: module.label,
                     direction: module.direction,
                     multi: module.multi,
-                    role: VirtualRole::Bus,
                 });
         }
 
@@ -110,7 +101,6 @@ impl VirtualDeviceRegistry {
                     label: spec.label,
                     direction: spec.direction,
                     multi: spec.multi,
-                    role: spec.virtual_role,
                 },
             );
         }
@@ -160,21 +150,17 @@ impl VirtualDeviceRegistry {
         Ok(())
     }
 
-    pub fn create_output(
-        self: &Arc<Self>,
-        name: &str,
-        role: VirtualRole,
-    ) -> Result<VirtualDeviceResult, BackendError> {
+    pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(name));
         Ok(self
-            .create_output_for(&system_name, name, false, role)?
+            .create_output_for(&system_name, name, false)?
             .into_result())
     }
 
     pub fn create_multi_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(name));
         Ok(self
-            .create_output_for(&system_name, name, true, VirtualRole::Bus)?
+            .create_output_for(&system_name, name, true)?
             .into_result())
     }
 
@@ -187,7 +173,6 @@ impl VirtualDeviceRegistry {
         system_name: &str,
         label: &str,
         multi: bool,
-        role: VirtualRole,
     ) -> Result<VirtualDeviceEntry, BackendError> {
         let module_id = pactl::create_null_sink(system_name, label)?;
         let entry = VirtualDeviceEntry {
@@ -197,7 +182,6 @@ impl VirtualDeviceRegistry {
             label: label.to_string(),
             direction: DeviceDirection::Output,
             multi,
-            role,
         };
         self.insert_entry(entry.clone())?;
         Ok(entry)
@@ -217,7 +201,6 @@ impl VirtualDeviceRegistry {
             label: label.to_string(),
             direction: DeviceDirection::Input,
             multi: false,
-            role: VirtualRole::Bus,
         };
         self.insert_entry(entry.clone())?;
         Ok(entry)
@@ -281,7 +264,6 @@ impl VirtualDeviceEntry {
             system_name: self.system_name,
             label: self.label,
             multi: self.multi,
-            virtual_role: self.role,
         }
     }
 
@@ -292,7 +274,6 @@ impl VirtualDeviceEntry {
             label: self.label.clone(),
             direction: self.direction.clone(),
             multi: self.multi,
-            virtual_role: self.role,
         }
     }
 
@@ -309,10 +290,6 @@ impl VirtualDeviceEntry {
                 } else {
                     SinkMode::Single
                 }),
-                DeviceDirection::Input => None,
-            },
-            virtual_role: match self.direction {
-                DeviceDirection::Output | DeviceDirection::Duplex => Some(self.role),
                 DeviceDirection::Input => None,
             },
             volume_percent: Some(100),
@@ -338,7 +315,6 @@ mod tests {
             label: "Mic".into(),
             direction: DeviceDirection::Input,
             multi: false,
-            role: VirtualRole::Bus,
         }
     }
 

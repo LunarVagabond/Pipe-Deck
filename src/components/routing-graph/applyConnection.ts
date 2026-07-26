@@ -34,12 +34,6 @@ async function invokeSingleAction(
       previousTargetDeviceId: action.previousTargetDeviceId,
     });
     onResult(response, "Routing cleared");
-  } else if (action.type === "device_targets") {
-    const response = await invoke<{ success: boolean; message?: string }>("set_device_targets", {
-      sourceDeviceId: action.sourceDeviceId,
-      targetDeviceIds: action.targetDeviceIds,
-    });
-    onResult(response, "Sink routing updated");
   } else if (action.type === "stream_mic_passthrough_add") {
     const response = await invoke<{ success: boolean; message?: string }>("enable_stream_mic_passthrough", {
       streamId: action.streamId,
@@ -53,19 +47,13 @@ async function invokeSingleAction(
       peerId: action.peerId,
     });
     onResult(response, "Routing updated");
-  } else if (action.type === "processing_node_disconnect") {
+  } else {
     const response = await invoke<{ success: boolean; message?: string }>("disconnect_processing_node_port", {
       nodeId: action.nodeId,
       direction: action.direction,
       portIndex: action.portIndex,
     });
     onResult(response, "Routing cleared");
-  } else {
-    const response = await invoke<{ success: boolean; message?: string }>("set_device_route", {
-      sourceDeviceId: action.sourceDeviceId,
-      targetDeviceId: action.targetDeviceId,
-    });
-    onResult(response, "Device routing updated");
   }
 }
 

@@ -10,7 +10,7 @@ const { newDeviceDialogState, closeNewDeviceDialog } = useNewDeviceDialog();
 
 const open = computed(() => newDeviceDialogState.value.open);
 const name = ref("");
-const type = ref<"input" | "bus" | "output">("bus");
+const type = ref<"input" | "output">("output");
 const nameInputRef = ref<HTMLInputElement | null>(null);
 
 const canCreate = computed(() => name.value.trim().length > 0);
@@ -27,7 +27,7 @@ const slug = computed(() => {
 
 function resetForm() {
   name.value = "";
-  type.value = "bus";
+  type.value = "output";
 }
 
 function close() {
@@ -47,9 +47,8 @@ async function createVirtual() {
   const trimmed = name.value.trim();
   if (!trimmed) return;
   const command = type.value === "input" ? "create_virtual_input" : "create_virtual_output";
-  const args = type.value === "input" ? { name: trimmed } : { name: trimmed, role: type.value };
   try {
-    await invoke(command, args);
+    await invoke(command, { name: trimmed });
     handleApplyResult({ success: true }, `${trimmed} created`);
     close();
   } catch (error) {
@@ -87,22 +86,12 @@ async function createVirtual() {
           <button
             type="button"
             class="new-device-type-card"
-            :class="{ selected: type === 'bus' }"
-            @click="type = 'bus'"
-          >
-            <NodeTypeIcon kind="virtual-sink" />
-            <span class="new-device-type-card-title">Bus</span>
-            <span class="new-device-type-card-sub">Apps play into it, effects can attach, and you route it onward — even into another bus, to build a submix</span>
-          </button>
-          <button
-            type="button"
-            class="new-device-type-card"
             :class="{ selected: type === 'output' }"
             @click="type = 'output'"
           >
             <NodeTypeIcon kind="virtual-output" />
             <span class="new-device-type-card-title">Output (virtual)</span>
-            <span class="new-device-type-card-sub">Apps play into it, but it's a destination — no effects, and it can't be routed onward</span>
+            <span class="new-device-type-card-sub">Apps play into it, but it's a destination — no forward routing. To mix multiple sources or fan out to several destinations, use a Mixer or Fan-Out node instead</span>
           </button>
           <button
             type="button"

@@ -13,7 +13,7 @@ use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{
     Device, DeviceDirection, DeviceKind, Profile, Rule, RuleAction, RuleCondition, RuntimeGraph, Stream,
-    StreamDirection, VirtualDeviceSpec, VirtualRole,
+    StreamDirection, VirtualDeviceSpec,
 };
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -107,19 +107,6 @@ fn stream_routing_set_clear_and_undo_round_trip() {
         None,
         "cleared route must stay cleared across a refresh, not just until the next fetch"
     );
-}
-
-#[test]
-fn device_routing_supports_multi_target_fanout() {
-    let (mut engine, _guard) = mock_engine();
-    let graph = engine.runtime_graph().clone();
-    let source_id = graph.devices[3].id.clone();
-    let targets = vec![graph.devices[1].id.clone(), graph.devices[2].id.clone()];
-
-    let result = engine.set_device_targets(&source_id, &targets).unwrap();
-    assert!(result.success, "{:?}", result.message);
-    let current = engine.runtime_graph().devices.iter().find(|d| d.id == source_id).unwrap().current_targets.clone();
-    assert_eq!(current, targets);
 }
 
 #[test]
@@ -618,148 +605,39 @@ fn eq_param_update_rejects_a_non_eq_node() {
 }
 
 #[test]
-fn virtual_output_can_chain_into_another_virtual_output() {
-    let (mut engine, _guard) = mock_engine();
-
-    let submix = engine.create_virtual_output("Submix").expect("create submix");
-    let master = engine.create_virtual_output("Master Mix").expect("create master mix");
-
-    let result = engine.set_device_targets(&submix.device_id, std::slice::from_ref(&master.device_id)).unwrap();
-    assert!(result.success, "{:?}", result.message);
-    engine.refresh_graph().unwrap();
-
-    let chained = engine
-        .runtime_graph()
-        .devices
-        .iter()
-        .find(|d| d.id == submix.device_id)
-        .unwrap();
-    assert_eq!(chained.current_targets, vec![master.device_id.clone()]);
-
-    engine.remove_virtual_device(&submix.system_name).unwrap();
-    engine.remove_virtual_device(&master.system_name).unwrap();
-}
-
-#[test]
-fn create_virtual_output_role_creates_a_distinct_terminal_output() {
-    // #287: "Add Output (virtual)" is the new, opt-in restrictive role —
-    // `create_virtual_output` (the zero-arg entry point) must keep creating
-    // a Bus, unchanged, for every existing caller.
-    let (mut engine, _guard) = mock_engine();
-
-    let bus = engine.create_virtual_output("Bus Device").expect("create bus");
-    assert_eq!(bus.virtual_role, VirtualRole::Bus);
-    let terminal = engine
-        .create_virtual_output_role("Terminal Device", VirtualRole::Output)
-        .expect("create terminal output");
-    assert_eq!(terminal.virtual_role, VirtualRole::Output);
-
-    let bus_device = engine.runtime_graph().devices.iter().find(|d| d.id == bus.device_id).unwrap();
-    assert_eq!(bus_device.virtual_role, Some(VirtualRole::Bus));
-    let terminal_device = engine.runtime_graph().devices.iter().find(|d| d.id == terminal.device_id).unwrap();
-    assert_eq!(terminal_device.virtual_role, Some(VirtualRole::Output));
-
-    engine.remove_virtual_device(&bus.system_name).unwrap();
-    engine.remove_virtual_device(&terminal.system_name).unwrap();
-}
-
-#[test]
-fn terminal_output_rejected_as_mixer_node_input() {
-    // #287: a terminal Output is a true dead end — it can't feed a Mixer
-    // node any more than it could feed the old mic-mix mechanism; only a
-    // Bus qualifies.
+fn a_virtual_output_device_qualifies_as_a_mixer_node_input() {
+    // Regression coverage for #293's VirtualRole::Bus removal: a plain
+    // virtual output device can no longer route onward to another device
+    // (that whole mechanism, and the Bus/terminal-Output distinction that
+    // gated it, is retired), but feeding its monitor into a Mixer node's
+    // input is a separate, unaffected capability — same as a physical
+    // device already could.
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let terminal = engine
-        .create_virtual_output_role("Terminal Source", VirtualRole::Output)
-        .expect("create terminal output");
-    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
-
-    let error = engine
-        .connect_processing_node_port(&mixer.id, PortDirection::Input, &terminal.device_id)
-        .expect_err("terminal output must not be a valid mixer input");
-    assert!(error.to_string().contains("terminal output"), "{error}");
-}
-
-#[test]
-fn bus_still_qualifies_as_a_mixer_node_input() {
-    // Positive-path regression alongside the rejection test above — a Bus
-    // (today's virtual-output behavior) must still work as a mixer input.
-    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
-
-    let (mut engine, _guard) = mock_engine();
-    let bus = engine.create_virtual_output("Bus Source").expect("create bus");
+    let output = engine.create_virtual_output("Output Source").expect("create output");
     let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
     let result = engine
-        .connect_processing_node_port(&mixer.id, PortDirection::Input, &bus.device_id)
-        .expect("bus should be a valid mixer input");
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &output.device_id)
+        .expect("a virtual output device should be a valid mixer input");
     assert!(result.success, "{:?}", result.message);
 }
 
 #[test]
-fn terminal_output_rejects_effect_attach() {
-    // #287: a terminal Output never hosts effects, same as a physical
-    // output — only a Bus (or a virtual input/mic) can.
+fn virtual_output_device_rejects_effect_attach() {
+    // Device-attached output effects (the old Bus mechanism, #287) were
+    // retired alongside VirtualRole::Bus — a virtual output device can no
+    // longer host effects directly at all; the dedicated EQ5Band processing
+    // node is the replacement. Virtual input (mic) effects are unaffected.
     let (mut engine, _guard) = mock_engine();
-    let terminal = engine
-        .create_virtual_output_role("Terminal Effects Test", VirtualRole::Output)
-        .expect("create terminal output");
+    let output = engine.create_virtual_output("Effects Test Output").expect("create output");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig::default();
     let error = engine
-        .apply_effect_chain_structural(&terminal.device_id, &config)
-        .expect_err("terminal output must not accept an effect chain");
-    assert!(error.to_string().contains("virtual bus"));
-}
-
-#[test]
-fn removing_effects_from_a_bus_device_preserves_its_upstream_chain_link() {
-    // Regression: source -> test1 -> test2(effects) -> hardware. Removing
-    // effects from test2 destroys and recreates test2's sink node
-    // (`revert_to_plain_device`), which silently drops the raw pw-link
-    // test1's monitor held into it (PD-026 bus-into-bus). Only test2's own
-    // downstream target (hardware) was being re-linked after removal;
-    // test1 -> test2 needs the same treatment `apply_effect_chain_structural`
-    // already gives this case.
-    use pipe_deck_lib::core::models::EffectStage;
-
-    let (mut engine, _guard) = mock_engine();
-    let test1 = engine.create_virtual_output("test1").expect("create test1");
-    let test2 = engine.create_virtual_output("test2").expect("create test2");
-
-    engine.set_device_targets(&test1.device_id, std::slice::from_ref(&test2.device_id)).unwrap();
-    engine.set_device_targets(&test2.device_id, &["sink-headphones".to_string()]).unwrap();
-    engine.refresh_graph().unwrap();
-
-    engine
-        .add_effect_stage(
-            &test2.device_id,
-            EffectStage::Eq5Band {
-                id: "eq".to_string(),
-                eq_sub: 0,
-                eq_bass: 4,
-                eq_mid: 0,
-                eq_treble: 0,
-                eq_air: 0,
-                output_gain: 0,
-            },
-        )
-        .expect("add effects to test2");
-    engine.refresh_graph().unwrap();
-
-    engine.remove_effect_stage(&test2.device_id, "eq").expect("remove effects from test2");
-    engine.refresh_graph().unwrap();
-
-    let test1_after = engine.runtime_graph().devices.iter().find(|d| d.id == test1.device_id).unwrap().clone();
-    let test2_after = engine.runtime_graph().devices.iter().find(|d| d.id == test2.device_id).unwrap().clone();
-    assert_eq!(
-        test1_after.current_targets,
-        vec![test2.device_id.clone()],
-        "test1 -> test2 link must survive removing effects from test2"
-    );
-    assert_eq!(test2_after.current_targets, vec!["sink-headphones".to_string()]);
+        .apply_effect_chain_structural(&output.device_id, &config)
+        .expect_err("a virtual output device must not accept a device-attached effect chain");
+    assert!(error.to_string().contains("virtual input"), "{error}");
 }
 
 #[test]
@@ -837,7 +715,7 @@ fn remove_effect_chain_structural_runs_the_real_adapter_call_path_in_mock_mode()
     // `apply_effect_chain_structural`, which `MockAudioBackend` tracks
     // in-memory the same way it tracks routing/mixer state.
     let (mut engine, _guard) = mock_engine();
-    let output = engine.create_virtual_output("Integration Remove Path Output").expect("create output");
+    let mic = engine.create_virtual_input("Integration Remove Path Mic").expect("create mic");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig {
         stages: vec![pipe_deck_lib::core::models::EffectStage::Eq5Band {
@@ -852,19 +730,19 @@ fn remove_effect_chain_structural_runs_the_real_adapter_call_path_in_mock_mode()
         ..Default::default()
     };
     engine
-        .apply_effect_chain_structural(&output.device_id, &config)
+        .apply_effect_chain_structural(&mic.device_id, &config)
         .expect("structural apply should succeed");
     assert!(
-        engine.is_effect_chain_live(&output.device_id),
+        engine.is_effect_chain_live(&mic.device_id),
         "chain should be live right after apply"
     );
 
     let result = engine
-        .remove_effect_chain_structural(&output.device_id)
+        .remove_effect_chain_structural(&mic.device_id)
         .expect("remove_effect_chain_structural should succeed once the adapter calls all no-op successfully");
     assert!(result.success);
     assert!(
-        !engine.is_effect_chain_live(&output.device_id),
+        !engine.is_effect_chain_live(&mic.device_id),
         "remove_effect_chain_structural should have unloaded the chain"
     );
 }
@@ -932,11 +810,11 @@ fn add_remove_reorder_effect_stage_round_trips() {
     use pipe_deck_lib::core::models::EffectStage;
 
     let (mut engine, _guard) = mock_engine();
-    let output = engine.create_virtual_output("Integration Stage Output").expect("create output");
+    let mic = engine.create_virtual_input("Integration Stage Mic").expect("create mic");
 
     let add_result = engine
         .add_effect_stage(
-            &output.device_id,
+            &mic.device_id,
             EffectStage::Eq5Band {
                 id: "eq".to_string(),
                 eq_sub: 0,
@@ -951,88 +829,38 @@ fn add_remove_reorder_effect_stage_round_trips() {
     assert!(add_result.success);
 
     let reorder_result = engine
-        .reorder_effect_stages(&output.device_id, &["eq".to_string()])
+        .reorder_effect_stages(&mic.device_id, &["eq".to_string()])
         .expect("reorder_effect_stages should accept the only stage's id unchanged");
     assert!(reorder_result.success);
 
-    let remove_result = engine.remove_effect_stage(&output.device_id, "eq").expect("remove_effect_stage");
+    let remove_result = engine.remove_effect_stage(&mic.device_id, "eq").expect("remove_effect_stage");
     assert!(remove_result.success);
 }
 
 #[test]
-fn touching_effects_on_one_device_does_not_disturb_another_devices_routing() {
-    // Regression for the "mass re-routing" bug: restarting the shared
-    // filter-chain.service (see `pipewire::pipewire_restart`) reloads every
-    // device's effect chain at once, so `apply_effect_chain_structural`/
-    // `remove_effect_chain_structural` must repair *other* active-chain
-    // devices' links without touching devices that aren't affected at all.
-    // Two virtual outputs, each routed to a different physical sink and each
-    // carrying its own effect chain — adding/removing a stage on one must
-    // leave the other's target exactly where it was.
-    use pipe_deck_lib::core::models::EffectStage;
-
-    let (mut engine, _guard) = mock_engine();
-    let a = engine.create_virtual_output("Effects A").expect("create A");
-    let b = engine.create_virtual_output("Effects B").expect("create B");
-
-    engine.set_device_targets(&a.device_id, &["sink-headphones".to_string()]).unwrap();
-    engine.set_device_targets(&b.device_id, &["sink-speakers".to_string()]).unwrap();
-    engine.refresh_graph().unwrap();
-
-    let eq_stage = |id: &str| EffectStage::Eq5Band {
-        id: id.to_string(),
-        eq_sub: 0,
-        eq_bass: 4,
-        eq_mid: 0,
-        eq_treble: 0,
-        eq_air: 0,
-        output_gain: 0,
-    };
-
-    engine.add_effect_stage(&b.device_id, eq_stage("b-eq")).expect("add effects to B");
-    engine.refresh_graph().unwrap();
-
-    // Touch A: add then remove a stage. Neither should perturb B's routing.
-    engine.add_effect_stage(&a.device_id, eq_stage("a-eq")).expect("add effects to A");
-    engine.refresh_graph().unwrap();
-    let b_after_add = engine.runtime_graph().devices.iter().find(|d| d.id == b.device_id).unwrap().clone();
-    assert_eq!(b_after_add.current_targets, vec!["sink-speakers".to_string()]);
-
-    engine.remove_effect_stage(&a.device_id, "a-eq").expect("remove effects from A");
-    engine.refresh_graph().unwrap();
-    let b_after_remove = engine.runtime_graph().devices.iter().find(|d| d.id == b.device_id).unwrap().clone();
-    assert_eq!(b_after_remove.current_targets, vec!["sink-speakers".to_string()]);
-
-    let a_final = engine.runtime_graph().devices.iter().find(|d| d.id == a.device_id).unwrap().clone();
-    assert_eq!(a_final.current_targets, vec!["sink-headphones".to_string()]);
-}
-
-#[test]
-fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_live_chain() {
-    // Regression for #229/#149: before the native-transport cutover, effect
-    // removal restarted the single shared `filter-chain.service`, tearing
-    // down every device's effect-hosted node at once — #210's repair pass
-    // (`relink_other_active_effect_chains`) only ever covered output-
-    // direction devices, explicitly skipping `DeviceDirection::Input`, so an
-    // input-direction (mic) device with its own live chain was never
-    // repaired. Native transport's per-device `unload_chain` makes this
-    // whole class of collateral damage structurally impossible — this locks
-    // that in for the input-direction case specifically.
+fn removing_effects_from_one_mic_does_not_disturb_an_unrelated_mics_live_chain() {
+    // Regression for #229/#149, narrowed to virtual input (mic) devices —
+    // the only kind that can host device-attached effects at all now that
+    // VirtualRole::Bus (and output-direction device effects with it) is
+    // retired (#293). Before the native-transport cutover, effect removal
+    // restarted the single shared `filter-chain.service`, tearing down
+    // every device's effect-hosted node at once; native transport's
+    // per-device `unload_chain` makes that class of collateral damage
+    // structurally impossible — this locks that in.
     use pipe_deck_lib::core::models::{EffectStage, PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let output = engine.create_virtual_output("Unrelated Output").expect("create output");
-    let mic = engine.create_virtual_input("Live Mic").expect("create mic");
-    let mic_source = engine.create_virtual_output("Mic Feed Source").expect("create mic feed source");
+    let mic_a = engine.create_virtual_input("Mic A").expect("create mic a");
+    let mic_b = engine.create_virtual_input("Mic B").expect("create mic b");
+    let source = engine.create_virtual_output("Mic Feed Source").expect("create mic feed source");
     let mixer = engine.create_processing_node("Mic Mixer", ProcessingNodeSpecKind::Mixer).expect("create mixer");
 
-    engine.set_device_targets(&output.device_id, &["sink-headphones".to_string()]).unwrap();
     engine
-        .connect_processing_node_port(&mixer.id, PortDirection::Input, &mic_source.device_id)
+        .connect_processing_node_port(&mixer.id, PortDirection::Input, &source.device_id)
         .expect("connect mixer input");
     engine
-        .connect_processing_node_port(&mixer.id, PortDirection::Output, &mic.device_id)
-        .expect("connect mixer output to mic");
+        .connect_processing_node_port(&mixer.id, PortDirection::Output, &mic_a.device_id)
+        .expect("connect mixer output to mic a");
     engine.refresh_graph().unwrap();
 
     let eq_stage = |id: &str| EffectStage::Eq5Band {
@@ -1045,23 +873,23 @@ fn removing_effects_from_one_device_does_not_disturb_an_unrelated_input_devices_
         output_gain: 0,
     };
 
-    engine.add_effect_stage(&mic.device_id, eq_stage("mic-eq")).expect("add effects to mic");
-    engine.add_effect_stage(&output.device_id, eq_stage("output-eq")).expect("add effects to output");
+    engine.add_effect_stage(&mic_a.device_id, eq_stage("mic-a-eq")).expect("add effects to mic a");
+    engine.add_effect_stage(&mic_b.device_id, eq_stage("mic-b-eq")).expect("add effects to mic b");
     engine.refresh_graph().unwrap();
-    assert!(engine.is_effect_chain_live(&mic.device_id), "mic chain should be live before touching output");
+    assert!(engine.is_effect_chain_live(&mic_a.device_id), "mic a's chain should be live before touching mic b");
 
-    engine.remove_effect_stage(&output.device_id, "output-eq").expect("remove effects from output");
+    engine.remove_effect_stage(&mic_b.device_id, "mic-b-eq").expect("remove effects from mic b");
     engine.refresh_graph().unwrap();
 
     assert!(
-        engine.is_effect_chain_live(&mic.device_id),
-        "removing effects from an unrelated output device must not disturb the mic's own live chain"
+        engine.is_effect_chain_live(&mic_a.device_id),
+        "removing effects from an unrelated mic must not disturb mic a's own live chain"
     );
     let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
     assert_eq!(
         mixer_after.outputs.first().and_then(|port| port.connected_id.clone()),
-        Some(mic.device_id.clone()),
-        "mic's mixer feed must survive an unrelated device's effect removal"
+        Some(mic_a.device_id.clone()),
+        "mic a's mixer feed must survive an unrelated mic's effect removal"
     );
 }
 
@@ -1092,7 +920,6 @@ fn virtual_device_spec(id: &str, slug: &str, direction: DeviceDirection) -> Virt
         direction,
         created_at: "2026-07-21T00:00:00Z".into(),
         multi: false,
-        virtual_role: VirtualRole::Bus,
         mix_sources: Vec::new(),
     }
 }
@@ -1122,7 +949,7 @@ fn restore_session_adopts_a_device_the_backend_already_has_instead_of_recreating
         .add_virtual_device(virtual_device_spec("vdev-1", "restore-output", DeviceDirection::Output))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-restore-output", "Restore Test", DeviceDirection::Output, false, VirtualRole::Bus, &[])
+        .restore_virtual_device("pipe-deck-restore-output", "Restore Test", DeviceDirection::Output, false, &[])
         .expect("pre-seed backend");
 
     let result = restore::restore_session(&backend).expect("restore_session");
@@ -1152,10 +979,10 @@ fn restore_session_removes_orphaned_modules_not_listed_in_config() {
         .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, VirtualRole::Bus, &[])
+        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
         .expect("pre-seed backend with the configured module");
     backend
-        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, VirtualRole::Bus, &[])
+        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
         .expect("pre-seed backend with an unconfigured module");
 
     let result = restore::restore_session(&backend).expect("restore_session");
@@ -1181,10 +1008,10 @@ fn remove_all_virtual_devices_unloads_every_live_module_regardless_of_config() {
         .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, VirtualRole::Bus, &[])
+        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
         .expect("pre-seed configured module");
     backend
-        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, VirtualRole::Bus, &[])
+        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
         .expect("pre-seed unconfigured module");
 
     let (removed, errors) = restore::remove_all_virtual_devices(&backend);
@@ -1243,7 +1070,6 @@ fn headset_device() -> Device {
         kind: DeviceKind::Physical,
         direction: DeviceDirection::Output,
         sink_mode: None,
-        virtual_role: None,
         volume_percent: Some(100),
         muted: Some(false),
         current_target: None,

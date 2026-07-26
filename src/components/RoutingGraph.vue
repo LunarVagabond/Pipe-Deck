@@ -267,7 +267,7 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-async function onAddNodeAction(type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band") {
+async function onAddNodeAction(type: "output" | "input" | "fan_out" | "mixer" | "eq5band") {
   contextMenu.value = null;
   if (type === "fan_out" || type === "mixer" || type === "eq5band") {
     const defaultLabel = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : "5-Band EQ";

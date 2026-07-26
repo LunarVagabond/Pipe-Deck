@@ -1,5 +1,5 @@
 use crate::config::ConfigStore;
-use crate::core::models::{DeviceDirection, RuntimeGraph, VirtualDeviceResult, VirtualRole};
+use crate::core::models::{DeviceDirection, RuntimeGraph, VirtualDeviceResult};
 use crate::core::restore::spec_from_create_result;
 use std::collections::{HashMap, HashSet};
 
@@ -22,42 +22,25 @@ impl CoreEngine {
         Ok(())
     }
 
-    /// Creates a Bus — today's virtual-output behavior: fan-in, hosts
-    /// effects, can route onward. Kept as the zero-arg entry point so every
-    /// existing caller (and old frontend builds mid-rollout) keeps creating
-    /// what "virtual output" always meant, unchanged. See #287.
     pub fn create_virtual_output(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {
-        self.create_virtual_output_with_mode(name, false, VirtualRole::Bus)
-    }
-
-    /// Creates the new, stricter terminal Output (virtual) role (#287) — no
-    /// forward routing, no effects, no output pin. The opt-in path, reached
-    /// only via the three-way "Add Bus / Add Output (virtual) / Add Input"
-    /// creation UX.
-    pub fn create_virtual_output_role(
-        &mut self,
-        name: &str,
-        role: VirtualRole,
-    ) -> Result<VirtualDeviceResult, EngineError> {
-        self.create_virtual_output_with_mode(name, false, role)
+        self.create_virtual_output_with_mode(name, false)
     }
 
     pub fn create_virtual_multi_output(
         &mut self,
         name: &str,
     ) -> Result<VirtualDeviceResult, EngineError> {
-        self.create_virtual_output_with_mode(name, true, VirtualRole::Bus)
+        self.create_virtual_output_with_mode(name, true)
     }
 
     fn create_virtual_output_with_mode(
         &mut self,
         name: &str,
         multi: bool,
-        role: VirtualRole,
     ) -> Result<VirtualDeviceResult, EngineError> {
         let result = self
             .adapter
-            .create_virtual_output(name, multi, role)
+            .create_virtual_output(name, multi)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
@@ -68,7 +51,6 @@ impl CoreEngine {
                     &result.label,
                     DeviceDirection::Output,
                     multi,
-                    role,
                 ))
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
@@ -90,7 +72,6 @@ impl CoreEngine {
                     &result.label,
                     DeviceDirection::Input,
                     false,
-                    VirtualRole::Bus,
                 ))
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
@@ -144,7 +125,6 @@ pub(super) fn merge_virtual_devices(
         .into_iter()
         .map(|spec| (format!("pipe-deck-{}", spec.slug), spec.multi))
         .collect();
-    let role_by_name = crate::core::restore::role_by_system_name();
 
     let mut id_remap = HashMap::new();
 
@@ -162,16 +142,6 @@ pub(super) fn merge_virtual_devices(
         } else {
             None
         };
-        let virtual_role = if entry.direction == crate::core::models::DeviceDirection::Output {
-            Some(
-                role_by_name
-                    .get(&entry.system_name)
-                    .copied()
-                    .unwrap_or(entry.virtual_role),
-            )
-        } else {
-            None
-        };
 
         if let Some(device) = graph
             .devices
@@ -186,7 +156,6 @@ pub(super) fn merge_virtual_devices(
             device.kind = crate::core::models::DeviceKind::Virtual;
             device.direction = entry.direction.clone();
             device.sink_mode = sink_mode;
-            device.virtual_role = virtual_role;
             if device.volume_percent.is_none() {
                 device.volume_percent = Some(100);
             }
@@ -196,7 +165,6 @@ pub(super) fn merge_virtual_devices(
         } else {
             let mut device = entry.to_device();
             device.sink_mode = sink_mode;
-            device.virtual_role = virtual_role;
             graph.devices.push(device);
         }
     }

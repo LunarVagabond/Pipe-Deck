@@ -62,7 +62,6 @@ impl CoreEngine {
 
     pub fn apply_desired_routing(&mut self) -> Result<(), EngineError> {
         self.manual_overrides.clear();
-        self.device_manual_overrides.clear();
         self.cleared_stream_routes.clear();
         self.cleared_device_routes.clear();
         self.apply_routing_rules();
@@ -80,12 +79,6 @@ impl CoreEngine {
             &config.rules,
             &config.routing_rules.stream_rules,
         );
-        rules::reconcile_device_manual_overrides(
-            &self.graph,
-            &mut self.device_manual_overrides,
-            &config.routing_rules.device_rules,
-            self.adapter.as_ref(),
-        );
 
         rules::detect_external_manual_overrides(
             &self.graph,
@@ -93,16 +86,9 @@ impl CoreEngine {
             &config.rules,
             &config.routing_rules.stream_rules,
         );
-        rules::detect_external_device_manual_overrides(
-            &self.graph,
-            &mut self.device_manual_overrides,
-            &config.routing_rules.device_rules,
-            self.adapter.as_ref(),
-        );
 
         let ctx = ApplyRulesContext {
             manual_overrides: &self.manual_overrides,
-            device_manual_overrides: &self.device_manual_overrides,
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
             limit_to_stream_ids: None,
@@ -161,7 +147,6 @@ impl CoreEngine {
 
         let ctx = ApplyRulesContext {
             manual_overrides: &self.manual_overrides,
-            device_manual_overrides: &self.device_manual_overrides,
             dry_run: false,
             mock_graph_only: self.graph.data_source == "mock",
             limit_to_stream_ids: Some(&new_ids),

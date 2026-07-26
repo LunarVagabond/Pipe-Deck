@@ -1,14 +1,6 @@
 import type { Device, Link, ProcessingNode, RuntimeGraph, Stream } from "../types/graph";
 
 export function makeDevice(overrides: Partial<Device> = {}): Device {
-  const kind = overrides.kind ?? "physical";
-  const direction = overrides.direction ?? "output";
-  // Fixtures predate #287's Bus/terminal-Output split; default every virtual
-  // output/duplex to "bus", matching the real migration default for existing
-  // devices, so specs written against "today's virtual output" behavior
-  // keep passing without every call site needing to opt in explicitly.
-  const virtual_role =
-    kind === "virtual" && (direction === "output" || direction === "duplex") ? "bus" : undefined;
   return {
     id: "dev-1",
     system_name: "physical-out-1",
@@ -17,7 +9,6 @@ export function makeDevice(overrides: Partial<Device> = {}): Device {
     direction: "output",
     volume_percent: 80,
     muted: false,
-    virtual_role,
     ...overrides,
   };
 }

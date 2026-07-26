@@ -107,16 +107,8 @@ describe("handlesForDevice", () => {
     ]);
   });
 
-  it("gives a multi-sink virtual output one handle per target plus a trailing empty slot", () => {
-    const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
-    const handles = handlesForDevice(device, { in: [], out: ["out1", "out2"] });
-    const outHandles = handles.filter((h) => h.portType === "audio-out");
-
-    expect(outHandles.map((h) => h.id)).toEqual(["audio-out:out1", "audio-out:out2", "audio-out:empty"]);
-  });
-
-  it("gives a terminal Output (virtual) device zero output handles — #287, it's a true dead end", () => {
-    const device = makeDevice({ id: "term1", kind: "virtual", direction: "output", virtual_role: "output" });
+  it("gives a virtual output device zero output handles — #293, plain devices no longer route onward", () => {
+    const device = makeDevice({ id: "term1", kind: "virtual", direction: "output" });
     const handles = handlesForDevice(device, { in: ["s1"], out: [] });
 
     expect(handles.some((h) => h.portType === "audio-out")).toBe(false);

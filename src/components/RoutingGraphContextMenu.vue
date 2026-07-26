@@ -43,7 +43,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "bus" | "output" | "input" | "fan_out" | "mixer" | "eq5band"];
+  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band"];
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
@@ -124,8 +124,7 @@ function onPickStubEffect(stubKind: string, label: string) {
     </template>
     <template v-else>
       <p class="routing-graph-context-menu-label">Add node</p>
-      <button type="button" @click="emit('add-node', 'bus')">+ Bus</button>
-      <button type="button" @click="emit('add-node', 'output')">+ Output (virtual)</button>
+      <button type="button" @click="emit('add-node', 'output')">+ Virtual Output</button>
       <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
       <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-Out Node</button>
       <button type="button" @click="emit('add-node', 'mixer')">+ Mixer Node</button>
