@@ -185,6 +185,17 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn update_processing_node_widener(&self, node_id: &str, width_percent: i32) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Widener { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Widener { width_percent };
+        }
+        self.save_config(&config)
+    }
+
     pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {

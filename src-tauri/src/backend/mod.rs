@@ -358,6 +358,13 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_limiter_params: not implemented".into()))
     }
+
+    /// Live-updates a Widener node's Width without reloading the chain —
+    /// same PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #314).
+    fn set_processing_node_widener_params(&self, _system_name: &str, _width_percent: i32, _bypassed: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_widener_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

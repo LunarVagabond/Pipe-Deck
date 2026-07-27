@@ -563,6 +563,38 @@ impl CoreEngine {
         Ok(ApplyResult { success: true, message: None })
     }
 
+    /// Live-updates a Widener node's Width — same PD-017 fast path and
+    /// bypass mechanism as `update_processing_node_limiter_params` (issue
+    /// #314).
+    pub fn update_processing_node_widener_params(&mut self, node_id: &str, width_percent: i32) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        if !matches!(node.kind, ProcessingNodeKind::Widener { .. }) {
+            return Err(EngineError::InvalidInput(format!("{node_id} has no widener params to update")));
+        }
+
+        let live_apply_error = self.adapter.set_processing_node_widener_params(&node.system_name, width_percent, node.bypassed).err();
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .update_processing_node_widener(node_id, width_percent)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+
+        if let Some(error) = live_apply_error {
+            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+        }
+        Ok(ApplyResult { success: true, message: None })
+    }
+
     /// Keeps a node wired exactly as-is but toggles whether audio passes
     /// through it processed or not — connections/ports never change, only
     /// the signal itself. Only `Eq5Band` currently enforces this backend-
@@ -596,6 +628,7 @@ impl CoreEngine {
         // optimistic state to fall back on either.
         let is_delay = matches!(node.kind, ProcessingNodeKind::Delay { .. });
         let is_limiter = matches!(node.kind, ProcessingNodeKind::Limiter { .. });
+        let is_widener = matches!(node.kind, ProcessingNodeKind::Widener { .. });
         let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
         let live_apply_error = if is_delay {
             let (delay_ms, feedback_percent, feedforward_percent) = match node.kind {
@@ -615,6 +648,12 @@ impl CoreEngine {
             self.adapter
                 .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, bypassed)
                 .err()
+        } else if is_widener {
+            let width_percent = match node.kind {
+                ProcessingNodeKind::Widener { width_percent } => width_percent,
+                _ => 100,
+            };
+            self.adapter.set_processing_node_widener_params(&node.system_name, width_percent, bypassed).err()
         } else if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
                 ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => {
@@ -795,6 +834,7 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
         ProcessingNodeSpecKind::Eq5Band { .. } => "eq5band",
         ProcessingNodeSpecKind::Delay { .. } => "delay",
         ProcessingNodeSpecKind::Limiter { .. } => "limiter",
+        ProcessingNodeSpecKind::Widener { .. } => "widener",
         ProcessingNodeSpecKind::Stub { .. } => "stub",
     }
 }
@@ -927,6 +967,7 @@ fn processing_node_from_spec_with_siblings(
         ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric } => {
             ProcessingNodeKind::Limiter { ceiling_db: *ceiling_db, floor_db: *floor_db, symmetric: *symmetric }
         }
+        ProcessingNodeSpecKind::Widener { width_percent } => ProcessingNodeKind::Widener { width_percent: *width_percent },
         ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub { stub_kind: *stub_kind },
     };
 
@@ -1291,6 +1332,70 @@ mod live_tests {
 
         assert!(sink_live_after_create, "Limiter node's native-hosted sink did not appear after creation");
         assert!(sink_gone_after_removal, "removing the Limiter node should unload its native chain");
+    }
+
+    /// Widener Node round-trip (issue #314) against a real PipeWire session —
+    /// same structure/reasoning as `delay_node_round_trips_on_a_real_pipewire_session`.
+    /// This is the risk-carrying test for this ticket: it's the first
+    /// filter.graph in this codebase using the graph-level `inputs`/
+    /// `outputs` list syntax (fan-out via `copy` into parallel `mid`/`side`
+    /// paths) rather than a single filter's implicit ports — if that syntax
+    /// or the negative-`Gain` subtraction trick weren't actually accepted by
+    /// a real PipeWire session, `create_processing_node` below would fail.
+    #[test]
+    #[ignore]
+    fn widener_node_round_trips_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut ephemeral_daemon = crate::daemon::ensure_ephemeral_daemon();
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            panic!("native-effects daemon did not become reachable — is src-tauri/bin/pipe-deck-daemon-* built (make check/make build-rust)?");
+        }
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+        };
+
+        let node = match engine.create_processing_node("Pipe Deck Live Widener", ProcessingNodeSpecKind::Widener { width_percent: 100 }) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+
+        let sink_live_after_create = pactl::sink_exists(&node.system_name).unwrap_or(false);
+
+        // Same "attempted, not asserted" reasoning as the Delay/Limiter tests
+        // above — see their doc comments for why the live-param push itself
+        // is a known sandbox-specific flake, not the correctness concern
+        // this covers.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let update_result = engine.update_processing_node_widener_params(&node.id, 150);
+        if let Err(error) = &update_result {
+            eprintln!(
+                "note: live widener param update did not succeed in this environment ({error}) — see this test's doc comment"
+            );
+        }
+
+        cleanup(&mut engine, Some(&node.id));
+        let sink_gone_after_removal = !pactl::sink_exists(&node.system_name).unwrap_or(true);
+
+        if let Some(child) = ephemeral_daemon.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        assert!(sink_live_after_create, "Widener node's native-hosted sink did not appear after creation");
+        assert!(sink_gone_after_removal, "removing the Widener node should unload its native chain");
     }
 
     /// A Stub node never creates a real PipeWire sink (see

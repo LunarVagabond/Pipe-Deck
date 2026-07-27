@@ -8,6 +8,7 @@ import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
 import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
+import RoutingGraphNodeWidener from "./RoutingGraphNodeWidener.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -58,6 +59,7 @@ const effectsBadgeTitle = computed(() =>
 const eq5bandRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const limiterRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const widenerRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
 const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   eq5band:
@@ -66,11 +68,13 @@ const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
     "High Feedback can build up into a resonant loop that eventually clips — a real limiter/compressor stage after this would catch it smoothly; tracked in issue #86.",
   limiter:
     "Hard brick-wall clamp — no envelope smoothing or lookahead, unlike a real limiter. Aggressive settings will sound harsh/distorted. Real dynamics processing is tracked in issue #86.",
+  widener:
+    "High Width settings can push the side signal loud enough to clip when summed back to mono (e.g. on a phone speaker or older Bluetooth receiver). Real dynamics processing (to catch this smoothly) is tracked in issue #86.",
 };
 const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
 
 function onResetClick() {
-  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value)?.reset();
+  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value ?? widenerRef.value)?.reset();
 }
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
@@ -304,6 +308,13 @@ function onToggleMute() {
         :ceiling-db="data.processingNodeKind.ceiling_db"
         :floor-db="data.processingNodeKind.floor_db"
         :symmetric="data.processingNodeKind.symmetric"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeWidener
+        v-else-if="data.processingNodeKind?.kind === 'widener'"
+        ref="widenerRef"
+        :node-id="data.entityId"
+        :width-percent="data.processingNodeKind.width_percent"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

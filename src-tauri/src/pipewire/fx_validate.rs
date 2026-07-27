@@ -1,4 +1,4 @@
-use crate::core::models::{DelayStageParams, EffectChainConfig, LimiterStageParams};
+use crate::core::models::{DelayStageParams, EffectChainConfig, LimiterStageParams, WidenerStageParams};
 use crate::pipewire::fx_capability::FxCapabilities;
 
 /// Range bounds enforced before any value is ever serialized into a conf
@@ -18,6 +18,11 @@ const FEEDFORWARD_RANGE_PERCENT: (i32, i32) = (-100, 100);
 /// aggressive ceiling. Never positive — a ceiling above full scale is
 /// meaningless for a brick-wall clamp.
 const CEILING_RANGE_DB: (i32, i32) = (-24, 0);
+/// `100` is neutral (exactly reconstructs the input, see
+/// `ProcessingNodeKind::Widener`'s doc comment) — unlike every other
+/// processing node kind so far, the neutral value here is NOT the range's
+/// `0` floor. `0` fully narrows to mono; `200` doubles the side signal.
+const WIDENER_WIDTH_RANGE_PERCENT: (i32, i32) = (0, 200);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -99,6 +104,18 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
         }
     }
 
+    // Stereo Widener (#314) — entirely `mixer`/`copy` builtins, same
+    // module (and same `builtin_eq` capability gate) as Eq5Band/HPF.
+    if let Some(widener) = config.widener_stage() {
+        check_range("Width", widener.width_percent, WIDENER_WIDTH_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_eq {
+            blocking_reasons.push(
+                "Stereo Widener requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -152,6 +169,9 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     if let Some(limiter) = config.limiter_stage() {
         return render_limiter_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
     }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &widener);
+    }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -187,6 +207,16 @@ pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig)
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &limiter,
+        );
+    }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &widener,
         );
     }
     render_filter_chain_conf(
@@ -329,6 +359,94 @@ fn render_limiter_filter_chain_module_args(
     )
 }
 
+fn render_widener_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &WidenerStageParams,
+) -> String {
+    let args = render_widener_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single Stereo
+/// Widener processing node (issue #314) — a mid/side widener built entirely
+/// from `mixer`/`copy` builtins, no `Invert` filter needed (a `mixer`
+/// node's `Gain` control accepts a negative value directly, so
+/// `side = 0.5L - 0.5R` is just a negative-gain input, not a separate
+/// inversion stage). Like Reverb's `convolver`+`mixer` graph, this needs the
+/// graph-level `inputs`/`outputs` lists (rather than a single filter's
+/// implicit ports) since the signal fans out to two parallel paths
+/// (`mid`/`side`) before recombining — `copyL`/`copyR` exist purely to let
+/// each raw input channel feed two downstream nodes (`mid` and `side`),
+/// since a graph `inputs` entry can only address one node port each (see
+/// the real shipped `sink-virtual-surround-5.1-kemar.conf` example this
+/// fan-out-via-copy pattern is modeled on). At `width_percent = 100`,
+/// `out_L = mid + side = L` and `out_R = mid - side = R` exactly — this is
+/// the neutral/bypass value (see `ProcessingNodeKind::Widener`'s doc
+/// comment for why `100`, not `0`, is neutral here).
+fn render_widener_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &WidenerStageParams,
+) -> String {
+    let width = if bypassed { 1.0 } else { f64::from(params.width_percent) / 100.0 };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = copyL label = copy }}
+                    {{ type = builtin name = copyR label = copy }}
+                    {{ type = builtin name = mid   label = mixer control = {{ "Gain 1" = 0.5 "Gain 2" = 0.5 }} }}
+                    {{ type = builtin name = side  label = mixer control = {{ "Gain 1" = 0.5 "Gain 2" = -0.5 }} }}
+                    {{ type = builtin name = outL  label = mixer control = {{ "Gain 1" = 1.0 "Gain 2" = {width} }} }}
+                    {{ type = builtin name = outR  label = mixer control = {{ "Gain 1" = 1.0 "Gain 2" = {neg_width} }} }}
+                ]
+                links = [
+                    {{ output = "copyL:Out" input = "mid:In 1" }}
+                    {{ output = "copyR:Out" input = "mid:In 2" }}
+                    {{ output = "copyL:Out" input = "side:In 1" }}
+                    {{ output = "copyR:Out" input = "side:In 2" }}
+                    {{ output = "mid:Out"   input = "outL:In 1" }}
+                    {{ output = "side:Out"  input = "outL:In 2" }}
+                    {{ output = "mid:Out"   input = "outR:In 1" }}
+                    {{ output = "side:Out"  input = "outR:In 2" }}
+                ]
+                inputs  = [ "copyL:In" "copyR:In" ]
+                outputs = [ "outL:Out" "outR:Out" ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#,
+        neg_width = -width,
+    )
+}
+
 fn render_filter_chain_conf(
     node_description: &str,
     capture_name: &str,
@@ -421,6 +539,9 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
     if let Some(limiter) = config.limiter_stage() {
         return render_limiter_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
     }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &widener);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -446,6 +567,16 @@ pub fn render_module_args_capture(device_system_name: &str, config: &EffectChain
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &limiter,
+        );
+    }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &widener,
         );
     }
     render_filter_chain_module_args(
@@ -497,6 +628,9 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     }
     if let Some(limiter) = config.limiter_stage() {
         return limiter_live_params(config.bypassed, &limiter);
+    }
+    if let Some(widener) = config.widener_stage() {
+        return widener_live_params(config.bypassed, &widener);
     }
 
     if config.bypassed {
@@ -554,6 +688,18 @@ fn limiter_live_params(bypassed: bool, params: &LimiterStageParams) -> Vec<(Stri
     ]
 }
 
+/// The `(control_name, value)` pairs for a live Widener Width slider update
+/// — node names must match `render_widener_filter_chain_module_args`'s
+/// `outL`/`outR` nodes exactly. Bypassed pushes `width = 1.0` (exact
+/// input reconstruction), same neutral-value convention as every other
+/// kind, just at `1.0` rather than `0.0`/`-1.0`/`1.0` since that's what
+/// "no widening" actually means here. `mid`/`side`'s own gains never
+/// change — only `outL`/`outR`'s second gain is Width-dependent.
+fn widener_live_params(bypassed: bool, params: &WidenerStageParams) -> Vec<(String, f64)> {
+    let width = if bypassed { 1.0 } else { f64::from(params.width_percent) / 100.0 };
+    vec![("outL:Gain 2".to_string(), width), ("outR:Gain 2".to_string(), -width)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,6 +736,14 @@ mod tests {
 
     fn symmetric_limiter_chain(ceiling_db: i32) -> EffectChainConfig {
         limiter_chain(ceiling_db, ceiling_db)
+    }
+
+    /// Builds a chain with a single `Widener` stage — mirrors `delay_chain`.
+    fn widener_chain(width_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Widener { id: "widener".to_string(), width_percent }],
+            ..Default::default()
+        }
     }
 
     /// Builds a chain with a single `Eq5Band` stage — the shape most tests
@@ -937,5 +1091,88 @@ mod tests {
         assert!((max - db_to_linear_mult(-3)).abs() < f64::EPSILON);
         assert!((min - (-db_to_linear_mult(-12))).abs() < f64::EPSILON);
         assert_ne!(max, -min, "asymmetric ceiling/floor should not produce a symmetric Min/Max pair");
+    }
+
+    // --- Stereo Widener (issue #314) ---
+
+    #[test]
+    fn accepts_in_range_widener_width_when_builtin_present() {
+        let config = widener_chain(150);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_widener_width() {
+        let config = widener_chain(300);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Width")));
+    }
+
+    #[test]
+    fn rejects_widener_when_builtin_filter_chain_module_missing() {
+        let config = widener_chain(150);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_widener_filters_when_a_widener_stage_is_present() {
+        let config = widener_chain(150);
+        let rendered = render_module_args("pipe-deck-widener", &config);
+        assert!(rendered.contains("label = mixer"));
+        assert!(rendered.contains("label = copy"));
+        assert!(!rendered.contains("bq_peaking"), "widener rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_widener_stage() {
+        let config = widener_chain(150);
+        assert_eq!(render_module_args("pipe-deck-widener", &config), render_module_args("pipe-deck-widener", &config));
+    }
+
+    #[test]
+    fn widener_bypass_pushes_neutral_reconstruction_live_params_regardless_of_configured_width() {
+        let config = EffectChainConfig { bypassed: true, ..widener_chain(180) };
+        let params = live_params(&config);
+        assert!(params.contains(&("outL:Gain 2".to_string(), 1.0)));
+        assert!(params.contains(&("outR:Gain 2".to_string(), -1.0)));
+    }
+
+    #[test]
+    fn widener_bypass_bakes_neutral_reconstruction_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..widener_chain(180) };
+        let rendered = render_module_args("pipe-deck-widener", &config);
+        assert!(rendered.contains(r#"name = outL  label = mixer control = { "Gain 1" = 1.0 "Gain 2" = 1"#));
+        assert!(rendered.contains(r#"name = outR  label = mixer control = { "Gain 1" = 1.0 "Gain 2" = -1"#));
+    }
+
+    #[test]
+    fn widener_live_params_control_names_match_render_module_args_node_names() {
+        let config = widener_chain(150);
+        let rendered = render_module_args("pipe-deck-widener", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn widener_width_100_percent_exactly_reconstructs_the_input() {
+        // The core correctness claim behind ProcessingNodeKind::Widener's doc
+        // comment: at 100%, out_L=L and out_R=R, i.e. the same gain pair as
+        // no processing at all — verified here as a live-param assertion
+        // since that's what actually reaches the running filter graph.
+        let config = widener_chain(100);
+        let params = live_params(&config);
+        assert!(params.contains(&("outL:Gain 2".to_string(), 1.0)));
+        assert!(params.contains(&("outR:Gain 2".to_string(), -1.0)));
     }
 }

@@ -108,3 +108,26 @@ describe("limiter processing node (#311)", () => {
     expect(data?.supportsEffects).toBe(false);
   });
 });
+
+describe("widener processing node (#314)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Stereo Widener subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-widener-1",
+      label: "Wide Stereo",
+      kind: { kind: "widener", width_percent: 150 },
+      system_name: "pipe-deck-proc-widener-wide-stereo",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-widener-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Stereo Widener");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "widener", width_percent: 150 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});
