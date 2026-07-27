@@ -518,6 +518,51 @@ impl CoreEngine {
         Ok(ApplyResult { success: true, message: None })
     }
 
+    /// Live-updates a Limiter node's ceiling/floor/symmetric — same PD-017
+    /// two-speed fast path and soft-fail-on-persist contract as
+    /// `update_processing_node_delay_params`. Callers (the Vue component)
+    /// decide what `floor_db`/`symmetric` should be before calling this —
+    /// e.g. mirroring `floor_db` to `ceiling_db` while symmetric, or
+    /// snapping `floor_db` to the current `ceiling_db` on re-locking to
+    /// symmetric — this just persists and renders whatever it's given.
+    pub fn update_processing_node_limiter_params(
+        &mut self,
+        node_id: &str,
+        ceiling_db: i32,
+        floor_db: i32,
+        symmetric: bool,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        if !matches!(node.kind, ProcessingNodeKind::Limiter { .. }) {
+            return Err(EngineError::InvalidInput(format!("{node_id} has no limiter params to update")));
+        }
+
+        let live_apply_error = self
+            .adapter
+            .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, node.bypassed)
+            .err();
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .update_processing_node_limiter(node_id, ceiling_db, floor_db, symmetric)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+
+        if let Some(error) = live_apply_error {
+            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+        }
+        Ok(ApplyResult { success: true, message: None })
+    }
+
     /// Keeps a node wired exactly as-is but toggles whether audio passes
     /// through it processed or not — connections/ports never change, only
     /// the signal itself. Only `Eq5Band` currently enforces this backend-
@@ -550,6 +595,7 @@ impl CoreEngine {
         // did nothing visible, silently, since the frontend had no local
         // optimistic state to fall back on either.
         let is_delay = matches!(node.kind, ProcessingNodeKind::Delay { .. });
+        let is_limiter = matches!(node.kind, ProcessingNodeKind::Limiter { .. });
         let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
         let live_apply_error = if is_delay {
             let (delay_ms, feedback_percent, feedforward_percent) = match node.kind {
@@ -560,6 +606,14 @@ impl CoreEngine {
             };
             self.adapter
                 .set_processing_node_delay_params(&node.system_name, delay_ms, feedback_percent, feedforward_percent, bypassed)
+                .err()
+        } else if is_limiter {
+            let (ceiling_db, floor_db, symmetric) = match node.kind {
+                ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric } => (ceiling_db, floor_db, symmetric),
+                _ => (0, 0, true),
+            };
+            self.adapter
+                .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, bypassed)
                 .err()
         } else if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
@@ -740,6 +794,7 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
         ProcessingNodeSpecKind::FanOut { .. } => "fan_out",
         ProcessingNodeSpecKind::Eq5Band { .. } => "eq5band",
         ProcessingNodeSpecKind::Delay { .. } => "delay",
+        ProcessingNodeSpecKind::Limiter { .. } => "limiter",
         ProcessingNodeSpecKind::Stub { .. } => "stub",
     }
 }
@@ -869,6 +924,9 @@ fn processing_node_from_spec_with_siblings(
             feedback_percent: *feedback_percent,
             feedforward_percent: *feedforward_percent,
         },
+        ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric } => {
+            ProcessingNodeKind::Limiter { ceiling_db: *ceiling_db, floor_db: *floor_db, symmetric: *symmetric }
+        }
         ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub { stub_kind: *stub_kind },
     };
 
@@ -1172,6 +1230,67 @@ mod live_tests {
 
         assert!(sink_live_after_create, "Delay node's native-hosted sink did not appear after creation");
         assert!(sink_gone_after_removal, "removing the Delay node should unload its native chain");
+    }
+
+    /// Limiter Node round-trip (issue #311) against a real PipeWire session —
+    /// same structure/reasoning as `delay_node_round_trips_on_a_real_pipewire_session`.
+    #[test]
+    #[ignore]
+    fn limiter_node_round_trips_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut ephemeral_daemon = crate::daemon::ensure_ephemeral_daemon();
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            panic!("native-effects daemon did not become reachable — is src-tauri/bin/pipe-deck-daemon-* built (make check/make build-rust)?");
+        }
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+        };
+
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Limiter",
+            ProcessingNodeSpecKind::Limiter { ceiling_db: 0, floor_db: 0, symmetric: true },
+        ) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+
+        let sink_live_after_create = pactl::sink_exists(&node.system_name).unwrap_or(false);
+
+        // Same "attempted, not asserted" reasoning as the Delay/EQ tests
+        // above — see their doc comments for why the live-param push itself
+        // is a known sandbox-specific flake, not the correctness concern
+        // this covers.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let update_result = engine.update_processing_node_limiter_params(&node.id, -6, -6, true);
+        if let Err(error) = &update_result {
+            eprintln!(
+                "note: live limiter param update did not succeed in this environment ({error}) — see this test's doc comment"
+            );
+        }
+
+        cleanup(&mut engine, Some(&node.id));
+        let sink_gone_after_removal = !pactl::sink_exists(&node.system_name).unwrap_or(true);
+
+        if let Some(child) = ephemeral_daemon.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        assert!(sink_live_after_create, "Limiter node's native-hosted sink did not appear after creation");
+        assert!(sink_gone_after_removal, "removing the Limiter node should unload its native chain");
     }
 
     /// A Stub node never creates a real PipeWire sink (see

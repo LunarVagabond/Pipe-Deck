@@ -119,6 +119,23 @@ pub async fn update_processing_node_delay_params(
 }
 
 #[tauri::command]
+pub async fn update_processing_node_limiter_params(
+    node_id: String,
+    ceiling_db: i32,
+    floor_db: i32,
+    symmetric: bool,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .update_processing_node_limiter_params(&node_id, ceiling_db, floor_db, symmetric)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn set_processing_node_bypassed(
     node_id: String,
     bypassed: bool,

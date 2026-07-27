@@ -1,4 +1,4 @@
-use crate::core::models::{DelayStageParams, EffectChainConfig};
+use crate::core::models::{DelayStageParams, EffectChainConfig, LimiterStageParams};
 use crate::pipewire::fx_capability::FxCapabilities;
 
 /// Range bounds enforced before any value is ever serialized into a conf
@@ -14,6 +14,10 @@ const OUTPUT_GAIN_RANGE_DB: (i32, i32) = (-12, 12);
 const DELAY_MAX_MS: i32 = 2000;
 const FEEDBACK_RANGE_PERCENT: (i32, i32) = (0, 100);
 const FEEDFORWARD_RANGE_PERCENT: (i32, i32) = (-100, 100);
+/// 0 = full scale (no clamp, effectively a no-op); more negative = a more
+/// aggressive ceiling. Never positive — a ceiling above full scale is
+/// meaningless for a brick-wall clamp.
+const CEILING_RANGE_DB: (i32, i32) = (-24, 0);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -79,6 +83,22 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
         }
     }
 
+    // This is the new `Clamp`-backed Limiter processing node (#311) — unlike
+    // `config.limiter` (the `DynamicsStage` block just above, still always
+    // blocked), a builtin `Clamp` ceiling genuinely works once the
+    // filter-chain module is present, so this is capability-gated rather
+    // than unconditionally rejected.
+    if let Some(limiter) = config.limiter_stage() {
+        check_range("Ceiling", limiter.ceiling_db, CEILING_RANGE_DB, &mut blocking_reasons);
+        check_range("Floor", limiter.floor_db, CEILING_RANGE_DB, &mut blocking_reasons);
+        if !capabilities.builtin_clamp {
+            blocking_reasons.push(
+                "Limiter requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -129,6 +149,9 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     if let Some(delay) = config.delay_stage() {
         return render_delay_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &delay);
     }
+    if let Some(limiter) = config.limiter_stage() {
+        return render_limiter_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
+    }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -154,6 +177,16 @@ pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig)
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &delay,
+        );
+    }
+    if let Some(limiter) = config.limiter_stage() {
+        return render_limiter_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &limiter,
         );
     }
     render_filter_chain_conf(
@@ -212,6 +245,74 @@ fn render_delay_filter_chain_module_args(
             filter.graph = {{
                 nodes = [
                     {{ type = builtin name = delay label = delay config = {{ "max-delay" = 2.0 }} control = {{ "Delay (s)" = {delay_seconds} "Feedback" = {feedback} "Feedforward" = {feedforward} }} }}
+                ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
+fn render_limiter_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &LimiterStageParams,
+) -> String {
+    let args = render_limiter_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single
+/// Limiter processing node (issue #311) — a single `clamp` filter, no
+/// chaining/links needed, same single-filter-graph shape as Delay's
+/// renderer. `Clamp`'s `Min`/`Max` controls are independent linear-amplitude
+/// bounds derived from `floor_db`/`ceiling_db` respectively
+/// (`man 7 libpipewire-module-filter-chain`'s Clamp section: `In`/`Out`
+/// ports, `Control`/`Notify` control ports, final result clamped to the
+/// `Min`/`Max` control values) — the UI keeps them equal-and-opposite while
+/// `symmetric` is set, but the renderer itself doesn't care, it just uses
+/// whatever the two fields say (asymmetric clamping is a legitimate config,
+/// not just a symmetric one with extra steps). Bypassed bakes in
+/// `Min=-1.0/Max=1.0` (full scale, no clamp) — the same neutral-value
+/// convention Delay/EQ use.
+fn render_limiter_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &LimiterStageParams,
+) -> String {
+    let min = if bypassed { -1.0 } else { -db_to_linear_mult(params.floor_db) };
+    let max = if bypassed { 1.0 } else { db_to_linear_mult(params.ceiling_db) };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = limiter label = clamp control = {{ "Min" = {min} "Max" = {max} }} }}
                 ]
             }}
             audio.channels = 2
@@ -317,6 +418,9 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
     if let Some(delay) = config.delay_stage() {
         return render_delay_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &delay);
     }
+    if let Some(limiter) = config.limiter_stage() {
+        return render_limiter_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -332,6 +436,16 @@ pub fn render_module_args_capture(device_system_name: &str, config: &EffectChain
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &delay,
+        );
+    }
+    if let Some(limiter) = config.limiter_stage() {
+        return render_limiter_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &limiter,
         );
     }
     render_filter_chain_module_args(
@@ -381,6 +495,9 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     if let Some(delay) = config.delay_stage() {
         return delay_live_params(config.bypassed, &delay);
     }
+    if let Some(limiter) = config.limiter_stage() {
+        return limiter_live_params(config.bypassed, &limiter);
+    }
 
     if config.bypassed {
         return vec![
@@ -423,6 +540,20 @@ fn delay_live_params(bypassed: bool, params: &DelayStageParams) -> Vec<(String, 
     ]
 }
 
+/// The `(control_name, value)` pairs for a live Limiter slider update — node
+/// name must match `render_limiter_filter_chain_module_args`'s single
+/// `limiter` node exactly. Bypassed pushes `Min=-1.0/Max=1.0` (full scale,
+/// no clamp), same neutral-values convention as Delay/EQ.
+fn limiter_live_params(bypassed: bool, params: &LimiterStageParams) -> Vec<(String, f64)> {
+    if bypassed {
+        return vec![("limiter:Min".to_string(), -1.0), ("limiter:Max".to_string(), 1.0)];
+    }
+    vec![
+        ("limiter:Min".to_string(), -db_to_linear_mult(params.floor_db)),
+        ("limiter:Max".to_string(), db_to_linear_mult(params.ceiling_db)),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +564,7 @@ mod tests {
             builtin_eq,
             builtin_gain: builtin_eq,
             builtin_delay: builtin_eq,
+            builtin_clamp: builtin_eq,
             builtin_limiter: false,
             ladspa_noise_gate: None,
         }
@@ -444,6 +576,20 @@ mod tests {
             stages: vec![EffectStage::Delay { id: "delay".to_string(), delay_ms, feedback_percent, feedforward_percent }],
             ..Default::default()
         }
+    }
+
+    /// Builds a chain with a single `Limiter` stage — mirrors `delay_chain`.
+    /// Most tests pass a symmetric ceiling/floor (`symmetric_limiter_chain`);
+    /// this lower-level helper exists for the asymmetric-specific tests.
+    fn limiter_chain(ceiling_db: i32, floor_db: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Limiter { id: "limiter".to_string(), ceiling_db, floor_db, symmetric: ceiling_db == floor_db }],
+            ..Default::default()
+        }
+    }
+
+    fn symmetric_limiter_chain(ceiling_db: i32) -> EffectChainConfig {
+        limiter_chain(ceiling_db, ceiling_db)
     }
 
     /// Builds a chain with a single `Eq5Band` stage — the shape most tests
@@ -702,5 +848,94 @@ mod tests {
                 "render_module_args is missing a node for live param {name:?}"
             );
         }
+    }
+
+    // --- Limiter (issue #311) ---
+
+    #[test]
+    fn accepts_in_range_ceiling_when_builtin_present() {
+        let config = symmetric_limiter_chain(-6);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_ceiling() {
+        let config = symmetric_limiter_chain(-40);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Ceiling")));
+    }
+
+    #[test]
+    fn rejects_limiter_when_builtin_filter_chain_module_missing() {
+        let config = symmetric_limiter_chain(-6);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_clamp_filter_when_a_limiter_stage_is_present() {
+        let config = symmetric_limiter_chain(-6);
+        let rendered = render_module_args("pipe-deck-limiter", &config);
+        assert!(rendered.contains("label = clamp"));
+        assert!(!rendered.contains("bq_peaking"), "limiter rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_limiter_stage() {
+        let config = symmetric_limiter_chain(-6);
+        assert_eq!(render_module_args("pipe-deck-limiter", &config), render_module_args("pipe-deck-limiter", &config));
+    }
+
+    #[test]
+    fn limiter_bypass_pushes_full_scale_neutral_live_params_regardless_of_configured_values() {
+        let config = EffectChainConfig { bypassed: true, ..symmetric_limiter_chain(-12) };
+        let params = live_params(&config);
+        assert!(params.contains(&("limiter:Min".to_string(), -1.0)));
+        assert!(params.contains(&("limiter:Max".to_string(), 1.0)));
+    }
+
+    #[test]
+    fn limiter_bypass_bakes_full_scale_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..symmetric_limiter_chain(-12) };
+        let rendered = render_module_args("pipe-deck-limiter", &config);
+        assert!(rendered.contains(r#""Min" = -1"#));
+        assert!(rendered.contains(r#""Max" = 1"#));
+    }
+
+    #[test]
+    fn limiter_live_params_control_names_match_render_module_args_node_name() {
+        let config = symmetric_limiter_chain(-6);
+        let rendered = render_module_args("pipe-deck-limiter", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_out_of_range_floor() {
+        let config = limiter_chain(0, -40);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Floor")));
+    }
+
+    #[test]
+    fn asymmetric_ceiling_and_floor_render_independent_min_max() {
+        let config = limiter_chain(-3, -12);
+        let params = live_params(&config);
+        let max = params.iter().find(|(name, _)| name == "limiter:Max").unwrap().1;
+        let min = params.iter().find(|(name, _)| name == "limiter:Min").unwrap().1;
+        assert!((max - db_to_linear_mult(-3)).abs() < f64::EPSILON);
+        assert!((min - (-db_to_linear_mult(-12))).abs() < f64::EPSILON);
+        assert_ne!(max, -min, "asymmetric ceiling/floor should not produce a symmetric Min/Max pair");
     }
 }

@@ -168,6 +168,23 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn update_processing_node_limiter(
+        &self,
+        node_id: &str,
+        ceiling_db: i32,
+        floor_db: i32,
+        symmetric: bool,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Limiter { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric };
+        }
+        self.save_config(&config)
+    }
+
     pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {

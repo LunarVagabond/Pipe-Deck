@@ -302,6 +302,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   fan_out: "Fan-Out",
   eq5band: "5-Band EQ",
   delay: "Delay",
+  limiter: "Limiter",
   stub: "Not implemented yet",
 };
 

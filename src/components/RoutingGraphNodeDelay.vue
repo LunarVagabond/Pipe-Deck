@@ -89,6 +89,13 @@ async function onToggleBypass() {
     handleApplyResult(response, "");
   }
 }
+
+/** Reset renders in the node's header (top-right, next to Delete — see
+ * `RoutingGraphNode.vue`'s `toolbar-extra` slot usage), not in this
+ * component's own template — `reset` stays defined here regardless, since
+ * it needs this component's own `pending` ref to clear the optimistic
+ * slider display the same way a real server-confirmed value would. */
+defineExpose({ reset: onReset });
 </script>
 
 <template>
@@ -113,15 +120,6 @@ async function onToggleBypass() {
         @click="onToggleIsolate"
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
-      </button>
-      <button
-        type="button"
-        class="routing-graph-node-delay-reset"
-        title="Reset Delay/Feedback/Feedforward to their defaults"
-        aria-label="Reset to defaults"
-        @click="onReset"
-      >
-        ↺
       </button>
     </div>
     <div v-for="control in CONTROLS" :key="control.key" class="routing-graph-node-delay-row">

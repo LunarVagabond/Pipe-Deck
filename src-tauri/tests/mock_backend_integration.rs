@@ -184,8 +184,8 @@ fn stub_processing_node_round_trips_without_error() {
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
-/// All 10 remaining non-DSP stub kinds (issue #293, less `eq5band` and
-/// `delay` which have since graduated to real processing nodes) round-trip
+/// All 9 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
+/// `limiter` which have since graduated to real processing nodes) round-trip
 /// identically: create, connect a real input and output, disconnect, remove
 /// — pure pass-through graph bookkeeping, never `live`, and (per a
 /// real-backend regression this caught during phase 5) connect/disconnect
@@ -196,7 +196,6 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
 
     let kinds = [
-        StubEffectKind::Limiter,
         StubEffectKind::Compressor,
         StubEffectKind::NoiseGate,
         StubEffectKind::Denoise,
@@ -679,6 +678,77 @@ fn delay_param_update_rejects_a_non_delay_node() {
         .update_processing_node_delay_params(&node.id, 0, 0, 0)
         .expect_err("delay update on a non-Delay node should be rejected");
     assert!(error.to_string().contains("has no delay params"), "{error}");
+}
+
+/// Limiter Node round-trip (issue #311): create, live-update ceiling, remove.
+/// Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn limiter_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Safety Limiter",
+            ProcessingNodeSpecKind::Limiter { ceiling_db: 0, floor_db: 0, symmetric: true },
+        )
+        .expect("create limiter node");
+    assert_eq!(node.system_name, "pipe-deck-proc-limiter-safety-limiter");
+
+    engine.update_processing_node_limiter_params(&node.id, -6, -6, true).expect("update limiter params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true });
+
+    // Asymmetric: ceiling and floor can be set independently once unlocked.
+    engine.update_processing_node_limiter_params(&node.id, -3, -12, false).expect("update limiter params asymmetrically");
+    let asymmetric = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(asymmetric.kind, ProcessingNodeKind::Limiter { ceiling_db: -3, floor_db: -12, symmetric: false });
+
+    engine.remove_processing_node(&node.id).expect("remove limiter node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Limiter node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn limiter_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node(
+            "Safety Limiter",
+            ProcessingNodeSpecKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true },
+        )
+        .expect("create limiter node");
+    let source = engine.create_virtual_output("Limiter Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn limiter_param_update_rejects_a_non_limiter_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_limiter_params(&node.id, 0, 0, true)
+        .expect_err("limiter update on a non-Limiter node should be rejected");
+    assert!(error.to_string().contains("has no limiter params"), "{error}");
 }
 
 /// Any device kind can feed a Mixer node's input — a virtual output device

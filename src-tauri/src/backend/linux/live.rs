@@ -492,12 +492,42 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
                 Ok(())
             }
+            ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric } => {
+                // Same "real DSP from creation" reasoning as Eq5Band/Delay.
+                let config = crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Limiter {
+                        id: "limiter".into(),
+                        ceiling_db: *ceiling_db,
+                        floor_db: *floor_db,
+                        symmetric: *symmetric,
+                    }],
+                    bypassed: node.bypassed,
+                    ..Default::default()
+                };
+                let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+                let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+                if !preflight.ok {
+                    return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+                }
+                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
+                    eprintln!("failed to force volume on new Limiter sink {}: {error}", node.system_name);
+                }
+                if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
+                    eprintln!("failed to unmute new Limiter sink {}: {error}", node.system_name);
+                }
+                Ok(())
+            }
             ProcessingNodeKind::Stub { .. } => Ok(()),
         }
     }
 
     fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
-        if system_name.starts_with("pipe-deck-proc-eq5band-") || system_name.starts_with("pipe-deck-proc-delay-") {
+        if system_name.starts_with("pipe-deck-proc-eq5band-")
+            || system_name.starts_with("pipe-deck-proc-delay-")
+            || system_name.starts_with("pipe-deck-proc-limiter-")
+        {
             if crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name) {
                 crate::daemon::ipc::client::NativeHostClient::unload_chain(system_name)
                     .map_err(|error| BackendError::Message(error.to_string()))?;
@@ -790,6 +820,37 @@ impl AudioBackend for LinuxPipeWireBackend {
                 feedback_percent,
                 feedforward_percent,
             }],
+            bypassed,
+            ..Default::default()
+        };
+        let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+        let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+        if !preflight.ok {
+            return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+        }
+        let params = crate::pipewire::fx_validate::live_params(&config);
+        push_eq_params_and_reforce_volume(
+            || {
+                crate::daemon::ipc::client::NativeHostClient::set_param(system_name, &params)
+                    .map_err(|error| BackendError::Message(error.to_string()))
+            },
+            || {
+                let _ = pactl::set_sink_volume_by_name(system_name, 100);
+                let _ = pactl::set_sink_mute_by_name(system_name, false);
+            },
+        )
+    }
+
+    fn set_processing_node_limiter_params(
+        &self,
+        system_name: &str,
+        ceiling_db: i32,
+        floor_db: i32,
+        symmetric: bool,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Limiter { id: "limiter".into(), ceiling_db, floor_db, symmetric }],
             bypassed,
             ..Default::default()
         };

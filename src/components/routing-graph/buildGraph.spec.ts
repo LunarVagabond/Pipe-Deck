@@ -85,3 +85,26 @@ describe("delay processing node (#313)", () => {
     expect(data?.supportsEffects).toBe(false);
   });
 });
+
+describe("limiter processing node (#311)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Limiter subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-limiter-1",
+      label: "Safety Limiter",
+      kind: { kind: "limiter", ceiling_db: -6, floor_db: -12, symmetric: false },
+      system_name: "pipe-deck-proc-limiter-safety-limiter",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-limiter-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Limiter");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "limiter", ceiling_db: -6, floor_db: -12, symmetric: false });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});

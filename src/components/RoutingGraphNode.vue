@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject } from "vue";
+import { computed, inject, ref } from "vue";
 import { Handle, Position, useNodeId } from "@vue-flow/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
@@ -7,6 +7,7 @@ import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
+import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -49,6 +50,28 @@ const iconKind = computed(() => props.data.processingNodeKind?.kind ?? props.dat
 const effectsBadgeTitle = computed(() =>
   effectsState.value === "live" ? "Effects live" : effectsState.value === "bypassed" ? "Effects bypassed" : "",
 );
+
+/** DSP-backed processing node kinds (Eq5Band/Delay/Limiter) each expose a
+ * `reset()` method (see their own `defineExpose`) — Reset and the DSP
+ * warning both render once, here in the node's header (top-right, next to
+ * Delete), rather than duplicated per-kind in each child's own template. */
+const eq5bandRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const limiterRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+
+const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
+  eq5band:
+    "Boosting bands can push the signal above full scale — any resulting clipping happens at the output (hardware/sink), not here, and sounds like harsh digital distortion. Real dynamics processing (to catch this smoothly) is tracked in issue #86.",
+  delay:
+    "High Feedback can build up into a resonant loop that eventually clips — a real limiter/compressor stage after this would catch it smoothly; tracked in issue #86.",
+  limiter:
+    "Hard brick-wall clamp — no envelope smoothing or lookahead, unlike a real limiter. Aggressive settings will sound harsh/distorted. Real dynamics processing is tracked in issue #86.",
+};
+const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
+
+function onResetClick() {
+  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value)?.reset();
+}
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
 const outHandles = computed(() =>
@@ -219,7 +242,26 @@ function onToggleMute() {
             layout="inline"
             @save="onRename"
             @delete="onDelete"
-          />
+          >
+            <template v-if="dspWarningText" #toolbar-extra>
+              <button
+                type="button"
+                class="icon-btn routing-graph-node-header-reset"
+                title="Reset to defaults"
+                aria-label="Reset to defaults"
+                @click="onResetClick"
+              >
+                ↺
+              </button>
+              <span
+                class="routing-graph-node-dsp-warning"
+                :title="dspWarningText"
+                :aria-label="dspWarningText"
+              >
+                ⚠
+              </span>
+            </template>
+          </NodeCardHeader>
           <strong v-else>{{ data.label }}</strong>
           <span class="routing-graph-node-sub">{{ data.subtitle }}</span>
         </div>
@@ -236,6 +278,7 @@ function onToggleMute() {
       />
       <RoutingGraphNodeEq5Band
         v-else-if="data.processingNodeKind?.kind === 'eq5band'"
+        ref="eq5bandRef"
         :node-id="data.entityId"
         :eq-sub="data.processingNodeKind.eq_sub"
         :eq-bass="data.processingNodeKind.eq_bass"
@@ -247,10 +290,20 @@ function onToggleMute() {
       />
       <RoutingGraphNodeDelay
         v-else-if="data.processingNodeKind?.kind === 'delay'"
+        ref="delayRef"
         :node-id="data.entityId"
         :delay-ms="data.processingNodeKind.delay_ms"
         :feedback-percent="data.processingNodeKind.feedback_percent"
         :feedforward-percent="data.processingNodeKind.feedforward_percent"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeLimiter
+        v-else-if="data.processingNodeKind?.kind === 'limiter'"
+        ref="limiterRef"
+        :node-id="data.entityId"
+        :ceiling-db="data.processingNodeKind.ceiling_db"
+        :floor-db="data.processingNodeKind.floor_db"
+        :symmetric="data.processingNodeKind.symmetric"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

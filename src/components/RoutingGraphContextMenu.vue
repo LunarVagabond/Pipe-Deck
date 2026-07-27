@@ -16,9 +16,9 @@ const EFFECT_CATALOG: AvailableEffect[] = [{ kind: "eq5band", label: "5-Band EQ"
 /** issue #293's non-DSP effect kinds — addable to the graph as visibly "Not
  * implemented yet" pass-through stub nodes (PD-032 phase 5), ahead of real
  * DSP landing for each in follow-up tickets. Originally 11; `reverb_delay`
- * graduated to a real Delay node button below (issue #313). */
+ * and `limiter` graduated to real node buttons in the General category below
+ * (issues #313/#311). */
 const STUB_EFFECT_CATALOG: { kind: string; label: string }[] = [
-  { kind: "limiter", label: "Limiter" },
   { kind: "compressor", label: "Compressor" },
   { kind: "noise_gate", label: "Noise Gate" },
   { kind: "denoise", label: "Noise Suppression" },
@@ -43,7 +43,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay"];
+  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter"];
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
@@ -59,22 +59,34 @@ const availableEffects = computed<AvailableEffect[]>(() => {
 });
 
 const nodePickerOpen = ref(false);
-const stubEffectPickerOpen = ref(false);
+/** Which top-level "Add node" category flyout is open — only one at a time,
+ * unlike `nodePickerOpen` (an unrelated, separate "Bring node here" picker
+ * that can be open alongside). */
+const openCategory = ref<"general" | "input" | "output" | null>(null);
 watch(
   () => props.target,
   () => {
     nodePickerOpen.value = false;
-    stubEffectPickerOpen.value = false;
+    openCategory.value = null;
   },
 );
+
+function toggleCategory(category: "general" | "input" | "output") {
+  openCategory.value = openCategory.value === category ? null : category;
+}
 
 function onPickNode(nodeId: string) {
   nodePickerOpen.value = false;
   emit("bring-node-here", nodeId);
 }
 
+function onPickNodeType(type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter") {
+  openCategory.value = null;
+  emit("add-node", type);
+}
+
 function onPickStubEffect(stubKind: string, label: string) {
-  stubEffectPickerOpen.value = false;
+  openCategory.value = null;
   emit("add-stub-node", stubKind, label);
 }
 </script>
@@ -124,15 +136,16 @@ function onPickStubEffect(stubKind: string, label: string) {
     </template>
     <template v-else>
       <p class="routing-graph-context-menu-label">Add node</p>
-      <button type="button" @click="emit('add-node', 'output')">+ Virtual Output</button>
-      <button type="button" @click="emit('add-node', 'input')">+ Virtual Input</button>
-      <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-Out Node</button>
-      <button type="button" @click="emit('add-node', 'mixer')">+ Mixer Node</button>
-      <button type="button" @click="emit('add-node', 'eq5band')">+ 5-Band EQ Node</button>
-      <button type="button" @click="emit('add-node', 'delay')">+ Delay Node</button>
       <div class="routing-graph-node-picker-anchor">
-        <button type="button" @click="stubEffectPickerOpen = !stubEffectPickerOpen">+ Effect node (not yet implemented)…</button>
-        <div v-if="stubEffectPickerOpen" class="routing-graph-node-picker">
+        <button type="button" @click="toggleCategory('general')">General ▸</button>
+        <div v-if="openCategory === 'general'" class="routing-graph-node-category-flyout">
+          <button type="button" @click="onPickNodeType('fan_out')">+ Fan-Out Node</button>
+          <button type="button" @click="onPickNodeType('mixer')">+ Mixer Node</button>
+          <button type="button" @click="onPickNodeType('eq5band')">+ 5-Band EQ Node</button>
+          <button type="button" @click="onPickNodeType('delay')">+ Delay Node</button>
+          <button type="button" @click="onPickNodeType('limiter')">+ Limiter Node</button>
+          <hr class="routing-graph-context-menu-separator" />
+          <p class="routing-graph-context-menu-label">Not yet implemented</p>
           <button
             v-for="effect in STUB_EFFECT_CATALOG"
             :key="effect.kind"
@@ -141,6 +154,18 @@ function onPickStubEffect(stubKind: string, label: string) {
           >
             {{ effect.label }}
           </button>
+        </div>
+      </div>
+      <div class="routing-graph-node-picker-anchor">
+        <button type="button" @click="toggleCategory('input')">Input ▸</button>
+        <div v-if="openCategory === 'input'" class="routing-graph-node-category-flyout">
+          <button type="button" @click="onPickNodeType('input')">+ Virtual Input</button>
+        </div>
+      </div>
+      <div class="routing-graph-node-picker-anchor">
+        <button type="button" @click="toggleCategory('output')">Output ▸</button>
+        <div v-if="openCategory === 'output'" class="routing-graph-node-category-flyout">
+          <button type="button" @click="onPickNodeType('output')">+ Virtual Output</button>
         </div>
       </div>
 

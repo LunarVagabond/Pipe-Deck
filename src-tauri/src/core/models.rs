@@ -191,6 +191,27 @@ pub enum ProcessingNodeKind {
         #[serde(default)]
         feedforward_percent: i32,
     },
+    /// Backed by PipeWire's builtin `clamp` filter-chain filter (issue
+    /// #311) — a hard-ceiling brick-wall clamp, NOT a real attack/release
+    /// dynamics limiter (PipeWire ships no builtin for that; see
+    /// `fx_capability::builtin_limiter`, which stays permanently `false`
+    /// and gates a separate, still-fully-blocked older concept; real
+    /// dynamics processing is tracked in issue #86). `ceiling_db`/`floor_db`
+    /// are each 0 (full scale, no clamp) down to more negative (more
+    /// aggressive) — `ceiling_db` bounds the positive peak, `floor_db` the
+    /// negative peak. `symmetric` locks `floor_db` to always equal
+    /// `ceiling_db` (the UI keeps them in sync while this is `true`); toggling
+    /// it off unlocks independent control, toggling it back on snaps
+    /// `floor_db` to whatever `ceiling_db` currently is.
+    #[serde(rename = "limiter")]
+    Limiter {
+        #[serde(default)]
+        ceiling_db: i32,
+        #[serde(default)]
+        floor_db: i32,
+        #[serde(default = "default_true")]
+        symmetric: bool,
+    },
     /// One of issue #293's eleven non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
@@ -206,6 +227,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::FanOut { .. } => "fan_out",
             ProcessingNodeKind::Eq5Band { .. } => "eq5band",
             ProcessingNodeKind::Delay { .. } => "delay",
+            ProcessingNodeKind::Limiter { .. } => "limiter",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -214,7 +236,6 @@ impl ProcessingNodeKind {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StubEffectKind {
-    Limiter,
     Compressor,
     NoiseGate,
     Denoise,
@@ -619,6 +640,15 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default)]
         feedforward_percent: i32,
     },
+    #[serde(rename = "limiter")]
+    Limiter {
+        #[serde(default)]
+        ceiling_db: i32,
+        #[serde(default)]
+        floor_db: i32,
+        #[serde(default = "default_true")]
+        symmetric: bool,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -928,6 +958,22 @@ pub enum EffectStage {
         #[serde(default)]
         feedforward_percent: i32,
     },
+    /// Backed by PipeWire's builtin `clamp` filter-chain filter (issue
+    /// #311) — same "carries a processing node's params through the
+    /// existing transport" role as `Delay` above. Distinct from this
+    /// struct's own `limiter: DynamicsStage` field just below, which is the
+    /// older, still fully-blocked device-attached dynamics-limiter concept —
+    /// this variant and that field are unrelated despite the shared name.
+    #[serde(rename = "limiter")]
+    Limiter {
+        id: String,
+        #[serde(default)]
+        ceiling_db: i32,
+        #[serde(default)]
+        floor_db: i32,
+        #[serde(default = "default_true")]
+        symmetric: bool,
+    },
 }
 
 impl Default for EffectStage {
@@ -949,6 +995,7 @@ impl EffectStage {
         match self {
             EffectStage::Eq5Band { .. } => "eq5band",
             EffectStage::Delay { .. } => "delay",
+            EffectStage::Limiter { .. } => "limiter",
         }
     }
 
@@ -956,6 +1003,7 @@ impl EffectStage {
         match self {
             EffectStage::Eq5Band { id, .. } => id,
             EffectStage::Delay { id, .. } => id,
+            EffectStage::Limiter { id, .. } => id,
         }
     }
 }
@@ -984,6 +1032,16 @@ pub struct DelayStageParams {
     pub delay_ms: i32,
     pub feedback_percent: i32,
     pub feedforward_percent: i32,
+}
+
+/// Flattened params for a chain's `Limiter` stage, mirroring `DelayStageParams`.
+/// Unrelated to this struct's own `limiter: DynamicsStage` field below —
+/// that's the older, still fully-blocked device-attached dynamics-limiter
+/// concept; this is the new `Clamp`-backed processing node's params.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LimiterStageParams {
+    pub ceiling_db: i32,
+    pub floor_db: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1127,7 +1185,7 @@ impl EffectChainConfig {
                     eq_air: *eq_air,
                     output_gain: *output_gain,
                 }),
-                EffectStage::Delay { .. } => None,
+                EffectStage::Delay { .. } | EffectStage::Limiter { .. } => None,
             })
             .unwrap_or_default()
     }
@@ -1143,7 +1201,20 @@ impl EffectChainConfig {
                 feedback_percent: *feedback_percent,
                 feedforward_percent: *feedforward_percent,
             }),
-            EffectStage::Eq5Band { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } => None,
+        })
+    }
+
+    /// The chain's `Limiter` stage, flattened — mirrors `delay_stage()`.
+    /// Not to be confused with the `limiter: DynamicsStage` field above,
+    /// which this method does not read at all.
+    pub fn limiter_stage(&self) -> Option<LimiterStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Limiter { ceiling_db, floor_db, .. } => Some(LimiterStageParams {
+                ceiling_db: *ceiling_db,
+                floor_db: *floor_db,
+            }),
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } => None,
         })
     }
 }
