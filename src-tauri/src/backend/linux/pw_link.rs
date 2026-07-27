@@ -332,6 +332,23 @@ fn list_monitor_links_for_source(source_system_name: &str) -> Vec<(String, Strin
     links_from_source(source_system_name)
 }
 
+/// Disconnects every output link from `source_system_name` whose target
+/// port does *not* belong to `keep_target_system_name` — for cleaning up
+/// after `pactl move-sink-input` "moves" a stream. That move only updates
+/// the Pulse-compat "current sink" for the stream; a native (non-Pulse)
+/// PipeWire client's actual output ports can stay linked to wherever they
+/// were before, independent of the move (issue #303 follow-up — confirmed
+/// live via `pw-link -l` showing a stream linked to both its old and new
+/// destination simultaneously right after this exact move: `pactl` reported
+/// success, but audio kept flowing to the old destination too).
+pub fn disconnect_stale_output_links(source_system_name: &str, keep_target_system_name: &str) -> Result<(), BackendError> {
+    let keep_prefix = format!("{keep_target_system_name}:");
+    let stale = links_from_source(source_system_name)
+        .into_iter()
+        .filter(|(_, input_port)| !input_port.starts_with(&keep_prefix));
+    disconnect_links(stale)
+}
+
 /// Every currently-linked `(output_port, input_port)` pair whose output
 /// port belongs to `source_system_name` — the shared implementation behind
 /// `list_capture_links_for_source`/`list_monitor_links_for_source`, kept as
