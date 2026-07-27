@@ -86,7 +86,21 @@ export interface BuiltRoutingGraph {
   }>;
 }
 
-const LAYOUT_KEY = "pipe-deck-routing-layout";
+// Bumped to v2 (was "pipe-deck-routing-layout") because `LANE_X` changed
+// three times in one dev cycle (#202, #25, then the row/column-spacing
+// overlap fix) without a matching bump — a node with a stable id (a
+// hardware device, whose position gets saved once and honored verbatim
+// forever, same as a manual drag) could still be sitting at whatever x an
+// earlier revision auto-placed it at, while an ephemeral-id node (a stream,
+// which never accumulates a saved position and always re-places fresh) now
+// renders under the current lanes. The two can end up in the wrong visual
+// order relative to each other even though neither is actually "wrong" on
+// its own — e.g. a stream rendering right of an output device that was
+// auto-placed under an older, narrower `LANE_X`. Bumping the key discards
+// every pre-existing saved position in one shot so everything re-auto-places
+// under the current lanes; future manual drags persist under the new key
+// exactly as before.
+const LAYOUT_KEY = "pipe-deck-routing-layout-v2";
 // Three-zone layout (issue #25): input hardware — the thing a user
 // instinctively looks for on the left, and previously defaulted to the far
 // right (issue #202) — is now the true leftmost lane, so it's never the one
