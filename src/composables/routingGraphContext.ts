@@ -55,6 +55,12 @@ export interface RoutingGraphActions {
    * relocating it to the screen point `x`/`y` — typically the pane
    * right-click point that opened the "Bring node here" menu (issue #142). */
   bringNodeHere: (nodeId: string, x: number, y: number) => void;
+  /** Isolate (#222): bypasses every other effect-capable processing node
+   * (Eq5Band today) in `nodeId`'s connected signal chain, restoring each to
+   * its exact prior bypassed state when un-isolated. Never touches Mixer/
+   * Fan-out nodes, devices, or streams. */
+  isolateEffectNode: (nodeId: string) => void | Promise<void>;
+  isEffectIsolated: (nodeId: string) => boolean;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

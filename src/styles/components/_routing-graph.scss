@@ -587,9 +587,14 @@
   }
 }
 
-.routing-graph-node-eq5band-bypass {
-  align-self: flex-start;
+.routing-graph-node-eq5band-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
   margin-bottom: 0.15rem;
+}
+
+.routing-graph-node-eq5band-bypass {
   padding: 0.1rem 0.5rem;
   border: 1px solid var(--border, rgba(255, 255, 255, 0.2));
   border-radius: 999px;
@@ -601,6 +606,21 @@
   &.active {
     border-color: var(--accent-amber, #e0a030);
     color: var(--accent-amber, #e0a030);
+  }
+}
+
+.routing-graph-node-eq5band-isolate {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--accent-teal, #3ddbd9);
+    color: var(--accent-teal, #3ddbd9);
   }
 }
 

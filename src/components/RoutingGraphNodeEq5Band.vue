@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { computed, inject, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useApplyResult } from "../stores/notices";
+import { routingGraphActionsKey } from "../composables/routingGraphContext";
+import { processingNodeNodeId } from "./routing-graph/nodeIds";
 
 const props = defineProps<{
   nodeId: string;
@@ -15,6 +17,13 @@ const props = defineProps<{
 }>();
 
 const { handleApplyResult } = useApplyResult();
+const actions = inject(routingGraphActionsKey, null);
+const graphNodeId = computed(() => processingNodeNodeId(props.nodeId));
+const isIsolated = computed(() => actions?.isEffectIsolated(graphNodeId.value) ?? false);
+
+function onToggleIsolate() {
+  void actions?.isolateEffectNode(graphNodeId.value);
+}
 
 const BANDS = [
   { key: "eqSub", label: "Sub", param: "eq_sub" },
@@ -81,16 +90,28 @@ async function onToggleBypass() {
 
 <template>
   <div class="routing-graph-node-eq5band nodrag" :class="{ 'is-bypassed': bypassed }">
-    <button
-      type="button"
-      class="routing-graph-node-eq5band-bypass"
-      :class="{ active: bypassed }"
-      :aria-pressed="bypassed"
-      :title="bypassed ? 'Bypassed — passing through unprocessed' : 'Bypass — keep wiring, skip processing'"
-      @click="onToggleBypass"
-    >
-      {{ bypassed ? "Bypassed" : "Bypass" }}
-    </button>
+    <div class="routing-graph-node-eq5band-actions">
+      <button
+        type="button"
+        class="routing-graph-node-eq5band-bypass"
+        :class="{ active: bypassed }"
+        :aria-pressed="bypassed"
+        :title="bypassed ? 'Bypassed — passing through unprocessed' : 'Bypass — keep wiring, skip processing'"
+        @click="onToggleBypass"
+      >
+        {{ bypassed ? "Bypassed" : "Bypass" }}
+      </button>
+      <button
+        type="button"
+        class="routing-graph-node-eq5band-isolate"
+        :class="{ active: isIsolated }"
+        :aria-pressed="isIsolated"
+        :title="isIsolated ? 'Isolated — click to restore other effects' : 'Isolate — bypass every other effect in this chain'"
+        @click="onToggleIsolate"
+      >
+        {{ isIsolated ? "Isolated" : "Isolate" }}
+      </button>
+    </div>
     <div v-for="band in BANDS" :key="band.key" class="routing-graph-node-eq5band-row">
       <span class="routing-graph-node-eq5band-label">{{ band.label }}</span>
       <input
