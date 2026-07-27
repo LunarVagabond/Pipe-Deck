@@ -87,21 +87,20 @@ export interface BuiltRoutingGraph {
 }
 
 const LAYOUT_KEY = "pipe-deck-routing-layout";
-// Playback streams originate the left-to-right chain (applications →
-// processing → routing → outputs). Input/capture form a separate, shorter
-// chain (a mic or filtered virtual mic feeding a capture stream) that used to
-// sit past "output", which put input devices — the thing users instinctively
-// look for on the left — furthest right of anything, and got dragged back
-// constantly (issue #202). Input and captureStream now sit as a paired block
-// right after processingNode, ahead of the playback routing block, so inputs
-// read left-ish while capture streams still stay immediately next to the
-// input device that feeds them (short, forward-reading connection preserved
-// — same tight spacing the stream→processingNode pair already used).
+// Three-zone layout (issue #25): input hardware — the thing a user
+// instinctively looks for on the left, and previously defaulted to the far
+// right (issue #202) — is now the true leftmost lane, so it's never the one
+// that has to get dragged into place. Capture streams stay paired
+// immediately next to input (a mic or filtered virtual mic feeding a capture
+// stream is a short, forward-reading connection — see #202) rather than
+// being pulled into the center zone on their own. Playback streams,
+// processing nodes, and virtual sinks make up the center "internal
+// processing" zone; outputs remain the rightmost lane.
 const LANE_X: Record<RoutingNodeKind, number> = {
-  stream: 40,
-  processingNode: 190,
-  input: 340,
-  captureStream: 490,
+  input: 40,
+  captureStream: 190,
+  stream: 490,
+  processingNode: 640,
   virtualSink: 790,
   output: 1090,
 };
