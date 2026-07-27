@@ -284,10 +284,15 @@ fn reconcile_live_processing_nodes() {
                     ..Default::default()
                 },
             ),
-            crate::core::models::ProcessingNodeSpecKind::Limiter { ceiling_db } => (
+            crate::core::models::ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric } => (
                 format!("pipe-deck-proc-limiter-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Limiter { id: "limiter".into(), ceiling_db: *ceiling_db }],
+                    stages: vec![crate::core::models::EffectStage::Limiter {
+                        id: "limiter".into(),
+                        ceiling_db: *ceiling_db,
+                        floor_db: *floor_db,
+                        symmetric: *symmetric,
+                    }],
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
@@ -832,7 +837,7 @@ mod live_tests {
             slug: "recovery-test-limiter".to_string(),
             label: "Recovery Test Limiter".to_string(),
             created_at: Utc::now().to_rfc3339(),
-            kind: crate::core::models::ProcessingNodeSpecKind::Limiter { ceiling_db: -6 },
+            kind: crate::core::models::ProcessingNodeSpecKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true },
             input_sources: Vec::new(),
             output_targets: Vec::new(),
             bypassed: false,

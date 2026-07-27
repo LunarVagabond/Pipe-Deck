@@ -492,12 +492,14 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
                 Ok(())
             }
-            ProcessingNodeKind::Limiter { ceiling_db } => {
+            ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric } => {
                 // Same "real DSP from creation" reasoning as Eq5Band/Delay.
                 let config = crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Limiter {
                         id: "limiter".into(),
                         ceiling_db: *ceiling_db,
+                        floor_db: *floor_db,
+                        symmetric: *symmetric,
                     }],
                     bypassed: node.bypassed,
                     ..Default::default()
@@ -843,10 +845,12 @@ impl AudioBackend for LinuxPipeWireBackend {
         &self,
         system_name: &str,
         ceiling_db: i32,
+        floor_db: i32,
+        symmetric: bool,
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Limiter { id: "limiter".into(), ceiling_db }],
+            stages: vec![crate::core::models::EffectStage::Limiter { id: "limiter".into(), ceiling_db, floor_db, symmetric }],
             bypassed,
             ..Default::default()
         };

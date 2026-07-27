@@ -145,6 +145,8 @@ export type ProcessingNodeKind =
   | {
       kind: "limiter";
       ceiling_db: number;
+      floor_db: number;
+      symmetric: boolean;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
@@ -472,6 +474,8 @@ export type ProcessingNodeSpecKind =
   | {
       kind: "limiter";
       ceiling_db: number;
+      floor_db: number;
+      symmetric: boolean;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 

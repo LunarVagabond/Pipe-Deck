@@ -195,12 +195,22 @@ pub enum ProcessingNodeKind {
     /// #311) — a hard-ceiling brick-wall clamp, NOT a real attack/release
     /// dynamics limiter (PipeWire ships no builtin for that; see
     /// `fx_capability::builtin_limiter`, which stays permanently `false`
-    /// and gates a separate, still-fully-blocked older concept). `ceiling_db`
-    /// is 0 (full scale, no clamp) down to more negative (more aggressive).
+    /// and gates a separate, still-fully-blocked older concept; real
+    /// dynamics processing is tracked in issue #86). `ceiling_db`/`floor_db`
+    /// are each 0 (full scale, no clamp) down to more negative (more
+    /// aggressive) — `ceiling_db` bounds the positive peak, `floor_db` the
+    /// negative peak. `symmetric` locks `floor_db` to always equal
+    /// `ceiling_db` (the UI keeps them in sync while this is `true`); toggling
+    /// it off unlocks independent control, toggling it back on snaps
+    /// `floor_db` to whatever `ceiling_db` currently is.
     #[serde(rename = "limiter")]
     Limiter {
         #[serde(default)]
         ceiling_db: i32,
+        #[serde(default)]
+        floor_db: i32,
+        #[serde(default = "default_true")]
+        symmetric: bool,
     },
     /// One of issue #293's eleven non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
@@ -634,6 +644,10 @@ pub enum ProcessingNodeSpecKind {
     Limiter {
         #[serde(default)]
         ceiling_db: i32,
+        #[serde(default)]
+        floor_db: i32,
+        #[serde(default = "default_true")]
+        symmetric: bool,
     },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
@@ -955,6 +969,10 @@ pub enum EffectStage {
         id: String,
         #[serde(default)]
         ceiling_db: i32,
+        #[serde(default)]
+        floor_db: i32,
+        #[serde(default = "default_true")]
+        symmetric: bool,
     },
 }
 
@@ -1023,6 +1041,7 @@ pub struct DelayStageParams {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct LimiterStageParams {
     pub ceiling_db: i32,
+    pub floor_db: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1191,7 +1210,10 @@ impl EffectChainConfig {
     /// which this method does not read at all.
     pub fn limiter_stage(&self) -> Option<LimiterStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Limiter { ceiling_db, .. } => Some(LimiterStageParams { ceiling_db: *ceiling_db }),
+            EffectStage::Limiter { ceiling_db, floor_db, .. } => Some(LimiterStageParams {
+                ceiling_db: *ceiling_db,
+                floor_db: *floor_db,
+            }),
             EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } => None,
         })
     }

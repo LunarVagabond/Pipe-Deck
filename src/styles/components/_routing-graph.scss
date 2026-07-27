@@ -661,6 +661,24 @@
   }
 }
 
+/** Shared by any DSP-backed processing node whose builtin-only backing has
+ * a known audible sharp edge (brick-wall clamp, boost-then-clip at the
+ * output, ...) — a small hover tooltip explaining why, rather than silence
+ * that reads as "this node is broken." See issue #86 (real dynamics
+ * processing, tracked separately from the current builtin-only MVPs). */
+.routing-graph-node-dsp-warning {
+  margin-left: 0.2rem;
+  font-size: 0.75rem;
+  line-height: 1;
+  opacity: 0.75;
+  cursor: help;
+  color: var(--accent-amber, #e0a030);
+
+  &:hover {
+    opacity: 1;
+  }
+}
+
 .routing-graph-node-eq5band-reset {
   margin-left: auto;
   padding: 0.05rem 0.3rem;
@@ -836,6 +854,21 @@
   &.active {
     border-color: var(--accent-teal, #3ddbd9);
     color: var(--accent-teal, #3ddbd9);
+  }
+}
+
+.routing-graph-node-limiter-symmetric {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--accent-purple, #8b7bff);
+    color: var(--accent-purple, #8b7bff);
   }
 }
 

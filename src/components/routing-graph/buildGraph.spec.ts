@@ -95,7 +95,7 @@ describe("limiter processing node (#311)", () => {
     const node = makeProcessingNode({
       id: "proc-limiter-1",
       label: "Safety Limiter",
-      kind: { kind: "limiter", ceiling_db: -6 },
+      kind: { kind: "limiter", ceiling_db: -6, floor_db: -12, symmetric: false },
       system_name: "pipe-deck-proc-limiter-safety-limiter",
     });
     const graph = makeGraph([], [], [], [node]);
@@ -104,7 +104,7 @@ describe("limiter processing node (#311)", () => {
 
     expect(data?.subtitle).toBe("Limiter");
     expect(data?.nodeKind).toBe("processingNode");
-    expect(data?.processingNodeKind).toEqual({ kind: "limiter", ceiling_db: -6 });
+    expect(data?.processingNodeKind).toEqual({ kind: "limiter", ceiling_db: -6, floor_db: -12, symmetric: false });
     expect(data?.supportsEffects).toBe(false);
   });
 });

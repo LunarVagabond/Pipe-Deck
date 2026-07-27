@@ -90,6 +90,7 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
     // than unconditionally rejected.
     if let Some(limiter) = config.limiter_stage() {
         check_range("Ceiling", limiter.ceiling_db, CEILING_RANGE_DB, &mut blocking_reasons);
+        check_range("Floor", limiter.floor_db, CEILING_RANGE_DB, &mut blocking_reasons);
         if !capabilities.builtin_clamp {
             blocking_reasons.push(
                 "Limiter requires PipeWire's builtin filter-chain module, which was not found on this system"
@@ -281,10 +282,14 @@ fn render_limiter_filter_chain_conf(
 /// Renders the builtin-only `module-filter-chain` graph for a single
 /// Limiter processing node (issue #311) — a single `clamp` filter, no
 /// chaining/links needed, same single-filter-graph shape as Delay's
-/// renderer. `Clamp`'s `Min`/`Max` controls are a symmetric linear-amplitude
-/// window derived from `ceiling_db` (`man 7 libpipewire-module-filter-chain`'s
-/// Clamp section: `In`/`Out` ports, `Control`/`Notify` control ports, final
-/// result clamped to the `Min`/`Max` control values). Bypassed bakes in
+/// renderer. `Clamp`'s `Min`/`Max` controls are independent linear-amplitude
+/// bounds derived from `floor_db`/`ceiling_db` respectively
+/// (`man 7 libpipewire-module-filter-chain`'s Clamp section: `In`/`Out`
+/// ports, `Control`/`Notify` control ports, final result clamped to the
+/// `Min`/`Max` control values) — the UI keeps them equal-and-opposite while
+/// `symmetric` is set, but the renderer itself doesn't care, it just uses
+/// whatever the two fields say (asymmetric clamping is a legitimate config,
+/// not just a symmetric one with extra steps). Bypassed bakes in
 /// `Min=-1.0/Max=1.0` (full scale, no clamp) — the same neutral-value
 /// convention Delay/EQ use.
 fn render_limiter_filter_chain_module_args(
@@ -295,9 +300,8 @@ fn render_limiter_filter_chain_module_args(
     bypassed: bool,
     params: &LimiterStageParams,
 ) -> String {
-    let ceiling = if bypassed { 1.0 } else { db_to_linear_mult(params.ceiling_db) };
-    let min = -ceiling;
-    let max = ceiling;
+    let min = if bypassed { -1.0 } else { -db_to_linear_mult(params.floor_db) };
+    let max = if bypassed { 1.0 } else { db_to_linear_mult(params.ceiling_db) };
     let playback_class_line = playback_media_class
         .map(|class| format!("\n                media.class  = {class}"))
         .unwrap_or_default();
@@ -544,8 +548,10 @@ fn limiter_live_params(bypassed: bool, params: &LimiterStageParams) -> Vec<(Stri
     if bypassed {
         return vec![("limiter:Min".to_string(), -1.0), ("limiter:Max".to_string(), 1.0)];
     }
-    let ceiling = db_to_linear_mult(params.ceiling_db);
-    vec![("limiter:Min".to_string(), -ceiling), ("limiter:Max".to_string(), ceiling)]
+    vec![
+        ("limiter:Min".to_string(), -db_to_linear_mult(params.floor_db)),
+        ("limiter:Max".to_string(), db_to_linear_mult(params.ceiling_db)),
+    ]
 }
 
 #[cfg(test)]
@@ -573,11 +579,17 @@ mod tests {
     }
 
     /// Builds a chain with a single `Limiter` stage — mirrors `delay_chain`.
-    fn limiter_chain(ceiling_db: i32) -> EffectChainConfig {
+    /// Most tests pass a symmetric ceiling/floor (`symmetric_limiter_chain`);
+    /// this lower-level helper exists for the asymmetric-specific tests.
+    fn limiter_chain(ceiling_db: i32, floor_db: i32) -> EffectChainConfig {
         EffectChainConfig {
-            stages: vec![EffectStage::Limiter { id: "limiter".to_string(), ceiling_db }],
+            stages: vec![EffectStage::Limiter { id: "limiter".to_string(), ceiling_db, floor_db, symmetric: ceiling_db == floor_db }],
             ..Default::default()
         }
+    }
+
+    fn symmetric_limiter_chain(ceiling_db: i32) -> EffectChainConfig {
+        limiter_chain(ceiling_db, ceiling_db)
     }
 
     /// Builds a chain with a single `Eq5Band` stage — the shape most tests
@@ -842,7 +854,7 @@ mod tests {
 
     #[test]
     fn accepts_in_range_ceiling_when_builtin_present() {
-        let config = limiter_chain(-6);
+        let config = symmetric_limiter_chain(-6);
         let result = preflight(&config, &capabilities(true));
         assert!(result.ok);
         assert!(result.blocking_reasons.is_empty());
@@ -850,7 +862,7 @@ mod tests {
 
     #[test]
     fn rejects_out_of_range_ceiling() {
-        let config = limiter_chain(-40);
+        let config = symmetric_limiter_chain(-40);
         let result = preflight(&config, &capabilities(true));
         assert!(!result.ok);
         assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Ceiling")));
@@ -858,7 +870,7 @@ mod tests {
 
     #[test]
     fn rejects_limiter_when_builtin_filter_chain_module_missing() {
-        let config = limiter_chain(-6);
+        let config = symmetric_limiter_chain(-6);
         let result = preflight(&config, &capabilities(false));
         assert!(!result.ok);
         assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
@@ -866,7 +878,7 @@ mod tests {
 
     #[test]
     fn render_module_args_renders_the_clamp_filter_when_a_limiter_stage_is_present() {
-        let config = limiter_chain(-6);
+        let config = symmetric_limiter_chain(-6);
         let rendered = render_module_args("pipe-deck-limiter", &config);
         assert!(rendered.contains("label = clamp"));
         assert!(!rendered.contains("bq_peaking"), "limiter rendering must not fall through to the EQ template");
@@ -875,13 +887,13 @@ mod tests {
 
     #[test]
     fn render_module_args_is_deterministic_for_a_limiter_stage() {
-        let config = limiter_chain(-6);
+        let config = symmetric_limiter_chain(-6);
         assert_eq!(render_module_args("pipe-deck-limiter", &config), render_module_args("pipe-deck-limiter", &config));
     }
 
     #[test]
     fn limiter_bypass_pushes_full_scale_neutral_live_params_regardless_of_configured_values() {
-        let config = EffectChainConfig { bypassed: true, ..limiter_chain(-12) };
+        let config = EffectChainConfig { bypassed: true, ..symmetric_limiter_chain(-12) };
         let params = live_params(&config);
         assert!(params.contains(&("limiter:Min".to_string(), -1.0)));
         assert!(params.contains(&("limiter:Max".to_string(), 1.0)));
@@ -889,7 +901,7 @@ mod tests {
 
     #[test]
     fn limiter_bypass_bakes_full_scale_values_into_the_initial_structural_apply_too() {
-        let config = EffectChainConfig { bypassed: true, ..limiter_chain(-12) };
+        let config = EffectChainConfig { bypassed: true, ..symmetric_limiter_chain(-12) };
         let rendered = render_module_args("pipe-deck-limiter", &config);
         assert!(rendered.contains(r#""Min" = -1"#));
         assert!(rendered.contains(r#""Max" = 1"#));
@@ -897,7 +909,7 @@ mod tests {
 
     #[test]
     fn limiter_live_params_control_names_match_render_module_args_node_name() {
-        let config = limiter_chain(-6);
+        let config = symmetric_limiter_chain(-6);
         let rendered = render_module_args("pipe-deck-limiter", &config);
         for (name, _value) in live_params(&config) {
             let node_name = name.split(':').next().unwrap();
@@ -906,5 +918,24 @@ mod tests {
                 "render_module_args is missing a node for live param {name:?}"
             );
         }
+    }
+
+    #[test]
+    fn rejects_out_of_range_floor() {
+        let config = limiter_chain(0, -40);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Floor")));
+    }
+
+    #[test]
+    fn asymmetric_ceiling_and_floor_render_independent_min_max() {
+        let config = limiter_chain(-3, -12);
+        let params = live_params(&config);
+        let max = params.iter().find(|(name, _)| name == "limiter:Max").unwrap().1;
+        let min = params.iter().find(|(name, _)| name == "limiter:Min").unwrap().1;
+        assert!((max - db_to_linear_mult(-3)).abs() < f64::EPSILON);
+        assert!((min - (-db_to_linear_mult(-12))).abs() < f64::EPSILON);
+        assert_ne!(max, -min, "asymmetric ceiling/floor should not produce a symmetric Min/Max pair");
     }
 }

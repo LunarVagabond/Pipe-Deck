@@ -892,6 +892,8 @@ impl AudioBackend for MockAudioBackend {
         &self,
         system_name: &str,
         ceiling_db: i32,
+        floor_db: i32,
+        symmetric: bool,
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
@@ -899,7 +901,7 @@ impl AudioBackend for MockAudioBackend {
             return Err(BackendError::Message(format!("processing node not found: {system_name}")));
         };
         if let ProcessingNodeKind::Limiter { .. } = &node.kind {
-            node.kind = ProcessingNodeKind::Limiter { ceiling_db };
+            node.kind = ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric };
         }
         node.bypassed = bypassed;
         Ok(())

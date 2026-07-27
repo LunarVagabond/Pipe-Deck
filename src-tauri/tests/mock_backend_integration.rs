@@ -689,13 +689,21 @@ fn limiter_node_create_update_remove_round_trips() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Safety Limiter", ProcessingNodeSpecKind::Limiter { ceiling_db: 0 })
+        .create_processing_node(
+            "Safety Limiter",
+            ProcessingNodeSpecKind::Limiter { ceiling_db: 0, floor_db: 0, symmetric: true },
+        )
         .expect("create limiter node");
     assert_eq!(node.system_name, "pipe-deck-proc-limiter-safety-limiter");
 
-    engine.update_processing_node_limiter_params(&node.id, -6).expect("update limiter params");
+    engine.update_processing_node_limiter_params(&node.id, -6, -6, true).expect("update limiter params");
     let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(refreshed.kind, ProcessingNodeKind::Limiter { ceiling_db: -6 });
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true });
+
+    // Asymmetric: ceiling and floor can be set independently once unlocked.
+    engine.update_processing_node_limiter_params(&node.id, -3, -12, false).expect("update limiter params asymmetrically");
+    let asymmetric = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(asymmetric.kind, ProcessingNodeKind::Limiter { ceiling_db: -3, floor_db: -12, symmetric: false });
 
     engine.remove_processing_node(&node.id).expect("remove limiter node");
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
@@ -709,7 +717,10 @@ fn limiter_bypass_toggles_without_disturbing_wiring() {
 
     let (mut engine, _guard) = mock_engine();
     let node = engine
-        .create_processing_node("Safety Limiter", ProcessingNodeSpecKind::Limiter { ceiling_db: -6 })
+        .create_processing_node(
+            "Safety Limiter",
+            ProcessingNodeSpecKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true },
+        )
         .expect("create limiter node");
     let source = engine.create_virtual_output("Limiter Source").expect("create source");
     engine
@@ -735,7 +746,7 @@ fn limiter_param_update_rejects_a_non_limiter_node() {
     let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
 
     let error = engine
-        .update_processing_node_limiter_params(&node.id, 0)
+        .update_processing_node_limiter_params(&node.id, 0, 0, true)
         .expect_err("limiter update on a non-Limiter node should be rejected");
     assert!(error.to_string().contains("has no limiter params"), "{error}");
 }

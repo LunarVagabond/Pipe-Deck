@@ -139,6 +139,13 @@ async function onToggleBypass() {
       >
         ↺
       </button>
+      <span
+        class="routing-graph-node-dsp-warning"
+        title="Boosting bands can push the signal above full scale — any resulting clipping happens at the output (hardware/sink), not here, and sounds like harsh digital distortion. Real dynamics processing (to catch this smoothly) is tracked in issue #86."
+        aria-label="Boosting bands can cause clipping at the output — see issue #86"
+      >
+        ⚠
+      </span>
     </div>
     <div v-for="band in BANDS" :key="band.key" class="routing-graph-node-eq5band-row">
       <span class="routing-graph-node-eq5band-label">{{ band.label }}</span>

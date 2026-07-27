@@ -258,6 +258,8 @@ function onToggleMute() {
         v-else-if="data.processingNodeKind?.kind === 'limiter'"
         :node-id="data.entityId"
         :ceiling-db="data.processingNodeKind.ceiling_db"
+        :floor-db="data.processingNodeKind.floor_db"
+        :symmetric="data.processingNodeKind.symmetric"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

@@ -352,6 +352,8 @@ pub trait AudioBackend: Send + Sync {
         &self,
         _system_name: &str,
         _ceiling_db: i32,
+        _floor_db: i32,
+        _symmetric: bool,
         _bypassed: bool,
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_limiter_params: not implemented".into()))

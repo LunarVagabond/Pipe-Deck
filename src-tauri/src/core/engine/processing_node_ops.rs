@@ -518,13 +518,19 @@ impl CoreEngine {
         Ok(ApplyResult { success: true, message: None })
     }
 
-    /// Live-updates a Limiter node's ceiling — same PD-017 two-speed fast
-    /// path and soft-fail-on-persist contract as
-    /// `update_processing_node_delay_params`.
+    /// Live-updates a Limiter node's ceiling/floor/symmetric — same PD-017
+    /// two-speed fast path and soft-fail-on-persist contract as
+    /// `update_processing_node_delay_params`. Callers (the Vue component)
+    /// decide what `floor_db`/`symmetric` should be before calling this —
+    /// e.g. mirroring `floor_db` to `ceiling_db` while symmetric, or
+    /// snapping `floor_db` to the current `ceiling_db` on re-locking to
+    /// symmetric — this just persists and renders whatever it's given.
     pub fn update_processing_node_limiter_params(
         &mut self,
         node_id: &str,
         ceiling_db: i32,
+        floor_db: i32,
+        symmetric: bool,
     ) -> Result<ApplyResult, EngineError> {
         let node = self
             .graph
@@ -540,12 +546,12 @@ impl CoreEngine {
 
         let live_apply_error = self
             .adapter
-            .set_processing_node_limiter_params(&node.system_name, ceiling_db, node.bypassed)
+            .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, node.bypassed)
             .err();
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
-                .update_processing_node_limiter(node_id, ceiling_db)
+                .update_processing_node_limiter(node_id, ceiling_db, floor_db, symmetric)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
@@ -602,11 +608,13 @@ impl CoreEngine {
                 .set_processing_node_delay_params(&node.system_name, delay_ms, feedback_percent, feedforward_percent, bypassed)
                 .err()
         } else if is_limiter {
-            let ceiling_db = match node.kind {
-                ProcessingNodeKind::Limiter { ceiling_db } => ceiling_db,
-                _ => 0,
+            let (ceiling_db, floor_db, symmetric) = match node.kind {
+                ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric } => (ceiling_db, floor_db, symmetric),
+                _ => (0, 0, true),
             };
-            self.adapter.set_processing_node_limiter_params(&node.system_name, ceiling_db, bypassed).err()
+            self.adapter
+                .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, bypassed)
+                .err()
         } else if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
                 ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => {
@@ -916,7 +924,9 @@ fn processing_node_from_spec_with_siblings(
             feedback_percent: *feedback_percent,
             feedforward_percent: *feedforward_percent,
         },
-        ProcessingNodeSpecKind::Limiter { ceiling_db } => ProcessingNodeKind::Limiter { ceiling_db: *ceiling_db },
+        ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric } => {
+            ProcessingNodeKind::Limiter { ceiling_db: *ceiling_db, floor_db: *floor_db, symmetric: *symmetric }
+        }
         ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub { stub_kind: *stub_kind },
     };
 
@@ -1248,7 +1258,7 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live Limiter",
-            ProcessingNodeSpecKind::Limiter { ceiling_db: 0 },
+            ProcessingNodeSpecKind::Limiter { ceiling_db: 0, floor_db: 0, symmetric: true },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1264,7 +1274,7 @@ mod live_tests {
         // is a known sandbox-specific flake, not the correctness concern
         // this covers.
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let update_result = engine.update_processing_node_limiter_params(&node.id, -6);
+        let update_result = engine.update_processing_node_limiter_params(&node.id, -6, -6, true);
         if let Err(error) = &update_result {
             eprintln!(
                 "note: live limiter param update did not succeed in this environment ({error}) — see this test's doc comment"
