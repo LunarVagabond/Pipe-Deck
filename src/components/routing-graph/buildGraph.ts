@@ -87,21 +87,23 @@ export interface BuiltRoutingGraph {
 }
 
 const LAYOUT_KEY = "pipe-deck-routing-layout";
-// Playback streams originate the left-to-right chain (applications → routing
-// → outputs), so they sit in the leftmost lane. Capture streams are the
-// opposite: they're fed BY an input-lane device (a mic, or a filtered virtual
-// mic), so placing them in the same leftmost lane as playback streams forced
-// that connection to run backward across the entire graph — every other lane
-// sat between a capture stream's node and its actual audio source. Giving
-// capture streams their own lane past "input" keeps that connection short and
-// forward-reading instead, without moving or removing any input-lane device.
+// Playback streams originate the left-to-right chain (applications →
+// processing → routing → outputs). Input/capture form a separate, shorter
+// chain (a mic or filtered virtual mic feeding a capture stream) that used to
+// sit past "output", which put input devices — the thing users instinctively
+// look for on the left — furthest right of anything, and got dragged back
+// constantly (issue #202). Input and captureStream now sit as a paired block
+// right after processingNode, ahead of the playback routing block, so inputs
+// read left-ish while capture streams still stay immediately next to the
+// input device that feeds them (short, forward-reading connection preserved
+// — same tight spacing the stream→processingNode pair already used).
 const LANE_X: Record<RoutingNodeKind, number> = {
   stream: 40,
   processingNode: 190,
-  virtualSink: 340,
-  output: 640,
-  input: 940,
-  captureStream: 1240,
+  input: 340,
+  captureStream: 490,
+  virtualSink: 790,
+  output: 1090,
 };
 
 function loadLayout(): Record<string, { x: number; y: number }> {
@@ -113,14 +115,28 @@ function loadLayout(): Record<string, { x: number; y: number }> {
   }
 }
 
-export function saveNodePosition(nodeId: string, x: number, y: number) {
-  const layout = loadLayout();
-  layout[nodeId] = { x, y };
-  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
-}
-
 const LANE_ROW_HEIGHT = 110;
 const LANE_Y_OFFSET = 40;
+// Matches the <Background> dot gap in RoutingGraph.vue — snapping to anything
+// coarser (e.g. LANE_ROW_HEIGHT) makes a one-dot nudge do nothing until the
+// drag crosses a much bigger threshold, which reads as "snapping doesn't
+// match the grid" even though a snap is technically happening.
+const GRID_SIZE = 20;
+
+// Snaps a manually-dragged node to the same grid the dot background renders
+// (issue #202) instead of persisting the arbitrary drop pixel.
+function snapToGrid(x: number, y: number): { x: number; y: number } {
+  return {
+    x: Math.round(x / GRID_SIZE) * GRID_SIZE,
+    y: Math.round(y / GRID_SIZE) * GRID_SIZE,
+  };
+}
+
+export function saveNodePosition(nodeId: string, x: number, y: number) {
+  const layout = loadLayout();
+  layout[nodeId] = snapToGrid(x, y);
+  localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+}
 
 /**
  * Auto-placed nodes (never manually dragged) used to be assigned a lane slot
