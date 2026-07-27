@@ -304,6 +304,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   delay: "Delay",
   limiter: "Limiter",
   hpf: "High-Pass Filter",
+  reverb: "Reverb",
   stub: "Not implemented yet",
 };
 

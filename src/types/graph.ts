@@ -152,6 +152,10 @@ export type ProcessingNodeKind =
       freq_hz: number;
       resonance_x10: number;
     }
+  | {
+      kind: "reverb";
+      mix_percent: number;
+    }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
 /** A first-class routable processing node — Mixer, Fan-out, or a single
@@ -485,6 +489,10 @@ export type ProcessingNodeSpecKind =
       kind: "hpf";
       freq_hz: number;
       resonance_x10: number;
+    }
+  | {
+      kind: "reverb";
+      mix_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 

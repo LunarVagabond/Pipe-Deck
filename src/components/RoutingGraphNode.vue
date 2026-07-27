@@ -9,6 +9,7 @@ import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
 import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
 import RoutingGraphNodeHpf from "./RoutingGraphNodeHpf.vue";
+import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -60,6 +61,7 @@ const eq5bandRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const limiterRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const hpfRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const reverbRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
 const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   eq5band:
@@ -73,7 +75,7 @@ const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
 const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
 
 function onResetClick() {
-  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value ?? hpfRef.value)?.reset();
+  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value ?? hpfRef.value ?? reverbRef.value)?.reset();
 }
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
@@ -315,6 +317,13 @@ function onToggleMute() {
         :node-id="data.entityId"
         :freq-hz="data.processingNodeKind.freq_hz"
         :resonance-x10="data.processingNodeKind.resonance_x10"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeReverb
+        v-else-if="data.processingNodeKind?.kind === 'reverb'"
+        ref="reverbRef"
+        :node-id="data.entityId"
+        :mix-percent="data.processingNodeKind.mix_percent"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

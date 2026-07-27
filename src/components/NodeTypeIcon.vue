@@ -85,6 +85,12 @@ defineProps<{
     <g v-else-if="kind === 'hpf'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
       <path d="M3 15h5c1.5 0 2-9 3.5-9s2 9 3.5 9h6" />
     </g>
+    <!-- Reverb node: concentric arcs, a signal echoing outward in a space -->
+    <g v-else-if="kind === 'reverb'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+      <path d="M8 12a4 4 0 0 1 8 0" />
+      <path d="M5 12a7 7 0 0 1 14 0" stroke-width="1.25" opacity="0.7" />
+      <path d="M2 12a10 10 0 0 1 20 0" stroke-width="1" opacity="0.45" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

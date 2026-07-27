@@ -228,6 +228,19 @@ pub enum ProcessingNodeKind {
         #[serde(default = "default_hpf_resonance_x10")]
         resonance_x10: i32,
     },
+    /// Backed by two of PipeWire's builtin `convolver` filter-chain filters
+    /// (issue #327, the IR half of #313 that never shipped) — a stereo,
+    /// non-crossfeeding convolution against a small bundled impulse-response
+    /// WAV (`fx_validate::reverb_ir_path`), each channel wet-signal blended
+    /// against its own dry signal via a `mixer` node. `mix_percent` is the
+    /// only runtime-adjustable control (0 = fully dry, 100 = fully wet) —
+    /// the IR itself (and so the decay length/character) is fixed at load
+    /// time, not a live parameter.
+    #[serde(rename = "reverb")]
+    Reverb {
+        #[serde(default)]
+        mix_percent: i32,
+    },
     /// One of issue #293's non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
@@ -253,6 +266,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::Delay { .. } => "delay",
             ProcessingNodeKind::Limiter { .. } => "limiter",
             ProcessingNodeKind::Hpf { .. } => "hpf",
+            ProcessingNodeKind::Reverb { .. } => "reverb",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -680,6 +694,11 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default = "default_hpf_resonance_x10")]
         resonance_x10: i32,
     },
+    #[serde(rename = "reverb")]
+    Reverb {
+        #[serde(default)]
+        mix_percent: i32,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -1016,6 +1035,15 @@ pub enum EffectStage {
         #[serde(default = "default_hpf_resonance_x10")]
         resonance_x10: i32,
     },
+    /// Backed by two of PipeWire's builtin `convolver` filters (issue #327)
+    /// — same "carries a processing node's params through the existing
+    /// transport" role as `Delay`/`Limiter` above.
+    #[serde(rename = "reverb")]
+    Reverb {
+        id: String,
+        #[serde(default)]
+        mix_percent: i32,
+    },
 }
 
 impl Default for EffectStage {
@@ -1039,6 +1067,7 @@ impl EffectStage {
             EffectStage::Delay { .. } => "delay",
             EffectStage::Limiter { .. } => "limiter",
             EffectStage::Hpf { .. } => "hpf",
+            EffectStage::Reverb { .. } => "reverb",
         }
     }
 
@@ -1048,6 +1077,7 @@ impl EffectStage {
             EffectStage::Delay { id, .. } => id,
             EffectStage::Limiter { id, .. } => id,
             EffectStage::Hpf { id, .. } => id,
+            EffectStage::Reverb { id, .. } => id,
         }
     }
 }
@@ -1093,6 +1123,12 @@ pub struct LimiterStageParams {
 pub struct HpfStageParams {
     pub freq_hz: i32,
     pub resonance_x10: i32,
+}
+
+/// Flattened params for a chain's `Reverb` stage, mirroring `LimiterStageParams`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct ReverbStageParams {
+    pub mix_percent: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1236,7 +1272,7 @@ impl EffectChainConfig {
                     eq_air: *eq_air,
                     output_gain: *output_gain,
                 }),
-                EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } => None,
+                EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } | EffectStage::Reverb { .. } => None,
             })
             .unwrap_or_default()
     }
@@ -1252,7 +1288,7 @@ impl EffectChainConfig {
                 feedback_percent: *feedback_percent,
                 feedforward_percent: *feedforward_percent,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } | EffectStage::Reverb { .. } => None,
         })
     }
 
@@ -1265,7 +1301,7 @@ impl EffectChainConfig {
                 ceiling_db: *ceiling_db,
                 floor_db: *floor_db,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Hpf { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Hpf { .. } | EffectStage::Reverb { .. } => None,
         })
     }
 
@@ -1276,7 +1312,15 @@ impl EffectChainConfig {
                 freq_hz: *freq_hz,
                 resonance_x10: *resonance_x10,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Reverb { .. } => None,
+        })
+    }
+
+    /// The chain's `Reverb` stage, flattened — mirrors `limiter_stage()`.
+    pub fn reverb_stage(&self) -> Option<ReverbStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Reverb { mix_percent, .. } => Some(ReverbStageParams { mix_percent: *mix_percent }),
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } => None,
         })
     }
 }

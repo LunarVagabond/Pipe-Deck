@@ -371,6 +371,13 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_hpf_params: not implemented".into()))
     }
+
+    /// Live-updates a Reverb node's Mix without reloading the chain — same
+    /// PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #327).
+    fn set_processing_node_reverb_params(&self, _system_name: &str, _mix_percent: i32, _bypassed: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_reverb_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

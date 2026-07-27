@@ -1,5 +1,6 @@
-use crate::core::models::{DelayStageParams, EffectChainConfig, HpfStageParams, LimiterStageParams};
+use crate::core::models::{DelayStageParams, EffectChainConfig, HpfStageParams, LimiterStageParams, ReverbStageParams};
 use crate::pipewire::fx_capability::FxCapabilities;
+use std::path::PathBuf;
 
 /// Range bounds enforced before any value is ever serialized into a conf
 /// file. Out-of-range values are rejected outright, never silently clamped —
@@ -26,6 +27,63 @@ const HPF_FREQ_RANGE_HZ: (i32, i32) = (20, 2000);
 /// `ProcessingNodeKind::Hpf`'s doc comment explains — 0.1 (very gentle
 /// slope) up to 10.0 (sharply resonant, borderline self-oscillating).
 const HPF_RESONANCE_X10_RANGE: (i32, i32) = (1, 100);
+const REVERB_MIX_RANGE_PERCENT: (i32, i32) = (0, 100);
+
+/// Filename of the bundled impulse-response asset a Reverb node's two
+/// `convolver` filters load (issue #327) — one file, two different
+/// `channel` indices (0/1) per convolver, so left/right get decorrelated
+/// tails from a single stereo WAV rather than an identical mono one.
+const REVERB_IR_FILENAME: &str = "pipe-deck-reverb-ir.wav";
+
+/// Resolves the installed location of the bundled reverb IR asset. Mirrors
+/// `daemon::daemon_binary_path`'s own candidate-list shape (env override →
+/// path relative to the running binary → fixed absolute install
+/// candidates → compile-time dev-tree fallback) since the daemon process
+/// that actually loads this filter has no Tauri `AppHandle`/resource-dir API
+/// available to it (that's GUI-process-only) — this is the one place in
+/// this module that touches the filesystem, an explicit, narrow exception
+/// to "no filesystem paths" below, since the path is a fixed bundled asset
+/// this codebase ships, never something sourced from user input.
+pub fn reverb_ir_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("PIPE_DECK_REVERB_IR_PATH") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            // FHS-standard bin/share sibling layout — true for the .deb/.rpm
+            // install locations (/usr/bin, /usr/share) this repo already
+            // packages for (see docs/developers/Packaging.md).
+            let sibling = dir.join("../share/pipe-deck/ir").join(REVERB_IR_FILENAME);
+            if sibling.is_file() {
+                return Some(sibling);
+            }
+        }
+    }
+
+    for candidate in [
+        format!("/usr/share/pipe-deck/ir/{REVERB_IR_FILENAME}"),
+        format!("/app/share/pipe-deck/ir/{REVERB_IR_FILENAME}"),
+    ] {
+        let path = PathBuf::from(candidate);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    // Dev-tree fallback (checked into `src-tauri/assets/ir/`) — makes
+    // `cargo test`/`make check`/an unpackaged `cargo run` work with no
+    // install step.
+    let dev_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/ir/", "pipe-deck-reverb-ir.wav"));
+    if dev_path.is_file() {
+        return Some(dev_path);
+    }
+
+    None
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -121,6 +179,22 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
         }
     }
 
+    if let Some(reverb) = config.reverb_stage() {
+        check_range("Mix", reverb.mix_percent, REVERB_MIX_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_convolver {
+            blocking_reasons.push(
+                "Reverb requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+        if reverb_ir_path().is_none() {
+            blocking_reasons.push(
+                "Reverb requires its bundled impulse-response asset, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -177,6 +251,9 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     if let Some(hpf) = config.hpf_stage() {
         return render_hpf_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &hpf);
     }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &reverb);
+    }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -222,6 +299,16 @@ pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig)
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &hpf,
+        );
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &reverb,
         );
     }
     render_filter_chain_conf(
@@ -427,6 +514,94 @@ fn render_hpf_filter_chain_module_args(
     )
 }
 
+fn render_reverb_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &ReverbStageParams,
+) -> String {
+    let args = render_reverb_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single Reverb
+/// processing node (issue #327) — unlike Delay/Limiter/EQ, this is a
+/// multi-node graph: each channel is split (`copy`) into a dry path and a
+/// `convolver`-processed wet path against the bundled IR asset
+/// (`reverb_ir_path`, one WAV, `channel = 0`/`1` per side for a
+/// decorrelated stereo tail), then recombined by a `mixer` node whose two
+/// gain controls are this node's only live control (`Mix`). The graph-level
+/// `inputs`/`outputs` lists (rather than relying on a single filter's
+/// implicit ports, like every other renderer in this file) are required
+/// here specifically because the signal has to fan out to two parallel
+/// paths before recombining — see the real shipped
+/// `sink-virtual-surround-5.1-kemar.conf`/`sink-mix-FL-FR.conf` examples in
+/// `/usr/share/pipewire/filter-chain/`, which this graph shape is modeled
+/// on directly. Bypassed bakes in fully-dry gains (`Gain 1 = 1`,
+/// `Gain 2 = 0`) rather than unloading the convolvers — cheaper than a
+/// structural reload, and consistent with every other kind's
+/// bypass-is-a-live-param convention.
+fn render_reverb_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &ReverbStageParams,
+) -> String {
+    let dry = if bypassed { 1.0 } else { 1.0 - f64::from(params.mix_percent) / 100.0 };
+    let wet = if bypassed { 0.0 } else { f64::from(params.mix_percent) / 100.0 };
+    let ir_path = reverb_ir_path().map(|path| path.to_string_lossy().to_string()).unwrap_or_default();
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = copyFL label = copy }}
+                    {{ type = builtin name = copyFR label = copy }}
+                    {{ type = builtin name = convFL label = convolver config = {{ filename = "{ir_path}" channel = 0 }} }}
+                    {{ type = builtin name = convFR label = convolver config = {{ filename = "{ir_path}" channel = 1 }} }}
+                    {{ type = builtin name = mixL   label = mixer control = {{ "Gain 1" = {dry} "Gain 2" = {wet} }} }}
+                    {{ type = builtin name = mixR   label = mixer control = {{ "Gain 1" = {dry} "Gain 2" = {wet} }} }}
+                ]
+                links = [
+                    {{ output = "copyFL:Out" input = "convFL:In" }}
+                    {{ output = "copyFL:Out" input = "mixL:In 1" }}
+                    {{ output = "convFL:Out" input = "mixL:In 2" }}
+                    {{ output = "copyFR:Out" input = "convFR:In" }}
+                    {{ output = "copyFR:Out" input = "mixR:In 1" }}
+                    {{ output = "convFR:Out" input = "mixR:In 2" }}
+                ]
+                inputs  = [ "copyFL:In" "copyFR:In" ]
+                outputs = [ "mixL:Out" "mixR:Out" ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
 fn render_filter_chain_conf(
     node_description: &str,
     capture_name: &str,
@@ -522,6 +697,9 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
     if let Some(hpf) = config.hpf_stage() {
         return render_hpf_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &hpf);
     }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &reverb);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -557,6 +735,16 @@ pub fn render_module_args_capture(device_system_name: &str, config: &EffectChain
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &hpf,
+        );
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &reverb,
         );
     }
     render_filter_chain_module_args(
@@ -611,6 +799,9 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     }
     if let Some(hpf) = config.hpf_stage() {
         return hpf_live_params(config.bypassed, &hpf);
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return reverb_live_params(config.bypassed, &reverb);
     }
 
     if config.bypassed {
@@ -682,6 +873,24 @@ fn hpf_live_params(bypassed: bool, params: &HpfStageParams) -> Vec<(String, f64)
     ]
 }
 
+/// The `(control_name, value)` pairs for a live Reverb Mix slider update —
+/// node names must match `render_reverb_filter_chain_module_args`'s `mixL`/
+/// `mixR` nodes exactly. Bypassed pushes fully-dry gains (`Gain 1 = 1`,
+/// `Gain 2 = 0`), same neutral-values-without-touching-links mechanism as
+/// every other kind. The two `convFL`/`convFR` nodes are never touched
+/// here — the IR itself is fixed at load time (`config`, not `control`),
+/// there is nothing about it to live-update.
+fn reverb_live_params(bypassed: bool, params: &ReverbStageParams) -> Vec<(String, f64)> {
+    let dry = if bypassed { 1.0 } else { 1.0 - f64::from(params.mix_percent) / 100.0 };
+    let wet = if bypassed { 0.0 } else { f64::from(params.mix_percent) / 100.0 };
+    vec![
+        ("mixL:Gain 1".to_string(), dry),
+        ("mixL:Gain 2".to_string(), wet),
+        ("mixR:Gain 1".to_string(), dry),
+        ("mixR:Gain 2".to_string(), wet),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -693,6 +902,7 @@ mod tests {
             builtin_gain: builtin_eq,
             builtin_delay: builtin_eq,
             builtin_clamp: builtin_eq,
+            builtin_convolver: builtin_eq,
             builtin_limiter: false,
             ladspa_noise_gate: None,
         }
@@ -724,6 +934,14 @@ mod tests {
     fn hpf_chain(freq_hz: i32, resonance_x10: i32) -> EffectChainConfig {
         EffectChainConfig {
             stages: vec![EffectStage::Hpf { id: "hpf".to_string(), freq_hz, resonance_x10 }],
+            ..Default::default()
+        }
+    }
+
+    /// Builds a chain with a single `Reverb` stage — mirrors `delay_chain`.
+    fn reverb_chain(mix_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Reverb { id: "reverb".to_string(), mix_percent }],
             ..Default::default()
         }
     }
@@ -1144,6 +1362,86 @@ mod tests {
     fn hpf_live_params_control_names_match_render_module_args_node_name() {
         let config = hpf_chain(150, 7);
         let rendered = render_module_args("pipe-deck-hpf", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    // --- Reverb (issue #327) ---
+
+    #[test]
+    fn reverb_ir_path_resolves_to_the_checked_in_dev_asset() {
+        let path = reverb_ir_path().expect("dev-tree IR asset should resolve under cargo test");
+        assert!(path.is_file());
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), REVERB_IR_FILENAME);
+    }
+
+    #[test]
+    fn accepts_in_range_reverb_mix_when_builtin_and_ir_asset_present() {
+        let config = reverb_chain(35);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_reverb_mix() {
+        let config = reverb_chain(150);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Mix")));
+    }
+
+    #[test]
+    fn rejects_reverb_when_builtin_filter_chain_module_missing() {
+        let config = reverb_chain(35);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_convolver_filters_when_a_reverb_stage_is_present() {
+        let config = reverb_chain(35);
+        let rendered = render_module_args("pipe-deck-reverb", &config);
+        assert!(rendered.contains("label = convolver"));
+        assert!(rendered.contains("label = mixer"));
+        assert!(!rendered.contains("bq_peaking"), "reverb rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_reverb_stage() {
+        let config = reverb_chain(35);
+        assert_eq!(render_module_args("pipe-deck-reverb", &config), render_module_args("pipe-deck-reverb", &config));
+    }
+
+    #[test]
+    fn reverb_bypass_pushes_fully_dry_live_params_regardless_of_configured_mix() {
+        let config = EffectChainConfig { bypassed: true, ..reverb_chain(80) };
+        let params = live_params(&config);
+        assert!(params.contains(&("mixL:Gain 1".to_string(), 1.0)));
+        assert!(params.contains(&("mixL:Gain 2".to_string(), 0.0)));
+        assert!(params.contains(&("mixR:Gain 1".to_string(), 1.0)));
+        assert!(params.contains(&("mixR:Gain 2".to_string(), 0.0)));
+    }
+
+    #[test]
+    fn reverb_bypass_bakes_fully_dry_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..reverb_chain(80) };
+        let rendered = render_module_args("pipe-deck-reverb", &config);
+        assert!(rendered.contains(r#""Gain 1" = 1"#));
+        assert!(rendered.contains(r#""Gain 2" = 0"#));
+    }
+
+    #[test]
+    fn reverb_live_params_control_names_match_render_module_args_node_names() {
+        let config = reverb_chain(35);
+        let rendered = render_module_args("pipe-deck-reverb", &config);
         for (name, _value) in live_params(&config) {
             let node_name = name.split(':').next().unwrap();
             assert!(

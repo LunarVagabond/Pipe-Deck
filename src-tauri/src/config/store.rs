@@ -196,6 +196,17 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn update_processing_node_reverb(&self, node_id: &str, mix_percent: i32) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Reverb { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Reverb { mix_percent };
+        }
+        self.save_config(&config)
+    }
+
     pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
