@@ -888,6 +888,23 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn set_processing_node_limiter_params(
+        &self,
+        system_name: &str,
+        ceiling_db: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::Limiter { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::Limiter { ceiling_db };
+        }
+        node.bypassed = bypassed;
+        Ok(())
+    }
+
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
         Ok(())
     }

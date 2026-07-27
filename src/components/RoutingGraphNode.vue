@@ -7,6 +7,7 @@ import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
 import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
+import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -251,6 +252,12 @@ function onToggleMute() {
         :delay-ms="data.processingNodeKind.delay_ms"
         :feedback-percent="data.processingNodeKind.feedback_percent"
         :feedforward-percent="data.processingNodeKind.feedforward_percent"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeLimiter
+        v-else-if="data.processingNodeKind?.kind === 'limiter'"
+        :node-id="data.entityId"
+        :ceiling-db="data.processingNodeKind.ceiling_db"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

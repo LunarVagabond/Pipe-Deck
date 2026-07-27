@@ -344,6 +344,18 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_delay_params: not implemented".into()))
     }
+
+    /// Live-updates a Limiter node's ceiling without reloading the chain —
+    /// same PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_delay_params` (issue #311).
+    fn set_processing_node_limiter_params(
+        &self,
+        _system_name: &str,
+        _ceiling_db: i32,
+        _bypassed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_limiter_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

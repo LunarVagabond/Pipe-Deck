@@ -73,6 +73,12 @@ defineProps<{
       <path d="M4 12v5h5" />
       <path d="M12 8v4l2.5 2.5" stroke-width="1.5" />
     </g>
+    <!-- Limiter node: a waveform clipped flat at a ceiling/floor -->
+    <g v-else-if="kind === 'limiter'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 6h18" stroke-dasharray="2.5 2.5" stroke-width="1.25" />
+      <path d="M3 18h18" stroke-dasharray="2.5 2.5" stroke-width="1.25" />
+      <path d="M3 12 7 6 9 6 13 18 15 18 19 12 21 12" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

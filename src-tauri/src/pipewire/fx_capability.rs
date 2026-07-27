@@ -17,6 +17,11 @@ pub struct FxCapabilities {
     /// identically to `builtin_eq`/`builtin_gain`; named separately for
     /// doc clarity about what specifically is being gated.
     pub builtin_delay: bool,
+    /// The `clamp` builtin plugin (issue #311) — a hard-ceiling brick-wall
+    /// clamp, probed identically to `builtin_eq`/`builtin_delay`. Distinct
+    /// from `builtin_limiter` below: this gates the new `Clamp`-backed
+    /// Limiter processing node, not a real dynamics limiter.
+    pub builtin_clamp: bool,
     /// Verified against `man 7 libpipewire-module-filter-chain`: the builtin
     /// set is mixer/copy/bq_*/param_eq/convolver/delay/invert/clamp/linear/
     /// sine/ramp — there is no builtin dynamics (limiter/compressor/gate)
@@ -54,6 +59,7 @@ pub fn probe_capabilities() -> FxCapabilities {
         builtin_eq: module_present,
         builtin_gain: module_present,
         builtin_delay: module_present,
+        builtin_clamp: module_present,
         builtin_limiter: false,
         ladspa_noise_gate: find_ladspa_plugin(NOISE_GATE_LADSPA_CANDIDATES),
     }
