@@ -177,6 +177,20 @@ pub enum ProcessingNodeKind {
         #[serde(default)]
         output_gain: i32,
     },
+    /// Backed by PipeWire's builtin `delay` filter-chain filter (issue
+    /// #313). `delay_ms` is stored as an integer millisecond count (not
+    /// `f64` seconds) purely so this enum can keep deriving `Eq` — floats
+    /// don't implement it — and converted to the filter's `"Delay (s)"`
+    /// control (a plain seconds float) only at render time.
+    #[serde(rename = "delay")]
+    Delay {
+        #[serde(default)]
+        delay_ms: i32,
+        #[serde(default)]
+        feedback_percent: i32,
+        #[serde(default)]
+        feedforward_percent: i32,
+    },
     /// One of issue #293's eleven non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
@@ -191,6 +205,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::Mixer { .. } => "mixer",
             ProcessingNodeKind::FanOut { .. } => "fan_out",
             ProcessingNodeKind::Eq5Band { .. } => "eq5band",
+            ProcessingNodeKind::Delay { .. } => "delay",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -202,7 +217,6 @@ pub enum StubEffectKind {
     Limiter,
     Compressor,
     NoiseGate,
-    ReverbDelay,
     Denoise,
     DeEsser,
     AutoGainLeveler,
@@ -596,6 +610,15 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default)]
         output_gain: i32,
     },
+    #[serde(rename = "delay")]
+    Delay {
+        #[serde(default)]
+        delay_ms: i32,
+        #[serde(default)]
+        feedback_percent: i32,
+        #[serde(default)]
+        feedforward_percent: i32,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -890,6 +913,21 @@ pub enum EffectStage {
         #[serde(default)]
         output_gain: i32,
     },
+    /// Backed by PipeWire's builtin `delay` filter-chain filter (issue
+    /// #313) — only ever used to carry a `ProcessingNodeKind::Delay` node's
+    /// params through the existing `EffectChainConfig`/native-host transport
+    /// (`live.rs`'s `Delay` arm), never as a device-attached chain stage a
+    /// user picks alongside `Eq5Band`.
+    #[serde(rename = "delay")]
+    Delay {
+        id: String,
+        #[serde(default)]
+        delay_ms: i32,
+        #[serde(default)]
+        feedback_percent: i32,
+        #[serde(default)]
+        feedforward_percent: i32,
+    },
 }
 
 impl Default for EffectStage {
@@ -910,12 +948,14 @@ impl EffectStage {
     pub fn kind(&self) -> &'static str {
         match self {
             EffectStage::Eq5Band { .. } => "eq5band",
+            EffectStage::Delay { .. } => "delay",
         }
     }
 
     pub fn id(&self) -> &str {
         match self {
             EffectStage::Eq5Band { id, .. } => id,
+            EffectStage::Delay { id, .. } => id,
         }
     }
 }
@@ -932,6 +972,18 @@ pub struct EqStageParams {
     pub eq_treble: i32,
     pub eq_air: i32,
     pub output_gain: i32,
+}
+
+/// Flattened params for a chain's `Delay` stage, mirroring `EqStageParams`.
+/// Unlike `eq_stage()`, callers check `Option::is_some()` to decide whether
+/// to render the delay filter graph at all instead of the EQ one — a config
+/// is never expected to carry both stage kinds at once (see `live.rs`'s
+/// `Delay` processing-node arm, which builds a single-stage config).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DelayStageParams {
+    pub delay_ms: i32,
+    pub feedback_percent: i32,
+    pub feedforward_percent: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1061,7 +1113,6 @@ impl EffectChainConfig {
     // but this is deliberately shaped to keep working once a second variant
     // exists (see `EffectStage`'s doc comment) — `.map().next()` would need
     // rewriting again at that point instead of just adding a match arm.
-    #[allow(clippy::unnecessary_find_map)]
     pub fn eq_stage(&self) -> EqStageParams {
         self.stages
             .iter()
@@ -1076,8 +1127,24 @@ impl EffectChainConfig {
                     eq_air: *eq_air,
                     output_gain: *output_gain,
                 }),
+                EffectStage::Delay { .. } => None,
             })
             .unwrap_or_default()
+    }
+
+    /// The chain's `Delay` stage, flattened — `None` (rather than a neutral
+    /// default) so callers like `fx_validate::render_module_args` can tell
+    /// "render the delay filter graph" apart from "render the EQ one",
+    /// since a config only ever carries one processing-node stage kind.
+    pub fn delay_stage(&self) -> Option<DelayStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Delay { delay_ms, feedback_percent, feedforward_percent, .. } => Some(DelayStageParams {
+                delay_ms: *delay_ms,
+                feedback_percent: *feedback_percent,
+                feedforward_percent: *feedforward_percent,
+            }),
+            EffectStage::Eq5Band { .. } => None,
+        })
     }
 }
 

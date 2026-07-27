@@ -275,10 +275,10 @@ function onPaneContextMenu(event: MouseEvent) {
   contextMenu.value = { kind: "pane", x: event.clientX, y: event.clientY };
 }
 
-async function onAddNodeAction(type: "output" | "input" | "fan_out" | "mixer" | "eq5band") {
+async function onAddNodeAction(type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay") {
   contextMenu.value = null;
-  if (type === "fan_out" || type === "mixer" || type === "eq5band") {
-    const defaultLabel = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : "5-Band EQ";
+  if (type === "fan_out" || type === "mixer" || type === "eq5band" || type === "delay") {
+    const defaultLabel = type === "fan_out" ? "Fan-Out" : type === "mixer" ? "Mixer" : type === "eq5band" ? "5-Band EQ" : "Delay";
     // Node ids are derived from this label (`processing-{kind}-{slug}`), so
     // creating a second node of the same kind needs a distinct name — a
     // fixed default would collide with the first and be rejected outright.

@@ -464,12 +464,40 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
                 Ok(())
             }
+            ProcessingNodeKind::Delay { delay_ms, feedback_percent, feedforward_percent } => {
+                // Same "real DSP from creation" reasoning as the Eq5Band arm
+                // above — no plain-sink precursor to pivot from.
+                let config = crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Delay {
+                        id: "delay".into(),
+                        delay_ms: *delay_ms,
+                        feedback_percent: *feedback_percent,
+                        feedforward_percent: *feedforward_percent,
+                    }],
+                    bypassed: node.bypassed,
+                    ..Default::default()
+                };
+                let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+                let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+                if !preflight.ok {
+                    return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+                }
+                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
+                    eprintln!("failed to force volume on new Delay sink {}: {error}", node.system_name);
+                }
+                if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
+                    eprintln!("failed to unmute new Delay sink {}: {error}", node.system_name);
+                }
+                Ok(())
+            }
             ProcessingNodeKind::Stub { .. } => Ok(()),
         }
     }
 
     fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
-        if system_name.starts_with("pipe-deck-proc-eq5band-") {
+        if system_name.starts_with("pipe-deck-proc-eq5band-") || system_name.starts_with("pipe-deck-proc-delay-") {
             if crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name) {
                 crate::daemon::ipc::client::NativeHostClient::unload_chain(system_name)
                     .map_err(|error| BackendError::Message(error.to_string()))?;
@@ -734,6 +762,42 @@ impl AudioBackend for LinuxPipeWireBackend {
         // check from this hot path. `pw_cli::set_params` stays in place for
         // the device-attached EQ path (PD-020, `effects_ops.rs`), which
         // isn't part of this migration.
+        let params = crate::pipewire::fx_validate::live_params(&config);
+        push_eq_params_and_reforce_volume(
+            || {
+                crate::daemon::ipc::client::NativeHostClient::set_param(system_name, &params)
+                    .map_err(|error| BackendError::Message(error.to_string()))
+            },
+            || {
+                let _ = pactl::set_sink_volume_by_name(system_name, 100);
+                let _ = pactl::set_sink_mute_by_name(system_name, false);
+            },
+        )
+    }
+
+    fn set_processing_node_delay_params(
+        &self,
+        system_name: &str,
+        delay_ms: i32,
+        feedback_percent: i32,
+        feedforward_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Delay {
+                id: "delay".into(),
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+            }],
+            bypassed,
+            ..Default::default()
+        };
+        let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+        let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+        if !preflight.ok {
+            return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+        }
         let params = crate::pipewire::fx_validate::live_params(&config);
         push_eq_params_and_reforce_volume(
             || {

@@ -94,14 +94,15 @@ export interface ProcessingNodePort {
   connected_id?: string;
 }
 
-/** issue #293's eleven non-DSP effect kinds — addable to the graph, wired
- * like any other node, pure pass-through (never backed by a PipeWire
- * object), rendered with a visible "Not implemented yet" label. */
+/** issue #293's non-DSP effect kinds — addable to the graph, wired like any
+ * other node, pure pass-through (never backed by a PipeWire object),
+ * rendered with a visible "Not implemented yet" label. Originally eleven;
+ * `reverb_delay` graduated to a real `delay` processing node (issue #313),
+ * the same way `eq5band` graduated out of this list previously. */
 export type StubEffectKind =
   | "limiter"
   | "compressor"
   | "noise_gate"
-  | "reverb_delay"
   | "denoise"
   | "de_esser"
   | "auto_gain_leveler"
@@ -134,6 +135,12 @@ export type ProcessingNodeKind =
       eq_treble: number;
       eq_air: number;
       output_gain: number;
+    }
+  | {
+      kind: "delay";
+      delay_ms: number;
+      feedback_percent: number;
+      feedforward_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
@@ -451,6 +458,12 @@ export type ProcessingNodeSpecKind =
       eq_treble: number;
       eq_air: number;
       output_gain: number;
+    }
+  | {
+      kind: "delay";
+      delay_ms: number;
+      feedback_percent: number;
+      feedforward_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 

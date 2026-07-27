@@ -86,23 +86,48 @@ export interface BuiltRoutingGraph {
   }>;
 }
 
-const LAYOUT_KEY = "pipe-deck-routing-layout";
-// Three-zone layout (issue #25): input hardware — the thing a user
-// instinctively looks for on the left, and previously defaulted to the far
-// right (issue #202) — is now the true leftmost lane, so it's never the one
-// that has to get dragged into place. Capture streams stay paired
-// immediately next to input (a mic or filtered virtual mic feeding a capture
-// stream is a short, forward-reading connection — see #202) rather than
-// being pulled into the center zone on their own. Playback streams,
-// processing nodes, and virtual sinks make up the center "internal
-// processing" zone; outputs remain the rightmost lane.
+// Bumped to v2 (was "pipe-deck-routing-layout") because `LANE_X` changed
+// three times in one dev cycle (#202, #25, then the row/column-spacing
+// overlap fix) without a matching bump — a node with a stable id (a
+// hardware device, whose position gets saved once and honored verbatim
+// forever, same as a manual drag) could still be sitting at whatever x an
+// earlier revision auto-placed it at, while an ephemeral-id node (a stream,
+// which never accumulates a saved position and always re-places fresh) now
+// renders under the current lanes. The two can end up in the wrong visual
+// order relative to each other even though neither is actually "wrong" on
+// its own — e.g. a stream rendering right of an output device that was
+// auto-placed under an older, narrower `LANE_X`. Bumping the key discards
+// every pre-existing saved position in one shot so everything re-auto-places
+// under the current lanes; future manual drags persist under the new key
+// exactly as before.
+const LAYOUT_KEY = "pipe-deck-routing-layout-v2";
+// Three-zone layout (issue #25): audio sources on the left — input hardware
+// (previously defaulted to the far right, issue #202) shares its column with
+// playback streams like a browser or game, since both are "where the audio
+// comes from" rather than something Pipe Deck generates. Capture streams
+// stay paired immediately past that shared source column (a mic or filtered
+// virtual mic feeding a capture stream is a short, forward-reading
+// connection — see #202) rather than being pulled into the center zone on
+// their own. Processing nodes and virtual sinks make up the center
+// "internal processing" zone; outputs remain the rightmost lane.
+//
+// Gaps: a "paired" pair (source column/captureStream, stream/processingNode,
+// processingNode/virtualSink) sits `PAIR_GAP` apart, a zone boundary
+// (captureStream/stream, virtualSink/output) sits `ZONE_GAP` apart. Both
+// must clear the widest real rendered card, not just look reasonable on
+// paper — a plain device card renders ~210-245px wide, but an Eq5Band/Delay
+// processing node renders ~260px wide. `PAIR_GAP` (300) and `ZONE_GAP` (420)
+// both still clear 260px with real margin, just tighter than an earlier pass
+// at this (320/500) that erred on the spacious side.
+const PAIR_GAP = 300;
+const ZONE_GAP = 420;
 const LANE_X: Record<RoutingNodeKind, number> = {
   input: 40,
-  captureStream: 190,
-  stream: 490,
-  processingNode: 640,
-  virtualSink: 790,
-  output: 1090,
+  stream: 40,
+  captureStream: 40 + PAIR_GAP,
+  processingNode: 40 + PAIR_GAP + ZONE_GAP,
+  virtualSink: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP,
+  output: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP + ZONE_GAP,
 };
 
 function loadLayout(): Record<string, { x: number; y: number }> {
@@ -114,7 +139,13 @@ function loadLayout(): Record<string, { x: number; y: number }> {
   }
 }
 
-const LANE_ROW_HEIGHT = 110;
+// A plain device/stream card renders ~85-90px tall, but an Eq5Band node
+// (6 band sliders + its actions row) renders ~225px tall — well over double
+// the old 110px row height, so two processing nodes auto-placed into
+// adjacent slots of the same lane visually overlapped by design, not just
+// when dragged close together. 280 clears the tallest real card (Eq5Band)
+// with margin.
+const LANE_ROW_HEIGHT = 280;
 const LANE_Y_OFFSET = 40;
 // Matches the <Background> dot gap in RoutingGraph.vue — snapping to anything
 // coarser (e.g. LANE_ROW_HEIGHT) makes a one-dot nudge do nothing until the
@@ -146,12 +177,23 @@ export function saveNodePosition(nodeId: string, x: number, y: number) {
  * find the first slot not already occupied by a saved position in this lane,
  * and persist it immediately so the node keeps that slot on every future build.
  */
-function nextFreeSlot(kind: RoutingNodeKind, occupiedSlots: Record<RoutingNodeKind, Set<number>>): number {
+// Keyed by the lane's actual x coordinate, not by `RoutingNodeKind` — two
+// kinds can (and, since `input`/`stream` share a column, do) render at the
+// same x. Keying by kind name instead of position would track two
+// independent slot pools for what's visually one column, letting an
+// auto-placed input node and an auto-placed stream node both land on slot 0
+// and render exactly on top of each other.
+function nextFreeSlot(x: number, occupiedSlots: Map<number, Set<number>>): number {
+  let slots = occupiedSlots.get(x);
+  if (!slots) {
+    slots = new Set();
+    occupiedSlots.set(x, slots);
+  }
   let slot = 0;
-  while (occupiedSlots[kind].has(slot)) {
+  while (slots.has(slot)) {
     slot += 1;
   }
-  occupiedSlots[kind].add(slot);
+  slots.add(slot);
   return slot;
 }
 
@@ -159,12 +201,13 @@ function positionFor(
   nodeId: string,
   kind: RoutingNodeKind,
   layout: Record<string, { x: number; y: number }>,
-  occupiedSlots: Record<RoutingNodeKind, Set<number>>,
+  occupiedSlots: Map<number, Set<number>>,
 ): { x: number; y: number } {
   const saved = layout[nodeId];
   if (saved) return saved;
-  const slot = nextFreeSlot(kind, occupiedSlots);
-  const position = { x: LANE_X[kind], y: LANE_Y_OFFSET + slot * LANE_ROW_HEIGHT };
+  const x = LANE_X[kind];
+  const slot = nextFreeSlot(x, occupiedSlots);
+  const position = { x, y: LANE_Y_OFFSET + slot * LANE_ROW_HEIGHT };
   layout[nodeId] = position;
   return position;
 }
@@ -258,6 +301,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   mixer: "Mixer",
   fan_out: "Fan-Out",
   eq5band: "5-Band EQ",
+  delay: "Delay",
   stub: "Not implemented yet",
 };
 
@@ -315,23 +359,18 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     }
   }
 
-  const occupiedSlots: Record<RoutingNodeKind, Set<number>> = {
-    stream: new Set(),
-    processingNode: new Set(),
-    virtualSink: new Set(),
-    output: new Set(),
-    input: new Set(),
-    captureStream: new Set(),
-  };
   // Seed occupied slots from every already-saved position (dragged or previously
-  // auto-placed) so a brand new node can't be handed a slot that collides with one.
+  // auto-placed) so a brand new node can't be handed a slot that collides with
+  // one — keyed by x rather than kind, so kinds sharing a column (input/stream)
+  // share one slot pool instead of two independently-numbered ones.
+  const occupiedSlots = new Map<number, Set<number>>();
   for (const position of Object.values(layout)) {
-    if (position.x === LANE_X.stream) occupiedSlots.stream.add(slotIndexForY(position.y));
-    else if (position.x === LANE_X.processingNode) occupiedSlots.processingNode.add(slotIndexForY(position.y));
-    else if (position.x === LANE_X.virtualSink) occupiedSlots.virtualSink.add(slotIndexForY(position.y));
-    else if (position.x === LANE_X.output) occupiedSlots.output.add(slotIndexForY(position.y));
-    else if (position.x === LANE_X.input) occupiedSlots.input.add(slotIndexForY(position.y));
-    else if (position.x === LANE_X.captureStream) occupiedSlots.captureStream.add(slotIndexForY(position.y));
+    let slots = occupiedSlots.get(position.x);
+    if (!slots) {
+      slots = new Set();
+      occupiedSlots.set(position.x, slots);
+    }
+    slots.add(slotIndexForY(position.y));
   }
 
   function trackedPositionFor(id: string, kind: RoutingNodeKind): { x: number; y: number } {

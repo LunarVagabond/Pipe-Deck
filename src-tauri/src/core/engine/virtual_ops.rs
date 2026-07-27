@@ -215,14 +215,31 @@ mod live_tests {
         // must unload a device's live effect chain, not just delete the
         // device — otherwise the native host keeps hosting a chain for a
         // system_name nothing in the UI knows about anymore.
+        //
+        // Uses a virtual *input* (mic) device, not output — device-attached
+        // output effects (the old Bus mechanism) were retired alongside
+        // `VirtualRole::Bus` (#287); `apply_effect_chain_structural` now
+        // rejects anything but a virtual input device (see
+        // `effects_ops.rs`'s `is_pipe_deck_device`/kind check). This test
+        // used to target a virtual output and would panic on that check
+        // before ever reaching `remove_virtual_device` — since a bare
+        // `.expect()` panic skips whatever cleanup follows it, that left a
+        // real orphaned "Pipe Deck Orphan Conf Test" sink in the live
+        // session on every run. The `cleanup` closure below is the actual
+        // fix: called from every fallible step so a future regression here
+        // can't orphan a device again either.
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let mut engine = CoreEngine::new();
         engine.refresh_graph().expect("initial graph refresh");
 
         let created = engine
-            .create_virtual_output("Pipe Deck Orphan Conf Test")
+            .create_virtual_input("Pipe Deck Orphan Conf Test")
             .expect("create disposable test device");
+
+        let cleanup = |engine: &mut CoreEngine| {
+            let _ = engine.remove_virtual_device(&created.system_name);
+        };
 
         let config = crate::core::models::EffectChainConfig {
             stages: vec![crate::core::models::EffectStage::Eq5Band {
@@ -236,19 +253,20 @@ mod live_tests {
             }],
             ..Default::default()
         };
-        engine
-            .apply_effect_chain_structural(&created.device_id, &config)
-            .expect("structural apply should succeed");
+        if let Err(error) = engine.apply_effect_chain_structural(&created.device_id, &config) {
+            cleanup(&mut engine);
+            panic!("structural apply should succeed: {error}");
+        }
 
-        assert!(
-            engine.is_effect_chain_live(&created.device_id),
-            "chain should be live right after apply"
-        );
+        if !engine.is_effect_chain_live(&created.device_id) {
+            cleanup(&mut engine);
+            panic!("chain should be live right after apply");
+        }
 
         let system_name = created.system_name.clone();
-        engine
-            .remove_virtual_device(&system_name)
-            .expect("remove_virtual_device should succeed");
+        if let Err(error) = engine.remove_virtual_device(&system_name) {
+            panic!("remove_virtual_device should succeed: {error}");
+        }
 
         assert!(
             !crate::daemon::ipc::client::NativeHostClient::is_loaded(&system_name),

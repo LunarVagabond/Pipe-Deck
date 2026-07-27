@@ -13,14 +13,14 @@ interface AvailableEffect {
 
 const EFFECT_CATALOG: AvailableEffect[] = [{ kind: "eq5band", label: "5-Band EQ" }];
 
-/** issue #293's 11 non-DSP effect kinds — addable to the graph as visibly
- * "Not implemented yet" pass-through stub nodes (PD-032 phase 5), ahead of
- * real DSP landing for each in follow-up tickets. */
+/** issue #293's non-DSP effect kinds — addable to the graph as visibly "Not
+ * implemented yet" pass-through stub nodes (PD-032 phase 5), ahead of real
+ * DSP landing for each in follow-up tickets. Originally 11; `reverb_delay`
+ * graduated to a real Delay node button below (issue #313). */
 const STUB_EFFECT_CATALOG: { kind: string; label: string }[] = [
   { kind: "limiter", label: "Limiter" },
   { kind: "compressor", label: "Compressor" },
   { kind: "noise_gate", label: "Noise Gate" },
-  { kind: "reverb_delay", label: "Reverb/Delay" },
   { kind: "denoise", label: "Noise Suppression" },
   { kind: "de_esser", label: "De-esser" },
   { kind: "auto_gain_leveler", label: "Auto Gain/Leveler" },
@@ -43,7 +43,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band"];
+  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay"];
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
@@ -129,6 +129,7 @@ function onPickStubEffect(stubKind: string, label: string) {
       <button type="button" @click="emit('add-node', 'fan_out')">+ Fan-Out Node</button>
       <button type="button" @click="emit('add-node', 'mixer')">+ Mixer Node</button>
       <button type="button" @click="emit('add-node', 'eq5band')">+ 5-Band EQ Node</button>
+      <button type="button" @click="emit('add-node', 'delay')">+ Delay Node</button>
       <div class="routing-graph-node-picker-anchor">
         <button type="button" @click="stubEffectPickerOpen = !stubEffectPickerOpen">+ Effect node (not yet implemented)…</button>
         <div v-if="stubEffectPickerOpen" class="routing-graph-node-picker">

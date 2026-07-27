@@ -869,6 +869,25 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn set_processing_node_delay_params(
+        &self,
+        system_name: &str,
+        delay_ms: i32,
+        feedback_percent: i32,
+        feedforward_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::Delay { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::Delay { delay_ms, feedback_percent, feedforward_percent };
+        }
+        node.bypassed = bypassed;
+        Ok(())
+    }
+
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
         Ok(())
     }

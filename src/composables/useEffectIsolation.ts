@@ -9,10 +9,11 @@ import { useApplyResult } from "../stores/notices";
 /**
  * Processing node kinds "Isolate" is allowed to bypass. Mixer/Fan-out are
  * structural, not effects — isolating an EQ must never touch them (#222).
+ * `delay` (issue #313) is a real DSP-backed effect kind, same as `eq5band`.
  * `stub` is included so a future real effect kind picks up isolate support
  * for free; it's a no-op today since stub nodes don't process audio.
  */
-const ISOLATABLE_KINDS = new Set(["eq5band", "stub"]);
+const ISOLATABLE_KINDS = new Set(["eq5band", "delay", "stub"]);
 
 async function setBypassed(nodeId: string, bypassed: boolean, handleApplyResult: ReturnType<typeof useApplyResult>["handleApplyResult"]) {
   const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {

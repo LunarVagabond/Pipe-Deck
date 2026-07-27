@@ -247,37 +247,56 @@ fn reconcile_live_processing_nodes() {
 
     let backend = crate::backend::create_backend();
     for spec in specs {
-        let crate::core::models::ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } =
-            spec.kind
-        else {
-            continue;
+        // Only DSP-backed kinds are loaded through `native_host` at all —
+        // Mixer/Fan-out are plain `pactl` null-sinks owned by the system
+        // PipeWire session itself, which survive a daemon restart on their
+        // own and need no reconciliation here. A new DSP-backed kind
+        // (issue #313's Delay) MUST get its own arm here, or a persisted
+        // node silently stops working after every daemon restart — nothing
+        // else in this codebase reloads it.
+        let (system_name, config) = match &spec.kind {
+            crate::core::models::ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => (
+                format!("pipe-deck-proc-eq5band-{}", spec.slug),
+                crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Eq5Band {
+                        id: "eq".into(),
+                        eq_sub: *eq_sub,
+                        eq_bass: *eq_bass,
+                        eq_mid: *eq_mid,
+                        eq_treble: *eq_treble,
+                        eq_air: *eq_air,
+                        output_gain: *output_gain,
+                    }],
+                    bypassed: spec.bypassed,
+                    ..Default::default()
+                },
+            ),
+            crate::core::models::ProcessingNodeSpecKind::Delay { delay_ms, feedback_percent, feedforward_percent } => (
+                format!("pipe-deck-proc-delay-{}", spec.slug),
+                crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Delay {
+                        id: "delay".into(),
+                        delay_ms: *delay_ms,
+                        feedback_percent: *feedback_percent,
+                        feedforward_percent: *feedforward_percent,
+                    }],
+                    bypassed: spec.bypassed,
+                    ..Default::default()
+                },
+            ),
+            _ => continue,
         };
 
-        let system_name = format!("pipe-deck-proc-eq5band-{}", spec.slug);
         if crate::pipewire::native_host::is_loaded(&system_name) {
             continue;
         }
 
-        let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Eq5Band {
-                id: "eq".into(),
-                eq_sub,
-                eq_bass,
-                eq_mid,
-                eq_treble,
-                eq_air,
-                output_gain,
-            }],
-            bypassed: spec.bypassed,
-            ..Default::default()
-        };
-
         if crate::pipewire::native_host::load_chain(&system_name, false, &config).is_err() {
             continue;
         }
-        // Mirrors `backend::linux::live::load_processing_node`'s Eq5Band
-        // arm: a brand-new filter-chain sink has never had its volume set by
-        // anyone, and comes up muted/zero-volume by whatever default
+        // Mirrors `backend::linux::live::load_processing_node`'s DSP-kind
+        // arms: a brand-new filter-chain sink has never had its volume set
+        // by anyone, and comes up muted/zero-volume by whatever default
         // WirePlumber applies otherwise (issue #303).
         let _ = backend.set_processing_node_volume(&system_name, 100, false);
     }
@@ -727,6 +746,62 @@ mod live_tests {
         cleanup();
 
         assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Eq5Band node");
+        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+    }
+
+    /// `reconcile_live_processing_nodes`'s Delay counterpart (issue #313) —
+    /// same reasoning as the Eq5Band test above: without a matching arm in
+    /// `reconcile_live_processing_nodes`, a persisted Delay node would
+    /// silently stop working after every daemon restart.
+    #[test]
+    #[ignore]
+    fn reconcile_live_processing_nodes_reloads_a_persisted_delay_node_after_a_simulated_crash() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let _guard = lock_config_dir_env();
+        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-delay-recovery-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+
+        let spec_id = "processing-delay-recovery-test-delay".to_string();
+        let system_name = "pipe-deck-proc-delay-recovery-test-delay".to_string();
+        let spec = crate::core::models::ProcessingNodeSpec {
+            id: spec_id.clone(),
+            slug: "recovery-test-delay".to_string(),
+            label: "Recovery Test Delay".to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            kind: crate::core::models::ProcessingNodeSpecKind::Delay {
+                delay_ms: 300,
+                feedback_percent: 25,
+                feedforward_percent: 0,
+            },
+            input_sources: Vec::new(),
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+        let cleanup = || {
+            let _ = crate::pipewire::native_host::unload_chain(&system_name);
+            let _ = ConfigStore::new().remove_processing_node(&spec_id);
+            std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+            let _ = fs::remove_dir_all(&temp_dir);
+        };
+        if let Err(error) = ConfigStore::new().add_processing_node(spec) {
+            cleanup();
+            panic!("failed to persist processing node spec: {error}");
+        }
+
+        assert!(
+            !crate::pipewire::native_host::is_loaded(&system_name),
+            "precondition: nothing should be loaded before reconciliation runs"
+        );
+
+        reconcile_live_processing_nodes();
+
+        let loaded = crate::pipewire::native_host::is_loaded(&system_name);
+        let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
+        cleanup();
+
+        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Delay node");
         assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
     }
 }
