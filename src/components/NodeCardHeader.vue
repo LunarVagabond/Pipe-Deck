@@ -130,7 +130,7 @@ function onKeydown(event: KeyboardEvent) {
         />
         <strong v-else :title="showLabelTooltip ? label : undefined">{{ label }}</strong>
       </div>
-      <div v-if="editable || deletable" class="node-card-actions">
+      <div v-if="editable || deletable || $slots['toolbar-extra']" class="node-card-actions">
         <button
           v-if="editable"
           type="button"
@@ -166,6 +166,7 @@ function onKeydown(event: KeyboardEvent) {
             />
           </svg>
         </button>
+        <slot name="toolbar-extra" />
       </div>
     </template>
   </div>

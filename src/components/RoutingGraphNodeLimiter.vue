@@ -111,6 +111,13 @@ async function onToggleBypass() {
     handleApplyResult(response, "");
   }
 }
+
+/** Reset renders in the node's header (top-right, next to Delete — see
+ * `RoutingGraphNode.vue`'s `toolbar-extra` slot usage), not in this
+ * component's own template — `reset` stays defined here regardless, since
+ * it needs this component's own `pending` ref to clear the optimistic
+ * slider display the same way a real server-confirmed value would. */
+defineExpose({ reset: onReset });
 </script>
 
 <template>
@@ -146,22 +153,6 @@ async function onToggleBypass() {
       >
         {{ symmetric ? "Symmetric" : "Asymmetric" }}
       </button>
-      <button
-        type="button"
-        class="routing-graph-node-limiter-reset"
-        title="Reset Ceiling/Floor to full scale (no clamp) and re-lock symmetric"
-        aria-label="Reset to defaults"
-        @click="onReset"
-      >
-        ↺
-      </button>
-      <span
-        class="routing-graph-node-dsp-warning"
-        title="Hard brick-wall clamp — no envelope smoothing or lookahead, unlike a real limiter. Aggressive settings will sound harsh/distorted. Real dynamics processing is tracked in issue #86."
-        aria-label="Hard clamp only, no smoothing — aggressive settings will sound harsh — see issue #86"
-      >
-        ⚠
-      </span>
     </div>
     <div class="routing-graph-node-limiter-row">
       <span class="routing-graph-node-limiter-label">Ceiling</span>

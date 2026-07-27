@@ -105,6 +105,13 @@ async function onToggleBypass() {
     handleApplyResult(response, "");
   }
 }
+
+/** Reset/warning render in the node's header (top-right, next to Delete —
+ * see `RoutingGraphNode.vue`'s `toolbar-extra` slot usage), not in this
+ * component's own template — `reset` stays defined here regardless, since
+ * it needs this component's own `pending` ref to clear the optimistic
+ * slider display the same way a real server-confirmed value would. */
+defineExpose({ reset: onReset });
 </script>
 
 <template>
@@ -130,22 +137,6 @@ async function onToggleBypass() {
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
       </button>
-      <button
-        type="button"
-        class="routing-graph-node-eq5band-reset"
-        title="Reset every band and the output trim to flat (0dB)"
-        aria-label="Reset to defaults"
-        @click="onReset"
-      >
-        ↺
-      </button>
-      <span
-        class="routing-graph-node-dsp-warning"
-        title="Boosting bands can push the signal above full scale — any resulting clipping happens at the output (hardware/sink), not here, and sounds like harsh digital distortion. Real dynamics processing (to catch this smoothly) is tracked in issue #86."
-        aria-label="Boosting bands can cause clipping at the output — see issue #86"
-      >
-        ⚠
-      </span>
     </div>
     <div v-for="band in BANDS" :key="band.key" class="routing-graph-node-eq5band-row">
       <span class="routing-graph-node-eq5band-label">{{ band.label }}</span>

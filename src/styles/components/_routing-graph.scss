@@ -447,6 +447,28 @@
       height: 0.62rem;
     }
   }
+
+  // Reset (a DSP-backed processing node's header action) reuses the same
+  // compact icon-btn sizing as Edit/Delete just above, but with a plain text
+  // glyph instead of an svg — font-size stands in for the svg width/height
+  // override.
+  .node-card-actions .routing-graph-node-header-reset {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+
+    &:hover {
+      color: var(--text);
+    }
+  }
+
+  // The DSP warning icon sits in the header row (next to Reset/Delete) for
+  // any DSP-backed processing node — see `_routing-graph.scss`'s other
+  // `.routing-graph-node-dsp-warning` rule for the shared color/opacity;
+  // this just fits it to the compact header row's line height.
+  .node-card-actions .routing-graph-node-dsp-warning {
+    margin-left: 0.1rem;
+    font-size: 0.7rem;
+  }
 }
 
 .routing-graph-node-sub {
