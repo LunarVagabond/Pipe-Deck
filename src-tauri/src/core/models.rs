@@ -212,6 +212,20 @@ pub enum ProcessingNodeKind {
         #[serde(default = "default_true")]
         symmetric: bool,
     },
+    /// Backed by two of PipeWire's builtin `linear` filter-chain filters
+    /// (issue #16) — a classic stereo balance control: one independent gain
+    /// per channel, no mid/side math needed since the input is already a
+    /// stereo pair (unlike `Widener`, no `copy`/fan-out is needed either —
+    /// each raw input channel feeds exactly one `linear` node). `balance_percent`
+    /// is `0` at center (both channels full gain, the neutral/bypass value,
+    /// same convention as Delay/HPF/Reverb) — positive attenuates the left
+    /// channel (panning right), negative attenuates the right (panning
+    /// left); `100`/`-100` fully silence the opposite channel.
+    #[serde(rename = "pan")]
+    Pan {
+        #[serde(default)]
+        balance_percent: i32,
+    },
     /// One of issue #293's eleven non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
@@ -228,6 +242,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::Eq5Band { .. } => "eq5band",
             ProcessingNodeKind::Delay { .. } => "delay",
             ProcessingNodeKind::Limiter { .. } => "limiter",
+            ProcessingNodeKind::Pan { .. } => "pan",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -649,6 +664,11 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default = "default_true")]
         symmetric: bool,
     },
+    #[serde(rename = "pan")]
+    Pan {
+        #[serde(default)]
+        balance_percent: i32,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -974,6 +994,15 @@ pub enum EffectStage {
         #[serde(default = "default_true")]
         symmetric: bool,
     },
+    /// Backed by PipeWire's builtin `linear` filters (issue #16) — same
+    /// "carries a processing node's params through the existing transport"
+    /// role as `Delay`/`Limiter` above.
+    #[serde(rename = "pan")]
+    Pan {
+        id: String,
+        #[serde(default)]
+        balance_percent: i32,
+    },
 }
 
 impl Default for EffectStage {
@@ -996,6 +1025,7 @@ impl EffectStage {
             EffectStage::Eq5Band { .. } => "eq5band",
             EffectStage::Delay { .. } => "delay",
             EffectStage::Limiter { .. } => "limiter",
+            EffectStage::Pan { .. } => "pan",
         }
     }
 
@@ -1004,6 +1034,7 @@ impl EffectStage {
             EffectStage::Eq5Band { id, .. } => id,
             EffectStage::Delay { id, .. } => id,
             EffectStage::Limiter { id, .. } => id,
+            EffectStage::Pan { id, .. } => id,
         }
     }
 }
@@ -1042,6 +1073,12 @@ pub struct DelayStageParams {
 pub struct LimiterStageParams {
     pub ceiling_db: i32,
     pub floor_db: i32,
+}
+
+/// Flattened params for a chain's `Pan` stage, mirroring `LimiterStageParams`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PanStageParams {
+    pub balance_percent: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1185,7 +1222,7 @@ impl EffectChainConfig {
                     eq_air: *eq_air,
                     output_gain: *output_gain,
                 }),
-                EffectStage::Delay { .. } | EffectStage::Limiter { .. } => None,
+                EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Pan { .. } => None,
             })
             .unwrap_or_default()
     }
@@ -1201,7 +1238,7 @@ impl EffectChainConfig {
                 feedback_percent: *feedback_percent,
                 feedforward_percent: *feedforward_percent,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } | EffectStage::Pan { .. } => None,
         })
     }
 
@@ -1214,7 +1251,15 @@ impl EffectChainConfig {
                 ceiling_db: *ceiling_db,
                 floor_db: *floor_db,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Pan { .. } => None,
+        })
+    }
+
+    /// The chain's `Pan` stage, flattened — mirrors `limiter_stage()`.
+    pub fn pan_stage(&self) -> Option<PanStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Pan { balance_percent, .. } => Some(PanStageParams { balance_percent: *balance_percent }),
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } => None,
         })
     }
 }

@@ -519,6 +519,28 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
                 Ok(())
             }
+            ProcessingNodeKind::Pan { balance_percent } => {
+                // Same "real DSP from creation" reasoning as Eq5Band/Delay/Limiter.
+                let config = crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Pan { id: "pan".into(), balance_percent: *balance_percent }],
+                    bypassed: node.bypassed,
+                    ..Default::default()
+                };
+                let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+                let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+                if !preflight.ok {
+                    return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+                }
+                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
+                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
+                    eprintln!("failed to force volume on new Pan sink {}: {error}", node.system_name);
+                }
+                if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
+                    eprintln!("failed to unmute new Pan sink {}: {error}", node.system_name);
+                }
+                Ok(())
+            }
             ProcessingNodeKind::Stub { .. } => Ok(()),
         }
     }
@@ -527,6 +549,7 @@ impl AudioBackend for LinuxPipeWireBackend {
         if system_name.starts_with("pipe-deck-proc-eq5band-")
             || system_name.starts_with("pipe-deck-proc-delay-")
             || system_name.starts_with("pipe-deck-proc-limiter-")
+            || system_name.starts_with("pipe-deck-proc-pan-")
         {
             if crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name) {
                 crate::daemon::ipc::client::NativeHostClient::unload_chain(system_name)
@@ -851,6 +874,30 @@ impl AudioBackend for LinuxPipeWireBackend {
     ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
             stages: vec![crate::core::models::EffectStage::Limiter { id: "limiter".into(), ceiling_db, floor_db, symmetric }],
+            bypassed,
+            ..Default::default()
+        };
+        let capabilities = crate::pipewire::fx_capability::probe_capabilities();
+        let preflight = crate::pipewire::fx_validate::preflight(&config, &capabilities);
+        if !preflight.ok {
+            return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
+        }
+        let params = crate::pipewire::fx_validate::live_params(&config);
+        push_eq_params_and_reforce_volume(
+            || {
+                crate::daemon::ipc::client::NativeHostClient::set_param(system_name, &params)
+                    .map_err(|error| BackendError::Message(error.to_string()))
+            },
+            || {
+                let _ = pactl::set_sink_volume_by_name(system_name, 100);
+                let _ = pactl::set_sink_mute_by_name(system_name, false);
+            },
+        )
+    }
+
+    fn set_processing_node_pan_params(&self, system_name: &str, balance_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Pan { id: "pan".into(), balance_percent }],
             bypassed,
             ..Default::default()
         };

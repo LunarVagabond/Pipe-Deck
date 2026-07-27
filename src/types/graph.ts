@@ -148,6 +148,10 @@ export type ProcessingNodeKind =
       floor_db: number;
       symmetric: boolean;
     }
+  | {
+      kind: "pan";
+      balance_percent: number;
+    }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
 /** A first-class routable processing node — Mixer, Fan-out, or a single
@@ -476,6 +480,10 @@ export type ProcessingNodeSpecKind =
       ceiling_db: number;
       floor_db: number;
       symmetric: boolean;
+    }
+  | {
+      kind: "pan";
+      balance_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 

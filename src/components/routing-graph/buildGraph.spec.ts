@@ -108,3 +108,26 @@ describe("limiter processing node (#311)", () => {
     expect(data?.supportsEffects).toBe(false);
   });
 });
+
+describe("pan processing node (#16)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Balance/Pan subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-pan-1",
+      label: "Mic Balance",
+      kind: { kind: "pan", balance_percent: 40 },
+      system_name: "pipe-deck-proc-pan-mic-balance",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-pan-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Balance/Pan");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "pan", balance_percent: 40 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});
