@@ -108,3 +108,26 @@ describe("limiter processing node (#311)", () => {
     expect(data?.supportsEffects).toBe(false);
   });
 });
+
+describe("hpf processing node (#312)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the High-Pass Filter subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-hpf-1",
+      label: "Rumble Filter",
+      kind: { kind: "hpf", freq_hz: 150, resonance_x10: 12 },
+      system_name: "pipe-deck-proc-hpf-rumble-filter",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-hpf-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("High-Pass Filter");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "hpf", freq_hz: 150, resonance_x10: 12 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});

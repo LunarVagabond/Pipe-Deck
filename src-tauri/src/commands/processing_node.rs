@@ -136,6 +136,22 @@ pub async fn update_processing_node_limiter_params(
 }
 
 #[tauri::command]
+pub async fn update_processing_node_hpf_params(
+    node_id: String,
+    freq_hz: i32,
+    resonance_x10: i32,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .update_processing_node_hpf_params(&node_id, freq_hz, resonance_x10)
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn set_processing_node_bypassed(
     node_id: String,
     bypassed: bool,

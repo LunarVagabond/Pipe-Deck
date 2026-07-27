@@ -212,12 +212,36 @@ pub enum ProcessingNodeKind {
         #[serde(default = "default_true")]
         symmetric: bool,
     },
-    /// One of issue #293's eleven non-DSP effect kinds — addable to the
+    /// Backed by PipeWire's builtin `bq_highpass` filter-chain filter (issue
+    /// #312) — the same biquad type already used inside `Eq5Band`'s chain,
+    /// just exposed as its own single-purpose node with a Freq/Resonance
+    /// pair instead of a 5-band chain. `freq_hz` defaults to `20` (not `0`)
+    /// so a freshly created node is already a valid, near-transparent
+    /// cutoff rather than a preflight-rejecting `0`; `resonance_x10` is
+    /// `Q * 10` (kept as an integer for the same `Eq`-deriving reason as
+    /// `Delay`'s `delay_ms`), defaulting to `7` (Q ≈ 0.7, a flat
+    /// Butterworth-ish response with no resonant peak).
+    #[serde(rename = "hpf")]
+    Hpf {
+        #[serde(default = "default_hpf_freq_hz")]
+        freq_hz: i32,
+        #[serde(default = "default_hpf_resonance_x10")]
+        resonance_x10: i32,
+    },
+    /// One of issue #293's non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
     /// `false` here), rendered with a visible "Not implemented yet" label.
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
+}
+
+fn default_hpf_freq_hz() -> i32 {
+    20
+}
+
+fn default_hpf_resonance_x10() -> i32 {
+    7
 }
 
 impl ProcessingNodeKind {
@@ -228,6 +252,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::Eq5Band { .. } => "eq5band",
             ProcessingNodeKind::Delay { .. } => "delay",
             ProcessingNodeKind::Limiter { .. } => "limiter",
+            ProcessingNodeKind::Hpf { .. } => "hpf",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -241,7 +266,6 @@ pub enum StubEffectKind {
     Denoise,
     DeEsser,
     AutoGainLeveler,
-    Hpf,
     StereoWidener,
     PitchShift,
     LoudnessNormalizer,
@@ -649,6 +673,13 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default = "default_true")]
         symmetric: bool,
     },
+    #[serde(rename = "hpf")]
+    Hpf {
+        #[serde(default = "default_hpf_freq_hz")]
+        freq_hz: i32,
+        #[serde(default = "default_hpf_resonance_x10")]
+        resonance_x10: i32,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -974,6 +1005,17 @@ pub enum EffectStage {
         #[serde(default = "default_true")]
         symmetric: bool,
     },
+    /// Backed by PipeWire's builtin `bq_highpass` filter-chain filter (issue
+    /// #312) — same "carries a processing node's params through the
+    /// existing transport" role as `Delay`/`Limiter` above.
+    #[serde(rename = "hpf")]
+    Hpf {
+        id: String,
+        #[serde(default = "default_hpf_freq_hz")]
+        freq_hz: i32,
+        #[serde(default = "default_hpf_resonance_x10")]
+        resonance_x10: i32,
+    },
 }
 
 impl Default for EffectStage {
@@ -996,6 +1038,7 @@ impl EffectStage {
             EffectStage::Eq5Band { .. } => "eq5band",
             EffectStage::Delay { .. } => "delay",
             EffectStage::Limiter { .. } => "limiter",
+            EffectStage::Hpf { .. } => "hpf",
         }
     }
 
@@ -1004,6 +1047,7 @@ impl EffectStage {
             EffectStage::Eq5Band { id, .. } => id,
             EffectStage::Delay { id, .. } => id,
             EffectStage::Limiter { id, .. } => id,
+            EffectStage::Hpf { id, .. } => id,
         }
     }
 }
@@ -1042,6 +1086,13 @@ pub struct DelayStageParams {
 pub struct LimiterStageParams {
     pub ceiling_db: i32,
     pub floor_db: i32,
+}
+
+/// Flattened params for a chain's `Hpf` stage, mirroring `LimiterStageParams`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct HpfStageParams {
+    pub freq_hz: i32,
+    pub resonance_x10: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1185,7 +1236,7 @@ impl EffectChainConfig {
                     eq_air: *eq_air,
                     output_gain: *output_gain,
                 }),
-                EffectStage::Delay { .. } | EffectStage::Limiter { .. } => None,
+                EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } => None,
             })
             .unwrap_or_default()
     }
@@ -1201,7 +1252,7 @@ impl EffectChainConfig {
                 feedback_percent: *feedback_percent,
                 feedforward_percent: *feedforward_percent,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } => None,
         })
     }
 
@@ -1214,7 +1265,18 @@ impl EffectChainConfig {
                 ceiling_db: *ceiling_db,
                 floor_db: *floor_db,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } => None,
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Hpf { .. } => None,
+        })
+    }
+
+    /// The chain's `Hpf` stage, flattened — mirrors `limiter_stage()`.
+    pub fn hpf_stage(&self) -> Option<HpfStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Hpf { freq_hz, resonance_x10, .. } => Some(HpfStageParams {
+                freq_hz: *freq_hz,
+                resonance_x10: *resonance_x10,
+            }),
+            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } => None,
         })
     }
 }

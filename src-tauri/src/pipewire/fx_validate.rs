@@ -1,4 +1,4 @@
-use crate::core::models::{DelayStageParams, EffectChainConfig, LimiterStageParams};
+use crate::core::models::{DelayStageParams, EffectChainConfig, HpfStageParams, LimiterStageParams};
 use crate::pipewire::fx_capability::FxCapabilities;
 
 /// Range bounds enforced before any value is ever serialized into a conf
@@ -18,6 +18,14 @@ const FEEDFORWARD_RANGE_PERCENT: (i32, i32) = (-100, 100);
 /// aggressive ceiling. Never positive — a ceiling above full scale is
 /// meaningless for a brick-wall clamp.
 const CEILING_RANGE_DB: (i32, i32) = (-24, 0);
+/// Practical cutoff range for a standalone High-Pass Filter node (issue
+/// #312) — 20Hz (the bottom of human hearing, effectively transparent) up
+/// to 2kHz (aggressive enough for a deliberate telephone/lo-fi effect).
+const HPF_FREQ_RANGE_HZ: (i32, i32) = (20, 2000);
+/// `Q * 10`, kept as an integer for the same `Eq`-deriving reason as
+/// `ProcessingNodeKind::Hpf`'s doc comment explains — 0.1 (very gentle
+/// slope) up to 10.0 (sharply resonant, borderline self-oscillating).
+const HPF_RESONANCE_X10_RANGE: (i32, i32) = (1, 100);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -99,6 +107,20 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
         }
     }
 
+    // High-Pass Filter (#312) — a standalone `bq_highpass` biquad, the same
+    // builtin family (and same `builtin_eq` capability gate) as Eq5Band's
+    // biquads use.
+    if let Some(hpf) = config.hpf_stage() {
+        check_range("Frequency", hpf.freq_hz, HPF_FREQ_RANGE_HZ, &mut blocking_reasons);
+        check_range("Resonance", hpf.resonance_x10, HPF_RESONANCE_X10_RANGE, &mut blocking_reasons);
+        if !capabilities.builtin_eq {
+            blocking_reasons.push(
+                "High-Pass Filter requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -152,6 +174,9 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     if let Some(limiter) = config.limiter_stage() {
         return render_limiter_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
     }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &hpf);
+    }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -187,6 +212,16 @@ pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig)
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &limiter,
+        );
+    }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &hpf,
         );
     }
     render_filter_chain_conf(
@@ -329,6 +364,69 @@ fn render_limiter_filter_chain_module_args(
     )
 }
 
+fn render_hpf_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &HpfStageParams,
+) -> String {
+    let args = render_hpf_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single
+/// High-Pass Filter processing node (issue #312) — a single `bq_highpass`
+/// biquad, the same filter type (just a different `label`) as `Eq5Band`'s
+/// bands, so no chaining/links needed, same single-filter-graph shape as
+/// Delay/Limiter. Bypassed bakes in the node's own neutral values (20Hz/Q
+/// 0.7 — see `ProcessingNodeKind::Hpf`'s doc comment for why those are the
+/// "no perceptible effect" defaults, not the range floor) rather than some
+/// other special-cased pair.
+fn render_hpf_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &HpfStageParams,
+) -> String {
+    let freq = if bypassed { 20.0 } else { f64::from(params.freq_hz) };
+    let q = if bypassed { 0.7 } else { f64::from(params.resonance_x10) / 10.0 };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = hpf label = bq_highpass control = {{ "Freq" = {freq} "Q" = {q} }} }}
+                ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
 fn render_filter_chain_conf(
     node_description: &str,
     capture_name: &str,
@@ -421,6 +519,9 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
     if let Some(limiter) = config.limiter_stage() {
         return render_limiter_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
     }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &hpf);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -446,6 +547,16 @@ pub fn render_module_args_capture(device_system_name: &str, config: &EffectChain
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &limiter,
+        );
+    }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &hpf,
         );
     }
     render_filter_chain_module_args(
@@ -497,6 +608,9 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     }
     if let Some(limiter) = config.limiter_stage() {
         return limiter_live_params(config.bypassed, &limiter);
+    }
+    if let Some(hpf) = config.hpf_stage() {
+        return hpf_live_params(config.bypassed, &hpf);
     }
 
     if config.bypassed {
@@ -554,6 +668,20 @@ fn limiter_live_params(bypassed: bool, params: &LimiterStageParams) -> Vec<(Stri
     ]
 }
 
+/// The `(control_name, value)` pairs for a live HPF slider update — node
+/// name must match `render_hpf_filter_chain_module_args`'s single `hpf`
+/// node exactly. Bypassed pushes the same 20Hz/Q 0.7 neutral pair the
+/// render function bakes in, same convention as Delay/Limiter.
+fn hpf_live_params(bypassed: bool, params: &HpfStageParams) -> Vec<(String, f64)> {
+    if bypassed {
+        return vec![("hpf:Freq".to_string(), 20.0), ("hpf:Q".to_string(), 0.7)];
+    }
+    vec![
+        ("hpf:Freq".to_string(), f64::from(params.freq_hz)),
+        ("hpf:Q".to_string(), f64::from(params.resonance_x10) / 10.0),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -590,6 +718,14 @@ mod tests {
 
     fn symmetric_limiter_chain(ceiling_db: i32) -> EffectChainConfig {
         limiter_chain(ceiling_db, ceiling_db)
+    }
+
+    /// Builds a chain with a single `Hpf` stage — mirrors `delay_chain`.
+    fn hpf_chain(freq_hz: i32, resonance_x10: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Hpf { id: "hpf".to_string(), freq_hz, resonance_x10 }],
+            ..Default::default()
+        }
     }
 
     /// Builds a chain with a single `Eq5Band` stage — the shape most tests
@@ -937,5 +1073,83 @@ mod tests {
         assert!((max - db_to_linear_mult(-3)).abs() < f64::EPSILON);
         assert!((min - (-db_to_linear_mult(-12))).abs() < f64::EPSILON);
         assert_ne!(max, -min, "asymmetric ceiling/floor should not produce a symmetric Min/Max pair");
+    }
+
+    // --- High-Pass Filter (issue #312) ---
+
+    #[test]
+    fn accepts_in_range_hpf_when_builtin_present() {
+        let config = hpf_chain(150, 7);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_hpf_freq() {
+        let config = hpf_chain(5000, 7);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Frequency")));
+    }
+
+    #[test]
+    fn rejects_out_of_range_hpf_resonance() {
+        let config = hpf_chain(150, 200);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Resonance")));
+    }
+
+    #[test]
+    fn rejects_hpf_when_builtin_filter_chain_module_missing() {
+        let config = hpf_chain(150, 7);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_hpf_filter_when_an_hpf_stage_is_present() {
+        let config = hpf_chain(150, 7);
+        let rendered = render_module_args("pipe-deck-hpf", &config);
+        assert!(rendered.contains("label = bq_highpass"));
+        assert!(!rendered.contains("bq_peaking"), "hpf rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_an_hpf_stage() {
+        let config = hpf_chain(150, 12);
+        assert_eq!(render_module_args("pipe-deck-hpf", &config), render_module_args("pipe-deck-hpf", &config));
+    }
+
+    #[test]
+    fn hpf_bypass_pushes_neutral_live_params_regardless_of_configured_values() {
+        let config = EffectChainConfig { bypassed: true, ..hpf_chain(800, 40) };
+        let params = live_params(&config);
+        assert!(params.contains(&("hpf:Freq".to_string(), 20.0)));
+        assert!(params.contains(&("hpf:Q".to_string(), 0.7)));
+    }
+
+    #[test]
+    fn hpf_bypass_bakes_neutral_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..hpf_chain(800, 40) };
+        let rendered = render_module_args("pipe-deck-hpf", &config);
+        assert!(rendered.contains(r#""Freq" = 20"#));
+        assert!(!rendered.contains(r#""Freq" = 800"#));
+    }
+
+    #[test]
+    fn hpf_live_params_control_names_match_render_module_args_node_name() {
+        let config = hpf_chain(150, 7);
+        let rendered = render_module_args("pipe-deck-hpf", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
     }
 }

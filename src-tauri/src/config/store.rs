@@ -185,6 +185,17 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn update_processing_node_hpf(&self, node_id: &str, freq_hz: i32, resonance_x10: i32) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Hpf { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Hpf { freq_hz, resonance_x10 };
+        }
+        self.save_config(&config)
+    }
+
     pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {

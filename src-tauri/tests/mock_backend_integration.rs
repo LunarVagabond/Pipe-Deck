@@ -184,13 +184,13 @@ fn stub_processing_node_round_trips_without_error() {
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
-/// All 9 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
-/// `limiter` which have since graduated to real processing nodes) round-trip
-/// identically: create, connect a real input and output, disconnect, remove
-/// — pure pass-through graph bookkeeping, never `live`, and (per a
-/// real-backend regression this caught during phase 5) connect/disconnect
-/// must be a true no-op rather than attempting a `pw-link` against a sink a
-/// stub never actually creates.
+/// All 8 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
+/// `limiter`/`hpf` which have since graduated to real processing nodes)
+/// round-trip identically: create, connect a real input and output,
+/// disconnect, remove — pure pass-through graph bookkeeping, never `live`,
+/// and (per a real-backend regression this caught during phase 5)
+/// connect/disconnect must be a true no-op rather than attempting a
+/// `pw-link` against a sink a stub never actually creates.
 #[test]
 fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
@@ -201,7 +201,6 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
         StubEffectKind::Denoise,
         StubEffectKind::DeEsser,
         StubEffectKind::AutoGainLeveler,
-        StubEffectKind::Hpf,
         StubEffectKind::StereoWidener,
         StubEffectKind::PitchShift,
         StubEffectKind::LoudnessNormalizer,
@@ -749,6 +748,66 @@ fn limiter_param_update_rejects_a_non_limiter_node() {
         .update_processing_node_limiter_params(&node.id, 0, 0, true)
         .expect_err("limiter update on a non-Limiter node should be rejected");
     assert!(error.to_string().contains("has no limiter params"), "{error}");
+}
+
+/// HPF Node round-trip (issue #312): create, live-update Freq/Resonance,
+/// remove. Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn hpf_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Rumble Filter", ProcessingNodeSpecKind::Hpf { freq_hz: 20, resonance_x10: 7 })
+        .expect("create hpf node");
+    assert_eq!(node.system_name, "pipe-deck-proc-hpf-rumble-filter");
+
+    engine.update_processing_node_hpf_params(&node.id, 150, 12).expect("update hpf params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Hpf { freq_hz: 150, resonance_x10: 12 });
+
+    engine.remove_processing_node(&node.id).expect("remove hpf node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles an HPF node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn hpf_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node("Rumble Filter", ProcessingNodeSpecKind::Hpf { freq_hz: 150, resonance_x10: 7 })
+        .expect("create hpf node");
+    let source = engine.create_virtual_output("HPF Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn hpf_param_update_rejects_a_non_hpf_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_hpf_params(&node.id, 0, 0)
+        .expect_err("hpf update on a non-HPF node should be rejected");
+    assert!(error.to_string().contains("has no HPF params"), "{error}");
 }
 
 /// Any device kind can feed a Mixer node's input — a virtual output device

@@ -79,6 +79,12 @@ defineProps<{
       <path d="M3 18h18" stroke-dasharray="2.5 2.5" stroke-width="1.25" />
       <path d="M3 12 7 6 9 6 13 18 15 18 19 12 21 12" />
     </g>
+    <!-- HPF node: classic high-pass response curve — attenuated flat at low
+         frequencies (left), rising through the cutoff, flat pass-through at
+         high frequencies (right) -->
+    <g v-else-if="kind === 'hpf'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 15h5c1.5 0 2-9 3.5-9s2 9 3.5 9h6" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

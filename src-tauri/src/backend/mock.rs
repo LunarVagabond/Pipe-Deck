@@ -907,6 +907,24 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn set_processing_node_hpf_params(
+        &self,
+        system_name: &str,
+        freq_hz: i32,
+        resonance_x10: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
+            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        };
+        if let ProcessingNodeKind::Hpf { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::Hpf { freq_hz, resonance_x10 };
+        }
+        node.bypassed = bypassed;
+        Ok(())
+    }
+
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
         Ok(())
     }

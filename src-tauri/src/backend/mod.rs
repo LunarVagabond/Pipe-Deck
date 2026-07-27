@@ -358,6 +358,19 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_limiter_params: not implemented".into()))
     }
+
+    /// Live-updates an HPF node's Freq/Resonance without reloading the
+    /// chain — same PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #312).
+    fn set_processing_node_hpf_params(
+        &self,
+        _system_name: &str,
+        _freq_hz: i32,
+        _resonance_x10: i32,
+        _bypassed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_hpf_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
