@@ -948,7 +948,7 @@ onUnmounted(() => {
         @pane-click="onPaneClick"
         @pane-context-menu="onPaneContextMenu"
       >
-        <Background pattern-color="rgba(255,255,255,0.04)" :gap="20" />
+        <Background pattern-color="rgba(255,255,255,0.15)" :gap="20" :size="1.5" />
         <Controls>
           <template #control-zoom-in>
             <ControlButton aria-label="Zoom in" title="Zoom in" @click="vueFlow.zoomIn()">
