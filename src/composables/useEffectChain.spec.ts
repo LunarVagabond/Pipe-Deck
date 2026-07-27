@@ -165,7 +165,7 @@ describe("chainFor", () => {
 });
 
 describe("addEq5BandStage", () => {
-  it("adds the stage and refreshes on success, showing the restart toast once", async () => {
+  it("adds the stage and refreshes on success", async () => {
     const { composable } = await mountEffectChain();
     invokeMock.mockClear();
 
@@ -176,11 +176,6 @@ describe("addEq5BandStage", () => {
       expect.objectContaining({ deviceId: "dev-1", stage: expect.objectContaining({ kind: "eq5band" }) }),
     );
     expect(invokeMock).toHaveBeenCalledWith("get_effect_chains");
-    expect(pushNoticeMock).toHaveBeenCalledTimes(1);
-    expect(pushNoticeMock).toHaveBeenCalledWith("info", expect.stringContaining("restarts"));
-
-    await composable.addEq5BandStage("dev-1");
-    expect(pushNoticeMock).toHaveBeenCalledTimes(1);
   });
 
   it("reports a failure via handleApplyResult without throwing", async () => {

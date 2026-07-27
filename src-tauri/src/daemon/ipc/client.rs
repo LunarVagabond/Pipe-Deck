@@ -211,6 +211,201 @@ mod live_tests {
         unload_result.expect("unload_chain over IPC should succeed");
     }
 
+    /// Regression test: `set_param` used to look up its target node via a
+    /// freshly-registered registry `global` listener, which only ever
+    /// receives that node's *announcement* event — sent by the server
+    /// exactly once, the first time the object becomes visible to this
+    /// client. A listener registered any time after that (e.g. seconds
+    /// later, same as a real slider drag well after node creation) never
+    /// sees it and fails with `NodeNotFound` — this waits well past that
+    /// narrow window on purpose before calling `set_param`, to make sure a
+    /// regression back to the listener-based lookup gets caught here rather
+    /// than only surfacing live when a user actually drags a slider.
+    #[test]
+    #[ignore]
+    fn set_param_finds_a_node_created_well_before_the_call() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let cleanup_path = spawn_test_server();
+        let device_system_name = "pipe-deck-native-ipc-delayed-set-param-test";
+        let cleanup = || {
+            let _ = NativeHostClient::unload_chain(device_system_name);
+            let _ = std::fs::remove_file(&cleanup_path);
+        };
+
+        let config = EffectChainConfig {
+            stages: vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 0,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        };
+
+        if let Err(error) = NativeHostClient::load_chain(device_system_name, false, &config) {
+            cleanup();
+            panic!("load_chain over IPC failed: {error}");
+        }
+
+        // Comfortably past the old code's ~1s listener-scan window, and past
+        // this test process's own listener (if any lingered) having already
+        // consumed the one-time announcement — simulates a slider dragged
+        // well after the node was created, not immediately after.
+        thread::sleep(Duration::from_secs(2));
+
+        let set_param_result = NativeHostClient::set_param(device_system_name, &[("eq_bass:Gain".to_string(), 3.0)]);
+        cleanup();
+        set_param_result.expect(
+            "set_param on a node created well before the call should still find it — \
+             regression of issue #303's registry-listener lookup bug",
+        );
+    }
+
+    /// `pw-dump`'s reported `info.state` for the node named `node_name`
+    /// (`"suspended"`, `"idle"`, `"running"`, ...), or `None` if no such node
+    /// currently exists. Shells out rather than going through the daemon —
+    /// this needs to observe the node the same way an external tool like
+    /// `pw-top` would, independent of anything `native_host` itself tracks.
+    fn node_state_via_pw_dump(node_name: &str) -> Option<String> {
+        let output = std::process::Command::new("pw-dump").output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+        parsed.as_array()?.iter().find_map(|object| {
+            if object.get("type").and_then(|v| v.as_str()) != Some("PipeWire:Interface:Node") {
+                return None;
+            }
+            let name = object.pointer("/info/props/node.name").and_then(|v| v.as_str());
+            if name != Some(node_name) {
+                return None;
+            }
+            object.pointer("/info/state").and_then(|v| v.as_str()).map(str::to_string)
+        })
+    }
+
+    /// Regression test for issue #303: a `libpipewire-module-filter-chain`
+    /// instance loaded via `native_host` used to sit permanently `suspended`
+    /// (confirmed live via `pw-top`: `QUANT=0`/state `S` indefinitely, even
+    /// with a correctly-wired, actively-playing upstream) because the old
+    /// implementation only manually `iterate()`d a plain `pw_main_loop` in
+    /// short bursts triggered by explicit calls into this module, rather
+    /// than continuously running a `pw_thread_loop` on its own OS thread —
+    /// so this client was never actually listening when the graph driver
+    /// wanted to schedule anything it hosted. Feeds real audio through a
+    /// freshly loaded chain and asserts the node actually reaches `running`,
+    /// not just that the IPC calls around it succeed (which
+    /// `daemon_ipc_round_trips_load_chain_over_the_socket` above already
+    /// covers, and would *not* have caught this bug on its own). Needs a
+    /// live, unmuted PipeWire session to mean anything — run manually on a
+    /// machine where that's true, same as every other test in this module.
+    #[test]
+    #[ignore]
+    fn eq5band_node_reaches_running_state_when_fed_real_audio() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let cleanup_path = spawn_test_server();
+        let device_system_name = "pipe-deck-native-ipc-running-test";
+        let driver_sink_name = "pipe-deck-native-ipc-running-test-driver";
+
+        let cleanup = || {
+            let _ = NativeHostClient::unload_chain(device_system_name);
+            if let Ok(Some(module_id)) = pactl::find_module_id_by_sink_name(driver_sink_name) {
+                let _ = pactl::unload_module(&module_id);
+            }
+            let _ = std::fs::remove_file(&cleanup_path);
+        };
+
+        let config = EffectChainConfig {
+            stages: vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 6,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        };
+
+        let playback_name = match NativeHostClient::load_chain(device_system_name, false, &config) {
+            Ok(name) => name,
+            Err(error) => {
+                cleanup();
+                panic!("load_chain over IPC failed: {error}");
+            }
+        };
+
+        // A disposable software sink rather than a real hardware output —
+        // this only needs to be *some* downstream target the graph considers
+        // active, not anything the test's own host actually plays audio out
+        // of, so it works the same on any machine regardless of what
+        // hardware is attached.
+        if let Err(error) = pactl::create_null_sink(driver_sink_name, "Pipe Deck test driver sink") {
+            cleanup();
+            panic!("failed to create the disposable driver sink: {error}");
+        }
+
+        for (playback_port, driver_port) in [("FL", "FL"), ("FR", "FR")] {
+            let status = std::process::Command::new("pw-link")
+                .args([format!("{playback_name}:output_{playback_port}"), format!("{driver_sink_name}:playback_{driver_port}")])
+                .status();
+            if !matches!(status, Ok(status) if status.success()) {
+                cleanup();
+                panic!("failed to pw-link {playback_name}:output_{playback_port} -> {driver_sink_name}:playback_{driver_port}");
+            }
+        }
+
+        let mut feed = match std::process::Command::new("pw-cat")
+            .args([
+                "--playback",
+                "--raw",
+                "--target",
+                device_system_name,
+                "--format",
+                "s16",
+                "--rate",
+                "48000",
+                "--channels",
+                "2",
+                "/dev/urandom",
+            ])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(error) => {
+                cleanup();
+                panic!("failed to spawn pw-cat to feed the capture sink: {error}");
+            }
+        };
+
+        let mut reached_running = false;
+        for _ in 0..50 {
+            if node_state_via_pw_dump(device_system_name).as_deref() == Some("running") {
+                reached_running = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        let _ = feed.kill();
+        let _ = feed.wait();
+        cleanup();
+
+        assert!(
+            reached_running,
+            "EQ5Band node never reached the 'running' state after being fed real audio — \
+             regression of issue #303's native_host threading fix"
+        );
+    }
+
     /// Current process RSS in KB, or `None` if `/proc/self/status` can't be
     /// read/parsed — same approach `examples/filter_chain_spike.rs` used.
     /// Valid here because the test server (`server::run_at`) runs on a

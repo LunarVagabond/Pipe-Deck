@@ -150,14 +150,15 @@ impl CoreEngine {
         Ok(chains.get(device_id).cloned().unwrap_or_default())
     }
 
-    /// Structural Apply: the rare, explicit, restart-carrying path — writes a
-    /// namespaced filter-chain conf.d drop-in, restarts *only*
-    /// `filter-chain.service` (a dedicated daemon, never the main PipeWire
-    /// graph — see `pipewire::pipewire_restart`), verifies the effects
-    /// sink/source actually reappeared, and re-links whatever the device was
-    /// already routed to (outputs) or fed by (inputs). Any failure
-    /// automatically rolls back to the plain sink/source so the device is
-    /// never left missing or broken.
+    /// Structural Apply: the rare, explicit path that actually loads or tears
+    /// down live DSP — loads `libpipewire-module-filter-chain` directly into
+    /// the running PipeWire session via `pipewire::native_host` (PD-029; no
+    /// restart of anything, the pre-#149 conf.d-drop-in-plus-service-restart
+    /// mechanism this used to describe no longer exists), verifies the
+    /// effects sink/source actually reappeared, and re-links whatever the
+    /// device was already routed to (outputs) or fed by (inputs). Any
+    /// failure automatically rolls back to the plain sink/source so the
+    /// device is never left missing or broken.
     ///
     /// Scope for this pass: EQ + master gain only, on `pipe-deck-*` virtual
     /// **output or input** devices not currently carrying audio (PD-024

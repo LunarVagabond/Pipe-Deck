@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { onMounted, onUnmounted, ref } from "vue";
-import { useApplyResult, useNotices } from "../stores/notices";
+import { useApplyResult } from "../stores/notices";
 import {
   emptyDynamicsStage,
   emptyEq5BandStage,
@@ -9,10 +9,6 @@ import {
   type EffectStage,
   type FxCapabilities,
 } from "../types/graph";
-
-/** PD-025: node-scoped effects UI — one non-blocking toast per session, the
- * first time any device gets a stage added, instead of a confirm dialog. */
-let hasShownRestartToast = false;
 
 function emptyChain(): EffectChainConfig {
   return {
@@ -34,7 +30,6 @@ function emptyChain(): EffectChainConfig {
  */
 export function useEffectChain() {
   const { handleApplyResult } = useApplyResult();
-  const { pushNotice } = useNotices();
   const chains = ref<Record<string, EffectChainConfig>>({});
   const capabilities = ref<FxCapabilities>({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
   const loading = ref(true);
@@ -78,17 +73,10 @@ export function useEffectChain() {
     }
   }
 
-  function maybeShowRestartToast() {
-    if (hasShownRestartToast) return;
-    hasShownRestartToast = true;
-    pushNotice("info", "Adding an effect briefly restarts Pipe Deck's effects daemon.");
-  }
-
   /** Adds a new EQ stage with a freshly generated id and applies immediately
    * — no separate "enable live effects" step (PD-025). */
   async function addEq5BandStage(deviceId: string) {
     const stage = emptyEq5BandStage(crypto.randomUUID());
-    maybeShowRestartToast();
     try {
       await invoke("add_effect_stage", { deviceId, stage });
       await refresh();

@@ -456,8 +456,12 @@ impl AudioBackend for LinuxPipeWireBackend {
                 // default WirePlumber/PipeWire applies to a brand-new
                 // filter-chain node (observed: silence). Force a known-good
                 // state explicitly rather than relying on that default.
-                let _ = pactl::set_sink_volume_by_name(&node.system_name, 100);
-                let _ = pactl::set_sink_mute_by_name(&node.system_name, false);
+                if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
+                    eprintln!("failed to force volume on new EQ5Band sink {}: {error}", node.system_name);
+                }
+                if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
+                    eprintln!("failed to unmute new EQ5Band sink {}: {error}", node.system_name);
+                }
                 Ok(())
             }
             ProcessingNodeKind::Stub { .. } => Ok(()),
@@ -582,7 +586,23 @@ impl AudioBackend for LinuxPipeWireBackend {
                             pactl::set_sink_volume_by_name(&feed_name, 100)?;
                             pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
                         } else {
-                            pactl::move_stream_to_sink_name(graph, id, system_name)
+                            pactl::move_stream_to_sink_name(graph, id, system_name)?;
+                            // `pactl move-sink-input` only updates the
+                            // Pulse-compat "current sink" for this stream —
+                            // a native (non-Pulse) client's actual output
+                            // ports can stay linked to wherever they were
+                            // before, independent of that move (issue #303
+                            // follow-up: confirmed live via `pw-link -l`
+                            // showing a stream linked to both its old and
+                            // new destination at once right after this exact
+                            // move). Clean up anything left over so audio
+                            // doesn't keep flowing to both places.
+                            if let Some(stream_system_name) =
+                                graph.streams.iter().find(|stream| stream.id == id).and_then(|stream| stream.system_name.as_deref())
+                            {
+                                let _ = pw_link::disconnect_stale_output_links(stream_system_name, system_name);
+                            }
+                            Ok(())
                         }
                     } else {
                         Err(BackendError::Message(format!("relink peer not found: {id}")))

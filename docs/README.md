@@ -67,6 +67,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 ### Developer
 - [Getting Started (from source)](developers/Getting_Started.md)
 - [Development](developers/Development.md)
+- [Adding a PipeWire Effect](developers/Adding_PipeWire_Effects.md)
 - [Packaging](developers/Packaging.md)
 - [Uninstall](developers/Uninstall.md)
 - [Release process](developers/Release.md)

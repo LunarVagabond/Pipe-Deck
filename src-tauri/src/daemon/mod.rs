@@ -168,6 +168,7 @@ pub fn run_ephemeral() -> i32 {
 /// requests (`ipc::server::run`).
 fn serve_native_effects() {
     reconcile_live_effects_state();
+    reconcile_live_processing_nodes();
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     let _ = ipc::server::run();
 }
@@ -216,6 +217,69 @@ fn reconcile_live_effects_state() {
 
         let is_input = info.direction == crate::core::models::DeviceDirection::Input;
         let _ = crate::pipewire::native_host::load_chain(&info.system_name, is_input, config);
+    }
+}
+
+/// `reconcile_live_effects_state`'s counterpart for processing nodes
+/// (PD-032/#293) — a gap that mechanism never covered, since it was written
+/// before processing nodes existed and only ever looked at
+/// `ConfigStore::effect_chains()` (the older device-attached mechanism).
+/// Without this, an `Eq5Band` processing node's `libpipewire-module-filter-chain`
+/// instance — owned by `native_host`'s own connection the same way a
+/// device-attached chain's is — never comes back after the daemon
+/// dies/restarts: the node still exists in the persisted graph (so the UI
+/// keeps showing it, including its now-stale port connections) and
+/// `is_processing_node_loaded` correctly reports `false`, but nothing ever
+/// calls `native_host::load_chain` again to recreate it. Every subsequent
+/// `set_param` (an EQ slider drag) then genuinely has no live node to find —
+/// not a bug in the lookup itself, just nothing to look up.
+///
+/// Only `Eq5Band` needs this: `Mixer`/`FanOut` are plain `pactl`-created null
+/// sinks, owned by the system PipeWire session itself (a short-lived `pactl`
+/// subprocess issues the load, then exits), not by this daemon's own
+/// `native_host` connection — they survive a daemon restart fine on their
+/// own. `Stub` kinds have no backing PipeWire object at all.
+fn reconcile_live_processing_nodes() {
+    let specs = ConfigStore::new().processing_nodes();
+    if specs.is_empty() {
+        return;
+    }
+
+    let backend = crate::backend::create_backend();
+    for spec in specs {
+        let crate::core::models::ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } =
+            spec.kind
+        else {
+            continue;
+        };
+
+        let system_name = format!("pipe-deck-proc-eq5band-{}", spec.slug);
+        if crate::pipewire::native_host::is_loaded(&system_name) {
+            continue;
+        }
+
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".into(),
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            }],
+            bypassed: spec.bypassed,
+            ..Default::default()
+        };
+
+        if crate::pipewire::native_host::load_chain(&system_name, false, &config).is_err() {
+            continue;
+        }
+        // Mirrors `backend::linux::live::load_processing_node`'s Eq5Band
+        // arm: a brand-new filter-chain sink has never had its volume set by
+        // anyone, and comes up muted/zero-volume by whatever default
+        // WirePlumber applies otherwise (issue #303).
+        let _ = backend.set_processing_node_volume(&system_name, 100, false);
     }
 }
 
@@ -592,5 +656,77 @@ mod live_tests {
 
         assert!(loaded, "reconcile_live_effects_state did not reload the persisted chain");
         assert!(sink_live, "effects sink did not appear after reconciliation reloaded the chain");
+    }
+
+    /// `reconcile_live_processing_nodes`'s counterpart for an `Eq5Band`
+    /// processing node — `reconcile_live_effects_state` above only ever
+    /// covered the older device-attached mechanism, so an Eq5Band node's
+    /// filter-chain instance never came back after a daemon crash/restart
+    /// (issue #303: every EQ slider drag against a node in this state failed
+    /// with "no live PipeWire node found", not because the lookup was
+    /// broken, but because there was genuinely nothing live to find).
+    #[test]
+    #[ignore]
+    fn reconcile_live_processing_nodes_reloads_a_persisted_eq5band_node_after_a_simulated_crash() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let _guard = lock_config_dir_env();
+        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-recovery-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+
+        // Persist the spec directly via `ConfigStore`, exactly as
+        // `reconcile_live_effects_state_reloads_a_persisted_chain_after_a_simulated_crash`
+        // does above — deliberately *not* through `CoreEngine::create_processing_node`,
+        // which would load it live via the GUI-side `NativeHostClient` (a
+        // socket call to whatever real daemon process happens to be
+        // running, if any). `reconcile_live_processing_nodes` itself calls
+        // `native_host` in-process directly (it *is* daemon-owned code), so
+        // this test needs no running daemon at all — only a persisted spec
+        // that says "should be active" while nothing is actually loaded,
+        // simulating "the daemon crashed".
+        let spec_id = "processing-eq5band-recovery-test-eq".to_string();
+        let system_name = "pipe-deck-proc-eq5band-recovery-test-eq".to_string();
+        let spec = crate::core::models::ProcessingNodeSpec {
+            id: spec_id.clone(),
+            slug: "recovery-test-eq".to_string(),
+            label: "Recovery Test EQ".to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            kind: crate::core::models::ProcessingNodeSpecKind::Eq5Band {
+                eq_sub: 0,
+                eq_bass: 4,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
+            input_sources: Vec::new(),
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+        let cleanup = || {
+            let _ = crate::pipewire::native_host::unload_chain(&system_name);
+            let _ = ConfigStore::new().remove_processing_node(&spec_id);
+            std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+            let _ = fs::remove_dir_all(&temp_dir);
+        };
+        if let Err(error) = ConfigStore::new().add_processing_node(spec) {
+            cleanup();
+            panic!("failed to persist processing node spec: {error}");
+        }
+
+        assert!(
+            !crate::pipewire::native_host::is_loaded(&system_name),
+            "precondition: nothing should be loaded before reconciliation runs"
+        );
+
+        reconcile_live_processing_nodes();
+
+        let loaded = crate::pipewire::native_host::is_loaded(&system_name);
+        let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
+        cleanup();
+
+        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Eq5Band node");
+        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
     }
 }

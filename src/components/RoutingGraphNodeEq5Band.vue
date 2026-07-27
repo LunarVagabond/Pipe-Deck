@@ -37,6 +37,15 @@ function valueFor(key: (typeof BANDS)[number]["key"]): number {
   return pending.value[key] ?? props[key];
 }
 
+/** Updates the on-screen dB label on every drag tick — `@input` fires
+ * continuously while dragging, unlike `@change`, which only fires once on
+ * release. Purely cosmetic: the actual live-apply push stays gated behind
+ * `onBandChange`/`@change` so a drag doesn't spam the backend one call per
+ * pixel of movement. */
+function onBandInput(key: (typeof BANDS)[number]["key"], event: Event) {
+  pending.value[key] = Number((event.target as HTMLInputElement).value);
+}
+
 async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
   const band = BANDS.find((entry) => entry.param === param);
@@ -60,7 +69,13 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
-  await invoke("set_processing_node_bypassed", { nodeId: props.nodeId, bypassed: !props.bypassed });
+  const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {
+    nodeId: props.nodeId,
+    bypassed: !props.bypassed,
+  });
+  if (!response.success) {
+    handleApplyResult(response, "");
+  }
 }
 </script>
 
@@ -86,6 +101,7 @@ async function onToggleBypass() {
         :value="valueFor(band.key)"
         :disabled="bypassed"
         :aria-label="`${band.label} gain`"
+        @input="onBandInput(band.key, $event)"
         @change="onBandChange(band.param, $event)"
       />
       <span class="routing-graph-node-eq5band-value">{{ valueFor(band.key) }}dB</span>
