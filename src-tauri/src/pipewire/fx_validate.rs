@@ -1,4 +1,6 @@
-use crate::core::models::{DelayStageParams, EffectChainConfig, HpfStageParams, LimiterStageParams, ReverbStageParams, WidenerStageParams};
+use crate::core::models::{
+    DelayStageParams, EffectChainConfig, HpfStageParams, LimiterStageParams, PanStageParams, ReverbStageParams, WidenerStageParams,
+};
 use crate::pipewire::fx_capability::FxCapabilities;
 use std::path::PathBuf;
 
@@ -89,6 +91,11 @@ pub fn reverb_ir_path() -> Option<PathBuf> {
 
     None
 }
+
+/// `0` is center (both channels full gain, neutral/bypass) — positive
+/// attenuates left (pans right), negative attenuates right (pans left);
+/// `100`/`-100` fully silence the opposite channel.
+const PAN_BALANCE_RANGE_PERCENT: (i32, i32) = (-100, 100);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -212,6 +219,18 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
         }
     }
 
+    // Balance/Pan (#16) — two independent `linear` gain builtins, same
+    // module (and same `builtin_eq` capability gate) as Eq5Band/HPF/Widener.
+    if let Some(pan) = config.pan_stage() {
+        check_range("Balance", pan.balance_percent, PAN_BALANCE_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_eq {
+            blocking_reasons.push(
+                "Balance/Pan requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -273,6 +292,9 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     }
     if let Some(widener) = config.widener_stage() {
         return render_widener_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &widener);
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &pan);
     }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
@@ -339,6 +361,16 @@ pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig)
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &widener,
+        );
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &pan,
         );
     }
     render_filter_chain_conf(
@@ -720,6 +752,76 @@ fn render_widener_filter_chain_module_args(
     )
 }
 
+fn render_pan_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &PanStageParams,
+) -> String {
+    let args = render_pan_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single
+/// Balance/Pan processing node (issue #16) — two independent `linear`
+/// filters, one per channel, each with its own `Mult` gain. Unlike
+/// Reverb/Widener, no `copy` fan-out is needed: the input is already a
+/// stereo pair, so each raw input channel feeds exactly one `linear` node
+/// directly via the graph-level `inputs` list (the same "no links needed"
+/// shape Delay/Limiter/HPF use, just two parallel single-filter chains
+/// instead of one). Bypassed bakes in `Mult = 1.0` on both channels
+/// (center/neutral — the same value `balance_percent = 0` already
+/// produces, so this is really just making that baked-in explicitly rather
+/// than relying on the math coincidentally landing there).
+fn render_pan_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &PanStageParams,
+) -> String {
+    let balance = if bypassed { 0.0 } else { f64::from(params.balance_percent) / 100.0 };
+    let gain_l = if balance > 0.0 { 1.0 - balance } else { 1.0 };
+    let gain_r = if balance < 0.0 { 1.0 + balance } else { 1.0 };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = gainL label = linear control = {{ "Mult" = {gain_l} }} }}
+                    {{ type = builtin name = gainR label = linear control = {{ "Mult" = {gain_r} }} }}
+                ]
+                inputs  = [ "gainL:In" "gainR:In" ]
+                outputs = [ "gainL:Out" "gainR:Out" ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
 fn render_filter_chain_conf(
     node_description: &str,
     capture_name: &str,
@@ -821,6 +923,9 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
     if let Some(widener) = config.widener_stage() {
         return render_widener_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &widener);
     }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &pan);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -876,6 +981,16 @@ pub fn render_module_args_capture(device_system_name: &str, config: &EffectChain
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &widener,
+        );
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &pan,
         );
     }
     render_filter_chain_module_args(
@@ -936,6 +1051,9 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     }
     if let Some(widener) = config.widener_stage() {
         return widener_live_params(config.bypassed, &widener);
+    }
+    if let Some(pan) = config.pan_stage() {
+        return pan_live_params(config.bypassed, &pan);
     }
 
     if config.bypassed {
@@ -1037,6 +1155,17 @@ fn widener_live_params(bypassed: bool, params: &WidenerStageParams) -> Vec<(Stri
     vec![("outL:Gain 2".to_string(), width), ("outR:Gain 2".to_string(), -width)]
 }
 
+/// The `(control_name, value)` pairs for a live Pan/Balance slider update —
+/// node names must match `render_pan_filter_chain_module_args`'s `gainL`/
+/// `gainR` nodes exactly. Bypassed pushes `Mult = 1.0` on both, same
+/// center/neutral value `balance_percent = 0` already produces.
+fn pan_live_params(bypassed: bool, params: &PanStageParams) -> Vec<(String, f64)> {
+    let balance = if bypassed { 0.0 } else { f64::from(params.balance_percent) / 100.0 };
+    let gain_l = if balance > 0.0 { 1.0 - balance } else { 1.0 };
+    let gain_r = if balance < 0.0 { 1.0 + balance } else { 1.0 };
+    vec![("gainL:Mult".to_string(), gain_l), ("gainR:Mult".to_string(), gain_r)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1096,6 +1225,14 @@ mod tests {
     fn widener_chain(width_percent: i32) -> EffectChainConfig {
         EffectChainConfig {
             stages: vec![EffectStage::Widener { id: "widener".to_string(), width_percent }],
+            ..Default::default()
+        }
+    }
+
+    /// Builds a chain with a single `Pan` stage — mirrors `delay_chain`.
+    fn pan_chain(balance_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Pan { id: "pan".to_string(), balance_percent }],
             ..Default::default()
         }
     }
@@ -1686,5 +1823,103 @@ mod tests {
         let params = live_params(&config);
         assert!(params.contains(&("outL:Gain 2".to_string(), 1.0)));
         assert!(params.contains(&("outR:Gain 2".to_string(), -1.0)));
+    }
+
+    // --- Balance/Pan (issue #16) ---
+
+    #[test]
+    fn accepts_in_range_pan_balance_when_builtin_present() {
+        let config = pan_chain(40);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_pan_balance() {
+        let config = pan_chain(150);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Balance")));
+    }
+
+    #[test]
+    fn rejects_pan_when_builtin_filter_chain_module_missing() {
+        let config = pan_chain(40);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_pan_filters_when_a_pan_stage_is_present() {
+        let config = pan_chain(40);
+        let rendered = render_module_args("pipe-deck-pan", &config);
+        assert!(rendered.contains("name = gainL label = linear"));
+        assert!(rendered.contains("name = gainR label = linear"));
+        assert!(!rendered.contains("bq_peaking"), "pan rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_pan_stage() {
+        let config = pan_chain(40);
+        assert_eq!(render_module_args("pipe-deck-pan", &config), render_module_args("pipe-deck-pan", &config));
+    }
+
+    #[test]
+    fn pan_bypass_pushes_center_live_params_regardless_of_configured_balance() {
+        let config = EffectChainConfig { bypassed: true, ..pan_chain(80) };
+        let params = live_params(&config);
+        assert!(params.contains(&("gainL:Mult".to_string(), 1.0)));
+        assert!(params.contains(&("gainR:Mult".to_string(), 1.0)));
+    }
+
+    #[test]
+    fn pan_bypass_bakes_center_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..pan_chain(80) };
+        let rendered = render_module_args("pipe-deck-pan", &config);
+        assert!(rendered.contains(r#"name = gainL label = linear control = { "Mult" = 1"#));
+        assert!(rendered.contains(r#"name = gainR label = linear control = { "Mult" = 1"#));
+    }
+
+    #[test]
+    fn pan_live_params_control_names_match_render_module_args_node_names() {
+        let config = pan_chain(40);
+        let rendered = render_module_args("pipe-deck-pan", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn positive_balance_pans_right_by_attenuating_only_the_left_channel() {
+        let config = pan_chain(40);
+        let params = live_params(&config);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainL:Mult").unwrap().1, 0.6);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainR:Mult").unwrap().1, 1.0);
+    }
+
+    #[test]
+    fn negative_balance_pans_left_by_attenuating_only_the_right_channel() {
+        let config = pan_chain(-40);
+        let params = live_params(&config);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainL:Mult").unwrap().1, 1.0);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainR:Mult").unwrap().1, 0.6);
+    }
+
+    #[test]
+    fn full_balance_fully_silences_the_opposite_channel() {
+        let right = pan_chain(100);
+        let right_params = live_params(&right);
+        assert_eq!(right_params.iter().find(|(name, _)| name == "gainL:Mult").unwrap().1, 0.0);
+
+        let left = pan_chain(-100);
+        let left_params = live_params(&left);
+        assert_eq!(left_params.iter().find(|(name, _)| name == "gainR:Mult").unwrap().1, 0.0);
     }
 }

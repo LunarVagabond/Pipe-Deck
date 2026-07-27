@@ -97,6 +97,11 @@ defineProps<{
       <path d="M9 8 5 12l4 4" />
       <path d="M15 8l4 4-4 4" />
     </g>
+    <!-- Balance/Pan node: an off-center slider on an L/R balance track -->
+    <g v-else-if="kind === 'pan'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+      <path d="M4 12h16" />
+      <circle cx="15" cy="12" r="2.75" fill="currentColor" stroke="none" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

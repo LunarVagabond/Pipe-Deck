@@ -325,6 +325,14 @@ fn reconcile_live_processing_nodes() {
                     ..Default::default()
                 },
             ),
+            crate::core::models::ProcessingNodeSpecKind::Pan { balance_percent } => (
+                format!("pipe-deck-proc-pan-{}", spec.slug),
+                crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Pan { id: "pan".into(), balance_percent: *balance_percent }],
+                    bypassed: spec.bypassed,
+                    ..Default::default()
+                },
+            ),
             _ => continue,
         };
 
@@ -1043,6 +1051,56 @@ mod live_tests {
         cleanup();
 
         assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Widener node");
+        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+    }
+
+    /// `reconcile_live_processing_nodes`'s Pan counterpart (issue #16) —
+    /// same reasoning as the Delay/Limiter/Eq5Band tests above.
+    #[test]
+    #[ignore]
+    fn reconcile_live_processing_nodes_reloads_a_persisted_pan_node_after_a_simulated_crash() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let _guard = lock_config_dir_env();
+        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-pan-recovery-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+
+        let spec_id = "processing-pan-recovery-test-pan".to_string();
+        let system_name = "pipe-deck-proc-pan-recovery-test-pan".to_string();
+        let spec = crate::core::models::ProcessingNodeSpec {
+            id: spec_id.clone(),
+            slug: "recovery-test-pan".to_string(),
+            label: "Recovery Test Pan".to_string(),
+            created_at: Utc::now().to_rfc3339(),
+            kind: crate::core::models::ProcessingNodeSpecKind::Pan { balance_percent: 40 },
+            input_sources: Vec::new(),
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+        let cleanup = || {
+            let _ = crate::pipewire::native_host::unload_chain(&system_name);
+            let _ = ConfigStore::new().remove_processing_node(&spec_id);
+            std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+            let _ = fs::remove_dir_all(&temp_dir);
+        };
+        if let Err(error) = ConfigStore::new().add_processing_node(spec) {
+            cleanup();
+            panic!("failed to persist processing node spec: {error}");
+        }
+
+        assert!(
+            !crate::pipewire::native_host::is_loaded(&system_name),
+            "precondition: nothing should be loaded before reconciliation runs"
+        );
+
+        reconcile_live_processing_nodes();
+
+        let loaded = crate::pipewire::native_host::is_loaded(&system_name);
+        let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
+        cleanup();
+
+        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Pan node");
         assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
     }
 }

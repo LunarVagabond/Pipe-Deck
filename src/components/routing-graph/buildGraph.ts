@@ -306,6 +306,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   hpf: "High-Pass Filter",
   reverb: "Reverb",
   widener: "Stereo Widener",
+  pan: "Balance/Pan",
   stub: "Not implemented yet",
 };
 

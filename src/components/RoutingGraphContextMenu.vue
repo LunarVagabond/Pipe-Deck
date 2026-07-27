@@ -3,9 +3,8 @@ import { computed, ref, watch } from "vue";
 import type { RoutingGraphMenuTarget } from "../composables/routingGraphContext";
 
 /** Catalog of effects a node can attach — today just one kind, but this is
- * the reusable shape a second kind (parametric EQ #17, balance/pan #16,
- * dynamics once unblocked, ...) slots into without touching the menu's
- * structure again. */
+ * the reusable shape a second kind (parametric EQ #17, dynamics once
+ * unblocked, ...) slots into without touching the menu's structure again. */
 interface AvailableEffect {
   kind: string;
   label: string;
@@ -42,7 +41,18 @@ const emit = defineEmits<{
   "copy-id": [];
   close: [];
   "add-node": [
-    type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener",
+    type:
+      | "output"
+      | "input"
+      | "fan_out"
+      | "mixer"
+      | "eq5band"
+      | "delay"
+      | "limiter"
+      | "hpf"
+      | "reverb"
+      | "widener"
+      | "pan",
   ];
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
@@ -81,7 +91,18 @@ function onPickNode(nodeId: string) {
 }
 
 function onPickNodeType(
-  type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener",
+  type:
+    | "output"
+    | "input"
+    | "fan_out"
+    | "mixer"
+    | "eq5band"
+    | "delay"
+    | "limiter"
+    | "hpf"
+    | "reverb"
+    | "widener"
+    | "pan",
 ) {
   openCategory.value = null;
   emit("add-node", type);
@@ -149,6 +170,7 @@ function onPickStubEffect(stubKind: string, label: string) {
           <button type="button" @click="onPickNodeType('hpf')">+ High-Pass Filter Node</button>
           <button type="button" @click="onPickNodeType('reverb')">+ Reverb Node</button>
           <button type="button" @click="onPickNodeType('widener')">+ Stereo Widener Node</button>
+          <button type="button" @click="onPickNodeType('pan')">+ Balance/Pan Node</button>
           <hr class="routing-graph-context-menu-separator" />
           <p class="routing-graph-context-menu-label">Not yet implemented</p>
           <button

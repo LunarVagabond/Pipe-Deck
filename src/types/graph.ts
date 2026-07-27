@@ -160,6 +160,10 @@ export type ProcessingNodeKind =
       kind: "widener";
       width_percent: number;
     }
+  | {
+      kind: "pan";
+      balance_percent: number;
+    }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
 /** A first-class routable processing node — Mixer, Fan-out, or a single
@@ -501,6 +505,10 @@ export type ProcessingNodeSpecKind =
   | {
       kind: "widener";
       width_percent: number;
+    }
+  | {
+      kind: "pan";
+      balance_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
