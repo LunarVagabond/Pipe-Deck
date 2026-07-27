@@ -624,6 +624,24 @@
   }
 }
 
+.routing-graph-node-eq5band-reset {
+  margin-left: auto;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.65;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 1;
+    border-color: var(--border, rgba(255, 255, 255, 0.2));
+  }
+}
+
 .routing-graph-node-eq5band-row {
   display: flex;
   align-items: center;
@@ -692,6 +710,24 @@
   &.active {
     border-color: var(--accent-teal, #3ddbd9);
     color: var(--accent-teal, #3ddbd9);
+  }
+}
+
+.routing-graph-node-delay-reset {
+  margin-left: auto;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  opacity: 0.65;
+  cursor: pointer;
+
+  &:hover {
+    opacity: 1;
+    border-color: var(--border, rgba(255, 255, 255, 0.2));
   }
 }
 

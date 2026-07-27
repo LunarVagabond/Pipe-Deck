@@ -75,6 +75,25 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
   }
 }
 
+/** Resets every band and the output trim to flat (0dB) — same command each
+ * band slider already uses, just with every value zeroed at once rather
+ * than one param changed at a time. */
+async function onReset() {
+  pending.value = {};
+  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_eq_params", {
+    nodeId: props.nodeId,
+    eqSub: 0,
+    eqBass: 0,
+    eqMid: 0,
+    eqTreble: 0,
+    eqAir: 0,
+    outputGain: 0,
+  });
+  if (!response.success) {
+    handleApplyResult(response, "");
+  }
+}
+
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
@@ -110,6 +129,15 @@ async function onToggleBypass() {
         @click="onToggleIsolate"
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
+      </button>
+      <button
+        type="button"
+        class="routing-graph-node-eq5band-reset"
+        title="Reset every band and the output trim to flat (0dB)"
+        aria-label="Reset to defaults"
+        @click="onReset"
+      >
+        ↺
       </button>
     </div>
     <div v-for="band in BANDS" :key="band.key" class="routing-graph-node-eq5band-row">

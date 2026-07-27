@@ -96,13 +96,26 @@ const LAYOUT_KEY = "pipe-deck-routing-layout";
 // being pulled into the center zone on their own. Playback streams,
 // processing nodes, and virtual sinks make up the center "internal
 // processing" zone; outputs remain the rightmost lane.
+//
+// Gaps: a "paired" pair (input/captureStream, stream/processingNode,
+// processingNode/virtualSink) sits `PAIR_GAP` apart, a zone boundary
+// (captureStream/stream, virtualSink/output) sits `ZONE_GAP` apart. Both
+// must clear the widest real rendered card, not just look reasonable on
+// paper — a plain device card renders ~210-245px wide, but an Eq5Band/Delay
+// processing node renders ~260px wide, and the original 150/300 gaps here
+// were measured against the former, not the latter, so real EQ/Delay nodes
+// visually overlapped their neighboring lane on ordinary auto-placement,
+// no dragging required. `PAIR_GAP` (320) and `ZONE_GAP` (500) both clear
+// 260px with real margin.
+const PAIR_GAP = 320;
+const ZONE_GAP = 500;
 const LANE_X: Record<RoutingNodeKind, number> = {
   input: 40,
-  captureStream: 190,
-  stream: 490,
-  processingNode: 640,
-  virtualSink: 790,
-  output: 1090,
+  captureStream: 40 + PAIR_GAP,
+  stream: 40 + PAIR_GAP + ZONE_GAP,
+  processingNode: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP,
+  virtualSink: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP + PAIR_GAP,
+  output: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP + PAIR_GAP + ZONE_GAP,
 };
 
 function loadLayout(): Record<string, { x: number; y: number }> {
@@ -114,7 +127,13 @@ function loadLayout(): Record<string, { x: number; y: number }> {
   }
 }
 
-const LANE_ROW_HEIGHT = 110;
+// A plain device/stream card renders ~85-90px tall, but an Eq5Band node
+// (6 band sliders + its actions row) renders ~225px tall — well over double
+// the old 110px row height, so two processing nodes auto-placed into
+// adjacent slots of the same lane visually overlapped by design, not just
+// when dragged close together. 280 clears the tallest real card (Eq5Band)
+// with margin.
+const LANE_ROW_HEIGHT = 280;
 const LANE_Y_OFFSET = 40;
 // Matches the <Background> dot gap in RoutingGraph.vue — snapping to anything
 // coarser (e.g. LANE_ROW_HEIGHT) makes a one-dot nudge do nothing until the

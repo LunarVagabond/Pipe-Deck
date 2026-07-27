@@ -63,6 +63,21 @@ async function onControlChange(param: (typeof CONTROLS)[number]["param"], event:
   }
 }
 
+/** Resets Delay/Feedback/Feedforward to their defaults (silent passthrough
+ * timing) — same command each slider already uses, all values zeroed at once. */
+async function onReset() {
+  pending.value = {};
+  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_delay_params", {
+    nodeId: props.nodeId,
+    delayMs: 0,
+    feedbackPercent: 0,
+    feedforwardPercent: 0,
+  });
+  if (!response.success) {
+    handleApplyResult(response, "");
+  }
+}
+
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
@@ -98,6 +113,15 @@ async function onToggleBypass() {
         @click="onToggleIsolate"
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
+      </button>
+      <button
+        type="button"
+        class="routing-graph-node-delay-reset"
+        title="Reset Delay/Feedback/Feedforward to their defaults"
+        aria-label="Reset to defaults"
+        @click="onReset"
+      >
+        ↺
       </button>
     </div>
     <div v-for="control in CONTROLS" :key="control.key" class="routing-graph-node-delay-row">
