@@ -456,8 +456,12 @@ impl AudioBackend for LinuxPipeWireBackend {
                 // default WirePlumber/PipeWire applies to a brand-new
                 // filter-chain node (observed: silence). Force a known-good
                 // state explicitly rather than relying on that default.
-                let _ = pactl::set_sink_volume_by_name(&node.system_name, 100);
-                let _ = pactl::set_sink_mute_by_name(&node.system_name, false);
+                if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
+                    eprintln!("failed to force volume on new EQ5Band sink {}: {error}", node.system_name);
+                }
+                if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
+                    eprintln!("failed to unmute new EQ5Band sink {}: {error}", node.system_name);
+                }
                 Ok(())
             }
             ProcessingNodeKind::Stub { .. } => Ok(()),

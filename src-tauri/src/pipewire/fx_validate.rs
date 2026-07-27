@@ -21,7 +21,7 @@ pub struct PreflightResult {
 /// back (per `FxCapabilities`) rejected rather than silently ignored. Pure
 /// and side-effect-free — never writes anything, never touches PipeWire.
 pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> PreflightResult {
-    let mut warnings = Vec::new();
+    let warnings = Vec::new();
     let mut blocking_reasons = Vec::new();
     let eq = config.eq_stage();
 
@@ -74,12 +74,6 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
                 stage.threshold_db
             ));
         }
-    }
-
-    if blocking_reasons.is_empty() && has_eq_or_gain {
-        warnings.push(
-            "Applying will briefly restart PipeWire audio while the effect chain is loaded".to_string(),
-        );
     }
 
     PreflightResult {

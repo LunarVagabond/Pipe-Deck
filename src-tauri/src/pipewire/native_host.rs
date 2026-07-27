@@ -8,14 +8,29 @@
 //!
 //! ## Lifecycle
 //!
-//! One process-wide `MainLoopRc`/`ContextRc` pair, created once on first use
-//! and held for the life of the process. `pw::deinit()` is deliberately
-//! never called — the spike's own doc comment found that calling it while
-//! `ContextRc`/`MainLoopRc` are still alive segfaults on shutdown (their
-//! `Drop` impls call back into an already-torn-down library). Rather than
-//! get per-call-site teardown ordering right, this process simply never
-//! tears the library down and lets process exit reclaim everything. See the
-//! PD-027 addendum in `docs/architecture/Decisions.md`.
+//! One process-wide `ThreadLoopRc`/`ContextRc` pair, created once on first
+//! use and held for the life of the process. The thread loop is started
+//! immediately and runs continuously on its own dedicated OS thread for the
+//! rest of the process's life — this is what actually lets a loaded
+//! filter-chain instance participate in the real-time graph at all (issue
+//! #303): a plain `pw_main_loop`, only manually `iterate()`d in short bursts
+//! from whichever thread happens to call into this module, is never
+//! listening when the driver wants to schedule this client's owned streams
+//! the rest of the time, so anything it hosts sits permanently suspended
+//! (confirmed live via `pw-top`: `QUANT=0`/state `S` indefinitely, even with
+//! a correctly-wired, actively-playing upstream). Every PipeWire call below
+//! is wrapped in `thread_loop.lock()`/drop to unlock — required whenever
+//! touching an object associated with this loop, per `pw_thread_loop`'s own
+//! contract — and released before any wait/sleep, since holding it would
+//! stop the background thread from making progress during that wait.
+//!
+//! `pw::deinit()` is deliberately never called — the spike's own doc comment
+//! found that calling it while `ContextRc`/the loop are still alive segfaults
+//! on shutdown (their `Drop` impls call back into an already-torn-down
+//! library). Rather than get per-call-site teardown ordering right, this
+//! process simply never tears the library down and lets process exit
+//! reclaim everything. See the PD-027 addendum in
+//! `docs/architecture/Decisions.md`.
 //!
 //! ## Daemon ownership
 //!
@@ -43,11 +58,9 @@ use pipewire::spa::pod::serialize::{PodSerialize, PodSerializer, SerializeSucces
 use pipewire::spa::pod::{Pod, PropertyFlags};
 use pipewire::spa::sys as spa_sys;
 use pipewire::sys as pw_sys;
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::Cursor;
-use std::rc::Rc;
 use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
@@ -112,9 +125,9 @@ struct ModuleHandle(*mut pw_sys::pw_impl_module);
 unsafe impl Send for ModuleHandle {}
 
 struct NativeHost {
-    mainloop: pw::main_loop::MainLoopRc,
+    thread_loop: pw::thread_loop::ThreadLoopRc,
     context: pw::context::ContextRc,
-    // Held for the life of the process alongside `mainloop`/`context`, for
+    // Held for the life of the process alongside `thread_loop`/`context`, for
     // the same reason: reused across every `set_param` call instead of
     // reconnecting (and re-doing the sync handshake) per slider tick.
     // `_core` must outlive `registry` — dropping it first would leave
@@ -124,9 +137,10 @@ struct NativeHost {
     loaded: HashMap<String, ModuleHandle>,
 }
 
-// SAFETY: `MainLoopRc`/`ContextRc` are only ever touched from inside
-// `host()`'s mutex, one caller at a time — never concurrently, and never
-// relied upon to stay pinned to a single OS thread.
+// SAFETY: `ThreadLoopRc`/`ContextRc`/`RegistryRc`/`CoreRc` are designed to be
+// controlled from a thread other than the one the loop itself runs on (that
+// is the entire point of `pw_thread_loop`) — every access to them here goes
+// through `thread_loop.lock()` first, matching that API's own contract.
 unsafe impl Send for NativeHost {}
 
 static NATIVE_HOST: OnceLock<Mutex<NativeHost>> = OnceLock::new();
@@ -135,13 +149,20 @@ fn host() -> &'static Mutex<NativeHost> {
     NATIVE_HOST.get_or_init(|| {
         static PW_INIT: std::sync::Once = std::sync::Once::new();
         PW_INIT.call_once(pw::init);
-        let mainloop = pw::main_loop::MainLoopRc::new(None).expect("failed to create PipeWire main loop");
-        let context = pw::context::ContextRc::new(&mainloop, None).expect("failed to create PipeWire context");
-        let core = context.connect_rc(None).expect("failed to connect to PipeWire core");
-        let registry = core.get_registry_rc().expect("failed to get PipeWire registry");
-        pump(mainloop.loop_());
+        // SAFETY: `pw::init()` has just been called above (exactly once,
+        // process-wide, via `PW_INIT`).
+        let thread_loop = unsafe { pw::thread_loop::ThreadLoopRc::new(Some("pipe-deck-native-host"), None) }
+            .expect("failed to create PipeWire thread loop");
+        thread_loop.start();
+        let (context, core, registry) = {
+            let _lock = thread_loop.lock();
+            let context = pw::context::ContextRc::new(&thread_loop, None).expect("failed to create PipeWire context");
+            let core = context.connect_rc(None).expect("failed to connect to PipeWire core");
+            let registry = core.get_registry_rc().expect("failed to get PipeWire registry");
+            (context, core, registry)
+        };
         Mutex::new(NativeHost {
-            mainloop,
+            thread_loop,
             context,
             registry,
             _core: core,
@@ -150,13 +171,20 @@ fn host() -> &'static Mutex<NativeHost> {
     })
 }
 
-/// Pumps the main loop briefly so a just-issued load/unload's async
-/// node/port setup actually completes before the caller relies on it having
-/// happened — mirrors the spike's own pump loop (~20x50ms).
-fn pump(loop_: &pw::loop_::Loop) {
-    for _ in 0..20 {
-        loop_.iterate(pw::loop_::Timeout::Finite(Duration::from_millis(50)));
-    }
+/// How long to sleep, lock released, per poll attempt while waiting for the
+/// background thread to complete an async round trip (a registry `global`
+/// event arriving, a just-loaded module's ports becoming visible to an
+/// external `pw-link`/`pw-dump` query). Must never be called while holding
+/// `thread_loop.lock()` — that would stop the very thread this is waiting on.
+const SETTLE_INTERVAL: Duration = Duration::from_millis(50);
+/// Matches the previous manually-pumped design's total wait budget
+/// (20 x 50ms = 1s) — kept the same even though the continuously-running
+/// thread loop should settle far faster in practice, since this only trades
+/// off worst-case latency for a within-budget guess, not correctness.
+const SETTLE_ATTEMPTS: u32 = 20;
+
+fn settle() {
+    std::thread::sleep(SETTLE_INTERVAL);
 }
 
 /// Loads `config`'s filter chain onto `device_system_name`, swapping out
@@ -188,15 +216,33 @@ pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChain
     let args_c = CString::new(args).map_err(|_| NativeHostError::InvalidArgs(device_system_name.to_string()))?;
 
     let mut guard = host().lock().expect("native host mutex poisoned");
-    let module_ptr = unsafe {
-        pw_sys::pw_context_load_module(guard.context.as_raw_ptr(), module_name_c.as_ptr(), args_c.as_ptr(), std::ptr::null_mut())
+    let module_ptr = {
+        let _lock = guard.thread_loop.lock();
+        unsafe {
+            pw_sys::pw_context_load_module(guard.context.as_raw_ptr(), module_name_c.as_ptr(), args_c.as_ptr(), std::ptr::null_mut())
+        }
     };
     if module_ptr.is_null() {
         return Err(NativeHostError::LoadFailed(device_system_name.to_string()));
     }
 
-    pump(guard.mainloop.loop_());
     guard.loaded.insert(device_system_name.to_string(), ModuleHandle(module_ptr));
+    drop(guard);
+
+    // Wait for the playback side's ports to actually be visible externally
+    // (to `pw-link`/`pw-dump`, not just to this process) before returning —
+    // callers like `virtual_mic_mix::relink_feeds_to` immediately try to
+    // `pw-link` into the returned name, and a fixed short sleep here isn't
+    // enough of a margin: the module registering with the server is an async
+    // round trip whose latency isn't bounded by anything this process
+    // controls. Same bounded budget as `set_param`'s lookup, just polling a
+    // different condition (port visibility, not node existence).
+    for _ in 0..SETTLE_ATTEMPTS {
+        if crate::pipewire::pw_cli::find_node_id_by_name(&playback_name).ok().flatten().is_some() {
+            break;
+        }
+        settle();
+    }
 
     Ok(playback_name)
 }
@@ -209,8 +255,12 @@ pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
     let Some(handle) = guard.loaded.remove(device_system_name) else {
         return Ok(());
     };
-    unsafe { pw_sys::pw_impl_module_destroy(handle.0) };
-    pump(guard.mainloop.loop_());
+    {
+        let _lock = guard.thread_loop.lock();
+        unsafe { pw_sys::pw_impl_module_destroy(handle.0) };
+    }
+    drop(guard);
+    settle();
     Ok(())
 }
 
@@ -221,14 +271,17 @@ pub fn is_loaded(device_system_name: &str) -> bool {
 
 /// Pushes a live `Props` param update — `(control_name, value)` pairs — to
 /// the already-loaded filter-chain node named `device_system_name`, over
-/// this process's own persistent PipeWire connection rather than shelling
-/// out to `pw-dump`+`pw-cli set-param` per call (`pipewire::pw_cli`, still
-/// used by the device-attached EQ path, PD-020). Async, fire-and-forget on
-/// the node's `set_param` method itself (the native protocol gives no other
-/// per-call ack — see PipeWire's own native-protocol docs), but the registry
-/// lookup below only returns once the target node is actually found (or the
-/// scan times out), which is the meaningful confirmation that the push has
-/// somewhere real to land.
+/// this process's own persistent PipeWire connection for the actual push.
+/// Finds the target node's id via a synchronous `pw-dump` snapshot
+/// (`pipewire::pw_cli::find_node_id_by_name`, the same lookup the
+/// device-attached EQ path already uses) rather than a registry `global`
+/// listener — a listener only ever sees a `global` *announcement* event,
+/// which the server sends to this client exactly once, the first time each
+/// object becomes visible. A listener registered any time after that never
+/// sees it again, so waiting on one here would only ever work in the narrow
+/// window right after the node was first created — not on every later call
+/// (issue #303: this made every EQ slider drag after the first fail with
+/// "no live PipeWire node found").
 pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(), NativeHostError> {
     if params.is_empty() {
         return Ok(());
@@ -236,40 +289,30 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
 
     let guard = host().lock().expect("native host mutex poisoned");
 
-    let found: Rc<RefCell<Option<pw::registry::GlobalObject<pw::properties::PropertiesBox>>>> =
-        Rc::new(RefCell::new(None));
-    let target_name = device_system_name.to_string();
-    let found_for_listener = Rc::clone(&found);
-    let listener = guard
-        .registry
-        .add_listener_local()
-        .global(move |global| {
-            if found_for_listener.borrow().is_some() {
-                return;
-            }
-            if global.type_ != pw::types::ObjectType::Node {
-                return;
-            }
-            let Some(props) = global.props.as_ref() else {
-                return;
-            };
-            if props.get("node.name") == Some(target_name.as_str()) {
-                *found_for_listener.borrow_mut() = Some(global.to_owned());
-            }
-        })
-        .register();
-
-    pump(guard.mainloop.loop_());
-    drop(listener);
-
-    let Some(global) = found.borrow_mut().take() else {
+    let mut id = None;
+    for _ in 0..SETTLE_ATTEMPTS {
+        id = crate::pipewire::pw_cli::find_node_id_by_name(device_system_name).ok().flatten();
+        if id.is_some() {
+            break;
+        }
+        settle();
+    }
+    let Some(id) = id else {
         return Err(NativeHostError::NodeNotFound(device_system_name.to_string()));
     };
 
-    let node: pw::node::Node = guard
-        .registry
-        .bind(&global)
-        .map_err(|_| NativeHostError::BindFailed(device_system_name.to_string()))?;
+    // `bind()` only reads `id` and (via `type_.client_version()`) `type_` —
+    // `permissions`/`version`/`props` are unused by it, so a hand-built
+    // `GlobalObject` carrying just those two real fields (the target is
+    // always a Node — the only kind `pw-dump`'s lookup above matches) is
+    // exactly as valid a `bind()` target as a registry-supplied one.
+    let global = pw::registry::GlobalObject {
+        id,
+        permissions: pw::permissions::PermissionFlags::empty(),
+        type_: pw::types::ObjectType::Node,
+        version: 0,
+        props: None::<pw::properties::PropertiesBox>,
+    };
 
     let mut bytes = Vec::new();
     PodSerializer::serialize(Cursor::new(&mut bytes), &EffectProps(params))
@@ -277,9 +320,26 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
     let pod = Pod::from_bytes(&bytes)
         .ok_or_else(|| NativeHostError::PodBuildFailed("serialized pod bytes were malformed".into()))?;
 
-    node.set_param(spa::param::ParamType::from_raw(spa_sys::SPA_PARAM_Props), 0, pod);
-
-    pump(guard.mainloop.loop_());
+    {
+        let _lock = guard.thread_loop.lock();
+        // `node`'s scope (bind, use, and — critically — `Drop`, which tears
+        // down the proxy) is kept entirely inside this single lock guard.
+        // Letting it outlive the lock (as an earlier version of this
+        // function did, binding under one `lock()`/drop and only
+        // `set_param`-ing under a second, separate one) meant `node`'s own
+        // destructor ran with no lock held at all once the function
+        // returned — PipeWire's own thread-safety checks caught this live
+        // (`*** impl_ext_end_proxy called from wrong context, check thread
+        // and locking`), since destroying a proxy is exactly the kind of
+        // "touches an object associated with this loop" operation the lock
+        // contract requires.
+        let node: pw::node::Node =
+            guard.registry.bind(&global).map_err(|_| NativeHostError::BindFailed(device_system_name.to_string()))?;
+        node.set_param(spa::param::ParamType::from_raw(spa_sys::SPA_PARAM_Props), 0, pod);
+        drop(node);
+    }
+    drop(guard);
+    settle();
 
     Ok(())
 }

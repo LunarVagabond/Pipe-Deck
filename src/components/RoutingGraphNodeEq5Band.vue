@@ -60,7 +60,13 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
-  await invoke("set_processing_node_bypassed", { nodeId: props.nodeId, bypassed: !props.bypassed });
+  const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {
+    nodeId: props.nodeId,
+    bypassed: !props.bypassed,
+  });
+  if (!response.success) {
+    handleApplyResult(response, "");
+  }
 }
 </script>
 

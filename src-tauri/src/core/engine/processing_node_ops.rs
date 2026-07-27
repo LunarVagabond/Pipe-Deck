@@ -498,8 +498,16 @@ impl CoreEngine {
         // graph the same way `set_processing_node_eq_params` already
         // updates it unconditionally — mock has no config-backed merge step
         // to fall back on (see `merge_processing_nodes`).
+        // Soft-fail the live push the same way `update_processing_node_eq_params`
+        // does: a slider/toggle racing the node's own readiness is an
+        // expected transient (see that function's doc comment), not a
+        // reason to skip persisting or refreshing the graph. Hard-`?`-failing
+        // here used to mean a raced toggle left nothing persisted and no
+        // `graph-updated` event fired at all — from the UI, clicking Bypass
+        // did nothing visible, silently, since the frontend had no local
+        // optimistic state to fall back on either.
         let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
-        if is_eq || self.graph.data_source == "mock" {
+        let live_apply_error = if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
                 ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => {
                     (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
@@ -508,8 +516,10 @@ impl CoreEngine {
             };
             self.adapter
                 .set_processing_node_eq_params(&node.system_name, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain, bypassed)
-                .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        }
+                .err()
+        } else {
+            None
+        };
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
@@ -518,6 +528,10 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
+
+        if let Some(error) = live_apply_error {
+            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+        }
         Ok(ApplyResult { success: true, message: None })
     }
 
