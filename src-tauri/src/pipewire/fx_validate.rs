@@ -1,4 +1,4 @@
-use crate::core::models::EffectChainConfig;
+use crate::core::models::{DelayStageParams, EffectChainConfig};
 use crate::pipewire::fx_capability::FxCapabilities;
 
 /// Range bounds enforced before any value is ever serialized into a conf
@@ -7,6 +7,13 @@ use crate::pipewire::fx_capability::FxCapabilities;
 /// caught something.
 const EQ_GAIN_RANGE_DB: (i32, i32) = (-12, 12);
 const OUTPUT_GAIN_RANGE_DB: (i32, i32) = (-12, 12);
+/// PipeWire's builtin `delay` filter clamps its own `"Delay (s)"` control to
+/// whatever `max-delay` the node's `config` declares — this is that same
+/// ceiling, enforced here first so an out-of-range value is rejected
+/// outright rather than silently clamped by the filter itself.
+const DELAY_MAX_MS: i32 = 2000;
+const FEEDBACK_RANGE_PERCENT: (i32, i32) = (0, 100);
+const FEEDFORWARD_RANGE_PERCENT: (i32, i32) = (-100, 100);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -60,6 +67,18 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
                 .to_string(),
         );
     }
+    if let Some(delay) = config.delay_stage() {
+        check_range("Delay", delay.delay_ms, (0, DELAY_MAX_MS), &mut blocking_reasons);
+        check_range("Feedback", delay.feedback_percent, FEEDBACK_RANGE_PERCENT, &mut blocking_reasons);
+        check_range("Feedforward", delay.feedforward_percent, FEEDFORWARD_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_delay {
+            blocking_reasons.push(
+                "Delay requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -107,6 +126,9 @@ fn check_range(label: &str, value: i32, range: (i32, i32), blocking_reasons: &mu
 pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
     let effect_output_name = format!("effect_output.{device_system_name}");
+    if let Some(delay) = config.delay_stage() {
+        return render_delay_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &delay);
+    }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -124,12 +146,85 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
 pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
     let effect_input_name = format!("effect_input.{device_system_name}");
+    if let Some(delay) = config.delay_stage() {
+        return render_delay_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &delay,
+        );
+    }
     render_filter_chain_conf(
         &node_description,
         &effect_input_name,
         device_system_name,
         Some("Audio/Source/Virtual"),
         config,
+    )
+}
+
+fn render_delay_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &DelayStageParams,
+) -> String {
+    let args = render_delay_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single Delay
+/// processing node (issue #313) — a single `delay` filter, no chaining/links
+/// needed (a one-filter graph implicitly uses that filter's own ports as the
+/// graph's inputs/outputs, per `man 7 libpipewire-module-filter-chain`).
+/// Bypassed bakes in the same "zero delay, zero feedback" neutral values
+/// `delay_live_params` would push right after, matching the EQ renderer's
+/// bypass convention.
+fn render_delay_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &DelayStageParams,
+) -> String {
+    let delay_seconds = if bypassed { 0.0 } else { f64::from(params.delay_ms) / 1000.0 };
+    let feedback = if bypassed { 0.0 } else { f64::from(params.feedback_percent) / 100.0 };
+    let feedforward = if bypassed { 0.0 } else { f64::from(params.feedforward_percent) / 100.0 };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = delay label = delay config = {{ "max-delay" = 2.0 }} control = {{ "Delay (s)" = {delay_seconds} "Feedback" = {feedback} "Feedforward" = {feedforward} }} }}
+                ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
     )
 }
 
@@ -219,6 +314,9 @@ fn render_filter_chain_module_args(
 pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
     let effect_output_name = format!("effect_output.{device_system_name}");
+    if let Some(delay) = config.delay_stage() {
+        return render_delay_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &delay);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -226,6 +324,16 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
 pub fn render_module_args_capture(device_system_name: &str, config: &EffectChainConfig) -> String {
     let node_description = format!("Pipe Deck Effects - {device_system_name}");
     let effect_input_name = format!("effect_input.{device_system_name}");
+    if let Some(delay) = config.delay_stage() {
+        return render_delay_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &delay,
+        );
+    }
     render_filter_chain_module_args(
         &node_description,
         &effect_input_name,
@@ -270,6 +378,10 @@ fn db_to_linear_mult(db: i32) -> f64 {
 /// exactly as it is, only the audible effect goes away. That's the whole
 /// mechanism behind "mute effects without touching the link".
 pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
+    if let Some(delay) = config.delay_stage() {
+        return delay_live_params(config.bypassed, &delay);
+    }
+
     if config.bypassed {
         return vec![
             ("eq_sub:Gain".to_string(), 0.0),
@@ -292,6 +404,25 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     ]
 }
 
+/// The `(control_name, value)` pairs for a live Delay slider update — node
+/// name must match `render_delay_filter_chain_module_args`'s single `delay`
+/// node exactly. Bypassed pushes zero delay/feedback/feedforward, same
+/// neutral-values-without-touching-links mechanism as the EQ path.
+fn delay_live_params(bypassed: bool, params: &DelayStageParams) -> Vec<(String, f64)> {
+    if bypassed {
+        return vec![
+            ("delay:Delay (s)".to_string(), 0.0),
+            ("delay:Feedback".to_string(), 0.0),
+            ("delay:Feedforward".to_string(), 0.0),
+        ];
+    }
+    vec![
+        ("delay:Delay (s)".to_string(), f64::from(params.delay_ms) / 1000.0),
+        ("delay:Feedback".to_string(), f64::from(params.feedback_percent) / 100.0),
+        ("delay:Feedforward".to_string(), f64::from(params.feedforward_percent) / 100.0),
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -301,8 +432,17 @@ mod tests {
         FxCapabilities {
             builtin_eq,
             builtin_gain: builtin_eq,
+            builtin_delay: builtin_eq,
             builtin_limiter: false,
             ladspa_noise_gate: None,
+        }
+    }
+
+    /// Builds a chain with a single `Delay` stage — mirrors `eq_chain`.
+    fn delay_chain(delay_ms: i32, feedback_percent: i32, feedforward_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Delay { id: "delay".to_string(), delay_ms, feedback_percent, feedforward_percent }],
+            ..Default::default()
         }
     }
 
@@ -482,6 +622,84 @@ mod tests {
             assert!(
                 rendered.contains(&format!("name = {node_name} ")),
                 "render_conf_capture is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    // --- Delay (issue #313) ---
+
+    #[test]
+    fn accepts_in_range_delay_when_builtin_present() {
+        let config = delay_chain(500, 30, 0);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_delay_ms() {
+        let config = delay_chain(5000, 0, 0);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Delay")));
+    }
+
+    #[test]
+    fn rejects_out_of_range_feedback() {
+        let config = delay_chain(0, 150, 0);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Feedback")));
+    }
+
+    #[test]
+    fn rejects_delay_when_builtin_filter_chain_module_missing() {
+        let config = delay_chain(500, 0, 0);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_delay_filter_when_a_delay_stage_is_present() {
+        let config = delay_chain(500, 30, 0);
+        let rendered = render_module_args("pipe-deck-echo", &config);
+        assert!(rendered.contains("label = delay"));
+        assert!(!rendered.contains("bq_peaking"), "delay rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_delay_stage() {
+        let config = delay_chain(500, 30, -10);
+        assert_eq!(render_module_args("pipe-deck-echo", &config), render_module_args("pipe-deck-echo", &config));
+    }
+
+    #[test]
+    fn delay_bypass_pushes_neutral_live_params_regardless_of_configured_values() {
+        let config = EffectChainConfig { bypassed: true, ..delay_chain(500, 30, -10) };
+        for (_name, value) in live_params(&config) {
+            assert_eq!(value, 0.0, "bypassed delay params should all be neutral");
+        }
+    }
+
+    #[test]
+    fn delay_bypass_bakes_neutral_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..delay_chain(500, 30, 0) };
+        let rendered = render_module_args("pipe-deck-echo", &config);
+        assert!(rendered.contains(r#""Delay (s)" = 0"#));
+        assert!(!rendered.contains(r#""Delay (s)" = 0.5"#));
+    }
+
+    #[test]
+    fn delay_live_params_control_names_match_render_module_args_node_name() {
+        let config = delay_chain(500, 30, 0);
+        let rendered = render_module_args("pipe-deck-echo", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
             );
         }
     }

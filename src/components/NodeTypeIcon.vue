@@ -67,6 +67,12 @@ defineProps<{
       <rect x="15.45" y="9" width="2.3" height="10" rx="0.6" />
       <rect x="19.8" y="6.5" width="2.3" height="12.5" rx="0.6" />
     </g>
+    <!-- Delay node: decaying echo pulses -->
+    <g v-else-if="kind === 'delay'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+      <path d="M4 12a8 8 0 1 1 2.3 5.6" />
+      <path d="M4 12v5h5" />
+      <path d="M12 8v4l2.5 2.5" stroke-width="1.5" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

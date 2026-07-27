@@ -475,6 +475,49 @@ impl CoreEngine {
         Ok(ApplyResult { success: true, message: None })
     }
 
+    /// Live-updates a Delay node's Delay/Feedback/Feedforward controls — same
+    /// PD-017 two-speed fast path and soft-fail-on-persist contract as
+    /// `update_processing_node_eq_params` (see that function's doc comment
+    /// for why persisting/refreshing must happen even if the live push
+    /// itself races the node's readiness).
+    pub fn update_processing_node_delay_params(
+        &mut self,
+        node_id: &str,
+        delay_ms: i32,
+        feedback_percent: i32,
+        feedforward_percent: i32,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+
+        if !matches!(node.kind, ProcessingNodeKind::Delay { .. }) {
+            return Err(EngineError::InvalidInput(format!("{node_id} has no delay params to update")));
+        }
+
+        let live_apply_error = self
+            .adapter
+            .set_processing_node_delay_params(&node.system_name, delay_ms, feedback_percent, feedforward_percent, node.bypassed)
+            .err();
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .update_processing_node_delay(node_id, delay_ms, feedback_percent, feedforward_percent)
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+
+        if let Some(error) = live_apply_error {
+            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+        }
+        Ok(ApplyResult { success: true, message: None })
+    }
+
     /// Keeps a node wired exactly as-is but toggles whether audio passes
     /// through it processed or not — connections/ports never change, only
     /// the signal itself. Only `Eq5Band` currently enforces this backend-
@@ -506,8 +549,19 @@ impl CoreEngine {
         // `graph-updated` event fired at all — from the UI, clicking Bypass
         // did nothing visible, silently, since the frontend had no local
         // optimistic state to fall back on either.
+        let is_delay = matches!(node.kind, ProcessingNodeKind::Delay { .. });
         let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
-        let live_apply_error = if is_eq || self.graph.data_source == "mock" {
+        let live_apply_error = if is_delay {
+            let (delay_ms, feedback_percent, feedforward_percent) = match node.kind {
+                ProcessingNodeKind::Delay { delay_ms, feedback_percent, feedforward_percent } => {
+                    (delay_ms, feedback_percent, feedforward_percent)
+                }
+                _ => (0, 0, 0),
+            };
+            self.adapter
+                .set_processing_node_delay_params(&node.system_name, delay_ms, feedback_percent, feedforward_percent, bypassed)
+                .err()
+        } else if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
                 ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => {
                     (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
@@ -685,6 +739,7 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
         ProcessingNodeSpecKind::Mixer => "mixer",
         ProcessingNodeSpecKind::FanOut { .. } => "fan_out",
         ProcessingNodeSpecKind::Eq5Band { .. } => "eq5band",
+        ProcessingNodeSpecKind::Delay { .. } => "delay",
         ProcessingNodeSpecKind::Stub { .. } => "stub",
     }
 }
@@ -808,6 +863,11 @@ fn processing_node_from_spec_with_siblings(
             eq_treble: *eq_treble,
             eq_air: *eq_air,
             output_gain: *output_gain,
+        },
+        ProcessingNodeSpecKind::Delay { delay_ms, feedback_percent, feedforward_percent } => ProcessingNodeKind::Delay {
+            delay_ms: *delay_ms,
+            feedback_percent: *feedback_percent,
+            feedforward_percent: *feedforward_percent,
         },
         ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub { stub_kind: *stub_kind },
     };
@@ -1054,6 +1114,66 @@ mod live_tests {
         assert!(sink_gone_after_removal, "removing the EQ node should unload its native chain");
     }
 
+    /// Delay Node round-trip (issue #313) against a real PipeWire session —
+    /// same structure/reasoning as `eq5band_node_round_trips_on_a_real_pipewire_session`.
+    #[test]
+    #[ignore]
+    fn delay_node_round_trips_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut ephemeral_daemon = crate::daemon::ensure_ephemeral_daemon();
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            panic!("native-effects daemon did not become reachable — is src-tauri/bin/pipe-deck-daemon-* built (make check/make build-rust)?");
+        }
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+        };
+
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Delay",
+            ProcessingNodeSpecKind::Delay { delay_ms: 0, feedback_percent: 0, feedforward_percent: 0 },
+        ) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+
+        let sink_live_after_create = pactl::sink_exists(&node.system_name).unwrap_or(false);
+
+        // Same "attempted, not asserted" reasoning as the EQ test above —
+        // see its doc comment for why the live-param push itself is a known
+        // sandbox-specific flake, not the correctness concern this covers.
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let update_result = engine.update_processing_node_delay_params(&node.id, 300, 25, 0);
+        if let Err(error) = &update_result {
+            eprintln!(
+                "note: live delay param update did not succeed in this environment ({error}) — see this test's doc comment"
+            );
+        }
+
+        cleanup(&mut engine, Some(&node.id));
+        let sink_gone_after_removal = !pactl::sink_exists(&node.system_name).unwrap_or(true);
+
+        if let Some(child) = ephemeral_daemon.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        assert!(sink_live_after_create, "Delay node's native-hosted sink did not appear after creation");
+        assert!(sink_gone_after_removal, "removing the Delay node should unload its native chain");
+    }
+
     /// A Stub node never creates a real PipeWire sink (see
     /// `ProcessingNodeKind::Stub`) — connecting/disconnecting its ports must
     /// therefore be a true no-op rather than attempting a `pw-link` against
@@ -1083,7 +1203,7 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live Stub",
-            ProcessingNodeSpecKind::Stub { stub_kind: crate::core::models::StubEffectKind::ReverbDelay },
+            ProcessingNodeSpecKind::Stub { stub_kind: crate::core::models::StubEffectKind::Saturation },
         ) {
             Ok(node) => node,
             Err(error) => {

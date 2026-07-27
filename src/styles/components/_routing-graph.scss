@@ -646,6 +646,77 @@
   opacity: 0.75;
 }
 
+.routing-graph-node-delay {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding-top: 0.35rem;
+  border-top: 1px dashed rgba(255, 255, 255, 0.1);
+
+  &.is-bypassed {
+    opacity: 0.6;
+  }
+}
+
+.routing-graph-node-delay-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-bottom: 0.15rem;
+}
+
+.routing-graph-node-delay-bypass {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--accent-amber, #e0a030);
+    color: var(--accent-amber, #e0a030);
+  }
+}
+
+.routing-graph-node-delay-isolate {
+  padding: 0.1rem 0.5rem;
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.2));
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.65rem;
+  cursor: pointer;
+
+  &.active {
+    border-color: var(--accent-teal, #3ddbd9);
+    color: var(--accent-teal, #3ddbd9);
+  }
+}
+
+.routing-graph-node-delay-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.routing-graph-node-delay-label {
+  flex: 0 0 4.5rem;
+  font-size: 0.7rem;
+}
+
+.routing-graph-node-delay-slider {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.routing-graph-node-delay-value {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  opacity: 0.75;
+}
+
 // PD-032 stub effect nodes (issue #293's 11 non-DSP kinds) — a plain
 // pass-through with nothing to configure, visibly labeled so it's never
 // mistaken for a working effect.

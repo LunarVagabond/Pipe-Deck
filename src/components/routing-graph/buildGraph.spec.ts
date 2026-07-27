@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeGraph, makeStream } from "../../test/graphFixtures";
-import { buildRoutingGraph, streamNodeId } from "./buildGraph";
+import { makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
+import { buildRoutingGraph, processingNodeNodeId, streamNodeId } from "./buildGraph";
 import type { RoutingGraphNodeData } from "./buildGraph";
 import type { ActionStatus } from "../../types/graph";
 
@@ -61,4 +61,27 @@ describe("streamNodeKind route warnings", () => {
       expect(dataFor(status)?.routeWarning).toBeUndefined();
     },
   );
+});
+
+describe("delay processing node (#313)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Delay subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-delay-1",
+      label: "Echo",
+      kind: { kind: "delay", delay_ms: 350, feedback_percent: 40, feedforward_percent: -10 },
+      system_name: "pipe-deck-proc-delay-echo",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-delay-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Delay");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "delay", delay_ms: 350, feedback_percent: 40, feedforward_percent: -10 });
+    expect(data?.supportsEffects).toBe(false);
+  });
 });

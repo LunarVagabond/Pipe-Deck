@@ -161,11 +161,13 @@ fn processing_node_create_remove_round_trips() {
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
-/// Stub effect kinds (issue #293's 11 non-DSP kinds) round-trip the same way
-/// as real kinds through the graph model even though — per PD-032 — nothing
-/// ever calls `AudioBackend::load_processing_node`'s PipeWire path for them
-/// in anger; this only proves the create/remove *bookkeeping* is uniform
-/// across kinds, not that Phase 5's pass-through wiring exists yet.
+/// Stub effect kinds (issue #293's originally-11 non-DSP kinds, now 10 since
+/// `reverb_delay` graduated to a real `Delay` processing node — issue #313)
+/// round-trip the same way as real kinds through the graph model even
+/// though — per PD-032 — nothing ever calls `AudioBackend::load_processing_node`'s
+/// PipeWire path for them in anger; this only proves the create/remove
+/// *bookkeeping* is uniform across kinds, not that Phase 5's pass-through
+/// wiring exists yet.
 #[test]
 fn stub_processing_node_round_trips_without_error() {
     use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind, StubEffectKind};
@@ -173,20 +175,22 @@ fn stub_processing_node_round_trips_without_error() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Reverb", ProcessingNodeSpecKind::Stub { stub_kind: StubEffectKind::ReverbDelay })
+        .create_processing_node("Saturation", ProcessingNodeSpecKind::Stub { stub_kind: StubEffectKind::Saturation })
         .expect("create stub node");
-    assert!(matches!(node.kind, ProcessingNodeKind::Stub { stub_kind: StubEffectKind::ReverbDelay }));
+    assert!(matches!(node.kind, ProcessingNodeKind::Stub { stub_kind: StubEffectKind::Saturation }));
     assert!(!node.live);
 
     engine.remove_processing_node(&node.id).expect("remove stub node");
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
-/// All 11 non-DSP stub kinds (issue #293) round-trip identically: create,
-/// connect a real input and output, disconnect, remove — pure pass-through
-/// graph bookkeeping, never `live`, and (per a real-backend regression this
-/// caught during phase 5) connect/disconnect must be a true no-op rather
-/// than attempting a `pw-link` against a sink a stub never actually creates.
+/// All 10 remaining non-DSP stub kinds (issue #293, less `eq5band` and
+/// `delay` which have since graduated to real processing nodes) round-trip
+/// identically: create, connect a real input and output, disconnect, remove
+/// — pure pass-through graph bookkeeping, never `live`, and (per a
+/// real-backend regression this caught during phase 5) connect/disconnect
+/// must be a true no-op rather than attempting a `pw-link` against a sink a
+/// stub never actually creates.
 #[test]
 fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
@@ -195,7 +199,6 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
         StubEffectKind::Limiter,
         StubEffectKind::Compressor,
         StubEffectKind::NoiseGate,
-        StubEffectKind::ReverbDelay,
         StubEffectKind::Denoise,
         StubEffectKind::DeEsser,
         StubEffectKind::AutoGainLeveler,
@@ -605,6 +608,77 @@ fn eq_param_update_rejects_a_non_eq_node() {
         .update_processing_node_eq_params(&node.id, 0, 0, 0, 0, 0, 0)
         .expect_err("eq update on a non-EQ node should be rejected");
     assert!(error.to_string().contains("has no EQ params"), "{error}");
+}
+
+/// Delay Node round-trip (issue #313): create, live-update Delay/Feedback/
+/// Feedforward, remove. Same pattern as `eq5band_node_create_update_remove_round_trips`.
+#[test]
+fn delay_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Echo",
+            ProcessingNodeSpecKind::Delay { delay_ms: 0, feedback_percent: 0, feedforward_percent: 0 },
+        )
+        .expect("create delay node");
+    assert_eq!(node.system_name, "pipe-deck-proc-delay-echo");
+
+    engine
+        .update_processing_node_delay_params(&node.id, 350, 40, -10)
+        .expect("update delay params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Delay { delay_ms: 350, feedback_percent: 40, feedforward_percent: -10 }
+    );
+
+    engine.remove_processing_node(&node.id).expect("remove delay node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Delay node's DSP without disturbing wiring — same
+/// contract as `bypass_toggles_without_disturbing_wiring` for Eq5Band.
+#[test]
+fn delay_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node(
+            "Echo",
+            ProcessingNodeSpecKind::Delay { delay_ms: 200, feedback_percent: 30, feedforward_percent: 0 },
+        )
+        .expect("create delay node");
+    let source = engine.create_virtual_output("Delay Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn delay_param_update_rejects_a_non_delay_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_delay_params(&node.id, 0, 0, 0)
+        .expect_err("delay update on a non-Delay node should be rejected");
+    assert!(error.to_string().contains("has no delay params"), "{error}");
 }
 
 /// Any device kind can feed a Mixer node's input — a virtual output device

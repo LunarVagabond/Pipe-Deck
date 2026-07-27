@@ -330,6 +330,20 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_eq_params: not implemented".into()))
     }
+
+    /// Live-updates a Delay node's Delay/Feedback/Feedforward controls
+    /// without reloading the chain — same PD-017 fast path and bypass
+    /// mechanism as `set_processing_node_eq_params` (issue #313).
+    fn set_processing_node_delay_params(
+        &self,
+        _system_name: &str,
+        _delay_ms: i32,
+        _feedback_percent: i32,
+        _feedforward_percent: i32,
+        _bypassed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_delay_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
