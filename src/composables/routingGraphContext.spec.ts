@@ -25,6 +25,8 @@ describe("routingGraphActionsKey", () => {
       disconnectPort: () => {},
       addEffectStage: () => {},
       bringNodeHere: () => {},
+      isolateEffectNode: () => {},
+      isEffectIsolated: () => false,
     };
 
     let injected: RoutingGraphActions | undefined;

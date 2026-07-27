@@ -47,6 +47,7 @@ import {
 } from "../composables/routingGraphContext";
 import { useApplyResult } from "../stores/notices";
 import { useEffectChain } from "../composables/useEffectChain";
+import { useEffectIsolation } from "../composables/useEffectIsolation";
 import { useConfirm } from "../stores/confirm";
 import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 import { usePrompt } from "../stores/prompt";
@@ -59,6 +60,7 @@ const props = defineProps<{
 
 const { handleApplyResult } = useApplyResult();
 const { addEq5BandStage } = useEffectChain();
+const { isolatedNodeId, toggleIsolation, clearIsolation } = useEffectIsolation();
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
 const { openNewDeviceDialog } = useNewDeviceDialog();
@@ -169,6 +171,12 @@ const graphActions = {
     const flowPosition = vueFlow.screenToFlowCoordinate({ x, y });
     saveNodePosition(nodeId, flowPosition.x, flowPosition.y);
     layoutVersion.value += 1;
+  },
+  async isolateEffectNode(nodeId: string) {
+    await toggleIsolation(nodeId, props.graph, built.value.edges);
+  },
+  isEffectIsolated(nodeId: string) {
+    return isolatedNodeId.value === nodeId;
   },
 };
 
@@ -451,6 +459,18 @@ watch(
   () => props.graph,
   () => {
     contextMenu.value = null;
+    // Isolate's bookkeeping only tracks which nodes it bypassed, not whether
+    // the isolated node itself still exists — if it was deleted mid-isolate,
+    // restore its siblings rather than leaving them bypassed forever.
+    if (isolatedNodeId.value) {
+      const parsed = parseGraphNodeId(isolatedNodeId.value);
+      const stillExists =
+        parsed?.kind === "processingNode" &&
+        (props.graph.processing_nodes ?? []).some((node) => node.id === parsed.id);
+      if (!stillExists) {
+        void clearIsolation();
+      }
+    }
   },
   { deep: true },
 );
