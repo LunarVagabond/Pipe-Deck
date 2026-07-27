@@ -91,6 +91,12 @@ defineProps<{
       <path d="M5 12a7 7 0 0 1 14 0" stroke-width="1.25" opacity="0.7" />
       <path d="M2 12a10 10 0 0 1 20 0" stroke-width="1" opacity="0.45" />
     </g>
+    <!-- Stereo Widener node: outward-diverging arrows, L/R spreading apart -->
+    <g v-else-if="kind === 'widener'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4v16" stroke-dasharray="2 2.5" stroke-width="1.25" opacity="0.6" />
+      <path d="M9 8 5 12l4 4" />
+      <path d="M15 8l4 4-4 4" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

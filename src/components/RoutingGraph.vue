@@ -276,7 +276,7 @@ function onPaneContextMenu(event: MouseEvent) {
 }
 
 async function onAddNodeAction(
-  type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb",
+  type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener",
 ) {
   contextMenu.value = null;
   if (
@@ -286,7 +286,8 @@ async function onAddNodeAction(
     type === "delay" ||
     type === "limiter" ||
     type === "hpf" ||
-    type === "reverb"
+    type === "reverb" ||
+    type === "widener"
   ) {
     const defaultLabel =
       type === "fan_out"
@@ -301,7 +302,9 @@ async function onAddNodeAction(
                 ? "Limiter"
                 : type === "hpf"
                   ? "High-Pass Filter"
-                  : "Reverb";
+                  : type === "reverb"
+                    ? "Reverb"
+                    : "Stereo Widener";
     // Node ids are derived from this label (`processing-{kind}-{slug}`), so
     // creating a second node of the same kind needs a distinct name — a
     // fixed default would collide with the first and be rejected outright.

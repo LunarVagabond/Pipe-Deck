@@ -241,6 +241,22 @@ pub enum ProcessingNodeKind {
         #[serde(default)]
         mix_percent: i32,
     },
+    /// Backed entirely by PipeWire's builtin `mixer`/`copy` filters (issue
+    /// #314) — a mid/side widener: split into `mid = 0.5L+0.5R` and
+    /// `side = 0.5L-0.5R`, then recombined as `out_L = mid + width*side`,
+    /// `out_R = mid - width*side`. No `Invert` filter needed — a `mixer`
+    /// node's per-input `Gain` control accepts a negative value directly, so
+    /// subtraction is just a negative gain rather than a separate inversion
+    /// stage. `width_percent` of `100` exactly reconstructs the original
+    /// signal (`out_L=L`, `out_R=R` — this is the neutral/bypass value, NOT
+    /// `0`, unlike every other processing node kind so far); `0` fully
+    /// narrows to mono; above `100` widens further, up to `200` (side
+    /// doubled).
+    #[serde(rename = "widener")]
+    Widener {
+        #[serde(default = "default_widener_width_percent")]
+        width_percent: i32,
+    },
     /// One of issue #293's non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
@@ -257,6 +273,10 @@ fn default_hpf_resonance_x10() -> i32 {
     7
 }
 
+fn default_widener_width_percent() -> i32 {
+    100
+}
+
 impl ProcessingNodeKind {
     pub fn kind_str(&self) -> &'static str {
         match self {
@@ -267,6 +287,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::Limiter { .. } => "limiter",
             ProcessingNodeKind::Hpf { .. } => "hpf",
             ProcessingNodeKind::Reverb { .. } => "reverb",
+            ProcessingNodeKind::Widener { .. } => "widener",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -280,7 +301,6 @@ pub enum StubEffectKind {
     Denoise,
     DeEsser,
     AutoGainLeveler,
-    StereoWidener,
     PitchShift,
     LoudnessNormalizer,
     Saturation,
@@ -699,6 +719,11 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default)]
         mix_percent: i32,
     },
+    #[serde(rename = "widener")]
+    Widener {
+        #[serde(default = "default_widener_width_percent")]
+        width_percent: i32,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -1044,6 +1069,15 @@ pub enum EffectStage {
         #[serde(default)]
         mix_percent: i32,
     },
+    /// Backed by PipeWire's builtin `mixer`/`copy` filters (issue #314) —
+    /// same "carries a processing node's params through the existing
+    /// transport" role as `Delay`/`Limiter` above.
+    #[serde(rename = "widener")]
+    Widener {
+        id: String,
+        #[serde(default = "default_widener_width_percent")]
+        width_percent: i32,
+    },
 }
 
 impl Default for EffectStage {
@@ -1068,6 +1102,7 @@ impl EffectStage {
             EffectStage::Limiter { .. } => "limiter",
             EffectStage::Hpf { .. } => "hpf",
             EffectStage::Reverb { .. } => "reverb",
+            EffectStage::Widener { .. } => "widener",
         }
     }
 
@@ -1078,6 +1113,7 @@ impl EffectStage {
             EffectStage::Limiter { id, .. } => id,
             EffectStage::Hpf { id, .. } => id,
             EffectStage::Reverb { id, .. } => id,
+            EffectStage::Widener { id, .. } => id,
         }
     }
 }
@@ -1129,6 +1165,12 @@ pub struct HpfStageParams {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct ReverbStageParams {
     pub mix_percent: i32,
+}
+
+/// Flattened params for a chain's `Widener` stage, mirroring `LimiterStageParams`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct WidenerStageParams {
+    pub width_percent: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1272,7 +1314,11 @@ impl EffectChainConfig {
                     eq_air: *eq_air,
                     output_gain: *output_gain,
                 }),
-                EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } | EffectStage::Reverb { .. } => None,
+                EffectStage::Delay { .. }
+                | EffectStage::Limiter { .. }
+                | EffectStage::Hpf { .. }
+                | EffectStage::Reverb { .. }
+                | EffectStage::Widener { .. } => None,
             })
             .unwrap_or_default()
     }
@@ -1288,7 +1334,11 @@ impl EffectChainConfig {
                 feedback_percent: *feedback_percent,
                 feedforward_percent: *feedforward_percent,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } | EffectStage::Reverb { .. } => None,
+            EffectStage::Eq5Band { .. }
+            | EffectStage::Limiter { .. }
+            | EffectStage::Hpf { .. }
+            | EffectStage::Reverb { .. }
+            | EffectStage::Widener { .. } => None,
         })
     }
 
@@ -1301,7 +1351,11 @@ impl EffectChainConfig {
                 ceiling_db: *ceiling_db,
                 floor_db: *floor_db,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Hpf { .. } | EffectStage::Reverb { .. } => None,
+            EffectStage::Eq5Band { .. }
+            | EffectStage::Delay { .. }
+            | EffectStage::Hpf { .. }
+            | EffectStage::Reverb { .. }
+            | EffectStage::Widener { .. } => None,
         })
     }
 
@@ -1312,7 +1366,11 @@ impl EffectChainConfig {
                 freq_hz: *freq_hz,
                 resonance_x10: *resonance_x10,
             }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Reverb { .. } => None,
+            EffectStage::Eq5Band { .. }
+            | EffectStage::Delay { .. }
+            | EffectStage::Limiter { .. }
+            | EffectStage::Reverb { .. }
+            | EffectStage::Widener { .. } => None,
         })
     }
 
@@ -1320,7 +1378,23 @@ impl EffectChainConfig {
     pub fn reverb_stage(&self) -> Option<ReverbStageParams> {
         self.stages.iter().find_map(|stage| match stage {
             EffectStage::Reverb { mix_percent, .. } => Some(ReverbStageParams { mix_percent: *mix_percent }),
-            EffectStage::Eq5Band { .. } | EffectStage::Delay { .. } | EffectStage::Limiter { .. } | EffectStage::Hpf { .. } => None,
+            EffectStage::Eq5Band { .. }
+            | EffectStage::Delay { .. }
+            | EffectStage::Limiter { .. }
+            | EffectStage::Hpf { .. }
+            | EffectStage::Widener { .. } => None,
+        })
+    }
+
+    /// The chain's `Widener` stage, flattened — mirrors `limiter_stage()`.
+    pub fn widener_stage(&self) -> Option<WidenerStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Widener { width_percent, .. } => Some(WidenerStageParams { width_percent: *width_percent }),
+            EffectStage::Eq5Band { .. }
+            | EffectStage::Delay { .. }
+            | EffectStage::Limiter { .. }
+            | EffectStage::Hpf { .. }
+            | EffectStage::Reverb { .. } => None,
         })
     }
 }

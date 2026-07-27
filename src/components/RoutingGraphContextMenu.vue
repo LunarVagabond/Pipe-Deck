@@ -16,15 +16,14 @@ const EFFECT_CATALOG: AvailableEffect[] = [{ kind: "eq5band", label: "5-Band EQ"
 /** issue #293's non-DSP effect kinds — addable to the graph as visibly "Not
  * implemented yet" pass-through stub nodes (PD-032 phase 5), ahead of real
  * DSP landing for each in follow-up tickets. Originally 11; `reverb_delay`,
- * `limiter`, and `hpf` graduated to real node buttons in the General
- * category below (issues #313/#311/#312). */
+ * `limiter`, `hpf`, and `stereo_widener` graduated to real node buttons in
+ * the General category below (issues #313/#311/#312/#314). */
 const STUB_EFFECT_CATALOG: { kind: string; label: string }[] = [
   { kind: "compressor", label: "Compressor" },
   { kind: "noise_gate", label: "Noise Gate" },
   { kind: "denoise", label: "Noise Suppression" },
   { kind: "de_esser", label: "De-esser" },
   { kind: "auto_gain_leveler", label: "Auto Gain/Leveler" },
-  { kind: "stereo_widener", label: "Stereo Widener" },
   { kind: "pitch_shift", label: "Pitch Shift/Voice Changer" },
   { kind: "loudness_normalizer", label: "Loudness Normalizer" },
   { kind: "saturation", label: "Saturation/Distortion" },
@@ -42,7 +41,9 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb"];
+  "add-node": [
+    type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener",
+  ];
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
@@ -79,7 +80,9 @@ function onPickNode(nodeId: string) {
   emit("bring-node-here", nodeId);
 }
 
-function onPickNodeType(type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb") {
+function onPickNodeType(
+  type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener",
+) {
   openCategory.value = null;
   emit("add-node", type);
 }
@@ -145,6 +148,7 @@ function onPickStubEffect(stubKind: string, label: string) {
           <button type="button" @click="onPickNodeType('limiter')">+ Limiter Node</button>
           <button type="button" @click="onPickNodeType('hpf')">+ High-Pass Filter Node</button>
           <button type="button" @click="onPickNodeType('reverb')">+ Reverb Node</button>
+          <button type="button" @click="onPickNodeType('widener')">+ Stereo Widener Node</button>
           <hr class="routing-graph-context-menu-separator" />
           <p class="routing-graph-context-menu-label">Not yet implemented</p>
           <button

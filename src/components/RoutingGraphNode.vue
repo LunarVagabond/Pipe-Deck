@@ -10,6 +10,7 @@ import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
 import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
 import RoutingGraphNodeHpf from "./RoutingGraphNodeHpf.vue";
 import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
+import RoutingGraphNodeWidener from "./RoutingGraphNodeWidener.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -62,6 +63,7 @@ const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const limiterRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const hpfRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const reverbRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const widenerRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
 const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   eq5band:
@@ -71,11 +73,13 @@ const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   limiter:
     "Hard brick-wall clamp — no envelope smoothing or lookahead, unlike a real limiter. Aggressive settings will sound harsh/distorted. Real dynamics processing is tracked in issue #86.",
   hpf: "A high Resonance value creates a sharp peak right at the cutoff frequency, which can ring or self-oscillate on some material. Lower it if the filtered signal sounds harsh or whistling.",
+  widener:
+    "High Width settings can push the side signal loud enough to clip when summed back to mono (e.g. on a phone speaker or older Bluetooth receiver). Real dynamics processing (to catch this smoothly) is tracked in issue #86.",
 };
 const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
 
 function onResetClick() {
-  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value ?? hpfRef.value ?? reverbRef.value)?.reset();
+  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value ?? hpfRef.value ?? reverbRef.value ?? widenerRef.value)?.reset();
 }
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
@@ -324,6 +328,13 @@ function onToggleMute() {
         ref="reverbRef"
         :node-id="data.entityId"
         :mix-percent="data.processingNodeKind.mix_percent"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeWidener
+        v-else-if="data.processingNodeKind?.kind === 'widener'"
+        ref="widenerRef"
+        :node-id="data.entityId"
+        :width-percent="data.processingNodeKind.width_percent"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut
