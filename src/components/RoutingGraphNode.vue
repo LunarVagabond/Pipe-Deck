@@ -8,6 +8,7 @@ import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
 import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
+import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -58,6 +59,7 @@ const effectsBadgeTitle = computed(() =>
 const eq5bandRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const limiterRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const reverbRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
 const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   eq5band:
@@ -70,7 +72,7 @@ const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
 const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
 
 function onResetClick() {
-  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value)?.reset();
+  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value ?? reverbRef.value)?.reset();
 }
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
@@ -304,6 +306,13 @@ function onToggleMute() {
         :ceiling-db="data.processingNodeKind.ceiling_db"
         :floor-db="data.processingNodeKind.floor_db"
         :symmetric="data.processingNodeKind.symmetric"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeReverb
+        v-else-if="data.processingNodeKind?.kind === 'reverb'"
+        ref="reverbRef"
+        :node-id="data.entityId"
+        :mix-percent="data.processingNodeKind.mix_percent"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

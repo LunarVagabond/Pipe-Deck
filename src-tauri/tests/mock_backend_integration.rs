@@ -751,6 +751,66 @@ fn limiter_param_update_rejects_a_non_limiter_node() {
     assert!(error.to_string().contains("has no limiter params"), "{error}");
 }
 
+/// Reverb Node round-trip (issue #327): create, live-update Mix, remove.
+/// Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn reverb_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Room Verb", ProcessingNodeSpecKind::Reverb { mix_percent: 0 })
+        .expect("create reverb node");
+    assert_eq!(node.system_name, "pipe-deck-proc-reverb-room-verb");
+
+    engine.update_processing_node_reverb_params(&node.id, 35).expect("update reverb params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Reverb { mix_percent: 35 });
+
+    engine.remove_processing_node(&node.id).expect("remove reverb node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Reverb node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn reverb_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node("Room Verb", ProcessingNodeSpecKind::Reverb { mix_percent: 35 })
+        .expect("create reverb node");
+    let source = engine.create_virtual_output("Reverb Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn reverb_param_update_rejects_a_non_reverb_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_reverb_params(&node.id, 0)
+        .expect_err("reverb update on a non-Reverb node should be rejected");
+    assert!(error.to_string().contains("has no reverb params"), "{error}");
+}
+
 /// Any device kind can feed a Mixer node's input — a virtual output device
 /// (regression coverage for #293's VirtualRole::Bus removal: a plain
 /// virtual output device can no longer route onward to another device, but

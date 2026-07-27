@@ -43,7 +43,7 @@ const emit = defineEmits<{
   delete: [];
   "copy-id": [];
   close: [];
-  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter"];
+  "add-node": [type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "reverb"];
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
@@ -80,7 +80,7 @@ function onPickNode(nodeId: string) {
   emit("bring-node-here", nodeId);
 }
 
-function onPickNodeType(type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter") {
+function onPickNodeType(type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "reverb") {
   openCategory.value = null;
   emit("add-node", type);
 }
@@ -144,6 +144,7 @@ function onPickStubEffect(stubKind: string, label: string) {
           <button type="button" @click="onPickNodeType('eq5band')">+ 5-Band EQ Node</button>
           <button type="button" @click="onPickNodeType('delay')">+ Delay Node</button>
           <button type="button" @click="onPickNodeType('limiter')">+ Limiter Node</button>
+          <button type="button" @click="onPickNodeType('reverb')">+ Reverb Node</button>
           <hr class="routing-graph-context-menu-separator" />
           <p class="routing-graph-context-menu-label">Not yet implemented</p>
           <button

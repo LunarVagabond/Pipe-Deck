@@ -303,6 +303,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   eq5band: "5-Band EQ",
   delay: "Delay",
   limiter: "Limiter",
+  reverb: "Reverb",
   stub: "Not implemented yet",
 };
 

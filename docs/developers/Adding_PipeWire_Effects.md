@@ -116,6 +116,27 @@ builtin filter list (Mixer, Copy, Biquads, Parametric EQ, and more).
    they're plain `pactl`-created null sinks, owned by the system PipeWire
    session itself, not by `native_host`'s connection.
 
+7. **A filter that needs a bundled asset (an IR file, a preset, ...) can't
+   use Tauri's resource-dir API for path resolution.** That API only exists
+   on an `AppHandle`, and `native_host` runs inside the daemon binary
+   (`bin/pipe-deck-daemon`), a plain Rust process with no Tauri context at
+   all — see this file's own "one PipeWire module, loaded live" section and
+   `daemon/mod.rs`'s module doc comment for why the daemon, not the GUI, is
+   what actually loads the filter-chain module. Reverb (issue #327,
+   `fx_validate::reverb_ir_path`) is the first effect that needed this and
+   established the pattern: mirror `daemon::daemon_binary_path`'s own
+   candidate-list shape (env var override → path relative to the running
+   binary → fixed absolute install candidates → a `CARGO_MANIFEST_DIR`-based
+   compile-time fallback so `cargo test`/`make check`/an unpackaged
+   `cargo run` never need an install step) rather than reaching for a
+   Tauri path API that isn't reachable from this process. The asset itself
+   needs a `bundle.resources` entry in `tauri.conf.json` *and* explicit
+   `linux.deb.files`/`linux.rpm.files` entries (mirroring how the systemd
+   unit/desktop file/metainfo XML are already installed to fixed absolute
+   paths there) — bundling it isn't enough on its own if the daemon process
+   needs to find it at a predictable path outside of Tauri's own resource
+   resolution.
+
 ## The actual blocker for a Limiter/Compressor specifically
 
 `fx_capability.rs::probe_capabilities` hardcodes `builtin_limiter: false`
