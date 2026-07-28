@@ -14,7 +14,7 @@ All roadmap items must improve Linux audio clarity, control, or reliability for 
 
 Concrete "what's shipping when" and "what's left in this initiative" live on GitHub, not here:
 
-- **Milestones** (e.g. `v0.0.6-alpha`) track what ships in a specific release. See [open milestones](https://github.com/LunarVagabond/Pipe-Deck/milestones).
+- **Milestones** (e.g. `v0.1.0-alpha`) track what ships in a specific release. See [open milestones](https://github.com/LunarVagabond/Pipe-Deck/milestones).
 - **Epics** (`epic`-labeled issues, native sub-issues underneath) track large, multi-release initiatives. See [open epics](https://github.com/LunarVagabond/Pipe-Deck/issues?q=is%3Aissue+label%3Aepic).
 
 This split happened 2026-07-18 (PD-028 in [Decisions](../architecture/Decisions.md)) specifically because this document's old phase-by-phase status sections stopped getting updated as work moved fast, and a reader had no way to tell a stale claim from a current one. See [Project Management](../project-management/README.md) for the full model.

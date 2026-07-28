@@ -412,15 +412,47 @@ impl AudioBackend for MockAudioBackend {
         &self,
         _graph: &RuntimeGraph,
         stream_id: &str,
-        _previous_target_device_id: Option<&str>,
+        avoid_target_device_id: Option<&str>,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
+        let direction = graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == stream_id)
+            .map(|stream| stream.direction.clone())
+            .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
+
+        // Mirrors the live backend's `resolve_clear_playback_sink`/
+        // `resolve_clear_capture_source` fallback (minus the live default-sink
+        // lookup, which has no mock equivalent): land on the first remaining
+        // eligible device rather than stranding the stream with no target —
+        // needed for `remove_virtual_device` (issue #208) to reroute streams
+        // away from a device that's about to disappear.
+        let fallback_id = graph
+            .devices
+            .iter()
+            .find(|device| {
+                if Some(device.id.as_str()) == avoid_target_device_id {
+                    return false;
+                }
+                match direction {
+                    StreamDirection::Playback => {
+                        !(device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input)
+                            && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+                    }
+                    StreamDirection::Capture => {
+                        matches!(device.direction, DeviceDirection::Input | DeviceDirection::Duplex)
+                    }
+                }
+            })
+            .map(|device| device.id.clone());
+
         let stream = graph
             .streams
             .iter_mut()
             .find(|stream| stream.id == stream_id)
             .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
-        stream.current_target = None;
+        stream.current_target = fallback_id;
         Ok(())
     }
 

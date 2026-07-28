@@ -2,7 +2,7 @@
 
 ## What a milestone means now
 
-A milestone answers exactly one question: **what ships in this release?** Milestones are named after the version they track (e.g. `v0.5.0 — Beta Liftoff`) and hold only the issues actually scoped to that release.
+A milestone answers exactly one question: **what ships in this release?** Milestones are named after the version they track (e.g. `v0.2.0-alpha`) and hold only the issues actually scoped to that release. Version numbers and project maturity status are tracked separately — a milestone can also be named for a maturity target rather than a version (e.g. `Beta Preview Liftoff`) when the release itself, not a specific version bump, is the milestone.
 
 Milestones are **not** used for roadmap phases, themes, or long-running initiatives anymore — that's what an [Epic](issue-workflow.md#what-an-epic-is) is for. If you're tempted to create a milestone for something open-ended ("Quality work", "Someday"), it should be an Epic instead; leave issues that don't have a concrete release target unmilestoned rather than parking them in a vague milestone.
 

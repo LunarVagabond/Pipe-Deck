@@ -136,7 +136,7 @@ Full walkthrough, prerequisites table, and troubleshooting: [Getting Started (de
 
 ## Roadmap
 
-Pipe Deck is under active development toward a v0.5.0 beta. [Roadmap](docs/product/Roadmap.md) covers the strategic direction; concrete "what's shipping when" lives on GitHub as [milestones](https://github.com/LunarVagabond/Pipe-Deck/milestones) (releases) and [epics](https://github.com/LunarVagabond/Pipe-Deck/issues?q=is%3Aissue+label%3Aepic) (multi-release initiatives). See the [Decisions](docs/architecture/Decisions.md) log for the architectural choices behind it.
+Pipe Deck is under active, pre-1.0 development. [Roadmap](docs/product/Roadmap.md) covers the strategic direction; concrete "what's shipping when" lives on GitHub as [milestones](https://github.com/LunarVagabond/Pipe-Deck/milestones) (releases) and [epics](https://github.com/LunarVagabond/Pipe-Deck/issues?q=is%3Aissue+label%3Aepic) (multi-release initiatives). See the [Decisions](docs/architecture/Decisions.md) log for the architectural choices behind it.
 
 ## Documentation
 
