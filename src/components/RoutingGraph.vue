@@ -48,6 +48,7 @@ import {
 import { useApplyResult } from "../stores/notices";
 import { useEffectChain } from "../composables/useEffectChain";
 import { useEffectIsolation } from "../composables/useEffectIsolation";
+import { exportRoutingGraphImage } from "../composables/useRoutingGraphExport";
 import { useConfirm } from "../stores/confirm";
 import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 import { usePrompt } from "../stores/prompt";
@@ -73,6 +74,18 @@ const vueFlow = useVueFlow();
 const isInteractive = computed(
   () => vueFlow.nodesDraggable.value || vueFlow.nodesConnectable.value || vueFlow.elementsSelectable.value,
 );
+
+const exportingImage = ref(false);
+
+async function onExportImage() {
+  if (exportingImage.value) return;
+  exportingImage.value = true;
+  try {
+    await exportRoutingGraphImage(vueFlow, handleApplyResult);
+  } finally {
+    exportingImage.value = false;
+  }
+}
 
 const edgeUpdatePending = ref<Edge | null>(null);
 const contextMenu = ref<RoutingGraphMenuTarget | null>(null);
@@ -1045,6 +1058,18 @@ onUnmounted(() => {
               </svg>
             </ControlButton>
           </template>
+          <ControlButton
+            aria-label="Export routing graph as PNG"
+            :title="exportingImage ? 'Exporting…' : 'Export routing graph as PNG'"
+            :disabled="exportingImage"
+            @click="onExportImage"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+              <path
+                d="M16 2a1.5 1.5 0 0 1 1.5 1.5v14.379l3.94-3.94a1.5 1.5 0 1 1 2.12 2.122l-6.5 6.5a1.5 1.5 0 0 1-2.12 0l-6.5-6.5a1.5 1.5 0 1 1 2.12-2.122l3.94 3.94V3.5A1.5 1.5 0 0 1 16 2zM4 22a1.5 1.5 0 0 1 1.5 1.5V27a1.5 1.5 0 0 0 1.5 1.5h18a1.5 1.5 0 0 0 1.5-1.5v-3.5a1.5 1.5 0 0 1 3 0V27a4.5 4.5 0 0 1-4.5 4.5H7A4.5 4.5 0 0 1 2.5 27v-3.5A1.5 1.5 0 0 1 4 22z"
+              />
+            </svg>
+          </ControlButton>
         </Controls>
       </VueFlow>
       <div v-if="dropSlotOverlayStyle" class="routing-graph-drop-slot-overlay" :style="dropSlotOverlayStyle" />
