@@ -24,7 +24,6 @@ import {
 import { nodeIdsForLink } from "./routing-graph/connectionRules";
 import { buildRoutingGraph, parseGraphNodeId, saveNodePosition } from "./routing-graph/buildGraph";
 import type { RoutingGraphHandle } from "./routing-graph/buildGraph";
-import { LEGEND_ENTRIES } from "./routing-graph/portTypes";
 import { canConnectPorts } from "./routing-graph/portTypes";
 import {
   boundsForMembers,
@@ -52,6 +51,7 @@ import { exportRoutingGraphImage } from "../composables/useRoutingGraphExport";
 import { useConfirm } from "../stores/confirm";
 import { useNewDeviceDialog } from "../stores/newDeviceDialog";
 import { usePrompt } from "../stores/prompt";
+import { useShortcutsModal } from "../stores/shortcutsModal";
 import { streamDisplayLabel } from "../utils/routingLayout";
 import type { RuntimeGraph } from "../types/graph";
 
@@ -70,6 +70,7 @@ const { isolatedNodeId, toggleIsolation, clearIsolation } = useEffectIsolation()
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
 const { openNewDeviceDialog } = useNewDeviceDialog();
+const { openShortcutsModal } = useShortcutsModal();
 const vueFlow = useVueFlow();
 const isInteractive = computed(
   () => vueFlow.nodesDraggable.value || vueFlow.nodesConnectable.value || vueFlow.elementsSelectable.value,
@@ -499,8 +500,6 @@ const edges = computed<Edge[]>(() =>
     },
   })) as Edge[],
 );
-
-const legend = LEGEND_ENTRIES;
 
 watch(
   () => props.graph,
@@ -967,20 +966,6 @@ onUnmounted(() => {
 <template>
   <div class="routing-graph-shell">
     <div class="routing-graph-live-region" aria-live="polite">{{ keyboardConnectMessage }}</div>
-    <div class="routing-graph-legend" aria-label="Connection color legend">
-      <span class="routing-graph-legend-title">Output connects to input</span>
-      <div class="routing-graph-legend-items">
-        <span v-for="entry in legend" :key="entry.key" class="routing-graph-legend-item">
-          <span class="routing-graph-legend-swatch" :style="{ background: entry.color }" />
-          {{ entry.label }}
-        </span>
-        <span class="routing-graph-legend-hint">
-          Drag wire ends off a port to disconnect · Shift+drag to select multiple nodes · Press G to group ·
-          Right-click empty space to add a node · Tab to a port and press Enter to connect it, Delete to
-          disconnect it, Escape to cancel
-        </span>
-      </div>
-    </div>
     <RoutingGraphContextMenu
       :target="contextMenu"
       :nodes="pickableNodes"
@@ -994,6 +979,15 @@ onUnmounted(() => {
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas" :class="{ 'routing-graph-canvas--idle': isIdle }">
+      <button
+        type="button"
+        class="routing-graph-help-btn"
+        aria-label="Routing graph help"
+        title="How to connect/disconnect, shortcuts, and the connection legend"
+        @click="openShortcutsModal()"
+      >
+        ?
+      </button>
       <VueFlow
         :nodes="nodes"
         :edges="edges"

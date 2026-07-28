@@ -8,51 +8,6 @@
   min-height: 0;
 }
 
-.routing-graph-legend {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.65rem 1.25rem;
-  padding: 0.55rem 0.85rem;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-1);
-}
-
-.routing-graph-legend-title {
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-}
-
-.routing-graph-legend-items {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.55rem 1rem;
-}
-
-.routing-graph-legend-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.78rem;
-  color: var(--text);
-}
-
-.routing-graph-legend-swatch {
-  width: 0.65rem;
-  height: 0.65rem;
-  border-radius: 999px;
-  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.12);
-}
-
-.routing-graph-legend-hint {
-  font-size: 0.72rem;
-  color: var(--text-muted);
-}
 
 .routing-graph-context-menu {
   position: fixed;
@@ -188,6 +143,31 @@
 
   .vue-flow__node {
     overflow: visible;
+  }
+}
+
+.routing-graph-help-btn {
+  position: absolute;
+  top: 0.6rem;
+  left: 0.6rem;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: vars.translucent(--surface-2, 90);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(124, 92, 255, 0.45);
   }
 }
 
@@ -1394,12 +1374,6 @@
   width: 2.2rem;
   text-align: right;
   font-size: 0.65rem;
-  color: var(--text-muted);
-}
-
-.routing-view .routing-lead {
-  margin: 0.35rem 0 0;
-  font-size: 0.85rem;
   color: var(--text-muted);
 }
 

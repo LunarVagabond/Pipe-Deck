@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { useShortcutsModal } from "../stores/shortcutsModal";
+import { LEGEND_ENTRIES } from "./routing-graph/portTypes";
 
 const { shortcutsModalOpen, closeShortcutsModal } = useShortcutsModal();
+const legend = LEGEND_ENTRIES;
 
 interface ShortcutEntry {
   keys: string[];
@@ -29,6 +31,11 @@ const groups: ShortcutGroup[] = [
   {
     title: "Routing graph",
     shortcuts: [
+      {
+        keys: ["Drag"],
+        description:
+          "From an output port to an input port to connect — a new empty slot appears after each connection. Drag a wire off its slot to disconnect.",
+      },
       { keys: ["Tab"], description: "Move focus between node ports" },
       { keys: ["Enter", "Space"], description: "Start or complete a connection at the focused port" },
       { keys: ["Delete", "Backspace"], description: "Disconnect the focused port, or delete the selected node/edge" },
@@ -84,6 +91,15 @@ const groups: ShortcutGroup[] = [
                 </template>
               </span>
               <span class="shortcuts-description">{{ shortcut.description }}</span>
+            </li>
+          </ul>
+        </section>
+        <section class="shortcuts-group">
+          <h3>Connection colors</h3>
+          <ul>
+            <li v-for="entry in legend" :key="entry.key" class="shortcuts-row shortcuts-row--legend">
+              <span class="shortcuts-legend-swatch" :style="{ background: entry.color }" />
+              <span class="shortcuts-description">{{ entry.label }}</span>
             </li>
           </ul>
         </section>

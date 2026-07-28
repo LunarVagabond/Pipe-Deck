@@ -115,7 +115,13 @@ export async function exportRoutingGraphImage(
   const bounds = getRectOfNodes(nodes);
   const width = Math.min(MAX_EXPORT_DIMENSION, Math.round(bounds.width + EXPORT_PADDING * 2));
   const height = Math.min(MAX_EXPORT_DIMENSION, Math.round(bounds.height + EXPORT_PADDING * 2));
-  const transform = getTransformForBounds(bounds, width, height, 0.1, 2, EXPORT_PADDING);
+  // `getTransformForBounds`'s padding argument is a *ratio* of width/height
+  // (default 0.1 == 10%), not a pixel count — passing EXPORT_PADDING (a
+  // pixel value) here was being read as "6000% padding", which floored the
+  // computed zoom to `minZoom` almost every time and rendered the graph
+  // tiny inside a mostly-empty canvas. The margin is already reserved above
+  // via width/height, so no additional padding ratio is needed here.
+  const transform = getTransformForBounds(bounds, width, height, 0.1, 2, 0);
 
   const previousViewport = { ...vueFlow.viewport.value };
 
