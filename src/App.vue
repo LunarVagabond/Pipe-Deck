@@ -21,6 +21,7 @@ import { useNewDeviceDialog } from "./stores/newDeviceDialog";
 import { useUpdateStatus } from "./stores/updateStatus";
 import { useRuntimeGraph } from "./stores/runtimeGraph";
 import { useDaemonStatus } from "./stores/daemonStatus";
+import { useTheme } from "./stores/theme";
 import type { AppConfig, AppView } from "./types/graph";
 
 // Only views that actually wire up device creation should show the topbar's
@@ -48,8 +49,16 @@ const { updateStatus, updateStatusText, checkForUpdatesNow } = useUpdateStatus()
 const { graph: runtimeGraph, loading: runtimeGraphLoading, error: runtimeGraphError } =
   useRuntimeGraph();
 const { refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass } = useDaemonStatus();
+const { resolvedKind, setMode } = useTheme();
 
 const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
+
+// Additive fast-access toggle (issue #266) — flips the explicit light/dark
+// mode directly, leaving Settings' theme selector (light/dark/system) as the
+// source of truth for the configured preference.
+async function toggleThemeKind() {
+  await setMode(resolvedKind.value === "dark" ? "light" : "dark");
+}
 
 const updateStatusDotClass = computed(() => `update-status-dot--${updateStatus.value}`);
 
@@ -194,6 +203,32 @@ onMounted(() => {
       <header class="topbar">
         <div class="topbar-title">{{ topbarTitle }}</div>
         <div class="topbar-actions">
+          <button
+            type="button"
+            class="topbar-theme-toggle"
+            :aria-label="resolvedKind === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            :title="resolvedKind === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            @click="toggleThemeKind"
+          >
+            <svg v-if="resolvedKind === 'dark'" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+              <path
+                d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
           <button
             v-if="showNewDeviceButton"
             type="button"
