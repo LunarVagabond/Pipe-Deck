@@ -66,9 +66,13 @@ export function useNoticeSettings() {
 export function useApplyResult() {
   const { pushNotice } = useNotices();
 
-  function handleApplyResult(result: { success: boolean; message?: string }, successMessage: string) {
+  function handleApplyResult(
+    result: { success: boolean; message?: string },
+    successMessage: string,
+    successTimeoutMs?: number,
+  ) {
     if (result.success) {
-      pushNotice("success", successMessage);
+      pushNotice("success", successMessage, successTimeoutMs);
       return true;
     }
     pushNotice("error", result.message ?? "Operation failed");

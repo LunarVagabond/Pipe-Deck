@@ -231,6 +231,40 @@ describe("installUpdate", () => {
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
+  it("reports download progress via the onProgress callback", async () => {
+    const downloadAndInstall = vi.fn().mockImplementation(async (onEvent) => {
+      onEvent({ event: "Started", data: { contentLength: 200 } });
+      onEvent({ event: "Progress", data: { chunkLength: 100 } });
+      onEvent({ event: "Progress", data: { chunkLength: 100 } });
+      onEvent({ event: "Finished" });
+    });
+    checkUpdaterMock.mockResolvedValue({ downloadAndInstall });
+    const onProgress = vi.fn();
+
+    await installUpdate(
+      { status: "outdated", currentVersion: "1.2.0", canAutoInstall: true },
+      onProgress,
+    );
+
+    expect(onProgress.mock.calls.map((call) => call[0])).toEqual([0, 50, 99, 100]);
+  });
+
+  it("reports null progress when the download has no known content length", async () => {
+    const downloadAndInstall = vi.fn().mockImplementation(async (onEvent) => {
+      onEvent({ event: "Started", data: {} });
+      onEvent({ event: "Progress", data: { chunkLength: 100 } });
+    });
+    checkUpdaterMock.mockResolvedValue({ downloadAndInstall });
+    const onProgress = vi.fn();
+
+    await installUpdate(
+      { status: "outdated", currentVersion: "1.2.0", canAutoInstall: true },
+      onProgress,
+    );
+
+    expect(onProgress.mock.calls.map((call) => call[0])).toEqual([null, null]);
+  });
+
   it("throws when the updater plugin has no update available", async () => {
     checkUpdaterMock.mockResolvedValue(undefined);
 
