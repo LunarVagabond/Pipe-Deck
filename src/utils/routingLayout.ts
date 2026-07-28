@@ -10,6 +10,13 @@ export interface MatrixNode {
   accent?: string;
 }
 
+// PipeWire/WirePlumber name every node coming off the bluez5 backend
+// "bluez_output.…"/"bluez_input.…" — there's no dedicated field on Device for
+// this, so the naming convention is the only signal available (see #3).
+export function isBluetoothDevice(device: Device): boolean {
+  return device.system_name.startsWith("bluez_");
+}
+
 const ACCENT_PALETTE = [
   "#7c5cff",
   "#26c3a3",
