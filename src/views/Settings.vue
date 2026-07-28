@@ -81,6 +81,9 @@ const {
   appInfo,
   updateResult,
   checkingUpdates,
+  installingUpdate,
+  installProgress,
+  installComplete,
   updateStatus,
   updateStatusText,
   ensureAppInfo,
@@ -182,10 +185,24 @@ async function runUpdateCheck() {
   await checkForUpdatesNow();
 }
 
+const installButtonLabel = computed(() => {
+  if (installingUpdate.value) {
+    return installProgress.value != null ? `Installing… ${installProgress.value}%` : "Installing…";
+  }
+  return updateResult.value?.canAutoInstall ? "Install update" : "Get update";
+});
+
 async function applyUpdate() {
+  const autoInstall = updateResult.value?.canAutoInstall ?? false;
   try {
     await installUpdateNow();
-    handleApplyResult({ success: true }, "Update started");
+    handleApplyResult(
+      { success: true },
+      autoInstall
+        ? "Update installed — relaunch Pipe Deck to finish."
+        : "Opening the releases page…",
+      autoInstall ? 0 : undefined,
+    );
   } catch (error) {
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
@@ -781,7 +798,13 @@ onMounted(() => {
             Check for updates
           </p>
           <p class="settings-row-hint">
-            <template v-if="updateStatus === 'checking'">Checking GitHub releases…</template>
+            <template v-if="installComplete">
+              Update installed — relaunch Pipe Deck to finish.
+            </template>
+            <template v-else-if="installingUpdate">
+              Downloading and installing{{ installProgress != null ? ` (${installProgress}%)` : "" }}…
+            </template>
+            <template v-else-if="updateStatus === 'checking'">Checking GitHub releases…</template>
             <template v-else-if="updateResult?.latestVersion">
               {{ updateStatusText }} —
               latest is v{{ updateResult.latestVersion }}
@@ -796,7 +819,7 @@ onMounted(() => {
           <button
             type="button"
             class="settings-action-btn"
-            :disabled="checkingUpdates || !appInfo"
+            :disabled="checkingUpdates || installingUpdate || !appInfo"
             @click="runUpdateCheck"
           >
             {{ checkingUpdates ? "Checking…" : "Check now" }}
@@ -804,13 +827,15 @@ onMounted(() => {
           <button
             v-if="
               updateResult &&
+              !installComplete &&
               (updateStatus === 'outdated' || updateStatus === 'severely_outdated')
             "
             type="button"
             class="settings-action-btn settings-action-btn--primary"
+            :disabled="installingUpdate"
             @click="applyUpdate"
           >
-            {{ updateResult.canAutoInstall ? "Install update" : "Get update" }}
+            {{ installButtonLabel }}
           </button>
         </div>
       </div>

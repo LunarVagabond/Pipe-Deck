@@ -130,13 +130,35 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
   }
 }
 
-export async function installUpdate(result: UpdateCheckResult): Promise<void> {
+export type InstallProgress = number | null;
+
+export async function installUpdate(
+  result: UpdateCheckResult,
+  onProgress?: (progress: InstallProgress) => void,
+): Promise<void> {
   if (result.canAutoInstall) {
     const update = await checkUpdater();
     if (!update) {
       throw new Error("No update available from the updater plugin");
     }
-    await update.downloadAndInstall();
+    let contentLength: number | undefined;
+    let downloaded = 0;
+    await update.downloadAndInstall((event) => {
+      switch (event.event) {
+        case "Started":
+          contentLength = event.data.contentLength ?? undefined;
+          downloaded = 0;
+          onProgress?.(contentLength ? 0 : null);
+          break;
+        case "Progress":
+          downloaded += event.data.chunkLength;
+          onProgress?.(contentLength ? Math.min(99, Math.round((downloaded / contentLength) * 100)) : null);
+          break;
+        case "Finished":
+          onProgress?.(100);
+          break;
+      }
+    });
     return;
   }
 
