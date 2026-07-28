@@ -184,13 +184,13 @@ fn stub_processing_node_round_trips_without_error() {
     assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
 }
 
-/// All 9 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
-/// `limiter` which have since graduated to real processing nodes) round-trip
-/// identically: create, connect a real input and output, disconnect, remove
-/// — pure pass-through graph bookkeeping, never `live`, and (per a
-/// real-backend regression this caught during phase 5) connect/disconnect
-/// must be a true no-op rather than attempting a `pw-link` against a sink a
-/// stub never actually creates.
+/// All 7 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
+/// `limiter`/`hpf`/`widener` which have since graduated to real processing nodes)
+/// round-trip identically: create, connect a real input and output,
+/// disconnect, remove — pure pass-through graph bookkeeping, never `live`,
+/// and (per a real-backend regression this caught during phase 5)
+/// connect/disconnect must be a true no-op rather than attempting a
+/// `pw-link` against a sink a stub never actually creates.
 #[test]
 fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
@@ -201,8 +201,6 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
         StubEffectKind::Denoise,
         StubEffectKind::DeEsser,
         StubEffectKind::AutoGainLeveler,
-        StubEffectKind::Hpf,
-        StubEffectKind::StereoWidener,
         StubEffectKind::PitchShift,
         StubEffectKind::LoudnessNormalizer,
         StubEffectKind::Saturation,
@@ -749,6 +747,246 @@ fn limiter_param_update_rejects_a_non_limiter_node() {
         .update_processing_node_limiter_params(&node.id, 0, 0, true)
         .expect_err("limiter update on a non-Limiter node should be rejected");
     assert!(error.to_string().contains("has no limiter params"), "{error}");
+}
+
+/// HPF Node round-trip (issue #312): create, live-update Freq/Resonance,
+/// remove. Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn hpf_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Rumble Filter", ProcessingNodeSpecKind::Hpf { freq_hz: 20, resonance_x10: 7 })
+        .expect("create hpf node");
+    assert_eq!(node.system_name, "pipe-deck-proc-hpf-rumble-filter");
+
+    engine.update_processing_node_hpf_params(&node.id, 150, 12).expect("update hpf params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Hpf { freq_hz: 150, resonance_x10: 12 });
+
+    engine.remove_processing_node(&node.id).expect("remove hpf node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles an HPF node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn hpf_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node("Rumble Filter", ProcessingNodeSpecKind::Hpf { freq_hz: 150, resonance_x10: 7 })
+        .expect("create hpf node");
+    let source = engine.create_virtual_output("HPF Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn hpf_param_update_rejects_a_non_hpf_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_hpf_params(&node.id, 0, 0)
+        .expect_err("hpf update on a non-HPF node should be rejected");
+    assert!(error.to_string().contains("has no HPF params"), "{error}");
+}
+
+/// Reverb Node round-trip (issue #327): create, live-update Mix, remove.
+/// Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn reverb_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Room Verb", ProcessingNodeSpecKind::Reverb { mix_percent: 0 })
+        .expect("create reverb node");
+    assert_eq!(node.system_name, "pipe-deck-proc-reverb-room-verb");
+
+    engine.update_processing_node_reverb_params(&node.id, 35).expect("update reverb params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Reverb { mix_percent: 35 });
+
+    engine.remove_processing_node(&node.id).expect("remove reverb node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Reverb node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn reverb_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node("Room Verb", ProcessingNodeSpecKind::Reverb { mix_percent: 35 })
+        .expect("create reverb node");
+    let source = engine.create_virtual_output("Reverb Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn reverb_param_update_rejects_a_non_reverb_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_reverb_params(&node.id, 0)
+        .expect_err("reverb update on a non-Reverb node should be rejected");
+    assert!(error.to_string().contains("has no reverb params"), "{error}");
+}
+
+/// Widener Node round-trip (issue #314): create, live-update Width, remove.
+/// Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn widener_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Wide Stereo", ProcessingNodeSpecKind::Widener { width_percent: 100 })
+        .expect("create widener node");
+    assert_eq!(node.system_name, "pipe-deck-proc-widener-wide-stereo");
+
+    engine.update_processing_node_widener_params(&node.id, 150).expect("update widener params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Widener { width_percent: 150 });
+
+    engine.remove_processing_node(&node.id).expect("remove widener node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Widener node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn widener_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node("Wide Stereo", ProcessingNodeSpecKind::Widener { width_percent: 150 })
+        .expect("create widener node");
+    let source = engine.create_virtual_output("Widener Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn widener_param_update_rejects_a_non_widener_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_widener_params(&node.id, 100)
+        .expect_err("widener update on a non-Widener node should be rejected");
+    assert!(error.to_string().contains("has no widener params"), "{error}");
+}
+
+/// Pan Node round-trip (issue #16): create, live-update Balance, remove.
+/// Same pattern as `delay_node_create_update_remove_round_trips`.
+#[test]
+fn pan_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Mic Balance", ProcessingNodeSpecKind::Pan { balance_percent: 0 })
+        .expect("create pan node");
+    assert_eq!(node.system_name, "pipe-deck-proc-pan-mic-balance");
+
+    engine.update_processing_node_pan_params(&node.id, 40).expect("update pan params");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.kind, ProcessingNodeKind::Pan { balance_percent: 40 });
+
+    engine.remove_processing_node(&node.id).expect("remove pan node");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Pan node's DSP without disturbing wiring — same
+/// contract as `delay_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn pan_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node("Mic Balance", ProcessingNodeSpecKind::Pan { balance_percent: 40 })
+        .expect("create pan node");
+    let source = engine.create_virtual_output("Pan Source").expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
+    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+
+    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
+    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+}
+
+#[test]
+fn pan_param_update_rejects_a_non_pan_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_pan_params(&node.id, 0)
+        .expect_err("pan update on a non-Pan node should be rejected");
+    assert!(error.to_string().contains("has no pan params"), "{error}");
 }
 
 /// Any device kind can feed a Mixer node's input — a virtual output device

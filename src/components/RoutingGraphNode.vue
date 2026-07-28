@@ -8,6 +8,10 @@ import RoutingGraphNodeMixer from "./RoutingGraphNodeMixer.vue";
 import RoutingGraphNodeEq5Band from "./RoutingGraphNodeEq5Band.vue";
 import RoutingGraphNodeDelay from "./RoutingGraphNodeDelay.vue";
 import RoutingGraphNodeLimiter from "./RoutingGraphNodeLimiter.vue";
+import RoutingGraphNodeHpf from "./RoutingGraphNodeHpf.vue";
+import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
+import RoutingGraphNodeWidener from "./RoutingGraphNodeWidener.vue";
+import RoutingGraphNodePan from "./RoutingGraphNodePan.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
@@ -51,13 +55,17 @@ const effectsBadgeTitle = computed(() =>
   effectsState.value === "live" ? "Effects live" : effectsState.value === "bypassed" ? "Effects bypassed" : "",
 );
 
-/** DSP-backed processing node kinds (Eq5Band/Delay/Limiter) each expose a
+/** DSP-backed processing node kinds (Eq5Band/Delay/Limiter/Hpf) each expose a
  * `reset()` method (see their own `defineExpose`) — Reset and the DSP
  * warning both render once, here in the node's header (top-right, next to
  * Delete), rather than duplicated per-kind in each child's own template. */
 const eq5bandRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const limiterRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const hpfRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const reverbRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const widenerRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const panRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
 const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   eq5band:
@@ -66,11 +74,22 @@ const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
     "High Feedback can build up into a resonant loop that eventually clips — a real limiter/compressor stage after this would catch it smoothly; tracked in issue #86.",
   limiter:
     "Hard brick-wall clamp — no envelope smoothing or lookahead, unlike a real limiter. Aggressive settings will sound harsh/distorted. Real dynamics processing is tracked in issue #86.",
+  hpf: "A high Resonance value creates a sharp peak right at the cutoff frequency, which can ring or self-oscillate on some material. Lower it if the filtered signal sounds harsh or whistling.",
+  widener:
+    "High Width settings can push the side signal loud enough to clip when summed back to mono (e.g. on a phone speaker or older Bluetooth receiver). Real dynamics processing (to catch this smoothly) is tracked in issue #86.",
 };
 const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
 
 function onResetClick() {
-  void (eq5bandRef.value ?? delayRef.value ?? limiterRef.value)?.reset();
+  void (
+    eq5bandRef.value ??
+    delayRef.value ??
+    limiterRef.value ??
+    hpfRef.value ??
+    reverbRef.value ??
+    widenerRef.value ??
+    panRef.value
+  )?.reset();
 }
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
@@ -304,6 +323,35 @@ function onToggleMute() {
         :ceiling-db="data.processingNodeKind.ceiling_db"
         :floor-db="data.processingNodeKind.floor_db"
         :symmetric="data.processingNodeKind.symmetric"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeHpf
+        v-else-if="data.processingNodeKind?.kind === 'hpf'"
+        ref="hpfRef"
+        :node-id="data.entityId"
+        :freq-hz="data.processingNodeKind.freq_hz"
+        :resonance-x10="data.processingNodeKind.resonance_x10"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeReverb
+        v-else-if="data.processingNodeKind?.kind === 'reverb'"
+        ref="reverbRef"
+        :node-id="data.entityId"
+        :mix-percent="data.processingNodeKind.mix_percent"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeWidener
+        v-else-if="data.processingNodeKind?.kind === 'widener'"
+        ref="widenerRef"
+        :node-id="data.entityId"
+        :width-percent="data.processingNodeKind.width_percent"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodePan
+        v-else-if="data.processingNodeKind?.kind === 'pan'"
+        ref="panRef"
+        :node-id="data.entityId"
+        :balance-percent="data.processingNodeKind.balance_percent"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

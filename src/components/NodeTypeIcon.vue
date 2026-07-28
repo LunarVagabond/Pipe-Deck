@@ -79,6 +79,29 @@ defineProps<{
       <path d="M3 18h18" stroke-dasharray="2.5 2.5" stroke-width="1.25" />
       <path d="M3 12 7 6 9 6 13 18 15 18 19 12 21 12" />
     </g>
+    <!-- HPF node: classic high-pass response curve — attenuated flat at low
+         frequencies (left), rising through the cutoff, flat pass-through at
+         high frequencies (right) -->
+    <g v-else-if="kind === 'hpf'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 15h5c1.5 0 2-9 3.5-9s2 9 3.5 9h6" />
+    </g>
+    <!-- Reverb node: concentric arcs, a signal echoing outward in a space -->
+    <g v-else-if="kind === 'reverb'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+      <path d="M8 12a4 4 0 0 1 8 0" />
+      <path d="M5 12a7 7 0 0 1 14 0" stroke-width="1.25" opacity="0.7" />
+      <path d="M2 12a10 10 0 0 1 20 0" stroke-width="1" opacity="0.45" />
+    </g>
+    <!-- Stereo Widener node: outward-diverging arrows, L/R spreading apart -->
+    <g v-else-if="kind === 'widener'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M12 4v16" stroke-dasharray="2 2.5" stroke-width="1.25" opacity="0.6" />
+      <path d="M9 8 5 12l4 4" />
+      <path d="M15 8l4 4-4 4" />
+    </g>
+    <!-- Balance/Pan node: an off-center slider on an L/R balance track -->
+    <g v-else-if="kind === 'pan'" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
+      <path d="M4 12h16" />
+      <circle cx="15" cy="12" r="2.75" fill="currentColor" stroke="none" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

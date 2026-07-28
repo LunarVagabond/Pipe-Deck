@@ -303,6 +303,10 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   eq5band: "5-Band EQ",
   delay: "Delay",
   limiter: "Limiter",
+  hpf: "High-Pass Filter",
+  reverb: "Reverb",
+  widener: "Stereo Widener",
+  pan: "Balance/Pan",
   stub: "Not implemented yet",
 };
 

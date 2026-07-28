@@ -108,3 +108,95 @@ describe("limiter processing node (#311)", () => {
     expect(data?.supportsEffects).toBe(false);
   });
 });
+
+describe("hpf processing node (#312)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the High-Pass Filter subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-hpf-1",
+      label: "Rumble Filter",
+      kind: { kind: "hpf", freq_hz: 150, resonance_x10: 12 },
+      system_name: "pipe-deck-proc-hpf-rumble-filter",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-hpf-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("High-Pass Filter");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "hpf", freq_hz: 150, resonance_x10: 12 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});
+
+describe("reverb processing node (#327)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Reverb subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-reverb-1",
+      label: "Room Verb",
+      kind: { kind: "reverb", mix_percent: 35 },
+      system_name: "pipe-deck-proc-reverb-room-verb",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-reverb-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Reverb");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "reverb", mix_percent: 35 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});
+
+describe("widener processing node (#314)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Stereo Widener subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-widener-1",
+      label: "Wide Stereo",
+      kind: { kind: "widener", width_percent: 150 },
+      system_name: "pipe-deck-proc-widener-wide-stereo",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-widener-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Stereo Widener");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "widener", width_percent: 150 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});
+
+describe("pan processing node (#16)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Balance/Pan subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-pan-1",
+      label: "Mic Balance",
+      kind: { kind: "pan", balance_percent: 40 },
+      system_name: "pipe-deck-proc-pan-mic-balance",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-pan-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Balance/Pan");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "pan", balance_percent: 40 });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});

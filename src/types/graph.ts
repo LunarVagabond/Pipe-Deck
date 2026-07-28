@@ -97,17 +97,16 @@ export interface ProcessingNodePort {
 /** issue #293's non-DSP effect kinds — addable to the graph, wired like any
  * other node, pure pass-through (never backed by a PipeWire object),
  * rendered with a visible "Not implemented yet" label. Originally eleven;
- * `reverb_delay` and `limiter` graduated to real `delay`/`limiter`
- * processing nodes (issues #313/#311), the same way `eq5band` graduated
- * out of this list previously. */
+ * `reverb_delay`, `limiter`, `hpf`, and `stereo_widener` graduated to real
+ * `delay`/`limiter`/`hpf`/`widener` processing nodes (issues
+ * #313/#311/#312/#314), the same way `eq5band` graduated out of this list
+ * previously. */
 export type StubEffectKind =
   | "compressor"
   | "noise_gate"
   | "denoise"
   | "de_esser"
   | "auto_gain_leveler"
-  | "hpf"
-  | "stereo_widener"
   | "pitch_shift"
   | "loudness_normalizer"
   | "saturation";
@@ -147,6 +146,23 @@ export type ProcessingNodeKind =
       ceiling_db: number;
       floor_db: number;
       symmetric: boolean;
+    }
+  | {
+      kind: "hpf";
+      freq_hz: number;
+      resonance_x10: number;
+    }
+  | {
+      kind: "reverb";
+      mix_percent: number;
+    }
+  | {
+      kind: "widener";
+      width_percent: number;
+    }
+  | {
+      kind: "pan";
+      balance_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 
@@ -476,6 +492,23 @@ export type ProcessingNodeSpecKind =
       ceiling_db: number;
       floor_db: number;
       symmetric: boolean;
+    }
+  | {
+      kind: "hpf";
+      freq_hz: number;
+      resonance_x10: number;
+    }
+  | {
+      kind: "reverb";
+      mix_percent: number;
+    }
+  | {
+      kind: "widener";
+      width_percent: number;
+    }
+  | {
+      kind: "pan";
+      balance_percent: number;
     }
   | { kind: "stub"; stub_kind: StubEffectKind };
 

@@ -358,6 +358,40 @@ pub trait AudioBackend: Send + Sync {
     ) -> Result<(), BackendError> {
         Err(BackendError::Message("set_processing_node_limiter_params: not implemented".into()))
     }
+
+    /// Live-updates an HPF node's Freq/Resonance without reloading the
+    /// chain — same PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #312).
+    fn set_processing_node_hpf_params(
+        &self,
+        _system_name: &str,
+        _freq_hz: i32,
+        _resonance_x10: i32,
+        _bypassed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_hpf_params: not implemented".into()))
+    }
+
+    /// Live-updates a Reverb node's Mix without reloading the chain — same
+    /// PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #327).
+    fn set_processing_node_reverb_params(&self, _system_name: &str, _mix_percent: i32, _bypassed: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_reverb_params: not implemented".into()))
+    }
+
+    /// Live-updates a Widener node's Width without reloading the chain —
+    /// same PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #314).
+    fn set_processing_node_widener_params(&self, _system_name: &str, _width_percent: i32, _bypassed: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_widener_params: not implemented".into()))
+    }
+
+    /// Live-updates a Pan node's Balance without reloading the chain — same
+    /// PD-017 fast path and bypass mechanism as
+    /// `set_processing_node_limiter_params` (issue #16).
+    fn set_processing_node_pan_params(&self, _system_name: &str, _balance_percent: i32, _bypassed: bool) -> Result<(), BackendError> {
+        Err(BackendError::Message("set_processing_node_pan_params: not implemented".into()))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never

@@ -1,5 +1,8 @@
-use crate::core::models::{DelayStageParams, EffectChainConfig, LimiterStageParams};
+use crate::core::models::{
+    DelayStageParams, EffectChainConfig, HpfStageParams, LimiterStageParams, PanStageParams, ReverbStageParams, WidenerStageParams,
+};
 use crate::pipewire::fx_capability::FxCapabilities;
+use std::path::PathBuf;
 
 /// Range bounds enforced before any value is ever serialized into a conf
 /// file. Out-of-range values are rejected outright, never silently clamped —
@@ -18,6 +21,81 @@ const FEEDFORWARD_RANGE_PERCENT: (i32, i32) = (-100, 100);
 /// aggressive ceiling. Never positive — a ceiling above full scale is
 /// meaningless for a brick-wall clamp.
 const CEILING_RANGE_DB: (i32, i32) = (-24, 0);
+/// Practical cutoff range for a standalone High-Pass Filter node (issue
+/// #312) — 20Hz (the bottom of human hearing, effectively transparent) up
+/// to 2kHz (aggressive enough for a deliberate telephone/lo-fi effect).
+const HPF_FREQ_RANGE_HZ: (i32, i32) = (20, 2000);
+/// `Q * 10`, kept as an integer for the same `Eq`-deriving reason as
+/// `ProcessingNodeKind::Hpf`'s doc comment explains — 0.1 (very gentle
+/// slope) up to 10.0 (sharply resonant, borderline self-oscillating).
+const HPF_RESONANCE_X10_RANGE: (i32, i32) = (1, 100);
+const REVERB_MIX_RANGE_PERCENT: (i32, i32) = (0, 100);
+/// `100` is neutral (exactly reconstructs the input, see
+/// `ProcessingNodeKind::Widener`'s doc comment) — unlike every other
+/// processing node kind so far, the neutral value here is NOT the range's
+/// `0` floor. `0` fully narrows to mono; `200` doubles the side signal.
+const WIDENER_WIDTH_RANGE_PERCENT: (i32, i32) = (0, 200);
+
+/// Filename of the bundled impulse-response asset a Reverb node's two
+/// `convolver` filters load (issue #327) — one file, two different
+/// `channel` indices (0/1) per convolver, so left/right get decorrelated
+/// tails from a single stereo WAV rather than an identical mono one.
+const REVERB_IR_FILENAME: &str = "pipe-deck-reverb-ir.wav";
+
+/// Resolves the installed location of the bundled reverb IR asset. Mirrors
+/// `daemon::daemon_binary_path`'s own candidate-list shape (env override →
+/// path relative to the running binary → fixed absolute install
+/// candidates → compile-time dev-tree fallback) since the daemon process
+/// that actually loads this filter has no Tauri `AppHandle`/resource-dir API
+/// available to it (that's GUI-process-only) — this is the one place in
+/// this module that touches the filesystem, an explicit, narrow exception
+/// to "no filesystem paths" below, since the path is a fixed bundled asset
+/// this codebase ships, never something sourced from user input.
+pub fn reverb_ir_path() -> Option<PathBuf> {
+    if let Ok(path) = std::env::var("PIPE_DECK_REVERB_IR_PATH") {
+        let path = PathBuf::from(path);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    if let Ok(current) = std::env::current_exe() {
+        if let Some(dir) = current.parent() {
+            // FHS-standard bin/share sibling layout — true for the .deb/.rpm
+            // install locations (/usr/bin, /usr/share) this repo already
+            // packages for (see docs/developers/Packaging.md).
+            let sibling = dir.join("../share/pipe-deck/ir").join(REVERB_IR_FILENAME);
+            if sibling.is_file() {
+                return Some(sibling);
+            }
+        }
+    }
+
+    for candidate in [
+        format!("/usr/share/pipe-deck/ir/{REVERB_IR_FILENAME}"),
+        format!("/app/share/pipe-deck/ir/{REVERB_IR_FILENAME}"),
+    ] {
+        let path = PathBuf::from(candidate);
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    // Dev-tree fallback (checked into `src-tauri/assets/ir/`) — makes
+    // `cargo test`/`make check`/an unpackaged `cargo run` work with no
+    // install step.
+    let dev_path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/assets/ir/", "pipe-deck-reverb-ir.wav"));
+    if dev_path.is_file() {
+        return Some(dev_path);
+    }
+
+    None
+}
+
+/// `0` is center (both channels full gain, neutral/bypass) — positive
+/// attenuates left (pans right), negative attenuates right (pans left);
+/// `100`/`-100` fully silence the opposite channel.
+const PAN_BALANCE_RANGE_PERCENT: (i32, i32) = (-100, 100);
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PreflightResult {
@@ -99,6 +177,60 @@ pub fn preflight(config: &EffectChainConfig, capabilities: &FxCapabilities) -> P
         }
     }
 
+    // High-Pass Filter (#312) — a standalone `bq_highpass` biquad, the same
+    // builtin family (and same `builtin_eq` capability gate) as Eq5Band's
+    // biquads use.
+    if let Some(hpf) = config.hpf_stage() {
+        check_range("Frequency", hpf.freq_hz, HPF_FREQ_RANGE_HZ, &mut blocking_reasons);
+        check_range("Resonance", hpf.resonance_x10, HPF_RESONANCE_X10_RANGE, &mut blocking_reasons);
+        if !capabilities.builtin_eq {
+            blocking_reasons.push(
+                "High-Pass Filter requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
+    if let Some(reverb) = config.reverb_stage() {
+        check_range("Mix", reverb.mix_percent, REVERB_MIX_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_convolver {
+            blocking_reasons.push(
+                "Reverb requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+        if reverb_ir_path().is_none() {
+            blocking_reasons.push(
+                "Reverb requires its bundled impulse-response asset, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
+    // Stereo Widener (#314) — entirely `mixer`/`copy` builtins, same
+    // module (and same `builtin_eq` capability gate) as Eq5Band/HPF.
+    if let Some(widener) = config.widener_stage() {
+        check_range("Width", widener.width_percent, WIDENER_WIDTH_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_eq {
+            blocking_reasons.push(
+                "Stereo Widener requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
+    // Balance/Pan (#16) — two independent `linear` gain builtins, same
+    // module (and same `builtin_eq` capability gate) as Eq5Band/HPF/Widener.
+    if let Some(pan) = config.pan_stage() {
+        check_range("Balance", pan.balance_percent, PAN_BALANCE_RANGE_PERCENT, &mut blocking_reasons);
+        if !capabilities.builtin_eq {
+            blocking_reasons.push(
+                "Balance/Pan requires PipeWire's builtin filter-chain module, which was not found on this system"
+                    .to_string(),
+            );
+        }
+    }
+
     if config.noise_gate.enabled && capabilities.ladspa_noise_gate.is_none() {
         blocking_reasons.push(
             "Noise gate requires a LADSPA noise-suppression plugin (e.g. librnnoise_ladspa) that was not found on this system"
@@ -152,6 +284,18 @@ pub fn render_conf(device_system_name: &str, config: &EffectChainConfig) -> Stri
     if let Some(limiter) = config.limiter_stage() {
         return render_limiter_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
     }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &hpf);
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &reverb);
+    }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &widener);
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &pan);
+    }
     render_filter_chain_conf(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -187,6 +331,46 @@ pub fn render_conf_capture(device_system_name: &str, config: &EffectChainConfig)
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &limiter,
+        );
+    }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &hpf,
+        );
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &reverb,
+        );
+    }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &widener,
+        );
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_conf(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &pan,
         );
     }
     render_filter_chain_conf(
@@ -329,6 +513,315 @@ fn render_limiter_filter_chain_module_args(
     )
 }
 
+fn render_hpf_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &HpfStageParams,
+) -> String {
+    let args = render_hpf_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single
+/// High-Pass Filter processing node (issue #312) — a single `bq_highpass`
+/// biquad, the same filter type (just a different `label`) as `Eq5Band`'s
+/// bands, so no chaining/links needed, same single-filter-graph shape as
+/// Delay/Limiter. Bypassed bakes in the node's own neutral values (20Hz/Q
+/// 0.7 — see `ProcessingNodeKind::Hpf`'s doc comment for why those are the
+/// "no perceptible effect" defaults, not the range floor) rather than some
+/// other special-cased pair.
+fn render_hpf_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &HpfStageParams,
+) -> String {
+    let freq = if bypassed { 20.0 } else { f64::from(params.freq_hz) };
+    let q = if bypassed { 0.7 } else { f64::from(params.resonance_x10) / 10.0 };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = hpf label = bq_highpass control = {{ "Freq" = {freq} "Q" = {q} }} }}
+                ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
+fn render_reverb_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &ReverbStageParams,
+) -> String {
+    let args = render_reverb_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single Reverb
+/// processing node (issue #327) — unlike Delay/Limiter/EQ, this is a
+/// multi-node graph: each channel is split (`copy`) into a dry path and a
+/// `convolver`-processed wet path against the bundled IR asset
+/// (`reverb_ir_path`, one WAV, `channel = 0`/`1` per side for a
+/// decorrelated stereo tail), then recombined by a `mixer` node whose two
+/// gain controls are this node's only live control (`Mix`). The graph-level
+/// `inputs`/`outputs` lists (rather than relying on a single filter's
+/// implicit ports, like every other renderer in this file) are required
+/// here specifically because the signal has to fan out to two parallel
+/// paths before recombining — see the real shipped
+/// `sink-virtual-surround-5.1-kemar.conf`/`sink-mix-FL-FR.conf` examples in
+/// `/usr/share/pipewire/filter-chain/`, which this graph shape is modeled
+/// on directly. Bypassed bakes in fully-dry gains (`Gain 1 = 1`,
+/// `Gain 2 = 0`) rather than unloading the convolvers — cheaper than a
+/// structural reload, and consistent with every other kind's
+/// bypass-is-a-live-param convention.
+fn render_reverb_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &ReverbStageParams,
+) -> String {
+    let dry = if bypassed { 1.0 } else { 1.0 - f64::from(params.mix_percent) / 100.0 };
+    let wet = if bypassed { 0.0 } else { f64::from(params.mix_percent) / 100.0 };
+    let ir_path = reverb_ir_path().map(|path| path.to_string_lossy().to_string()).unwrap_or_default();
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = copyFL label = copy }}
+                    {{ type = builtin name = copyFR label = copy }}
+                    {{ type = builtin name = convFL label = convolver config = {{ filename = "{ir_path}" channel = 0 }} }}
+                    {{ type = builtin name = convFR label = convolver config = {{ filename = "{ir_path}" channel = 1 }} }}
+                    {{ type = builtin name = mixL   label = mixer control = {{ "Gain 1" = {dry} "Gain 2" = {wet} }} }}
+                    {{ type = builtin name = mixR   label = mixer control = {{ "Gain 1" = {dry} "Gain 2" = {wet} }} }}
+                ]
+                links = [
+                    {{ output = "copyFL:Out" input = "convFL:In" }}
+                    {{ output = "copyFL:Out" input = "mixL:In 1" }}
+                    {{ output = "convFL:Out" input = "mixL:In 2" }}
+                    {{ output = "copyFR:Out" input = "convFR:In" }}
+                    {{ output = "copyFR:Out" input = "mixR:In 1" }}
+                    {{ output = "convFR:Out" input = "mixR:In 2" }}
+                ]
+                inputs  = [ "copyFL:In" "copyFR:In" ]
+                outputs = [ "mixL:Out" "mixR:Out" ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
+fn render_widener_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &WidenerStageParams,
+) -> String {
+    let args = render_widener_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single Stereo
+/// Widener processing node (issue #314) — a mid/side widener built entirely
+/// from `mixer`/`copy` builtins, no `Invert` filter needed (a `mixer`
+/// node's `Gain` control accepts a negative value directly, so
+/// `side = 0.5L - 0.5R` is just a negative-gain input, not a separate
+/// inversion stage). Like Reverb's `convolver`+`mixer` graph, this needs the
+/// graph-level `inputs`/`outputs` lists (rather than a single filter's
+/// implicit ports) since the signal fans out to two parallel paths
+/// (`mid`/`side`) before recombining — `copyL`/`copyR` exist purely to let
+/// each raw input channel feed two downstream nodes (`mid` and `side`),
+/// since a graph `inputs` entry can only address one node port each (see
+/// the real shipped `sink-virtual-surround-5.1-kemar.conf` example this
+/// fan-out-via-copy pattern is modeled on). At `width_percent = 100`,
+/// `out_L = mid + side = L` and `out_R = mid - side = R` exactly — this is
+/// the neutral/bypass value (see `ProcessingNodeKind::Widener`'s doc
+/// comment for why `100`, not `0`, is neutral here).
+fn render_widener_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &WidenerStageParams,
+) -> String {
+    let width = if bypassed { 1.0 } else { f64::from(params.width_percent) / 100.0 };
+    let neg_width = -width;
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = copyL label = copy }}
+                    {{ type = builtin name = copyR label = copy }}
+                    {{ type = builtin name = mid   label = mixer control = {{ "Gain 1" = 0.5 "Gain 2" = 0.5 }} }}
+                    {{ type = builtin name = side  label = mixer control = {{ "Gain 1" = 0.5 "Gain 2" = -0.5 }} }}
+                    {{ type = builtin name = outL  label = mixer control = {{ "Gain 1" = 1.0 "Gain 2" = {width} }} }}
+                    {{ type = builtin name = outR  label = mixer control = {{ "Gain 1" = 1.0 "Gain 2" = {neg_width} }} }}
+                ]
+                links = [
+                    {{ output = "copyL:Out" input = "mid:In 1" }}
+                    {{ output = "copyR:Out" input = "mid:In 2" }}
+                    {{ output = "copyL:Out" input = "side:In 1" }}
+                    {{ output = "copyR:Out" input = "side:In 2" }}
+                    {{ output = "mid:Out"   input = "outL:In 1" }}
+                    {{ output = "side:Out"  input = "outL:In 2" }}
+                    {{ output = "mid:Out"   input = "outR:In 1" }}
+                    {{ output = "side:Out"  input = "outR:In 2" }}
+                ]
+                inputs  = [ "copyL:In" "copyR:In" ]
+                outputs = [ "outL:Out" "outR:Out" ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
+fn render_pan_filter_chain_conf(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &PanStageParams,
+) -> String {
+    let args = render_pan_filter_chain_module_args(node_description, capture_name, playback_name, playback_media_class, bypassed, params);
+    format!(
+        "# Managed by Pipe Deck — do not edit by hand, changes are overwritten on Apply.\n\
+         context.modules = [\n    \
+         {{ name = libpipewire-module-filter-chain\n        \
+         flags = [ nofail ]\n        \
+         args = {args}\n    }}\n]\n"
+    )
+}
+
+/// Renders the builtin-only `module-filter-chain` graph for a single
+/// Balance/Pan processing node (issue #16) — two independent `linear`
+/// filters, one per channel, each with its own `Mult` gain. Unlike
+/// Reverb/Widener, no `copy` fan-out is needed: the input is already a
+/// stereo pair, so each raw input channel feeds exactly one `linear` node
+/// directly via the graph-level `inputs` list (the same "no links needed"
+/// shape Delay/Limiter/HPF use, just two parallel single-filter chains
+/// instead of one). Bypassed bakes in `Mult = 1.0` on both channels
+/// (center/neutral — the same value `balance_percent = 0` already
+/// produces, so this is really just making that baked-in explicitly rather
+/// than relying on the math coincidentally landing there).
+fn render_pan_filter_chain_module_args(
+    node_description: &str,
+    capture_name: &str,
+    playback_name: &str,
+    playback_media_class: Option<&str>,
+    bypassed: bool,
+    params: &PanStageParams,
+) -> String {
+    let balance = if bypassed { 0.0 } else { f64::from(params.balance_percent) / 100.0 };
+    let gain_l = if balance > 0.0 { 1.0 - balance } else { 1.0 };
+    let gain_r = if balance < 0.0 { 1.0 + balance } else { 1.0 };
+    let playback_class_line = playback_media_class
+        .map(|class| format!("\n                media.class  = {class}"))
+        .unwrap_or_default();
+
+    format!(
+        r#"{{
+            node.description = "{node_description}"
+            media.name       = "{node_description}"
+            filter.graph = {{
+                nodes = [
+                    {{ type = builtin name = gainL label = linear control = {{ "Mult" = {gain_l} }} }}
+                    {{ type = builtin name = gainR label = linear control = {{ "Mult" = {gain_r} }} }}
+                ]
+                inputs  = [ "gainL:In" "gainR:In" ]
+                outputs = [ "gainL:Out" "gainR:Out" ]
+            }}
+            audio.channels = 2
+            audio.position = [ FL FR ]
+            capture.props = {{
+                node.name   = "{capture_name}"
+                media.class = Audio/Sink
+            }}
+            playback.props = {{
+                node.name    = "{playback_name}"
+                node.passive = true{playback_class_line}
+            }}
+        }}"#
+    )
+}
+
 fn render_filter_chain_conf(
     node_description: &str,
     capture_name: &str,
@@ -421,6 +914,18 @@ pub fn render_module_args(device_system_name: &str, config: &EffectChainConfig) 
     if let Some(limiter) = config.limiter_stage() {
         return render_limiter_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &limiter);
     }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &hpf);
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &reverb);
+    }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &widener);
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config.bypassed, &pan);
+    }
     render_filter_chain_module_args(&node_description, device_system_name, &effect_output_name, None, config)
 }
 
@@ -446,6 +951,46 @@ pub fn render_module_args_capture(device_system_name: &str, config: &EffectChain
             Some("Audio/Source/Virtual"),
             config.bypassed,
             &limiter,
+        );
+    }
+    if let Some(hpf) = config.hpf_stage() {
+        return render_hpf_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &hpf,
+        );
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return render_reverb_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &reverb,
+        );
+    }
+    if let Some(widener) = config.widener_stage() {
+        return render_widener_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &widener,
+        );
+    }
+    if let Some(pan) = config.pan_stage() {
+        return render_pan_filter_chain_module_args(
+            &node_description,
+            &effect_input_name,
+            device_system_name,
+            Some("Audio/Source/Virtual"),
+            config.bypassed,
+            &pan,
         );
     }
     render_filter_chain_module_args(
@@ -497,6 +1042,18 @@ pub fn live_params(config: &EffectChainConfig) -> Vec<(String, f64)> {
     }
     if let Some(limiter) = config.limiter_stage() {
         return limiter_live_params(config.bypassed, &limiter);
+    }
+    if let Some(hpf) = config.hpf_stage() {
+        return hpf_live_params(config.bypassed, &hpf);
+    }
+    if let Some(reverb) = config.reverb_stage() {
+        return reverb_live_params(config.bypassed, &reverb);
+    }
+    if let Some(widener) = config.widener_stage() {
+        return widener_live_params(config.bypassed, &widener);
+    }
+    if let Some(pan) = config.pan_stage() {
+        return pan_live_params(config.bypassed, &pan);
     }
 
     if config.bypassed {
@@ -554,6 +1111,61 @@ fn limiter_live_params(bypassed: bool, params: &LimiterStageParams) -> Vec<(Stri
     ]
 }
 
+/// The `(control_name, value)` pairs for a live HPF slider update — node
+/// name must match `render_hpf_filter_chain_module_args`'s single `hpf`
+/// node exactly. Bypassed pushes the same 20Hz/Q 0.7 neutral pair the
+/// render function bakes in, same convention as Delay/Limiter.
+fn hpf_live_params(bypassed: bool, params: &HpfStageParams) -> Vec<(String, f64)> {
+    if bypassed {
+        return vec![("hpf:Freq".to_string(), 20.0), ("hpf:Q".to_string(), 0.7)];
+    }
+    vec![
+        ("hpf:Freq".to_string(), f64::from(params.freq_hz)),
+        ("hpf:Q".to_string(), f64::from(params.resonance_x10) / 10.0),
+    ]
+}
+
+/// The `(control_name, value)` pairs for a live Reverb Mix slider update —
+/// node names must match `render_reverb_filter_chain_module_args`'s `mixL`/
+/// `mixR` nodes exactly. Bypassed pushes fully-dry gains (`Gain 1 = 1`,
+/// `Gain 2 = 0`), same neutral-values-without-touching-links mechanism as
+/// every other kind. The two `convFL`/`convFR` nodes are never touched
+/// here — the IR itself is fixed at load time (`config`, not `control`),
+/// there is nothing about it to live-update.
+fn reverb_live_params(bypassed: bool, params: &ReverbStageParams) -> Vec<(String, f64)> {
+    let dry = if bypassed { 1.0 } else { 1.0 - f64::from(params.mix_percent) / 100.0 };
+    let wet = if bypassed { 0.0 } else { f64::from(params.mix_percent) / 100.0 };
+    vec![
+        ("mixL:Gain 1".to_string(), dry),
+        ("mixL:Gain 2".to_string(), wet),
+        ("mixR:Gain 1".to_string(), dry),
+        ("mixR:Gain 2".to_string(), wet),
+    ]
+}
+
+/// The `(control_name, value)` pairs for a live Widener Width slider update
+/// — node names must match `render_widener_filter_chain_module_args`'s
+/// `outL`/`outR` nodes exactly. Bypassed pushes `width = 1.0` (exact
+/// input reconstruction), same neutral-value convention as every other
+/// kind, just at `1.0` rather than `0.0`/`-1.0`/`1.0` since that's what
+/// "no widening" actually means here. `mid`/`side`'s own gains never
+/// change — only `outL`/`outR`'s second gain is Width-dependent.
+fn widener_live_params(bypassed: bool, params: &WidenerStageParams) -> Vec<(String, f64)> {
+    let width = if bypassed { 1.0 } else { f64::from(params.width_percent) / 100.0 };
+    vec![("outL:Gain 2".to_string(), width), ("outR:Gain 2".to_string(), -width)]
+}
+
+/// The `(control_name, value)` pairs for a live Pan/Balance slider update —
+/// node names must match `render_pan_filter_chain_module_args`'s `gainL`/
+/// `gainR` nodes exactly. Bypassed pushes `Mult = 1.0` on both, same
+/// center/neutral value `balance_percent = 0` already produces.
+fn pan_live_params(bypassed: bool, params: &PanStageParams) -> Vec<(String, f64)> {
+    let balance = if bypassed { 0.0 } else { f64::from(params.balance_percent) / 100.0 };
+    let gain_l = if balance > 0.0 { 1.0 - balance } else { 1.0 };
+    let gain_r = if balance < 0.0 { 1.0 + balance } else { 1.0 };
+    vec![("gainL:Mult".to_string(), gain_l), ("gainR:Mult".to_string(), gain_r)]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,6 +1177,7 @@ mod tests {
             builtin_gain: builtin_eq,
             builtin_delay: builtin_eq,
             builtin_clamp: builtin_eq,
+            builtin_convolver: builtin_eq,
             builtin_limiter: false,
             ladspa_noise_gate: None,
         }
@@ -590,6 +1203,38 @@ mod tests {
 
     fn symmetric_limiter_chain(ceiling_db: i32) -> EffectChainConfig {
         limiter_chain(ceiling_db, ceiling_db)
+    }
+
+    /// Builds a chain with a single `Hpf` stage — mirrors `delay_chain`.
+    fn hpf_chain(freq_hz: i32, resonance_x10: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Hpf { id: "hpf".to_string(), freq_hz, resonance_x10 }],
+            ..Default::default()
+        }
+    }
+
+    /// Builds a chain with a single `Reverb` stage — mirrors `delay_chain`.
+    fn reverb_chain(mix_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Reverb { id: "reverb".to_string(), mix_percent }],
+            ..Default::default()
+        }
+    }
+
+    /// Builds a chain with a single `Widener` stage — mirrors `delay_chain`.
+    fn widener_chain(width_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Widener { id: "widener".to_string(), width_percent }],
+            ..Default::default()
+        }
+    }
+
+    /// Builds a chain with a single `Pan` stage — mirrors `delay_chain`.
+    fn pan_chain(balance_percent: i32) -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Pan { id: "pan".to_string(), balance_percent }],
+            ..Default::default()
+        }
     }
 
     /// Builds a chain with a single `Eq5Band` stage — the shape most tests
@@ -937,5 +1582,344 @@ mod tests {
         assert!((max - db_to_linear_mult(-3)).abs() < f64::EPSILON);
         assert!((min - (-db_to_linear_mult(-12))).abs() < f64::EPSILON);
         assert_ne!(max, -min, "asymmetric ceiling/floor should not produce a symmetric Min/Max pair");
+    }
+
+    // --- High-Pass Filter (issue #312) ---
+
+    #[test]
+    fn accepts_in_range_hpf_when_builtin_present() {
+        let config = hpf_chain(150, 7);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_hpf_freq() {
+        let config = hpf_chain(5000, 7);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Frequency")));
+    }
+
+    #[test]
+    fn rejects_out_of_range_hpf_resonance() {
+        let config = hpf_chain(150, 200);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Resonance")));
+    }
+
+    #[test]
+    fn rejects_hpf_when_builtin_filter_chain_module_missing() {
+        let config = hpf_chain(150, 7);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_hpf_filter_when_an_hpf_stage_is_present() {
+        let config = hpf_chain(150, 7);
+        let rendered = render_module_args("pipe-deck-hpf", &config);
+        assert!(rendered.contains("label = bq_highpass"));
+        assert!(!rendered.contains("bq_peaking"), "hpf rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_an_hpf_stage() {
+        let config = hpf_chain(150, 12);
+        assert_eq!(render_module_args("pipe-deck-hpf", &config), render_module_args("pipe-deck-hpf", &config));
+    }
+
+    #[test]
+    fn hpf_bypass_pushes_neutral_live_params_regardless_of_configured_values() {
+        let config = EffectChainConfig { bypassed: true, ..hpf_chain(800, 40) };
+        let params = live_params(&config);
+        assert!(params.contains(&("hpf:Freq".to_string(), 20.0)));
+        assert!(params.contains(&("hpf:Q".to_string(), 0.7)));
+    }
+
+    #[test]
+    fn hpf_bypass_bakes_neutral_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..hpf_chain(800, 40) };
+        let rendered = render_module_args("pipe-deck-hpf", &config);
+        assert!(rendered.contains(r#""Freq" = 20"#));
+        assert!(!rendered.contains(r#""Freq" = 800"#));
+    }
+
+    #[test]
+    fn hpf_live_params_control_names_match_render_module_args_node_name() {
+        let config = hpf_chain(150, 7);
+        let rendered = render_module_args("pipe-deck-hpf", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    // --- Reverb (issue #327) ---
+
+    #[test]
+    fn reverb_ir_path_resolves_to_the_checked_in_dev_asset() {
+        let path = reverb_ir_path().expect("dev-tree IR asset should resolve under cargo test");
+        assert!(path.is_file());
+        assert_eq!(path.file_name().unwrap().to_str().unwrap(), REVERB_IR_FILENAME);
+    }
+
+    #[test]
+    fn accepts_in_range_reverb_mix_when_builtin_and_ir_asset_present() {
+        let config = reverb_chain(35);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_reverb_mix() {
+        let config = reverb_chain(150);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Mix")));
+    }
+
+    #[test]
+    fn rejects_reverb_when_builtin_filter_chain_module_missing() {
+        let config = reverb_chain(35);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_convolver_filters_when_a_reverb_stage_is_present() {
+        let config = reverb_chain(35);
+        let rendered = render_module_args("pipe-deck-reverb", &config);
+        assert!(rendered.contains("label = convolver"));
+        assert!(rendered.contains("label = mixer"));
+        assert!(!rendered.contains("bq_peaking"), "reverb rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_widener_filters_when_a_widener_stage_is_present() {
+        let config = widener_chain(150);
+        let rendered = render_module_args("pipe-deck-widener", &config);
+        assert!(rendered.contains("label = mixer"));
+        assert!(rendered.contains("label = copy"));
+        assert!(!rendered.contains("bq_peaking"), "widener rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_reverb_stage() {
+        let config = reverb_chain(35);
+        assert_eq!(render_module_args("pipe-deck-reverb", &config), render_module_args("pipe-deck-reverb", &config));
+    }
+
+    #[test]
+    fn reverb_bypass_pushes_fully_dry_live_params_regardless_of_configured_mix() {
+        let config = EffectChainConfig { bypassed: true, ..reverb_chain(80) };
+        let params = live_params(&config);
+        assert!(params.contains(&("mixL:Gain 1".to_string(), 1.0)));
+        assert!(params.contains(&("mixL:Gain 2".to_string(), 0.0)));
+        assert!(params.contains(&("mixR:Gain 1".to_string(), 1.0)));
+        assert!(params.contains(&("mixR:Gain 2".to_string(), 0.0)));
+    }
+
+    #[test]
+    fn reverb_bypass_bakes_fully_dry_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..reverb_chain(80) };
+        let rendered = render_module_args("pipe-deck-reverb", &config);
+        assert!(rendered.contains(r#""Gain 1" = 1"#));
+        assert!(rendered.contains(r#""Gain 2" = 0"#));
+    }
+
+    #[test]
+    fn reverb_live_params_control_names_match_render_module_args_node_names() {
+        let config = reverb_chain(35);
+        let rendered = render_module_args("pipe-deck-reverb", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    // --- Stereo Widener (issue #314) ---
+
+    #[test]
+    fn accepts_in_range_widener_width_when_builtin_present() {
+        let config = widener_chain(150);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_widener_width() {
+        let config = widener_chain(300);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Width")));
+    }
+
+    #[test]
+    fn rejects_widener_when_builtin_filter_chain_module_missing() {
+        let config = widener_chain(150);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_widener_stage() {
+        let config = widener_chain(150);
+        assert_eq!(render_module_args("pipe-deck-widener", &config), render_module_args("pipe-deck-widener", &config));
+    }
+
+    #[test]
+    fn widener_bypass_pushes_neutral_reconstruction_live_params_regardless_of_configured_width() {
+        let config = EffectChainConfig { bypassed: true, ..widener_chain(180) };
+        let params = live_params(&config);
+        assert!(params.contains(&("outL:Gain 2".to_string(), 1.0)));
+        assert!(params.contains(&("outR:Gain 2".to_string(), -1.0)));
+    }
+
+    #[test]
+    fn widener_bypass_bakes_neutral_reconstruction_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..widener_chain(180) };
+        let rendered = render_module_args("pipe-deck-widener", &config);
+        assert!(rendered.contains(r#"name = outL  label = mixer control = { "Gain 1" = 1.0 "Gain 2" = 1"#));
+        assert!(rendered.contains(r#"name = outR  label = mixer control = { "Gain 1" = 1.0 "Gain 2" = -1"#));
+    }
+
+    #[test]
+    fn widener_live_params_control_names_match_render_module_args_node_names() {
+        let config = widener_chain(150);
+        let rendered = render_module_args("pipe-deck-widener", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn widener_width_100_percent_exactly_reconstructs_the_input() {
+        // The core correctness claim behind ProcessingNodeKind::Widener's doc
+        // comment: at 100%, out_L=L and out_R=R, i.e. the same gain pair as
+        // no processing at all — verified here as a live-param assertion
+        // since that's what actually reaches the running filter graph.
+        let config = widener_chain(100);
+        let params = live_params(&config);
+        assert!(params.contains(&("outL:Gain 2".to_string(), 1.0)));
+        assert!(params.contains(&("outR:Gain 2".to_string(), -1.0)));
+    }
+
+    // --- Balance/Pan (issue #16) ---
+
+    #[test]
+    fn accepts_in_range_pan_balance_when_builtin_present() {
+        let config = pan_chain(40);
+        let result = preflight(&config, &capabilities(true));
+        assert!(result.ok);
+        assert!(result.blocking_reasons.is_empty());
+    }
+
+    #[test]
+    fn rejects_out_of_range_pan_balance() {
+        let config = pan_chain(150);
+        let result = preflight(&config, &capabilities(true));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("Balance")));
+    }
+
+    #[test]
+    fn rejects_pan_when_builtin_filter_chain_module_missing() {
+        let config = pan_chain(40);
+        let result = preflight(&config, &capabilities(false));
+        assert!(!result.ok);
+        assert!(result.blocking_reasons.iter().any(|reason| reason.contains("builtin filter-chain")));
+    }
+
+    #[test]
+    fn render_module_args_renders_the_pan_filters_when_a_pan_stage_is_present() {
+        let config = pan_chain(40);
+        let rendered = render_module_args("pipe-deck-pan", &config);
+        assert!(rendered.contains("name = gainL label = linear"));
+        assert!(rendered.contains("name = gainR label = linear"));
+        assert!(!rendered.contains("bq_peaking"), "pan rendering must not fall through to the EQ template");
+        assert!(!rendered.to_lowercase().contains("ffmpeg"));
+    }
+
+    #[test]
+    fn render_module_args_is_deterministic_for_a_pan_stage() {
+        let config = pan_chain(40);
+        assert_eq!(render_module_args("pipe-deck-pan", &config), render_module_args("pipe-deck-pan", &config));
+    }
+
+    #[test]
+    fn pan_bypass_pushes_center_live_params_regardless_of_configured_balance() {
+        let config = EffectChainConfig { bypassed: true, ..pan_chain(80) };
+        let params = live_params(&config);
+        assert!(params.contains(&("gainL:Mult".to_string(), 1.0)));
+        assert!(params.contains(&("gainR:Mult".to_string(), 1.0)));
+    }
+
+    #[test]
+    fn pan_bypass_bakes_center_values_into_the_initial_structural_apply_too() {
+        let config = EffectChainConfig { bypassed: true, ..pan_chain(80) };
+        let rendered = render_module_args("pipe-deck-pan", &config);
+        assert!(rendered.contains(r#"name = gainL label = linear control = { "Mult" = 1"#));
+        assert!(rendered.contains(r#"name = gainR label = linear control = { "Mult" = 1"#));
+    }
+
+    #[test]
+    fn pan_live_params_control_names_match_render_module_args_node_names() {
+        let config = pan_chain(40);
+        let rendered = render_module_args("pipe-deck-pan", &config);
+        for (name, _value) in live_params(&config) {
+            let node_name = name.split(':').next().unwrap();
+            assert!(
+                rendered.contains(&format!("name = {node_name} ")),
+                "render_module_args is missing a node for live param {name:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn positive_balance_pans_right_by_attenuating_only_the_left_channel() {
+        let config = pan_chain(40);
+        let params = live_params(&config);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainL:Mult").unwrap().1, 0.6);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainR:Mult").unwrap().1, 1.0);
+    }
+
+    #[test]
+    fn negative_balance_pans_left_by_attenuating_only_the_right_channel() {
+        let config = pan_chain(-40);
+        let params = live_params(&config);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainL:Mult").unwrap().1, 1.0);
+        assert_eq!(params.iter().find(|(name, _)| name == "gainR:Mult").unwrap().1, 0.6);
+    }
+
+    #[test]
+    fn full_balance_fully_silences_the_opposite_channel() {
+        let right = pan_chain(100);
+        let right_params = live_params(&right);
+        assert_eq!(right_params.iter().find(|(name, _)| name == "gainL:Mult").unwrap().1, 0.0);
+
+        let left = pan_chain(-100);
+        let left_params = live_params(&left);
+        assert_eq!(left_params.iter().find(|(name, _)| name == "gainR:Mult").unwrap().1, 0.0);
     }
 }
