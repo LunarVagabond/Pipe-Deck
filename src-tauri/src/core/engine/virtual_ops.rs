@@ -80,6 +80,13 @@ impl CoreEngine {
     }
 
     pub fn remove_virtual_device(&mut self, system_name: &str) -> Result<(), EngineError> {
+        let device_id = self
+            .graph
+            .devices
+            .iter()
+            .find(|device| device.system_name == system_name)
+            .map(|device| device.id.clone());
+
         if self.graph.data_source != "mock" {
             // A deleted device's live effects conf (if any) must go with it —
             // otherwise it's an orphan that `filter-chain.service` will keep
@@ -88,14 +95,30 @@ impl CoreEngine {
             // device is about to be destroyed regardless, so a failed conf
             // cleanup here shouldn't block that.
             let _ = self.discard_effect_chain_conf(system_name);
-            if let Some(device_id) = self
+            if let Some(device_id) = &device_id {
+                let _ = ConfigStore::new().remove_effect_chain(device_id);
+            }
+        }
+
+        // Streams still routed straight to this device would otherwise pause
+        // outright (issue #208) once the module backing it disappears out from
+        // under them — move them to a fallback target first. Reuses the same
+        // adapter-level fallback resolution `clear_stream_target` already applies
+        // when a route is cleared (default sink, else first physical output).
+        if let Some(device_id) = &device_id {
+            let stranded_stream_ids: Vec<String> = self
                 .graph
-                .devices
+                .streams
                 .iter()
-                .find(|device| device.system_name == system_name)
-                .map(|device| device.id.clone())
-            {
-                let _ = ConfigStore::new().remove_effect_chain(&device_id);
+                .filter(|stream| stream.current_target.as_deref() == Some(device_id.as_str()))
+                .map(|stream| stream.id.clone())
+                .collect();
+            for stream_id in stranded_stream_ids {
+                let _ = self.adapter.clear_stream_target(
+                    &self.graph,
+                    &stream_id,
+                    Some(device_id.as_str()),
+                );
             }
         }
 

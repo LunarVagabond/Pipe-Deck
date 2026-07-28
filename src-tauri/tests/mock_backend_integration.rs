@@ -109,6 +109,39 @@ fn stream_routing_set_clear_and_undo_round_trip() {
     );
 }
 
+/// Issue #208: deleting a virtual output with a stream actively routed
+/// through it must reroute that stream to a fallback destination first,
+/// instead of leaving it pointed at a now-nonexistent device id (which is
+/// what caused playback to pause outright on the live backend).
+#[test]
+fn removing_virtual_device_reroutes_streams_routed_through_it() {
+    let (mut engine, _guard) = mock_engine();
+
+    let output = engine.create_virtual_output("Doomed Output").expect("create output");
+    let stream_id = engine.runtime_graph().streams[0].id.clone();
+
+    engine
+        .set_stream_target(&stream_id, &output.device_id)
+        .expect("route stream to the soon-to-be-removed device");
+    assert_eq!(
+        engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap().current_target,
+        Some(output.device_id.clone()),
+    );
+
+    engine.remove_virtual_device(&output.system_name).expect("remove virtual device");
+
+    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap();
+    assert_ne!(
+        stream.current_target.as_deref(),
+        Some(output.device_id.as_str()),
+        "stream must not be left pointing at the removed device"
+    );
+    assert!(
+        stream.current_target.is_some(),
+        "stream must land on a fallback device, not be stranded with no target"
+    );
+}
+
 #[test]
 fn virtual_device_create_remove_cycle_leaves_no_residue() {
     let (mut engine, _guard) = mock_engine();
