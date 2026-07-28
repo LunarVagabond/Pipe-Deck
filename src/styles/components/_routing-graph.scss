@@ -345,6 +345,17 @@
   position: relative;
   overflow: visible;
 
+  // Issue #227: nothing routed yet reads as "idle", not "frozen" — a soft
+  // glow layered on top of the base shadow (carried forward at both
+  // keyframe stops so the base shadow itself doesn't visibly pop in/out).
+  // Scoped by the canvas-level `--idle` modifier so it disengages the
+  // instant any link exists, and every node shares one un-delayed keyframe
+  // (no per-node animation-delay) so an occasional node remount desyncs as
+  // little as possible instead of jumping to a mid-cycle phase.
+  .routing-graph-canvas--idle & {
+    animation: routing-graph-idle-pulse 2.4s ease-in-out infinite;
+  }
+
   &.playback {
     border-color: rgba(124, 92, 255, 0.55);
     background: rgba(124, 92, 255, 0.08);
@@ -377,6 +388,22 @@
       rgba(255, 176, 32, 0.08) 0%,
       rgba(38, 195, 163, 0.08) 100%
     );
+  }
+}
+
+@keyframes routing-graph-idle-pulse {
+  0%,
+  100% {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 0 0 vars.translucent(--accent-purple, 0);
+  }
+  50% {
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 16px 2px vars.translucent(--accent-purple, 35);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .routing-graph-canvas--idle .routing-graph-node {
+    animation: none;
   }
 }
 
