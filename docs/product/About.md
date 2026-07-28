@@ -12,4 +12,4 @@ Because Pipe Deck grew out of a real, specific frustration, the guiding question
 
 ## Where it's going
 
-Pipe Deck is under active development toward a v0.5.0 beta. See the [Roadmap](../product/Roadmap.md) for what's planned and the [Decisions](../architecture/Decisions.md) log for the architectural choices behind it. Contributions, bug reports, and feature ideas are welcome — see [Contributing](../../.github/CONTRIBUTING.md).
+Pipe Deck is under active, pre-1.0 development. See the [Roadmap](../product/Roadmap.md) for what's planned and the [Decisions](../architecture/Decisions.md) log for the architectural choices behind it. Contributions, bug reports, and feature ideas are welcome — see [Contributing](../../.github/CONTRIBUTING.md).

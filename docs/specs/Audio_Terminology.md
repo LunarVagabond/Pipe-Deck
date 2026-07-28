@@ -59,7 +59,7 @@ A reference glossary for the audio-engineering and PipeWire concepts Pipe Deck's
 
 **Fan-out** — Duplicating one source's signal out to multiple destinations at once, as opposed to a plain 1:1 route. Pipe Deck's dedicated **Fan-out Node** (PD-032/PD-033, issue #293) is the only way to do this — an explicit, independently-wired graph node rather than a property of an existing device.
 
-**Processing node** — A dedicated, independently-wired graph node that takes audio in and produces audio out — as opposed to a property attached to an existing device or stream. Mixer, Fan-out, and per-effect nodes (5-Band EQ fully functional; a longer list of other effect kinds shipping as visibly-labeled "Not implemented yet" pass-through stubs ahead of real DSP) are all processing nodes (PD-032, issue #293). See "Processing Nodes" in `UI_Spec.md`.
+**Processing node** — A dedicated, independently-wired graph node that takes audio in and produces audio out — as opposed to a property attached to an existing device or stream. Mixer, Fan-out, and per-effect nodes (several effect kinds now real DSP, with the remainder shipping as visibly-labeled "Not implemented yet" pass-through stubs ahead of their own real DSP) are all processing nodes (PD-032, issue #293). See "Processing Nodes" in `UI_Spec.md` for the current kind-by-kind status.
 
 ## Automation and dynamics
 
