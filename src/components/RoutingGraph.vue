@@ -59,6 +59,11 @@ const props = defineProps<{
   graph: RuntimeGraph;
 }>();
 
+// Issue #227: a subtle idle glow on nodes when nothing is routed yet,
+// distinguishing "nothing routed" from "app frozen/broken" — stops the
+// instant any link exists.
+const isIdle = computed(() => props.graph.links.length === 0);
+
 const { handleApplyResult } = useApplyResult();
 const { addEq5BandStage } = useEffectChain();
 const { isolatedNodeId, toggleIsolation, clearIsolation } = useEffectIsolation();
@@ -988,7 +993,7 @@ onUnmounted(() => {
       @bring-node-here="onBringNodeHereAction"
       @close="contextMenu = null"
     />
-    <div class="routing-graph-canvas">
+    <div class="routing-graph-canvas" :class="{ 'routing-graph-canvas--idle': isIdle }">
       <VueFlow
         :nodes="nodes"
         :edges="edges"
