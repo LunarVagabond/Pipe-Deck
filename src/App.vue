@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, provide, ref } from "vue";
+import { computed, onMounted, onUnmounted, provide, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import PromptDialog from "./components/PromptDialog.vue";
+import ShortcutsModal from "./components/ShortcutsModal.vue";
 import AppFooter from "./components/AppFooter.vue";
 import NewDeviceDialog from "./components/NewDeviceDialog.vue";
 import NavIcon from "./components/NavIcon.vue";
@@ -22,6 +23,7 @@ import { useUpdateStatus } from "./stores/updateStatus";
 import { useRuntimeGraph } from "./stores/runtimeGraph";
 import { useDaemonStatus } from "./stores/daemonStatus";
 import { useTheme } from "./stores/theme";
+import { useShortcutsModal } from "./stores/shortcutsModal";
 import type { AppConfig, AppView } from "./types/graph";
 
 // Only views that actually wire up device creation should show the topbar's
@@ -50,6 +52,7 @@ const { graph: runtimeGraph, loading: runtimeGraphLoading, error: runtimeGraphEr
   useRuntimeGraph();
 const { refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass } = useDaemonStatus();
 const { resolvedKind, setMode } = useTheme();
+const { openShortcutsModal } = useShortcutsModal();
 
 const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
 
@@ -120,10 +123,25 @@ async function toggleSidebar() {
   }
 }
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(target.tagName);
+}
+
+function onWindowKeydown(event: KeyboardEvent) {
+  if (event.key !== "?" || isTypingTarget(event.target)) return;
+  event.preventDefault();
+  openShortcutsModal();
+}
+
 onMounted(() => {
   void refreshDaemonStatus();
   void loadPreferences();
   void checkForUpdatesNow();
+  window.addEventListener("keydown", onWindowKeydown);
+});
+
+onUnmounted(() => {
+  window.removeEventListener("keydown", onWindowKeydown);
 });
 </script>
 
@@ -230,6 +248,26 @@ onMounted(() => {
             </svg>
           </button>
           <button
+            type="button"
+            class="topbar-help-btn"
+            aria-label="Keyboard shortcuts"
+            title="Keyboard shortcuts (?)"
+            @click="openShortcutsModal()"
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" />
+              <path
+                d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.29c-.7.32-1 .82-1 1.46V14"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+              <circle cx="12" cy="17" r="0.75" fill="currentColor" stroke="none" />
+            </svg>
+          </button>
+          <button
             v-if="showNewDeviceButton"
             type="button"
             class="topbar-btn"
@@ -255,6 +293,7 @@ onMounted(() => {
     <NoticeStack />
     <ConfirmDialog />
     <PromptDialog />
+    <ShortcutsModal />
     <NewDeviceDialog />
   </div>
 </template>
