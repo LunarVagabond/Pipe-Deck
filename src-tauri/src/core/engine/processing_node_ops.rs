@@ -835,16 +835,24 @@ impl CoreEngine {
             bypassed: false,
         };
 
+        // Live load must succeed before this node is persisted — persisting
+        // first (as this used to) left an orphaned config entry behind on any
+        // load failure (a transient daemon timeout, a missing capability,
+        // ...), which then silently appeared, unconnectable, the next time
+        // any unrelated action triggered a graph refresh (it merges
+        // processing_nodes from persisted config — see
+        // `merge_processing_nodes` below), with no live PipeWire node behind
+        // it for a caller to connect to.
+        let node = processing_node_from_spec(&spec, &self.graph);
+        self.adapter
+            .load_processing_node(&node)
+            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+
         if self.graph.data_source != "mock" {
             ConfigStore::new()
                 .add_processing_node(spec.clone())
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
-
-        let node = processing_node_from_spec(&spec, &self.graph);
-        self.adapter
-            .load_processing_node(&node)
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         self.refresh_graph()?;
         self.graph

@@ -167,6 +167,16 @@ pub fn run_ephemeral() -> i32 {
 /// that startup is complete, then blocks forever serving native-effects IPC
 /// requests (`ipc::server::run`).
 fn serve_native_effects() {
+    // Pays `native_host`'s one-time PipeWire connection setup cost now,
+    // before the socket accepts a single request — otherwise it's paid
+    // lazily inside whichever `LoadChain`/etc. IPC request happens to be
+    // first, which can take long enough on a cold process to blow through
+    // the client's `REQUEST_TIMEOUT` (see `native_host::warm_up`'s doc
+    // comment). The reconcile calls below already do this incidentally when
+    // there's something persisted to reload, but a fresh profile with
+    // nothing configured yet skips both, so this can't be dropped in favor
+    // of relying on them.
+    crate::pipewire::native_host::warm_up();
     reconcile_live_effects_state();
     reconcile_live_processing_nodes();
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);

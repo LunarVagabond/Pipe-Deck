@@ -187,6 +187,26 @@ fn settle() {
     std::thread::sleep(SETTLE_INTERVAL);
 }
 
+/// Forces `host()`'s one-time PipeWire connection setup (`pw::init()`,
+/// spinning up the thread loop, connecting the context, fetching the
+/// registry — each a real round trip with the server) to happen now, rather
+/// than lazily inside whichever `load_chain`/`unload_chain`/`is_loaded`/
+/// `set_param` call happens to be first. Meant to be called once at daemon
+/// startup, before `ipc::server::run()` starts accepting requests: without
+/// this, that one-time cost is paid inside the first real IPC request instead
+/// — and a cold process (first-ever `pw::init()`, cold page cache, ...) can
+/// take long enough that it blows through the client's `REQUEST_TIMEOUT`
+/// (issue: reported as "native-effects daemon is unreachable: Resource
+/// temporarily unavailable (os error 11)" on whichever effect a user happens
+/// to add first after a fresh daemon start — not specific to any one effect
+/// kind, since `reconcile_live_effects_state`/`reconcile_live_processing_nodes`
+/// only touch `native_host` at all when there's something persisted to
+/// reload, so a fresh profile with nothing yet configured never warms it up
+/// on its own).
+pub fn warm_up() {
+    host();
+}
+
 /// Loads `config`'s filter chain onto `device_system_name`, swapping out
 /// whatever chain (if any) is already loaded for it first (PD-020:
 /// swap-by-identity, same node name takes over). `is_input` picks which of
