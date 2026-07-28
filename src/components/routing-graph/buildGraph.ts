@@ -2,6 +2,7 @@ import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/g
 import {
   deviceColumn,
   deviceSubtitle,
+  isBluetoothDevice,
   isMultiSink,
   streamAccent,
   streamDisplayLabel,
@@ -50,6 +51,12 @@ export interface RoutingGraphNodeData {
    * unprocessed — set only for `nodeKind: "processingNode"`. Only Eq5Band
    * currently enforces this backend-side. */
   processingNodeBypassed?: boolean;
+  /** Overrides the `NodeTypeIcon` kind without touching `nodeClass` (issue
+   * #226) — `nodeClass` also drives the node's border-color CSS class
+   * (`.output`/`.input`/...), which a Bluetooth device should keep, so the
+   * icon-only "bluetooth" distinction is carried separately instead of
+   * replacing `nodeClass` outright. */
+  iconOverride?: string;
 }
 
 export interface RoutingGraphGroupData {
@@ -282,6 +289,7 @@ function deviceNodeKind(
       nodeKind: "output",
       entityId: device.id,
       nodeClass: "output",
+      iconOverride: isBluetoothDevice(device) ? "bluetooth" : undefined,
       ...shared,
     };
   }
@@ -293,6 +301,7 @@ function deviceNodeKind(
     nodeKind: "input",
     entityId: device.id,
     nodeClass: isVirtualInput ? "virtual-input" : "input",
+    iconOverride: isBluetoothDevice(device) ? "bluetooth" : undefined,
     ...shared,
   };
 }

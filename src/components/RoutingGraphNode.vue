@@ -48,8 +48,13 @@ const hasEffectStages = computed(() => effectsState.value !== "none");
 // kind, so a processing node always fell through to the generic dot
 // fallback. Icon lookup uses the node's own `kind.kind` slug instead for
 // that case; every other node kind's `nodeClass` was already a single word
-// matching `NodeTypeIcon`'s expected values.
-const iconKind = computed(() => props.data.processingNodeKind?.kind ?? props.data.nodeClass);
+// matching `NodeTypeIcon`'s expected values. `iconOverride` (issue #226)
+// covers the remaining case where the icon should differ from `nodeClass`
+// without touching it — a Bluetooth device keeps its `output`/`input`
+// border-color class but shows the distinct Bluetooth icon.
+const iconKind = computed(
+  () => props.data.processingNodeKind?.kind ?? props.data.iconOverride ?? props.data.nodeClass,
+);
 
 const effectsBadgeTitle = computed(() =>
   effectsState.value === "live" ? "Effects live" : effectsState.value === "bypassed" ? "Effects bypassed" : "",

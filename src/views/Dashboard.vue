@@ -7,7 +7,7 @@ import { navigateKey } from "../composables/navigation";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { useRuleDraft } from "../stores/ruleDraft";
 import { filterRuntimeGraph } from "../utils/filterGraph";
-import { deviceColumn } from "../utils/routingLayout";
+import { deviceColumn, isBluetoothDevice } from "../utils/routingLayout";
 import { filterRecentlySeen, recentEntryAgo, recentEntryLabel } from "../utils/recentStreams";
 import type { Device, RecentStreamIdentity } from "../types/graph";
 
@@ -92,13 +92,6 @@ async function onToggleSystemStreams(next: boolean) {
 
 function openRoutingGraph() {
   navigate?.("routing");
-}
-
-// PipeWire/WirePlumber name every node coming off the bluez5 backend
-// "bluez_output.…"/"bluez_input.…" — there's no dedicated field on Device for
-// this, so the naming convention is the only signal available (see #3).
-function isBluetoothDevice(device: Device): boolean {
-  return device.system_name.startsWith("bluez_");
 }
 
 function deviceIconKind(device: Device): string {

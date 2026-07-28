@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
-import { buildRoutingGraph, processingNodeNodeId, streamNodeId } from "./buildGraph";
+import { makeDevice, makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
+import { buildRoutingGraph, deviceNodeId, processingNodeNodeId, streamNodeId } from "./buildGraph";
 import type { RoutingGraphNodeData } from "./buildGraph";
 import type { ActionStatus } from "../../types/graph";
 
@@ -61,6 +61,37 @@ describe("streamNodeKind route warnings", () => {
       expect(dataFor(status)?.routeWarning).toBeUndefined();
     },
   );
+});
+
+describe("Bluetooth device icon parity (#226)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  function dataForDevice(overrides: Partial<Parameters<typeof makeDevice>[0]>) {
+    const device = makeDevice(overrides);
+    const graph = makeGraph([device], []);
+    const node = buildRoutingGraph(graph).nodes.find((n) => n.id === deviceNodeId(device.id));
+    return node?.data as RoutingGraphNodeData | undefined;
+  }
+
+  it("sets iconOverride to bluetooth for a bluez-named output device, without changing nodeClass", () => {
+    const data = dataForDevice({ system_name: "bluez_output.aa_bb_cc.1", direction: "output", kind: "physical" });
+    expect(data?.nodeClass).toBe("output");
+    expect(data?.iconOverride).toBe("bluetooth");
+  });
+
+  it("sets iconOverride to bluetooth for a bluez-named input device, without changing nodeClass", () => {
+    const data = dataForDevice({ system_name: "bluez_input.aa_bb_cc.1", direction: "input", kind: "physical" });
+    expect(data?.nodeClass).toBe("input");
+    expect(data?.iconOverride).toBe("bluetooth");
+  });
+
+  it("leaves iconOverride unset for a non-Bluetooth physical output", () => {
+    const data = dataForDevice({ system_name: "physical-out-1", direction: "output", kind: "physical" });
+    expect(data?.nodeClass).toBe("output");
+    expect(data?.iconOverride).toBeUndefined();
+  });
 });
 
 describe("delay processing node (#313)", () => {
