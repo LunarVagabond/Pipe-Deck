@@ -1,7 +1,7 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, EffectChainConfig, Link, MixSource, MixSourceSpec, PortDirection,
-    ProcessingNode, ProcessingNodeKind, RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo,
-    VirtualDeviceResult,
+    Device, DeviceDirection, DeviceKind, EffectChainConfig, LatencyHop, LatencyPathNode, LatencyPingResult, Link,
+    MixSource, MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind, RuntimeGraph, SinkMode, Stream,
+    StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -691,6 +691,55 @@ impl AudioBackend for MockAudioBackend {
 
     fn platform_audio_version(&self) -> Option<String> {
         Some("1.0.0 (mock)".to_string())
+    }
+
+    /// Synthetic latency data — every node currently present in the mock
+    /// graph (device, stream, or processing node) reports a fixed 1024/48000
+    /// quantum/rate (~21.33ms), so mixer/routing tests get deterministic,
+    /// non-zero data without shelling out to a real `pw-top`. A path node
+    /// that isn't in the current graph reports no data, exercising the same
+    /// "gap in the path" case a real backend would hit for a suspended node.
+    fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+        const MOCK_QUANTUM: u32 = 1024;
+        const MOCK_RATE: u32 = 48000;
+
+        let graph = self.lock();
+        let known_ids: HashSet<&str> = graph
+            .devices
+            .iter()
+            .map(|device| device.id.as_str())
+            .chain(graph.streams.iter().map(|stream| stream.id.as_str()))
+            .chain(graph.processing_nodes.iter().map(|node| node.id.as_str()))
+            .collect();
+
+        let mut hops = Vec::with_capacity(path.len());
+        let mut total_latency_ms = Some(0.0_f64);
+
+        for node in path {
+            let is_known = known_ids.contains(node.id.as_str());
+            let (quantum, rate, latency_ms) = if is_known {
+                let latency_ms = f64::from(MOCK_QUANTUM) / f64::from(MOCK_RATE) * 1000.0;
+                (Some(MOCK_QUANTUM), Some(MOCK_RATE), Some(latency_ms))
+            } else {
+                (None, None, None)
+            };
+
+            match (total_latency_ms, latency_ms) {
+                (Some(total), Some(hop_ms)) => total_latency_ms = Some(total + hop_ms),
+                (_, None) => total_latency_ms = None,
+                _ => {}
+            }
+
+            hops.push(LatencyHop {
+                id: node.id.clone(),
+                node_id: None,
+                quantum,
+                rate,
+                latency_ms,
+            });
+        }
+
+        Ok(LatencyPingResult { hops, total_latency_ms })
     }
 
     fn load_effect_chain(

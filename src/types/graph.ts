@@ -250,6 +250,30 @@ export interface RuleSafeguards {
   fallback_policy?: "keep_current" | "safe_default";
 }
 
+/** One node along a path submitted for latency-ping measurement (issue
+ * #223). `system_name` is only needed as a resolution fallback for
+ * processing nodes; device/stream ids resolve for free on the Rust side. */
+export interface LatencyPathNode {
+  id: string;
+  system_name?: string;
+}
+
+/** Theoretical/buffering latency contribution of one hop, from `pw-top`'s
+ * QUANT/RATE. `latency_ms` (and `quantum`/`rate`) are absent when the node
+ * has no current reading — distinct from a real zero-latency reading. */
+export interface LatencyHop {
+  id: string;
+  node_id?: number;
+  quantum?: number;
+  rate?: number;
+  latency_ms?: number;
+}
+
+export interface LatencyPingResult {
+  hops: LatencyHop[];
+  total_latency_ms?: number;
+}
+
 export interface Rule {
   id: string;
   name: string;

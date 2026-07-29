@@ -72,6 +72,13 @@ Users should understand current audio state quickly and complete common routing 
 - Right-click empty canvas → **Bring node here…** → pick a node from the list of every node currently on the board → the picked node relocates to the click point.
 - Recovers a node dragged (or auto-laid-out) far outside the visible canvas, which otherwise has no other way to be located.
 
+### Measure Latency Between Two Nodes (issue #223)
+
+- Collapsible panel docked bottom-right of the routing graph canvas, collapsed by default so it stays out of the way until needed.
+- Source/Target dropdowns list every device, stream, and processing node currently on the graph. **Measure** finds the signal path between them (following actual connection direction, through processing nodes if the path crosses one) and reports a per-hop breakdown plus a total.
+- The figure is **theoretical/buffering latency** derived from PipeWire's own scheduling data (`pw-top`'s QUANT/RATE per node), not a real measured round-trip — the panel's hint text says so explicitly. A hop with no current reading (node not actively running) shows "no data" instead of a fabricated total.
+- No path between the two picked nodes surfaces as a plain "No signal path between these two nodes" message rather than an error.
+
 ## Dashboard Layout
 
 The default dashboard uses a four-column routing matrix:

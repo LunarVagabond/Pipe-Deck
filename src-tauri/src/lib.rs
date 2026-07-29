@@ -36,6 +36,7 @@ pub fn run() {
             commands::app_info::get_diagnostics_bundle,
             commands::app_info::open_url,
             commands::graph::get_runtime_graph,
+            commands::latency::measure_latency_ping,
             commands::config::get_config,
             commands::config::get_config_paths,
             commands::config::list_profiles,

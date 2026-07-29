@@ -10,13 +10,13 @@ mod virtual_ops;
 
 use crate::config::ConfigStore;
 use crate::core::models::{
-    PluginStatus, Rule, RuntimeGraph, SimulationResult,
+    LatencyPathNode, LatencyPingResult, PluginStatus, Rule, RuntimeGraph, SimulationResult,
 };
 use crate::core::recent_streams::RecentStreamCache;
 use crate::core::restore;
 use crate::core::rules;
 use crate::core::stream_identity::StreamIdentityKey;
-use crate::backend::AudioBackend;
+use crate::backend::{AudioBackend, BackendError};
 use crate::pipewire::filter_chain;
 use crate::plugins::PluginManager;
 use std::collections::{HashMap, HashSet};
@@ -236,6 +236,10 @@ impl CoreEngine {
 
     pub fn platform_audio_version(&self) -> Option<String> {
         self.adapter.platform_audio_version()
+    }
+
+    pub fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+        self.adapter.measure_latency_ping(path)
     }
 
     /// Unconditionally unloads every live Pipe Deck virtual device module —

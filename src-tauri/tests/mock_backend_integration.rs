@@ -12,8 +12,8 @@ use pipe_deck_lib::backend::AudioBackend;
 use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{
-    Device, DeviceDirection, DeviceKind, Profile, Rule, RuleAction, RuleCondition, RuntimeGraph, Stream,
-    StreamDirection, VirtualDeviceSpec,
+    Device, DeviceDirection, DeviceKind, LatencyPathNode, Profile, Rule, RuleAction, RuleCondition, RuntimeGraph,
+    Stream, StreamDirection, VirtualDeviceSpec,
 };
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -1689,4 +1689,50 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
 
     let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1002").unwrap();
     assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
+}
+
+#[test]
+fn latency_ping_sums_hops_present_in_the_graph() {
+    let (mut engine, _guard) = mock_engine();
+    let device_id = engine.runtime_graph().devices[0].id.clone();
+    let stream_id = engine.runtime_graph().streams[0].id.clone();
+
+    let path = vec![
+        LatencyPathNode { id: stream_id.clone(), system_name: None },
+        LatencyPathNode { id: device_id.clone(), system_name: None },
+    ];
+    let result = engine.measure_latency_ping(&path).expect("mock backend should measure latency");
+
+    assert_eq!(result.hops.len(), 2);
+    assert!(result.hops.iter().all(|hop| hop.latency_ms.is_some()));
+    let expected_total: f64 = result.hops.iter().map(|hop| hop.latency_ms.unwrap()).sum();
+    assert_eq!(result.total_latency_ms, Some(expected_total));
+    assert!(result.total_latency_ms.unwrap() > 0.0);
+}
+
+#[test]
+fn latency_ping_reports_no_total_when_a_hop_has_no_data() {
+    let (mut engine, _guard) = mock_engine();
+    let device_id = engine.runtime_graph().devices[0].id.clone();
+
+    let path = vec![
+        LatencyPathNode { id: device_id, system_name: None },
+        LatencyPathNode { id: "node-not-in-graph".to_string(), system_name: None },
+    ];
+    let result = engine.measure_latency_ping(&path).expect("mock backend should measure latency");
+
+    assert_eq!(result.hops.len(), 2);
+    assert!(result.hops[0].latency_ms.is_some());
+    assert!(result.hops[1].latency_ms.is_none());
+    assert_eq!(result.total_latency_ms, None);
+}
+
+#[test]
+fn latency_ping_handles_an_empty_path() {
+    let (engine, _guard) = mock_engine();
+
+    let result = engine.measure_latency_ping(&[]).expect("mock backend should measure latency");
+
+    assert!(result.hops.is_empty());
+    assert_eq!(result.total_latency_ms, Some(0.0));
 }
