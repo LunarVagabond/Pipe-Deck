@@ -1,12 +1,10 @@
 mod evaluation;
 mod manual_overrides;
 mod matching;
-mod migration;
 
 pub use evaluation::*;
 pub use manual_overrides::*;
 pub use matching::*;
-pub use migration::*;
 
 use std::collections::HashSet;
 

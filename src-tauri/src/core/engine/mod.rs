@@ -149,7 +149,6 @@ impl CoreEngine {
         ConfigStore::new()
             .ensure_layout()
             .map_err(|error| EngineError::Config(error.to_string()))?;
-        let _ = rules::ensure_rules_migrated();
         self.initialize_plugins();
 
         if std::env::var("PIPE_DECK_USE_MOCK").as_deref() != Ok("1") {
