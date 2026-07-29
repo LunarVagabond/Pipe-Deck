@@ -4,6 +4,7 @@ use crate::core::models::{
     ApplyResult, PortDirection, ProcessingNode, ProcessingNodeKind, ProcessingNodePort,
     ProcessingNodeSpec, ProcessingNodeSpecKind, RuntimeGraph,
 };
+use crate::core::stream_identity::{identity_matches, stream_identity_key};
 use chrono::Utc;
 
 use super::{CoreEngine, EngineError};
@@ -150,13 +151,22 @@ impl CoreEngine {
             .map(|port| port.index)
             .unwrap_or(ports.len() as u32);
 
+        // Captured before the relink so a Mixer input wired to a stream can
+        // be re-found by app identity on a later refresh, once this exact
+        // stream instance is gone (issue #304 — e.g. a browser tab reload
+        // creates a brand-new PipeWire stream node with the same app
+        // identity). Only meaningful for `PortDirection::Input`; an output
+        // peer is never a stream (streams have no input ports to feed).
+        let peer_stream_identity =
+            self.graph.streams.iter().find(|stream| stream.id == peer_id).map(stream_identity_key);
+
         self.adapter
             .relink_processing_node_port(&self.graph, &node.system_name, port_index, direction, Some(peer_id))
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
-                .upsert_processing_node_port(node_id, direction, port_index, &peer_system_name)
+                .upsert_processing_node_port(node_id, direction, port_index, &peer_system_name, peer_stream_identity)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
@@ -266,7 +276,9 @@ impl CoreEngine {
             let node_system_name = resolve_system_name_for_id(&self.graph, node_id)
                 .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {node_id}")))?;
             ConfigStore::new()
-                .upsert_processing_node_port(peer_id, peer_direction, peer_port_index, &node_system_name)
+                // `node_id` here is always another processing node, never a
+                // stream, so there's no app identity to persist.
+                .upsert_processing_node_port(peer_id, peer_direction, peer_port_index, &node_system_name, None)
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
         Ok(())
@@ -334,27 +346,29 @@ impl CoreEngine {
         if !matches!(node.kind, ProcessingNodeKind::Mixer { .. }) {
             return Err(EngineError::InvalidInput(format!("{node_id} has no per-input gain to update")));
         }
-        let peer_id = node
+        let port = node
             .inputs
             .iter()
             .find(|port| port.index == port_index)
-            .and_then(|port| port.connected_id.as_deref())
-            .ok_or_else(|| EngineError::InvalidInput(format!("input {port_index} on {node_id} isn't connected")))?
-            .to_string();
+            .filter(|port| port.connected_id.is_some())
+            .ok_or_else(|| EngineError::InvalidInput(format!("input {port_index} on {node_id} isn't connected")))?;
         // Must match whatever `relink_processing_node_port`'s Mixer-input arm
         // (`live.rs`) actually named the feed sink at connect time. For a
-        // stream peer, that's the raw graph `id` (the stream's own
-        // `system_name` may still be unresolved at connect time — see the
-        // comment on that arm), NOT `stream.system_name`, which is what
-        // `resolve_system_name_for_id` returns for a stream. Using the
-        // resolved system_name here computed a *different* feed-sink name
-        // than the one connect actually created, so the gain/mute update
-        // silently targeted a nonexistent sink while the real one kept
-        // carrying audio at unity gain. Device/processing-node peers are
-        // unaffected — connect time already uses their system_name too.
-        let peer_feed_key = if self.graph.streams.iter().any(|stream| stream.id == peer_id) {
-            peer_id.clone()
+        // stream peer, that's `feed_key` — the raw graph `id` of the stream
+        // originally connected, persisted independently of `connected_id` so
+        // it survives that stream instance disappearing and `connected_id`
+        // being reconciled onto a same-app replacement (issue #304). Using
+        // `connected_id` here directly (or re-resolving it as a system_name)
+        // would compute a *different*, nonexistent feed-sink name once the
+        // two diverge, silently targeting nothing while the real feed sink
+        // (still named after the original id, and still carrying whatever
+        // PipeWire re-parked onto it) kept playing at unity gain. Device/
+        // processing-node peers have no `feed_key` (never diverge from their
+        // own stable `system_name`) — unaffected.
+        let peer_feed_key = if let Some(feed_key) = port.feed_key.clone() {
+            feed_key
         } else {
+            let peer_id = port.connected_id.clone().expect("checked above");
             resolve_system_name_for_id(&self.graph, &peer_id)
                 .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?
         };
@@ -1047,6 +1061,47 @@ fn resolve_id_for_system_name(
         .or_else(|| siblings.get(system_name).cloned())
 }
 
+/// Input-port counterpart to `resolve_id_for_system_name` — same device/
+/// processing-node resolution, plus a same-app-identity fallback for a
+/// stream peer whose original PipeWire stream instance is gone by the time
+/// this refresh runs (issue #304: a browser tab reload, or a new video
+/// played in the same tab, commonly creates a fresh stream node with a new
+/// id but the same app identity). Returns `(connected_id, feed_key)` —
+/// `feed_key` is the *original* raw stream id (stable, used to address the
+/// live per-pair feed sink) even once `connected_id` has been reconciled
+/// onto a replacement instance; see `ProcessingNodePort::feed_key`'s doc
+/// comment for why the two must never be conflated. `claimed_stream_ids`
+/// stops two stale ports on the same node from both re-latching onto a
+/// single replacement stream.
+fn resolve_input_port_peer(
+    graph: &RuntimeGraph,
+    port: &crate::core::models::ProcessingNodePortSpec,
+    siblings: &std::collections::HashMap<String, String>,
+    claimed_stream_ids: &mut std::collections::HashSet<String>,
+) -> (Option<String>, Option<String>) {
+    let system_name = &port.source_system_name;
+    let Some(stream_id) = system_name.strip_prefix(STREAM_PEER_PREFIX) else {
+        return (resolve_id_for_system_name(graph, system_name, siblings), None);
+    };
+
+    if graph.streams.iter().any(|stream| stream.id == stream_id) && claimed_stream_ids.insert(stream_id.to_string()) {
+        return (Some(stream_id.to_string()), Some(stream_id.to_string()));
+    }
+
+    let replacement = port.source_stream_identity.as_ref().and_then(|identity| {
+        graph
+            .streams
+            .iter()
+            .find(|stream| !claimed_stream_ids.contains(&stream.id) && identity_matches(&stream_identity_key(stream), identity))
+    });
+    if let Some(stream) = replacement {
+        claimed_stream_ids.insert(stream.id.clone());
+        return (Some(stream.id.clone()), Some(stream_id.to_string()));
+    }
+
+    (None, Some(stream_id.to_string()))
+}
+
 /// Converts a persisted `ProcessingNodeSpec` into its runtime `ProcessingNode`
 /// — system_name derivation (`pipe-deck-proc-{kind}-{slug}`, PD-032) and
 /// kind-specific field mapping both live here so `merge_processing_nodes`
@@ -1112,13 +1167,14 @@ fn processing_node_from_spec_with_siblings(
         ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub { stub_kind: *stub_kind },
     };
 
+    let mut claimed_stream_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let inputs = spec
         .input_sources
         .iter()
         .enumerate()
-        .map(|(index, port)| ProcessingNodePort {
-            index: index as u32,
-            connected_id: resolve_id_for_system_name(graph, &port.source_system_name, siblings),
+        .map(|(index, port)| {
+            let (connected_id, feed_key) = resolve_input_port_peer(graph, port, siblings, &mut claimed_stream_ids);
+            ProcessingNodePort { index: index as u32, connected_id, feed_key }
         })
         .collect();
     let outputs = spec
@@ -1128,6 +1184,7 @@ fn processing_node_from_spec_with_siblings(
         .map(|(index, target)| ProcessingNodePort {
             index: index as u32,
             connected_id: resolve_id_for_system_name(graph, target, siblings),
+            feed_key: None,
         })
         .collect();
 
@@ -1826,6 +1883,7 @@ mod tests {
                 source_system_name: "alsa_input.headset".into(),
                 gain_percent: 80,
                 muted: false,
+                source_stream_identity: None,
             }],
             output_targets: Vec::new(),
             bypassed: false,
@@ -1837,6 +1895,135 @@ mod tests {
             node.kind,
             ProcessingNodeKind::Mixer { ref input_gains_percent } if input_gains_percent == &vec![80]
         ));
+    }
+
+    fn firefox_stream(id: &str, media_name: &str) -> crate::core::models::Stream {
+        use crate::core::models::{Stream, StreamDirection};
+        Stream {
+            id: id.into(),
+            app_name: "Firefox".into(),
+            executable: Some("firefox".into()),
+            window_class: None,
+            system_name: Some("Firefox".into()),
+            direction: StreamDirection::Playback,
+            current_target: None,
+            media_name: Some(media_name.into()),
+            is_system: false,
+            volume_percent: None,
+            muted: None,
+            route_explanation: None,
+        }
+    }
+
+    /// Regression for issue #304: a Mixer input wired to a stream persists
+    /// as a `STREAM_PEER_PREFIX`-tagged synthetic id, permanently pinned to
+    /// that one PipeWire stream instance. Once a browser tab reloads (or
+    /// plays a new video), the original stream id vanishes and a new one
+    /// with the same app identity takes its place — the port must re-latch
+    /// onto it by identity rather than showing up unconnected forever, and
+    /// `feed_key` must keep pointing at the *original* id since that's what
+    /// actually named the still-live per-pair feed sink carrying the audio.
+    #[test]
+    fn spec_to_node_reconciles_a_stale_stream_port_onto_a_same_app_replacement() {
+        let mut graph = empty_graph();
+        graph.streams.push(firefox_stream("node-200", "A new video"));
+
+        let spec = ProcessingNodeSpec {
+            id: "processing-mixer-stream-mix".into(),
+            slug: "stream-mix".into(),
+            label: "Stream Mix".into(),
+            created_at: "2026-07-29T00:00:00Z".into(),
+            kind: ProcessingNodeSpecKind::Mixer,
+            input_sources: vec![ProcessingNodePortSpec {
+                source_system_name: "pipe-deck-stream-node-99".into(),
+                gain_percent: 80,
+                muted: false,
+                source_stream_identity: Some(crate::core::stream_identity::stream_identity_key(&firefox_stream(
+                    "node-99",
+                    "The old video",
+                ))),
+            }],
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+
+        let node = processing_node_from_spec(&spec, &graph);
+        assert_eq!(node.inputs.len(), 1);
+        assert_eq!(node.inputs[0].connected_id.as_deref(), Some("node-200"));
+        assert_eq!(node.inputs[0].feed_key.as_deref(), Some("node-99"));
+    }
+
+    /// The original stream instance is still live and unclaimed — no
+    /// identity fallback should run, and both `connected_id`/`feed_key`
+    /// stay pinned to it exactly as before this reconciliation logic
+    /// existed.
+    #[test]
+    fn spec_to_node_prefers_the_original_stream_id_when_it_is_still_live() {
+        let mut graph = empty_graph();
+        graph.streams.push(firefox_stream("node-99", "Still playing"));
+
+        let spec = ProcessingNodeSpec {
+            id: "processing-mixer-stream-mix".into(),
+            slug: "stream-mix".into(),
+            label: "Stream Mix".into(),
+            created_at: "2026-07-29T00:00:00Z".into(),
+            kind: ProcessingNodeSpecKind::Mixer,
+            input_sources: vec![ProcessingNodePortSpec {
+                source_system_name: "pipe-deck-stream-node-99".into(),
+                gain_percent: 80,
+                muted: false,
+                source_stream_identity: Some(crate::core::stream_identity::stream_identity_key(&firefox_stream(
+                    "node-99",
+                    "Still playing",
+                ))),
+            }],
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+
+        let node = processing_node_from_spec(&spec, &graph);
+        assert_eq!(node.inputs[0].connected_id.as_deref(), Some("node-99"));
+        assert_eq!(node.inputs[0].feed_key.as_deref(), Some("node-99"));
+    }
+
+    /// Two stale Mixer inputs from the same reloaded app must not both
+    /// re-latch onto the single live replacement stream — only the first
+    /// claims it, the second is left unresolved (still showing disconnected)
+    /// rather than silently duplicating the connection.
+    #[test]
+    fn spec_to_node_does_not_double_claim_a_replacement_stream_across_stale_ports() {
+        let mut graph = empty_graph();
+        graph.streams.push(firefox_stream("node-300", "Replacement"));
+
+        let identity = crate::core::stream_identity::stream_identity_key(&firefox_stream("node-99", "Gone"));
+        let stale_port = ProcessingNodePortSpec {
+            source_system_name: "pipe-deck-stream-node-99".into(),
+            gain_percent: 80,
+            muted: false,
+            source_stream_identity: Some(identity.clone()),
+        };
+        let another_stale_port = ProcessingNodePortSpec {
+            source_system_name: "pipe-deck-stream-node-100".into(),
+            gain_percent: 80,
+            muted: false,
+            source_stream_identity: Some(identity),
+        };
+
+        let spec = ProcessingNodeSpec {
+            id: "processing-mixer-stream-mix".into(),
+            slug: "stream-mix".into(),
+            label: "Stream Mix".into(),
+            created_at: "2026-07-29T00:00:00Z".into(),
+            kind: ProcessingNodeSpecKind::Mixer,
+            input_sources: vec![stale_port, another_stale_port],
+            output_targets: Vec::new(),
+            bypassed: false,
+        };
+
+        let node = processing_node_from_spec(&spec, &graph);
+        assert_eq!(node.inputs[0].connected_id.as_deref(), Some("node-300"));
+        assert_eq!(node.inputs[1].connected_id, None);
+        assert_eq!(node.inputs[1].feed_key.as_deref(), Some("node-100"));
     }
 
     /// Regression for a real bug found in manual live-PipeWire testing:
@@ -1872,6 +2059,7 @@ mod tests {
                 source_system_name: "pipe-deck-proc-mixer-mixer".into(),
                 gain_percent: 100,
                 muted: false,
+                source_stream_identity: None,
             }],
             output_targets: Vec::new(),
             bypassed: false,

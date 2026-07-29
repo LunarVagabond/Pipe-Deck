@@ -92,6 +92,10 @@ export interface RecentStreamIdentity {
 export interface ProcessingNodePort {
   index: number;
   connected_id?: string;
+  /** Mixer input only: the original stream id that named this port's feed
+   * sink at connect time, kept stable even after `connected_id` is
+   * reconciled onto a same-app replacement stream instance (issue #304). */
+  feed_key?: string;
 }
 
 /** issue #293's non-DSP effect kinds — addable to the graph, wired like any
@@ -467,6 +471,13 @@ export interface ProcessingNodePortSpec {
   /** Only meaningful for `mixer` — other kinds ignore this. */
   gain_percent: number;
   muted: boolean;
+  /** Captured only for a stream peer, so a later refresh can re-resolve
+   * this port onto a same-app replacement stream instance (issue #304). */
+  source_stream_identity?: {
+    app_name: string;
+    executable?: string;
+    media_name?: string;
+  };
 }
 
 export type ProcessingNodeSpecKind =
