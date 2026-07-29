@@ -1,6 +1,6 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind,
-    RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
+    Device, DeviceDirection, DeviceKind, LatencyHop, LatencyPathNode, LatencyPingResult, MixSourceSpec,
+    PortDirection, ProcessingNode, ProcessingNodeKind, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -267,6 +267,10 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn platform_audio_version(&self) -> Option<String> {
         query_pipewire_version()
+    }
+
+    fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+        measure_latency_ping_live(path)
     }
 
     fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError> {
@@ -1101,6 +1105,74 @@ fn parse_pipewire_version(text: &str) -> Option<String> {
     text.lines()
         .find_map(|line| line.trim().strip_prefix("Linked with libpipewire "))
         .map(|version| version.trim().to_string())
+}
+
+/// Resolves each path node to a live PipeWire node id, then computes
+/// theoretical/buffering latency per hop from a single `pw-top -b -n 2` run
+/// (see `pipewire::pw_top` for why two iterations are required). `Device`/
+/// `Stream` ids are `"node-{n}"` and resolve for free by stripping the
+/// prefix; anything else (processing nodes) falls back to a bulk
+/// `system_name` lookup via `pw_cli::find_node_ids_by_names`.
+fn measure_latency_ping_live(path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+    let mut resolved_ids: Vec<Option<u32>> = Vec::with_capacity(path.len());
+    let mut names_to_resolve: Vec<String> = Vec::new();
+
+    for node in path {
+        if let Some(id) = node.id.strip_prefix("node-").and_then(|suffix| suffix.parse::<u32>().ok()) {
+            resolved_ids.push(Some(id));
+        } else if let Some(system_name) = &node.system_name {
+            names_to_resolve.push(system_name.clone());
+            resolved_ids.push(None);
+        } else {
+            resolved_ids.push(None);
+        }
+    }
+
+    let name_lookup = if names_to_resolve.is_empty() {
+        std::collections::HashMap::new()
+    } else {
+        crate::pipewire::pw_cli::find_node_ids_by_names(&names_to_resolve)?
+    };
+
+    for (index, node) in path.iter().enumerate() {
+        if resolved_ids[index].is_some() {
+            continue;
+        }
+        if let Some(system_name) = &node.system_name {
+            resolved_ids[index] = name_lookup.get(system_name).copied();
+        }
+    }
+
+    let rows = crate::pipewire::pw_top::run_batch(2)?;
+
+    let mut hops = Vec::with_capacity(path.len());
+    let mut total_latency_ms = Some(0.0_f64);
+
+    for (node, node_id) in path.iter().zip(resolved_ids.iter().copied()) {
+        let row = node_id.and_then(|id| rows.iter().find(|row| row.node_id == id));
+        let quantum = row.and_then(|row| row.quantum);
+        let rate = row.and_then(|row| row.rate);
+        let latency_ms = match (quantum, rate) {
+            (Some(quantum), Some(rate)) => Some(f64::from(quantum) / f64::from(rate) * 1000.0),
+            _ => None,
+        };
+
+        match (total_latency_ms, latency_ms) {
+            (Some(total), Some(hop_ms)) => total_latency_ms = Some(total + hop_ms),
+            (_, None) => total_latency_ms = None,
+            _ => {}
+        }
+
+        hops.push(LatencyHop {
+            id: node.id.clone(),
+            node_id,
+            quantum,
+            rate,
+            latency_ms,
+        });
+    }
+
+    Ok(LatencyPingResult { hops, total_latency_ms })
 }
 
 fn notify_graph_listeners(

@@ -3,8 +3,8 @@ pub mod mock;
 pub mod stub;
 
 use crate::core::models::{
-    Device, DeviceDirection, EffectChainConfig, MixSourceSpec, PortDirection, ProcessingNode, RuntimeGraph,
-    VirtualDeviceInfo, VirtualDeviceResult,
+    Device, DeviceDirection, EffectChainConfig, LatencyPathNode, LatencyPingResult, MixSourceSpec, PortDirection,
+    ProcessingNode, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -154,6 +154,17 @@ pub trait AudioBackend: Send + Sync {
     // gets this for free unless it overrides it.
     fn platform_audio_version(&self) -> Option<String> {
         None
+    }
+
+    /// Theoretical/buffering latency along `path`, from `pw-top -b`'s
+    /// per-node QUANT/RATE (issue #223) — not a real measured round-trip,
+    /// see `docs/architecture/Decisions.md` context in the issue for why
+    /// that's out of scope for now. Errs by default; only the Linux backend
+    /// can shell out to `pw-top`.
+    fn measure_latency_ping(&self, _path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+        Err(BackendError::Message(
+            "latency measurement is not supported by this backend".to_string(),
+        ))
     }
 
     // --- Live effects (issue #148/#149: native, restart-free transport) ---

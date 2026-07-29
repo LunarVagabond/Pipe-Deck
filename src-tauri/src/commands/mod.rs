@@ -3,6 +3,7 @@ pub mod config;
 pub mod daemon;
 pub mod effects;
 pub mod graph;
+pub mod latency;
 pub mod mixer;
 pub mod plugins;
 pub mod processing_node;

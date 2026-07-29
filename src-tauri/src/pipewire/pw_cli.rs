@@ -54,6 +54,51 @@ pub fn find_node_id_by_name(node_name: &str) -> Result<Option<u32>, BackendError
     Ok(None)
 }
 
+/// Bulk form of [`find_node_id_by_name`] — one `pw-dump` call resolving every
+/// name in `names` at once, for callers (e.g. latency-ping path resolution,
+/// issue #223) that need several nodes' ids and would otherwise pay for a
+/// subprocess per name.
+pub fn find_node_ids_by_names(
+    names: &[String],
+) -> Result<std::collections::HashMap<String, u32>, BackendError> {
+    let output = sysproc::command("pw-dump")
+        .output()
+        .map_err(|error| BackendError::Message(format!("failed to run pw-dump: {error}")))?;
+    if !output.status.success() {
+        return Err(BackendError::Message(
+            "pw-dump failed while looking up nodes for latency measurement".to_string(),
+        ));
+    }
+
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|error| BackendError::Message(format!("failed to parse pw-dump output: {error}")))?;
+
+    let Some(objects) = parsed.as_array() else {
+        return Ok(std::collections::HashMap::new());
+    };
+
+    let mut found = std::collections::HashMap::new();
+    for object in objects {
+        if found.len() == names.len() {
+            break;
+        }
+        if object.get("type").and_then(|v| v.as_str()) != Some("PipeWire:Interface:Node") {
+            continue;
+        }
+        let Some(name) = object.pointer("/info/props/node.name").and_then(|v| v.as_str()) else {
+            continue;
+        };
+        if !names.iter().any(|candidate| candidate == name) {
+            continue;
+        }
+        if let Some(id) = object.get("id").and_then(|v| v.as_u64()) {
+            found.insert(name.to_string(), id as u32);
+        }
+    }
+
+    Ok(found)
+}
+
 /// Pushes `(control_name, value)` pairs to a live filter-chain node's `Props`
 /// param in one call. `control_name` must match the internal filter-graph
 /// node/control naming from `fx_validate::render_conf` (e.g. `"eq_bass:Gain"`).

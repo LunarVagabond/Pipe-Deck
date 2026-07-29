@@ -1704,3 +1704,45 @@ pub struct RoutingSuggestion {
     pub reason: Option<String>,
     pub received_at: String,
 }
+
+/// One node along a signal path submitted for latency-ping measurement
+/// (issue #223). `id` is a `Device`/`Stream`/`ProcessingNode` id from the
+/// frontend's own graph traversal; `system_name` is only needed as a
+/// resolution fallback for `ProcessingNode`s, whose `id` has no numeric
+/// relationship to the live PipeWire node id the way `Device`/`Stream`'s
+/// `"node-{n}"` ids do (see `backend/linux/pw_dump.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LatencyPathNode {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_name: Option<String>,
+}
+
+/// Theoretical/buffering latency contribution of a single node along a
+/// measured path, from `pw-top -b`'s QUANT/RATE columns. `latency_ms` (and
+/// `quantum`/`rate`) are `None` when the node has no current reading (not
+/// actively running, or not found live in PipeWire) — distinct from a real
+/// zero-latency reading.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LatencyHop {
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub node_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quantum: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub latency_ms: Option<f64>,
+}
+
+/// Result of measuring theoretical latency along a path (issue #223).
+/// `total_latency_ms` is `None` whenever any hop lacks data — a partial sum
+/// would misrepresent the path, so per-hop data is still returned for the UI
+/// to show exactly which hop is the gap.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LatencyPingResult {
+    pub hops: Vec<LatencyHop>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_latency_ms: Option<f64>,
+}

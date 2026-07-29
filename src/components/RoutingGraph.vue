@@ -14,6 +14,7 @@ import {
 } from "@vue-flow/core";
 import { Background } from "@vue-flow/background";
 import { Controls, ControlButton } from "@vue-flow/controls";
+import LatencyPingPanel from "./LatencyPingPanel.vue";
 import RoutingGraphContextMenu from "./RoutingGraphContextMenu.vue";
 import RoutingGraphNode from "./RoutingGraphNode.vue";
 import RoutingGraphGroupNode from "./RoutingGraphGroupNode.vue";
@@ -1067,6 +1068,7 @@ onUnmounted(() => {
         </Controls>
       </VueFlow>
       <div v-if="dropSlotOverlayStyle" class="routing-graph-drop-slot-overlay" :style="dropSlotOverlayStyle" />
+      <LatencyPingPanel :graph="props.graph" :edges="built.edges" />
     </div>
   </div>
 </template>
