@@ -125,6 +125,16 @@ pub struct ProcessingNodePort {
     /// `RuntimeGraph.links` is the source of truth, not this field.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_id: Option<String>,
+    /// Only set for a Mixer input wired to a stream peer: the raw stream id
+    /// that named this port's per-pair feed sink at connect time
+    /// (`ensure_feed_sink_for_mix_pair`'s `id` argument in `live.rs`). Stays
+    /// fixed even after `connected_id` is reconciled onto a replacement
+    /// stream instance (issue #304) — the feed sink itself is a live
+    /// PipeWire object PipeWire keeps re-parking new same-app sink-inputs
+    /// onto automatically, so gain/mute control must keep addressing it by
+    /// this original id, never by whatever `connected_id` currently shows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub feed_key: Option<String>,
 }
 
 /// Disambiguates a `ProcessingNode`'s `inputs` list from its `outputs` list
@@ -665,6 +675,16 @@ pub struct ProcessingNodePortSpec {
     pub gain_percent: u8,
     #[serde(default)]
     pub muted: bool,
+    /// Captured only when `source_system_name` names a stream peer (the
+    /// `STREAM_PEER_PREFIX` synthetic form): the stream's app identity at
+    /// connect time, so a later refresh can re-resolve this port onto a
+    /// same-app replacement stream instance (a browser tab reload, etc. —
+    /// issue #304) even though the original stream's live PipeWire id is
+    /// permanently gone by then. `None` for a device/processing-node peer,
+    /// which re-resolves by its own stable `system_name` instead and needs
+    /// no identity fallback.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_stream_identity: Option<crate::core::stream_identity::StreamIdentityKey>,
 }
 
 impl ProcessingNodePortSpec {
@@ -673,6 +693,7 @@ impl ProcessingNodePortSpec {
             source_system_name: source_system_name.into(),
             gain_percent: default_mix_volume(),
             muted: false,
+            source_stream_identity: None,
         }
     }
 }

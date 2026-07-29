@@ -797,6 +797,7 @@ impl AudioBackend for MockAudioBackend {
                     ports.push(crate::core::models::ProcessingNodePort {
                         index: port_index,
                         connected_id: Some(peer.to_string()),
+                        feed_key: None,
                     });
                     PortEdit::Grew
                 }

@@ -260,6 +260,7 @@ impl ConfigStore {
         direction: crate::core::models::PortDirection,
         port_index: u32,
         peer_system_name: &str,
+        source_stream_identity: Option<crate::core::stream_identity::StreamIdentityKey>,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
@@ -272,6 +273,7 @@ impl ConfigStore {
                     source_system_name: peer_system_name.to_string(),
                     gain_percent: 100,
                     muted: false,
+                    source_stream_identity,
                 };
                 if index < node.input_sources.len() {
                     node.input_sources[index] = entry;
@@ -742,6 +744,7 @@ fn migrate_mix_sources_to_mixer_nodes(config: &mut AppConfig) -> bool {
                     source_system_name: source.system_name.clone(),
                     gain_percent: source.volume_percent,
                     muted: source.muted,
+                    source_stream_identity: None,
                 })
                 .collect(),
             output_targets: vec![target_system_name],

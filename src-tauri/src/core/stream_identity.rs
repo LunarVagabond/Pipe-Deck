@@ -1,6 +1,7 @@
 use crate::core::models::{Stream, StreamRouteRule};
+use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Hash, PartialEq, Eq)]
+#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StreamIdentityKey {
     pub app_name: String,
     pub executable: Option<String>,

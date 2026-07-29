@@ -438,7 +438,7 @@ mod tests {
                 system_name: "pipe-deck-proc-mixer-mixer".into(),
                 bypassed: false,
                 live: true,
-                inputs: vec![ProcessingNodePort { index: 0, connected_id: Some("node-97".into()) }],
+                inputs: vec![ProcessingNodePort { index: 0, connected_id: Some("node-97".into()), feed_key: None }],
                 outputs: Vec::new(),
             }],
             data_source: "pipewire".into(),
