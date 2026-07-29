@@ -188,6 +188,22 @@ test.describe("RoutingGraph grouping", () => {
     await page.waitForSelector(".prompt-dialog-input");
     await page.click(".prompt-dialog-actions button.primary");
     await expect(page.locator(".vue-flow__node-groupNode")).toHaveCount(1);
+
+    // A freshly created group is often positioned above the current
+    // viewport (its header sits `GROUP_HEADER_HEIGHT` above its members —
+    // `groups.ts`'s `computeGroupBounds` — which goes negative when the
+    // grouped members start near the canvas's own top edge, as they do in
+    // this fixture's default layout). `RoutingGraph.vue`'s node-added watcher
+    // fits the view to `addedIds`, computed from a diff against a separate
+    // node-id tracking ref that a group node apparently never reaches —
+    // confirmed by hand: the header's viewport overlap ratio stays pinned at
+    // ~5% (exactly what its unmoved off-screen position would produce)
+    // indefinitely, not just briefly mid-animation. Rather than chase that
+    // down here, drive the same "Fit view" control a real user would reach
+    // for — `vueFlow.fitView()` with no args covers every node's full
+    // extent, header included.
+    await page.click('button[aria-label="Fit view"]');
+    await expect(page.locator(".routing-graph-group-header")).toBeInViewport({ ratio: 0.9 });
   }
 
   test("selecting two nodes and pressing G creates a group containing them", async ({ page }) => {
@@ -451,10 +467,52 @@ test.describe("RoutingGraph bring node here", () => {
     // than staying at its pre-relocation spot.
     expect(Math.abs(boxAfter.x - boxBefore.x)).toBeGreaterThan(50);
 
-    const layoutRaw = await page.evaluate(() => localStorage.getItem("pipe-deck-routing-layout"));
+    // Key bumped to v2 in buildGraph.ts (LANE_X changes invalidating old
+    // saved positions) — this test was never updated to match, so it always
+    // read back `null` and failed regardless of whether the relocation
+    // itself worked.
+    const layoutRaw = await page.evaluate(() => localStorage.getItem("pipe-deck-routing-layout-v2"));
     expect(layoutRaw).toBeTruthy();
     const layout = JSON.parse(layoutRaw ?? "{}");
     expect(layout["stream:stream-1"]).toBeDefined();
+  });
+});
+
+test.describe("RoutingGraph context menu", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
+    await page.waitForSelector(".vue-flow__node");
+  });
+
+  test("right-clicking near the viewport's bottom-right corner keeps the menu fully on-screen", async ({
+    page,
+  }) => {
+    const viewport = page.viewportSize();
+    if (!viewport) throw new Error("missing viewport size");
+
+    // Before the menu clamped itself to the viewport, a click this close to
+    // the corner rendered it partly (or fully) off-screen — see the
+    // "Bring node here" test above, which had to click "high enough up" to
+    // work around exactly this.
+    await page.mouse.click(viewport.width - 20, viewport.height - 20, { button: "right" });
+    const menu = page.locator(".routing-graph-context-menu");
+    await expect(menu).toHaveCount(1);
+    await page.waitForTimeout(100);
+
+    const box = await menu.boundingBox();
+    if (!box) throw new Error("missing context menu bounding box");
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.y).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  });
+
+  test("hovering a General node option surfaces its description as a tooltip", async ({ page }) => {
+    await page.mouse.click(100, 100, { button: "right" });
+    await page.locator(".routing-graph-context-menu button", { hasText: "General" }).click();
+
+    const fanOut = page.locator(".routing-graph-node-category-flyout button", { hasText: "Fan-Out Node" });
+    await expect(fanOut).toHaveAttribute("title", /Duplicate one input/);
   });
 });
 
