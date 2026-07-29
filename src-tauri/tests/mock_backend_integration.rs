@@ -109,6 +109,65 @@ fn stream_routing_set_clear_and_undo_round_trip() {
     );
 }
 
+/// Issue #305: mic passthrough for a stream already routed to a Pipe
+/// Deck-owned virtual output taps that device's monitor directly. This one
+/// covers the retired-Bus-routing gap the ticket is actually about: Spotify
+/// playing straight to a bare hardware sink, no Pipe Deck monitor in front
+/// of it to tap. The fix auto-provisions a Fan-Out node instead — this
+/// checks it ends up wired as stream -> Fan-Out -> {original hardware sink,
+/// mic}, so the mic hears it *and* the original destination keeps playing.
+#[test]
+fn mic_passthrough_from_a_bare_hardware_target_auto_provisions_a_fan_out() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    engine.set_stream_target("stream-spotify", "sink-headphones").expect("route spotify to hardware sink first");
+
+    let result = engine
+        .enable_stream_mic_passthrough("stream-spotify", "source-mic-filtered")
+        .expect("enable passthrough");
+    assert!(result.success, "{:?}", result.message);
+
+    let graph = engine.runtime_graph();
+    let fan_out = graph
+        .processing_nodes
+        .iter()
+        .find(|node| node.label == "Spotify Passthrough")
+        .expect("auto-provisioned fan-out node");
+    assert_eq!(fan_out.inputs.len(), 1);
+    assert_eq!(fan_out.inputs[0].connected_id.as_deref(), Some("stream-spotify"));
+    assert_eq!(fan_out.outputs.len(), 2);
+    let output_targets: Vec<&str> = fan_out.outputs.iter().filter_map(|port| port.connected_id.as_deref()).collect();
+    assert!(output_targets.contains(&"sink-headphones"), "{output_targets:?}");
+    assert!(output_targets.contains(&"source-mic-filtered"), "{output_targets:?}");
+
+    // Re-invoking passthrough for the same stream/mic pair is a no-op, not a
+    // second Fan-Out or a duplicate output leg.
+    let second_call = engine.enable_stream_mic_passthrough("stream-spotify", "source-mic-filtered").expect("second call");
+    assert!(!second_call.success);
+    let graph = engine.runtime_graph();
+    let fan_out_count = graph.processing_nodes.iter().filter(|node| node.label == "Spotify Passthrough").count();
+    assert_eq!(fan_out_count, 1);
+    let fan_out = graph.processing_nodes.iter().find(|node| node.label == "Spotify Passthrough").unwrap();
+    assert_eq!(fan_out.outputs.len(), 2, "must not grow a duplicate output leg to the mic");
+
+    // Disconnecting just the mic leg leaves the original playback route
+    // (Fan-Out -> hardware sink) untouched.
+    let mic_port_index = fan_out
+        .outputs
+        .iter()
+        .find(|port| port.connected_id.as_deref() == Some("source-mic-filtered"))
+        .map(|port| port.index)
+        .unwrap();
+    let fan_out_id = fan_out.id.clone();
+    engine.disconnect_processing_node_port(&fan_out_id, PortDirection::Output, mic_port_index).expect("disconnect mic leg");
+    let graph = engine.runtime_graph();
+    let fan_out = graph.processing_nodes.iter().find(|node| node.label == "Spotify Passthrough").unwrap();
+    assert_eq!(fan_out.outputs.len(), 1);
+    assert_eq!(fan_out.outputs[0].connected_id.as_deref(), Some("sink-headphones"));
+}
+
 /// Issue #208: deleting a virtual output with a stream actively routed
 /// through it must reroute that stream to a fallback destination first,
 /// instead of leaving it pointed at a now-nonexistent device id (which is
@@ -418,8 +477,8 @@ fn removing_a_processing_node_with_multiple_connected_inputs_is_rejected() {
     let mut graph = engine.runtime_graph().clone();
     if let Some(n) = graph.processing_nodes.iter_mut().find(|n| n.id == node.id) {
         n.inputs = vec![
-            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()) },
-            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()) },
+            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()), feed_key: None },
+            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()), feed_key: None },
         ];
     }
     engine.apply_graph_update(graph);

@@ -1,5 +1,6 @@
+use crate::backend::slugify;
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, MixSourceSpec};
+use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNodeSpecKind};
 
 use super::{CoreEngine, EngineError};
 
@@ -60,25 +61,88 @@ impl CoreEngine {
             .cloned();
 
         // A device we created ourselves (any Pipe Deck virtual output, single
-        // or multi) already has reliable monitor ports we can tap directly.
-        // A stream playing directly to a hardware device has no such
-        // tappable sink in front of it, and plain virtual devices can no
-        // longer be routed onward to synthesize one (device-to-device
-        // routing was retired — see the #293 Bus-removal pass) — passthrough
-        // for that case needs a new mechanism, tracked separately.
+        // or multi) already has reliable monitor ports we can tap directly —
+        // reuse the existing per-pair mix-source mechanism. Anything else
+        // (most commonly a stream playing straight to a bare hardware sink,
+        // with no Pipe Deck-owned monitor in front of it — issue #305, since
+        // device-to-device Bus routing that used to synthesize one was
+        // retired in #293) is duplicated instead by auto-provisioning a
+        // Fan-Out processing node: one input (the stream itself, moved onto
+        // the node's own sink) fanning out to two outputs (the stream's
+        // original destination, to keep it audible there, and the mic).
         let Some(device) = &current_target_device else {
             return Err(EngineError::InvalidInput(
                 "stream has no resolvable current destination to duplicate".to_string(),
             ));
         };
-        if device.kind != DeviceKind::Virtual || device.direction != DeviceDirection::Output {
-            return Err(EngineError::InvalidInput(
-                "duplicating a stream playing directly to a hardware device isn't supported yet — route it through a virtual output first".to_string(),
-            ));
+        if device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output {
+            let mix_source_device_id = device.id.clone();
+            return self.add_mic_mix_source(mic_device_id, &mix_source_device_id);
         }
-        let mix_source_device_id = device.id.clone();
 
-        self.add_mic_mix_source(mic_device_id, &mix_source_device_id)
+        let original_target_id = device.id.clone();
+        self.enable_stream_mic_passthrough_via_fan_out(&stream.id, &stream.app_name, mic_device_id, &original_target_id)
+    }
+
+    /// Fan-Out-backed fallback for `enable_stream_mic_passthrough` when the
+    /// stream's current destination has no tappable Pipe Deck monitor of its
+    /// own (issue #305). One Fan-Out node per app is created lazily and
+    /// reused for every stream from that app, rather than one per stream —
+    /// fewer generated nodes, and it self-heals the same way a Mixer input's
+    /// stream port now does (see `processing_node_ops::resolve_input_port_peer`,
+    /// issue #304) if this exact stream instance later gets replaced by a
+    /// same-app reload.
+    fn enable_stream_mic_passthrough_via_fan_out(
+        &mut self,
+        stream_id: &str,
+        stream_app_name: &str,
+        mic_device_id: &str,
+        original_target_id: &str,
+    ) -> Result<ApplyResult, EngineError> {
+        let label = format!("{stream_app_name} Passthrough");
+        let fan_out_id = format!("processing-fan_out-{}", slugify(&label));
+
+        let node_output_connected_to = |engine: &CoreEngine, target_id: &str| {
+            engine
+                .graph
+                .processing_nodes
+                .iter()
+                .find(|node| node.id == fan_out_id)
+                .is_some_and(|node| node.outputs.iter().any(|port| port.connected_id.as_deref() == Some(target_id)))
+        };
+
+        if node_output_connected_to(self, mic_device_id) {
+            return Ok(ApplyResult {
+                success: false,
+                message: Some("This device is already mixed into this device.".to_string()),
+            });
+        }
+
+        if !self.graph.processing_nodes.iter().any(|node| node.id == fan_out_id) {
+            self.create_processing_node(&label, ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })?;
+        }
+
+        // Wire both outputs before the input: connecting the input is what
+        // actually moves the stream's live audio onto the Fan-Out's sink
+        // (`relink_processing_node_port`'s non-Mixer input arm), so doing it
+        // last keeps the window where the stream isn't audible anywhere as
+        // short as possible.
+        if !node_output_connected_to(self, original_target_id) {
+            self.connect_processing_node_port(&fan_out_id, PortDirection::Output, original_target_id)?;
+        }
+        self.connect_processing_node_port(&fan_out_id, PortDirection::Output, mic_device_id)?;
+
+        let input_already_wired = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == fan_out_id)
+            .is_some_and(|node| node.inputs.iter().any(|port| port.connected_id.as_deref() == Some(stream_id)));
+        if !input_already_wired {
+            self.connect_processing_node_port(&fan_out_id, PortDirection::Input, stream_id)?;
+        }
+
+        Ok(ApplyResult { success: true, message: None })
     }
 
     // Removing a passthrough leg needs no dedicated op: once added, it's a
