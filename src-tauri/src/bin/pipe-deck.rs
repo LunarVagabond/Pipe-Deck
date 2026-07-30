@@ -228,3 +228,151 @@ cleanup [--purge-config]   Unload virtual devices + remove the daemon unit;\n   
                            --purge-config also deletes config/state dirs\n"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::os::unix::fs::PermissionsExt;
+
+    /// Serializes tests that mutate process-wide env vars — same rationale
+    /// as `config::store::lock_config_dir_env` and `daemon::lock_daemon_env`
+    /// (this bin is a separate crate from the lib, so it can't reuse either
+    /// lock directly and needs its own).
+    fn lock_cli_test_env() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn unique_suffix() -> u64 {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A fake `systemctl` on `PATH`, recording invocations to a file instead
+    /// of touching a real systemd session — see `daemon::mod::tests` for the
+    /// full rationale (PR #256).
+    fn install_fake_systemctl(dir: &std::path::Path) -> std::path::PathBuf {
+        let calls_file = dir.join("systemctl.calls");
+        let script_path = dir.join("systemctl");
+        let script = format!("#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n", calls_file.display());
+        std::fs::write(&script_path, script).expect("write fake systemctl script");
+        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script_path, perms).unwrap();
+        calls_file
+    }
+
+    struct CleanupTestEnv {
+        temp_dir: std::path::PathBuf,
+        previous_path: Option<String>,
+        previous_config_dir: Option<String>,
+        previous_config_home: Option<String>,
+        previous_state_home: Option<String>,
+        previous_use_mock: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for CleanupTestEnv {
+        fn drop(&mut self) {
+            match &self.previous_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+            match &self.previous_config_dir {
+                Some(value) => std::env::set_var("PIPE_DECK_CONFIG_DIR", value),
+                None => std::env::remove_var("PIPE_DECK_CONFIG_DIR"),
+            }
+            match &self.previous_config_home {
+                Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match &self.previous_state_home {
+                Some(value) => std::env::set_var("XDG_STATE_HOME", value),
+                None => std::env::remove_var("XDG_STATE_HOME"),
+            }
+            match &self.previous_use_mock {
+                Some(value) => std::env::set_var("PIPE_DECK_USE_MOCK", value),
+                None => std::env::remove_var("PIPE_DECK_USE_MOCK"),
+            }
+            let _ = std::fs::remove_dir_all(&self.temp_dir);
+        }
+    }
+
+    /// Sandboxes every directory `handle_cleanup` can touch (`--purge-config`
+    /// removes `ConfigStore::config_dir()` and `daemon::state_dir()`
+    /// wholesale) so this test can never reach a real `~/.config/pipe-deck`
+    /// or `~/.local/state/pipe-deck` — `XDG_STATE_HOME` in particular is easy
+    /// to forget since `state_dir()` falls back to a real `$HOME` path
+    /// without it.
+    fn setup_cleanup_test_env() -> (CleanupTestEnv, std::path::PathBuf, std::path::PathBuf) {
+        let lock = lock_cli_test_env();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-cli-cleanup-test-{}-{}",
+            std::process::id(),
+            unique_suffix()
+        ));
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        std::fs::create_dir_all(&temp_dir).expect("create temp dir");
+        let calls_file = install_fake_systemctl(&temp_dir);
+
+        let previous_path = std::env::var("PATH").ok();
+        let new_path = match &previous_path {
+            Some(existing) => format!("{}:{existing}", temp_dir.display()),
+            None => temp_dir.display().to_string(),
+        };
+        std::env::set_var("PATH", new_path);
+
+        let config_dir = temp_dir.join("config");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let previous_config_dir = std::env::var("PIPE_DECK_CONFIG_DIR").ok();
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
+
+        // ConfigStore reads PIPE_DECK_CONFIG_DIR, but user_systemd_dir() only
+        // ever reads XDG_CONFIG_HOME — both must point into the sandbox.
+        let previous_config_home = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", &config_dir);
+
+        let state_dir = temp_dir.join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let previous_state_home = std::env::var("XDG_STATE_HOME").ok();
+        std::env::set_var("XDG_STATE_HOME", &state_dir);
+
+        let previous_use_mock = std::env::var("PIPE_DECK_USE_MOCK").ok();
+        std::env::set_var("PIPE_DECK_USE_MOCK", "1");
+
+        (
+            CleanupTestEnv {
+                temp_dir,
+                previous_path,
+                previous_config_dir,
+                previous_config_home,
+                previous_state_home,
+                previous_use_mock,
+                _lock: lock,
+            },
+            calls_file,
+            config_dir,
+        )
+    }
+
+    #[test]
+    fn handle_cleanup_removes_daemon_unit_and_purges_config_when_requested() {
+        let (_env, calls_file, config_dir) = setup_cleanup_test_env();
+        let unit_dir = config_dir.join("systemd/user");
+        std::fs::create_dir_all(&unit_dir).unwrap();
+        std::fs::write(unit_dir.join("pipe-deck-daemon.service"), "[Service]\n").unwrap();
+
+        let result = handle_cleanup(&["--purge-config".to_string()]);
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(!unit_dir.join("pipe-deck-daemon.service").exists());
+        assert!(
+            std::fs::read_to_string(&calls_file)
+                .unwrap_or_default()
+                .contains("disable --now pipe-deck-daemon.service"),
+        );
+        assert!(!config_dir.exists(), "config dir should be purged");
+    }
+}
