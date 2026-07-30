@@ -11,9 +11,13 @@ export type ActionStatus =
   | "simulated"
   | "no_action";
 
+export type SkipReason = "lower_priority" | "manual_override" | "missing_metadata";
+
 export interface SkippedCandidate {
   rule_key: string;
   reason: string;
+  rule_id?: string;
+  kind: SkipReason;
 }
 
 export interface RouteExplanation {

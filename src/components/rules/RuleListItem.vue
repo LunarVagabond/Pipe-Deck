@@ -3,14 +3,16 @@ import ToggleSwitch from "../ToggleSwitch.vue";
 import type { Rule } from "../../types/graph";
 import { conditionTypeLabel, formatConditionSummary } from "../../utils/ruleConditions";
 
-const { rule, targetKindLabel, targetName, liveMatchCount, canMoveUp, canMoveDown } = defineProps<{
-  rule: Rule;
-  targetKindLabel: string;
-  targetName?: string;
-  liveMatchCount: number;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-}>();
+const { rule, targetKindLabel, targetName, liveMatchCount, hasConflict, canMoveUp, canMoveDown } =
+  defineProps<{
+    rule: Rule;
+    targetKindLabel: string;
+    targetName?: string;
+    liveMatchCount: number;
+    hasConflict?: boolean;
+    canMoveUp: boolean;
+    canMoveDown: boolean;
+  }>();
 
 const emit = defineEmits<{
   edit: [];
@@ -47,7 +49,12 @@ const emit = defineEmits<{
         </button>
       </div>
       <div class="rule-name-meta">
-        <strong>{{ rule.name }}</strong>
+        <strong>
+          {{ rule.name }}
+          <span v-if="hasConflict" class="rule-conflict-badge" title="Conflicts with another rule">
+            ⚠ Conflict
+          </span>
+        </strong>
         <span class="rule-meta">Priority {{ rule.priority }}</span>
       </div>
     </td>

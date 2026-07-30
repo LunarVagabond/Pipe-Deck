@@ -920,6 +920,118 @@
   font-size: 0.85rem;
 }
 
+.rule-conflict-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #fb7185;
+  background: rgba(251, 113, 133, 0.12);
+}
+
+.rules-conflicts {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.conflict-card {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.85rem 1rem;
+  border-radius: 0.65rem;
+  background: var(--surface-2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.conflict-stream-label {
+  color: var(--text);
+}
+
+.conflict-rules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.conflict-rule {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border-radius: 0.6rem;
+  background: vars.translucent(--background, 45);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.conflict-rule-winner {
+  border-color: rgba(38, 195, 163, 0.3);
+}
+
+.conflict-rule-loser {
+  border-color: rgba(251, 113, 133, 0.24);
+}
+
+.conflict-rule-role {
+  color: var(--text-muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.conflict-reason {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+.conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.15rem;
+}
+
+.conflict-preview-status {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #fb7185;
+}
+
+.conflict-preview-status.conflict-resolved {
+  color: var(--accent-teal);
+}
+
+.conflict-actions button,
+.conflict-promote-btn {
+  border: 1px solid rgba(124, 92, 255, 0.28);
+  border-radius: 0.55rem;
+  background: rgba(124, 92, 255, 0.08);
+  color: var(--text-primary);
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.conflict-actions button:hover,
+.conflict-promote-btn:hover {
+  background: rgba(124, 92, 255, 0.16);
+  border-color: rgba(124, 92, 255, 0.45);
+}
+
+.conflict-actions button.primary {
+  background: var(--accent-purple);
+  border-color: var(--accent-purple);
+  color: #fff;
+  font-weight: 600;
+}
+
 @media (max-width: 760px) {
   .rules-header,
   .rules-panel-header,

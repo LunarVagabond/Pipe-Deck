@@ -35,6 +35,8 @@ pub fn evaluate_stream_route(
                 .map(|candidate| crate::core::models::SkippedCandidate {
                     rule_key: candidate.key,
                     reason: "Skipped because of manual override".into(),
+                    rule_id: candidate.rule_id,
+                    kind: crate::core::models::SkipReason::ManualOverride,
                 })
                 .collect(),
             action_status: ActionStatus::SkippedManualOverride,
@@ -67,6 +69,8 @@ pub fn evaluate_stream_route(
                 "Lower priority than {} (priority {})",
                 winner.key, winner.priority
             ),
+            rule_id: candidate.rule_id.clone(),
+            kind: crate::core::models::SkipReason::LowerPriority,
         })
         .collect();
 
@@ -187,10 +191,26 @@ pub fn apply_routing_rules_with_explanations(
 pub fn simulate_rules(
     graph: &RuntimeGraph,
     recent_cache: &crate::core::recent_streams::RecentStreamCache,
+    priority_overrides: &std::collections::HashMap<String, i32>,
 ) -> Vec<SimulationResult> {
     let config = ConfigStore::new()
         .load_config()
         .unwrap_or_else(|_| ConfigStore::default_config());
+
+    let rules: Vec<Rule> = if priority_overrides.is_empty() {
+        config.rules
+    } else {
+        config
+            .rules
+            .into_iter()
+            .map(|mut rule| {
+                if let Some(priority) = priority_overrides.get(&rule.id) {
+                    rule.priority = *priority;
+                }
+                rule
+            })
+            .collect()
+    };
 
     let mut streams: Vec<Stream> = graph.streams.clone();
     streams.extend(recent_cache.synthetic_streams(&graph.streams));
@@ -202,12 +222,12 @@ pub fn simulate_rules(
             let is_recent = stream.id.starts_with("recent-");
             let mut explanation = evaluate_stream_route(
                 &stream,
-                &config.rules,
+                &rules,
                 &config.routing_rules.stream_rules,
                 &HashSet::new(),
             );
             let candidates =
-                collect_stream_candidates(&stream, &config.rules, &config.routing_rules.stream_rules);
+                collect_stream_candidates(&stream, &rules, &config.routing_rules.stream_rules);
             let resolved = candidates
                 .first()
                 .and_then(|winner| resolve_target_device(graph, &stream, winner));
@@ -697,6 +717,90 @@ mod tests {
         let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
         let explanation = firefox.route_explanation.as_ref().expect("explanation present");
         assert!(!explanation.fallback_applied);
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+    }
+
+    #[test]
+    fn simulate_rules_priority_override_flips_winner() {
+        use crate::config::store::ConfigStore;
+        use std::fs;
+
+        let _guard = crate::config::store::lock_config_dir_env();
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-rules-simulate-override-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
+
+        let store = ConfigStore::new();
+        store.ensure_layout().expect("config layout");
+        let mut config = ConfigStore::default_config();
+        config.rules = vec![
+            crate::core::models::Rule {
+                id: "low".into(),
+                name: "Low".into(),
+                enabled: true,
+                priority: 5,
+                conditions: vec![RuleCondition::AppName {
+                    value: "Firefox".into(),
+                }],
+                action: crate::core::models::RuleAction {
+                    target_system_name: Some("speakers".into()),
+                    target_system_names: Vec::new(),
+                },
+                safeguards: Default::default(),
+            },
+            crate::core::models::Rule {
+                id: "high".into(),
+                name: "High".into(),
+                enabled: true,
+                priority: 50,
+                conditions: vec![RuleCondition::AppName {
+                    value: "Firefox".into(),
+                }],
+                action: crate::core::models::RuleAction {
+                    target_system_name: Some("hdmi".into()),
+                    target_system_names: Vec::new(),
+                },
+                safeguards: Default::default(),
+            },
+        ];
+        store.save_config(&config).expect("save config");
+
+        let mut graph = graph_with_outputs();
+        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
+        let recent_cache = crate::core::recent_streams::RecentStreamCache::default();
+
+        let baseline = simulate_rules(&graph, &recent_cache, &std::collections::HashMap::new());
+        let baseline_result = baseline
+            .iter()
+            .find(|result| result.stream_id == "stream-1")
+            .expect("baseline result present");
+        assert_eq!(
+            baseline_result.explanation.matched_rule_key.as_deref(),
+            Some("High")
+        );
+        assert!(baseline_result
+            .explanation
+            .skipped_candidates
+            .iter()
+            .any(|skip| skip.rule_id.as_deref() == Some("low")
+                && skip.kind == crate::core::models::SkipReason::LowerPriority));
+
+        let mut overrides = std::collections::HashMap::new();
+        overrides.insert("low".to_string(), 100);
+        let overridden = simulate_rules(&graph, &recent_cache, &overrides);
+        let overridden_result = overridden
+            .iter()
+            .find(|result| result.stream_id == "stream-1")
+            .expect("overridden result present");
+        assert_eq!(
+            overridden_result.explanation.matched_rule_key.as_deref(),
+            Some("Low")
+        );
 
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("PIPE_DECK_CONFIG_DIR");

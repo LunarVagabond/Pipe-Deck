@@ -282,6 +282,70 @@ describe("Rules view", () => {
     expect(invokeMock).toHaveBeenCalledWith("save_rule", { rule: expect.objectContaining({ id: "low", priority: 20 }) });
   });
 
+  it("surfaces a conflict panel and resolves it via preview + apply", async () => {
+    const rules = [
+      makeRule({ id: "high", name: "High", priority: 50 }),
+      makeRule({ id: "low", name: "Low", priority: 5 }),
+    ];
+    let simulateCallCount = 0;
+    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
+      if (cmd === "list_rules") return Promise.resolve(rules);
+      if (cmd === "simulate_rules") {
+        simulateCallCount += 1;
+        const overrides = (args?.priorityOverrides ?? {}) as Record<string, number>;
+        const lowWins = (overrides.low ?? 5) > 50;
+        return Promise.resolve([
+          {
+            stream_id: "s1",
+            stream_label: "Firefox",
+            explanation: {
+              matched_rule_id: lowWins ? "low" : "high",
+              matched_rule_key: lowWins ? "Low" : "High",
+              match_reasons: [],
+              skipped_candidates: [
+                {
+                  rule_key: lowWins ? "High" : "Low",
+                  rule_id: lowWins ? "high" : "low",
+                  reason: "Lower priority than",
+                  kind: "lower_priority",
+                },
+              ],
+            },
+          },
+        ]);
+      }
+      if (cmd === "save_rule") return Promise.resolve({ success: true });
+      if (cmd === "apply_rules") return Promise.resolve({ success: true });
+      return Promise.resolve(undefined);
+    });
+
+    const { wrapper } = mountRules();
+    await flushPromises();
+
+    expect(wrapper.find(".rules-conflicts").exists()).toBe(true);
+    expect(wrapper.findAll(".conflict-rule-winner strong")[0].text()).toBe("High");
+    expect(wrapper.findAll(".conflict-rule-loser strong")[0].text()).toBe("Low");
+
+    await wrapper.find(".conflict-promote-btn").trigger("click");
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "simulate_rules",
+      expect.objectContaining({ priorityOverrides: { low: 51 } }),
+    );
+    expect(simulateCallCount).toBeGreaterThan(1);
+    expect(wrapper.find(".conflict-resolved").text()).toBe("Resolved in preview");
+
+    await wrapper.find(".conflict-actions button.primary").trigger("click");
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_rule",
+      expect.objectContaining({ rule: expect.objectContaining({ id: "low", priority: 51 }) }),
+    );
+    expect(invokeMock).toHaveBeenCalledWith("apply_rules");
+  });
+
   it("surfaces a 'recently seen' identity and can seed a rule from it", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_rules") return Promise.resolve([]);
