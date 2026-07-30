@@ -10,6 +10,7 @@ import {
 } from "../../utils/routingLayout";
 import { actionStatusLabel, routeWarningLevel } from "../../utils/routeExplanation";
 import { formatMismatch } from "../../utils/formatMismatch";
+import { streamIdentityKey } from "../../utils/streamIdentity";
 import { computeDeviceConnections, handlesForDevice, handlesForProcessingNode, handlesForStream } from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
@@ -50,6 +51,11 @@ export interface RoutingGraphNodeData {
    * this isn't an error state, just awareness of a conversion happening. */
   formatMismatch?: boolean;
   formatMismatchTitle?: string;
+  /** Set only for stream/captureStream kinds — lets a consumer (the
+   * fitView-on-new-node logic in RoutingGraph.vue) recognize "the same
+   * stream, new PipeWire node id" (e.g. Firefox recreating its audio node
+   * on tab pause/resume) instead of treating it as a genuinely new node. */
+  streamIdentityKey?: string;
   /** Set only for `nodeKind: "processingNode"` — which Mixer/Fan-out/EQ/stub
    * kind this is (PD-032), so the node body can render kind-specific
    * controls (per-input gain rows, a "Not implemented yet" badge, ...). */
@@ -115,6 +121,15 @@ export interface BuiltRoutingGraph {
 // under the current lanes; future manual drags persist under the new key
 // exactly as before.
 const LAYOUT_KEY = "pipe-deck-routing-layout-v2";
+
+// Bridges a stream's saved layout position across a PipeWire node-id change
+// for what's conceptually the same stream (e.g. Firefox recreating its
+// audio node when a tab's playback pauses/resumes) — keyed by identity
+// (app_name/executable/media_name), not node id, since the id itself is
+// exactly what's churning. Session-only (module-level, resets on reload);
+// this only needs to survive within a session's polling ticks, not across
+// restarts like the position layout itself.
+let previousStreamIdentityByNodeId = new Map<string, string>();
 // Three-zone layout (issue #25): audio sources on the left — input hardware
 // (previously defaulted to the far right, issue #202) shares its column with
 // playback streams like a browser or game, since both are "where the audio
@@ -250,6 +265,7 @@ function streamNodeKind(stream: Stream, devices: Device[]): RoutingGraphNodeData
     routeWarningTitle: warning ? actionStatusLabel(stream.route_explanation?.action_status) : undefined,
     formatMismatch: format.mismatch || undefined,
     formatMismatchTitle: format.title,
+    streamIdentityKey: streamIdentityKey(stream),
   };
 }
 
@@ -376,7 +392,39 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   for (const node of graph.processing_nodes ?? []) liveNodeIds.add(processingNodeNodeId(node.id));
   for (const group of groups) liveNodeIds.add(group.id);
 
+  // Count current streams per identity so a departing node's saved position
+  // is only migrated onto a replacement when the match is unambiguous (e.g.
+  // two simultaneous same-app streams with no distinguishing media_name
+  // would make it a guess which one "continues" which old node id — skip
+  // migration entirely rather than risk stealing the wrong position).
+  const currentIdentityCounts = new Map<string, number>();
+  const currentIdentityToNodeId = new Map<string, string>();
+  const currentNodeIdToIdentity = new Map<string, string>();
+  for (const stream of graph.streams) {
+    const identity = streamIdentityKey(stream);
+    const id = streamNodeId(stream.id);
+    currentIdentityCounts.set(identity, (currentIdentityCounts.get(identity) ?? 0) + 1);
+    currentIdentityToNodeId.set(identity, id);
+    currentNodeIdToIdentity.set(id, identity);
+  }
+
+  // Migrate a departing stream's saved position onto its replacement's new
+  // node id when there's an unambiguous identity match, before the prune
+  // step below deletes the departing id's entry outright — otherwise a
+  // stream whose PipeWire node was recreated (e.g. Firefox recreating its
+  // audio node when a tab's playback pauses/resumes) loses its spot and
+  // gets auto-placed into a fresh slot, which reads as the node jumping.
   let layoutChanged = false;
+  for (const [staleId, identity] of previousStreamIdentityByNodeId) {
+    if (liveNodeIds.has(staleId)) continue;
+    if ((currentIdentityCounts.get(identity) ?? 0) !== 1) continue;
+    const newId = currentIdentityToNodeId.get(identity);
+    if (!newId || newId === staleId || layout[newId] || !layout[staleId]) continue;
+    layout[newId] = layout[staleId];
+    layoutChanged = true;
+  }
+  previousStreamIdentityByNodeId = currentNodeIdToIdentity;
+
   for (const id of Object.keys(layout)) {
     if (!liveNodeIds.has(id)) {
       delete layout[id];

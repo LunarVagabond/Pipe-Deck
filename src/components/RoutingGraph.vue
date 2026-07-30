@@ -24,7 +24,7 @@ import {
 } from "./routing-graph/applyConnection";
 import { nodeIdsForLink } from "./routing-graph/connectionRules";
 import { buildRoutingGraph, parseGraphNodeId, saveNodePosition } from "./routing-graph/buildGraph";
-import type { RoutingGraphHandle } from "./routing-graph/buildGraph";
+import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { canConnectPorts } from "./routing-graph/portTypes";
 import {
   boundsForMembers,
@@ -926,6 +926,14 @@ async function onWindowKeydown(event: KeyboardEvent) {
 }
 
 const knownNodeIds = ref<Set<string> | null>(null);
+// Tracks stream nodes' `streamIdentityKey` (app_name/executable/media_name,
+// not the PipeWire node id) across ticks, alongside `knownNodeIds` — a
+// stream's underlying node can be torn down and recreated with a new node id
+// for reasons unrelated to the user actually adding a new source (e.g.
+// Firefox recreating its audio node when a tab's playback pauses/resumes).
+// Without this, that reappearance reads as a brand-new node and triggers the
+// fitView re-center/zoom below, which visually reads as the graph "jumping".
+const knownStreamIdentityKeys = ref<Set<string> | null>(null);
 
 // Nodes carry a variable number of handles (one per live connection, plus a
 // trailing empty slot) that changes as routing changes. Vue Flow caches each
@@ -939,13 +947,28 @@ watch(
     vueFlow.updateNodeInternals(current.map((node) => node.id));
 
     const currentIds = new Set(current.map((node) => node.id));
+    const currentIdentityKeys = new Set(
+      current
+        .map((node) => (node.data as RoutingGraphNodeData)?.streamIdentityKey)
+        .filter((key): key is string => !!key),
+    );
+
     if (knownNodeIds.value === null) {
       knownNodeIds.value = currentIds;
+      knownStreamIdentityKeys.value = currentIdentityKeys;
       return;
     }
 
-    const addedIds = [...currentIds].filter((id) => !knownNodeIds.value!.has(id));
+    const addedIds = [...currentIds].filter((id) => {
+      if (knownNodeIds.value!.has(id)) return false;
+      const identityKey = current.find((node) => node.id === id)?.data?.streamIdentityKey as
+        | string
+        | undefined;
+      if (identityKey && knownStreamIdentityKeys.value!.has(identityKey)) return false;
+      return true;
+    });
     knownNodeIds.value = currentIds;
+    knownStreamIdentityKeys.value = currentIdentityKeys;
     if (addedIds.length === 0) return;
 
     await vueFlow.fitView({ nodes: addedIds, padding: 0.35, duration: 400, maxZoom: 1 });

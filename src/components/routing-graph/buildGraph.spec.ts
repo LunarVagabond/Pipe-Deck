@@ -107,6 +107,57 @@ describe("streamNodeKind format-mismatch badge (#156)", () => {
   });
 });
 
+describe("stream layout position survives a node-id change (pause/resume jump fix)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("carries a stream's saved position onto its replacement when the identity is unambiguous", () => {
+    const firstStream = makeStream({
+      id: "node-1",
+      app_name: "Firefox",
+      executable: "firefox",
+      media_name: undefined,
+    });
+    const firstGraph = makeGraph([], [firstStream]);
+    const firstBuild = buildRoutingGraph(firstGraph);
+    const originalPosition = firstBuild.nodes.find((n) => n.id === streamNodeId("node-1"))!.position;
+
+    // Simulate the PipeWire node being torn down and recreated (e.g. Firefox
+    // on tab pause/resume) as a new node id, same app_name/executable.
+    const replacementStream = makeStream({
+      id: "node-2",
+      app_name: "Firefox",
+      executable: "firefox",
+      media_name: undefined,
+    });
+    const secondGraph = makeGraph([], [replacementStream]);
+    const secondBuild = buildRoutingGraph(secondGraph);
+    const newPosition = secondBuild.nodes.find((n) => n.id === streamNodeId("node-2"))!.position;
+
+    expect(newPosition).toEqual(originalPosition);
+  });
+
+  it("does not migrate a position when the identity is ambiguous (two simultaneous same-identity streams)", () => {
+    const firstStream = makeStream({ id: "node-1", app_name: "Firefox", executable: "firefox" });
+    const firstGraph = makeGraph([], [firstStream]);
+    buildRoutingGraph(firstGraph);
+
+    // Two simultaneous streams now share node-1's identity — ambiguous, so
+    // neither should blindly inherit node-1's old position.
+    const replacementA = makeStream({ id: "node-2", app_name: "Firefox", executable: "firefox" });
+    const replacementB = makeStream({ id: "node-3", app_name: "Firefox", executable: "firefox" });
+    const secondGraph = makeGraph([], [replacementA, replacementB]);
+    const secondBuild = buildRoutingGraph(secondGraph);
+    const positionA = secondBuild.nodes.find((n) => n.id === streamNodeId("node-2"))!.position;
+    const positionB = secondBuild.nodes.find((n) => n.id === streamNodeId("node-3"))!.position;
+
+    // Neither is placed via a stolen migration from the ambiguous old entry;
+    // they should be auto-placed into distinct slots as normal.
+    expect(positionA).not.toEqual(positionB);
+  });
+});
+
 describe("Bluetooth device icon parity (#226)", () => {
   beforeEach(() => {
     stubLocalStorage();
