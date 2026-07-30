@@ -76,6 +76,8 @@ impl RecentStreamCache {
                 volume_percent: None,
                 muted: None,
                 route_explanation: None,
+                sample_rate: None,
+                channels: None,
             })
             .collect()
     }
@@ -161,6 +163,8 @@ mod tests {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         }
     }
 

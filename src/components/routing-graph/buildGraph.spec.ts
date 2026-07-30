@@ -63,6 +63,50 @@ describe("streamNodeKind route warnings", () => {
   );
 });
 
+describe("streamNodeKind format-mismatch badge (#156)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  function dataForFormats(
+    stream: { sample_rate?: number; channels?: number },
+    device: { sample_rate?: number; channels?: number },
+  ): RoutingGraphNodeData | undefined {
+    const target = makeDevice({ id: "d1", ...device });
+    const s = makeStream({ id: "s1", current_target: "d1", ...stream });
+    const graph = makeGraph([target], [s]);
+    const node = buildRoutingGraph(graph).nodes.find((n) => n.id === streamNodeId("s1"));
+    return node?.data as RoutingGraphNodeData | undefined;
+  }
+
+  it("has no badge when rate and channels match", () => {
+    const data = dataForFormats(
+      { sample_rate: 48000, channels: 2 },
+      { sample_rate: 48000, channels: 2 },
+    );
+    expect(data?.formatMismatch).toBeUndefined();
+  });
+
+  it("shows a badge with the rate in the title when sample rate differs", () => {
+    const data = dataForFormats(
+      { sample_rate: 44100, channels: 2 },
+      { sample_rate: 48000, channels: 2 },
+    );
+    expect(data?.formatMismatch).toBe(true);
+    expect(data?.formatMismatchTitle).toContain("44100 Hz → 48000 Hz");
+  });
+
+  it("shows a badge when channel count differs", () => {
+    const data = dataForFormats({ channels: 1 }, { channels: 2 });
+    expect(data?.formatMismatch).toBe(true);
+  });
+
+  it("has no badge when either side's format is unknown (not a false positive)", () => {
+    const data = dataForFormats({ sample_rate: 44100 }, {});
+    expect(data?.formatMismatch).toBeUndefined();
+  });
+});
+
 describe("Bluetooth device icon parity (#226)", () => {
   beforeEach(() => {
     stubLocalStorage();

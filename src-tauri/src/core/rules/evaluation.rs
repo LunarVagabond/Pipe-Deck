@@ -274,6 +274,8 @@ mod tests {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         }
     }
 
@@ -353,6 +355,8 @@ mod tests {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: None,
+                    channels: None,
                 },
                 Device {
                     id: "hdmi".into(),
@@ -366,6 +370,8 @@ mod tests {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: None,
+                    channels: None,
                 },
             ],
             streams: Vec::new(),
@@ -522,6 +528,8 @@ mod tests {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         };
         let authored = vec![crate::core::models::Rule {
             id: "capture".into(),

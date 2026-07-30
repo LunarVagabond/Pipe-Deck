@@ -55,6 +55,8 @@ export interface Device {
   current_target?: string;
   current_targets?: string[];
   mix_sources?: MixSource[];
+  sample_rate?: number;
+  channels?: number;
 }
 
 export interface Stream {
@@ -70,6 +72,8 @@ export interface Stream {
   volume_percent?: number;
   muted?: boolean;
   route_explanation?: RouteExplanation;
+  sample_rate?: number;
+  channels?: number;
 }
 
 export interface Link {

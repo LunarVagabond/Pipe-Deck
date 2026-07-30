@@ -259,6 +259,8 @@ fn merge_pactl_playback_streams(graph: &mut RuntimeGraph) {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         });
     }
 }
@@ -304,6 +306,8 @@ fn merge_pactl_capture_streams(graph: &mut RuntimeGraph) {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         });
     }
 }

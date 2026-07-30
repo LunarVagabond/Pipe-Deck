@@ -82,6 +82,8 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: audio_sample_rate(&object.info, props),
+                    channels: audio_channels(props),
                 });
                 continue;
             }
@@ -106,6 +108,8 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: audio_sample_rate(&object.info, props),
+                    channels: audio_channels(props),
                 });
                 continue;
             }
@@ -127,6 +131,8 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: audio_sample_rate(&object.info, props),
+                    channels: audio_channels(props),
                 });
                 continue;
             }
@@ -150,6 +156,8 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: audio_sample_rate(&object.info, props),
+                    channels: audio_channels(props),
                 });
             }
         }
@@ -286,6 +294,35 @@ fn value_as_u32(value: &Value) -> Option<u32> {
         Value::String(text) => text.parse().ok(),
         _ => None,
     }
+}
+
+fn audio_channels(props: &serde_json::Map<String, Value>) -> Option<u32> {
+    props.get("audio.channels").and_then(value_as_u32)
+}
+
+/// Sample rate isn't a plain prop — the negotiated rate only shows up in
+/// `info.params.Format[0].rate`, which stays empty until the node has
+/// actually run this session. `node.rate` (a `"1/48000"`-style quantum
+/// fraction, seen on stream nodes) is a fallback when the format param
+/// hasn't been populated yet.
+fn audio_sample_rate(info: &Option<Value>, props: &serde_json::Map<String, Value>) -> Option<u32> {
+    let from_format_param = info
+        .as_ref()
+        .and_then(|info| info.get("params"))
+        .and_then(|params| params.get("Format"))
+        .and_then(|format| format.as_array())
+        .and_then(|formats| formats.first())
+        .and_then(|format| format.get("rate"))
+        .and_then(value_as_u32);
+    if from_format_param.is_some() {
+        return from_format_param;
+    }
+
+    props
+        .get("node.rate")
+        .and_then(|value| value.as_str())
+        .and_then(|rate| rate.rsplit('/').next())
+        .and_then(|denominator| denominator.parse().ok())
 }
 
 fn node_id(id: u32) -> String {
@@ -456,6 +493,42 @@ mod tests {
             "Audio/Source",
         );
         assert_eq!(label, "Microphone - Arctis Nova Pro Wireless");
+    }
+
+    #[test]
+    fn audio_channels_reads_from_props() {
+        let props = serde_json::json!({ "audio.channels": 2 });
+        assert_eq!(audio_channels(props.as_object().unwrap()), Some(2));
+    }
+
+    #[test]
+    fn audio_sample_rate_parses_node_rate_fraction_fallback() {
+        let props = serde_json::json!({ "node.rate": "1/48000" });
+        assert_eq!(
+            audio_sample_rate(&None, props.as_object().unwrap()),
+            Some(48000)
+        );
+    }
+
+    #[test]
+    fn audio_sample_rate_prefers_format_param_over_node_rate() {
+        let info = serde_json::json!({
+            "params": {
+                "Format": [{ "rate": 44100, "channels": 2 }]
+            }
+        });
+        let props = serde_json::json!({ "node.rate": "1/48000" });
+        assert_eq!(
+            audio_sample_rate(&Some(info), props.as_object().unwrap()),
+            Some(44100)
+        );
+    }
+
+    #[test]
+    fn audio_sample_rate_and_channels_are_none_when_absent() {
+        let props = serde_json::json!({});
+        assert_eq!(audio_sample_rate(&None, props.as_object().unwrap()), None);
+        assert_eq!(audio_channels(props.as_object().unwrap()), None);
     }
 
     #[test]

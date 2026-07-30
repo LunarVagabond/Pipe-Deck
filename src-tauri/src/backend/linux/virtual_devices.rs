@@ -297,6 +297,8 @@ impl VirtualDeviceEntry {
             current_target: None,
             current_targets: Vec::new(),
             mix_sources: Vec::new(),
+            sample_rate: None,
+            channels: None,
         }
     }
 }
