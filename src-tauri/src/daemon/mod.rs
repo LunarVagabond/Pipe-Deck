@@ -633,12 +633,6 @@ mod tests {
         assert!(stale_state_filter(false, None).is_none());
     }
 
-    /// Only the "nothing to remove" branch is safely testable here: the
-    /// "unit exists" branch shells out to the real `systemctl --user`
-    /// session (see `uninstall_user_service_unit`'s doc comment), which
-    /// can't be sandboxed without a fake `systemctl` on `PATH` — same
-    /// reason `install_user_service_unit`/`enable_background_service`/
-    /// `disable_background_service` have no test coverage either.
     #[test]
     fn uninstall_user_service_unit_is_a_no_op_when_no_unit_file_exists() {
         let temp_dir = std::env::temp_dir().join(format!(
@@ -659,6 +653,232 @@ mod tests {
         let _ = fs::remove_dir_all(&temp_dir);
 
         assert_eq!(result.unwrap(), None);
+    }
+
+    /// Serializes every test below that mutates the process-wide `PATH`,
+    /// `XDG_CONFIG_HOME`, or `PIPE_DECK_DAEMON_PATH` env vars — same
+    /// rationale as `config::store::lock_config_dir_env`: `cargo test`'s
+    /// default parallel runner races concurrent `set_var`/`remove_var`
+    /// calls to the same env var across threads.
+    fn lock_daemon_env() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn unique_suffix() -> u64 {
+        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// A fake `systemctl` on `PATH` that records every invocation instead of
+    /// touching a real systemd session — `run_systemctl` shells out to a
+    /// bare `"systemctl"` (PATH-resolved, not a hardcoded absolute path), so
+    /// prepending a directory containing this script onto `PATH` intercepts
+    /// it. Exists because a real `systemctl --user` call against a dev
+    /// machine's live session previously disabled/removed real
+    /// background-restore state when this was tested by hand (see PR #256).
+    struct FakeSystemctl {
+        dir: std::path::PathBuf,
+        calls_file: std::path::PathBuf,
+    }
+
+    fn install_fake_systemctl(exit_code: i32) -> FakeSystemctl {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = std::env::temp_dir().join(format!(
+            "pipe-deck-fake-systemctl-{}-{}",
+            std::process::id(),
+            unique_suffix()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).expect("create fake systemctl dir");
+
+        let calls_file = dir.join("systemctl.calls");
+        let script_path = dir.join("systemctl");
+        let script = format!(
+            "#!/bin/sh\necho \"$@\" >> \"{}\"\nexit {}\n",
+            calls_file.display(),
+            exit_code
+        );
+        fs::write(&script_path, script).expect("write fake systemctl script");
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+
+        FakeSystemctl { dir, calls_file }
+    }
+
+    /// Each recorded `systemctl` invocation (minus the leading `--user`,
+    /// which every call carries and would just add noise to every assertion).
+    fn recorded_calls(calls_file: &std::path::Path) -> Vec<String> {
+        fs::read_to_string(calls_file)
+            .unwrap_or_default()
+            .lines()
+            .map(|line| line.strip_prefix("--user ").unwrap_or(line).to_string())
+            .collect()
+    }
+
+    /// Installs the fake `systemctl` on `PATH`, points `XDG_CONFIG_HOME` and
+    /// `PIPE_DECK_CONFIG_DIR` at a throwaway temp dir (so `user_systemd_dir()`
+    /// and `ConfigStore` — which `enable_background_service`/
+    /// `disable_background_service` call into — never touch a real home
+    /// directory), and sets `PIPE_DECK_DAEMON_PATH` so `daemon_binary_path()`
+    /// doesn't need a real `pipe-deck-daemon` binary on disk. Everything is
+    /// restored/removed on drop. Also holds `config::store::lock_config_dir_env()`
+    /// — `PIPE_DECK_CONFIG_DIR` is shared process-wide state guarded by that
+    /// crate-level lock, and `lock_daemon_env()` alone wouldn't stop this
+    /// racing against `config::store`'s own tests.
+    struct DaemonTestEnv {
+        fake: FakeSystemctl,
+        config_home: std::path::PathBuf,
+        previous_path: Option<String>,
+        previous_xdg_config_home: Option<String>,
+        previous_config_dir: Option<String>,
+        previous_daemon_path: Option<String>,
+        _lock: std::sync::MutexGuard<'static, ()>,
+        _config_dir_lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl Drop for DaemonTestEnv {
+        fn drop(&mut self) {
+            match &self.previous_path {
+                Some(value) => std::env::set_var("PATH", value),
+                None => std::env::remove_var("PATH"),
+            }
+            match &self.previous_xdg_config_home {
+                Some(value) => std::env::set_var("XDG_CONFIG_HOME", value),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+            match &self.previous_config_dir {
+                Some(value) => std::env::set_var("PIPE_DECK_CONFIG_DIR", value),
+                None => std::env::remove_var("PIPE_DECK_CONFIG_DIR"),
+            }
+            match &self.previous_daemon_path {
+                Some(value) => std::env::set_var("PIPE_DECK_DAEMON_PATH", value),
+                None => std::env::remove_var("PIPE_DECK_DAEMON_PATH"),
+            }
+            let _ = fs::remove_dir_all(&self.fake.dir);
+            let _ = fs::remove_dir_all(&self.config_home);
+        }
+    }
+
+    fn setup_daemon_test_env(systemctl_exit_code: i32) -> DaemonTestEnv {
+        let lock = lock_daemon_env();
+        let config_dir_lock = crate::config::store::lock_config_dir_env();
+        let fake = install_fake_systemctl(systemctl_exit_code);
+
+        let previous_path = std::env::var("PATH").ok();
+        let new_path = match &previous_path {
+            Some(existing) => format!("{}:{existing}", fake.dir.display()),
+            None => fake.dir.display().to_string(),
+        };
+        std::env::set_var("PATH", new_path);
+
+        let config_home = std::env::temp_dir().join(format!(
+            "pipe-deck-daemon-test-config-{}-{}",
+            std::process::id(),
+            unique_suffix()
+        ));
+        let _ = fs::remove_dir_all(&config_home);
+        fs::create_dir_all(&config_home).expect("create temp XDG_CONFIG_HOME");
+        let previous_xdg_config_home = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::set_var("XDG_CONFIG_HOME", &config_home);
+
+        let previous_config_dir = std::env::var("PIPE_DECK_CONFIG_DIR").ok();
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_home);
+
+        let previous_daemon_path = std::env::var("PIPE_DECK_DAEMON_PATH").ok();
+        std::env::set_var("PIPE_DECK_DAEMON_PATH", "/nonexistent/pipe-deck-daemon");
+
+        DaemonTestEnv {
+            fake,
+            config_home,
+            previous_path,
+            previous_xdg_config_home,
+            previous_config_dir,
+            previous_daemon_path,
+            _lock: lock,
+            _config_dir_lock: config_dir_lock,
+        }
+    }
+
+    #[test]
+    fn install_writes_unit_file_when_absent_and_reloads_daemon() {
+        let env = setup_daemon_test_env(0);
+
+        let result = install_user_service_unit();
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(user_systemd_dir().join(SERVICE_NAME).exists());
+        assert_eq!(recorded_calls(&env.fake.calls_file), vec!["daemon-reload"]);
+    }
+
+    #[test]
+    fn install_on_reinstall_disables_before_reloading() {
+        let env = setup_daemon_test_env(0);
+        let unit_dir = user_systemd_dir();
+        fs::create_dir_all(&unit_dir).unwrap();
+        // No `# pipe-deck-daemon-unit-version:` marker => installed_unit_version()
+        // is None => needs_reinstall, same as a pre-#148 unit.
+        fs::write(unit_dir.join(SERVICE_NAME), "[Service]\nType=oneshot\n").unwrap();
+
+        let result = install_user_service_unit();
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            recorded_calls(&env.fake.calls_file),
+            vec![format!("disable --now {SERVICE_NAME}"), "daemon-reload".to_string()],
+        );
+    }
+
+    #[test]
+    fn enable_background_service_installs_then_enables() {
+        let env = setup_daemon_test_env(0);
+
+        let result = enable_background_service();
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            recorded_calls(&env.fake.calls_file),
+            vec!["daemon-reload".to_string(), format!("enable --now {SERVICE_NAME}")],
+        );
+        let config = ConfigStore::new().load_config().expect("load config");
+        assert!(config.preferences.background_restore);
+    }
+
+    #[test]
+    fn disable_background_service_runs_disable_now() {
+        let env = setup_daemon_test_env(0);
+
+        let result = disable_background_service();
+
+        assert!(result.is_ok(), "{result:?}");
+        assert_eq!(
+            recorded_calls(&env.fake.calls_file),
+            vec![format!("disable --now {SERVICE_NAME}")],
+        );
+        let config = ConfigStore::new().load_config().expect("load config");
+        assert!(!config.preferences.background_restore);
+    }
+
+    #[test]
+    fn uninstall_when_unit_exists_disables_deletes_and_reloads() {
+        let env = setup_daemon_test_env(0);
+        let unit_dir = user_systemd_dir();
+        fs::create_dir_all(&unit_dir).unwrap();
+        let unit_path = unit_dir.join(SERVICE_NAME);
+        fs::write(&unit_path, "[Service]\n").unwrap();
+
+        let result = uninstall_user_service_unit();
+
+        assert_eq!(result.unwrap(), Some(unit_path.clone()));
+        assert!(!unit_path.exists());
+        assert_eq!(
+            recorded_calls(&env.fake.calls_file),
+            vec![format!("disable --now {SERVICE_NAME}"), "daemon-reload".to_string()],
+        );
     }
 }
 
