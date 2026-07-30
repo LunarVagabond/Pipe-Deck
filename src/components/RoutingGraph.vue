@@ -25,18 +25,23 @@ import {
 import { nodeIdsForLink } from "./routing-graph/connectionRules";
 import { buildRoutingGraph, parseGraphNodeId, saveNodePosition } from "./routing-graph/buildGraph";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
-import { canConnectPorts } from "./routing-graph/portTypes";
+import { resolveConnectionValidity } from "./routing-graph/connectionValidation";
+import { computeSlotPosition, findDropTarget } from "./routing-graph/dropTarget";
+import { planDirectionalInsert } from "./routing-graph/directionalInsert";
+import { detectNewlyAddedNodes } from "./routing-graph/fitViewTrigger";
+import {
+  defaultLabelForProcessingNodeType,
+  isProcessingNodeSystemName,
+  isProcessingNodeType,
+} from "./routing-graph/graphActions";
 import {
   boundsForMembers,
   containmentRatio,
   createGroup,
   loadGroups,
-  MEMBER_GAP,
-  nearestGroupEdge,
   reflowMembers,
   saveGroups,
   type GraphGroup,
-  type GraphRect,
   type GroupEdge,
   type GroupLayoutAxis,
   type GroupMemberInput,
@@ -267,7 +272,7 @@ function onContextMenuAction(action: "rename" | "delete") {
   if (action === "rename") {
     void graphActions.renameDevice(target.systemName, target.label);
   } else if (action === "delete") {
-    if (target.systemName.startsWith("pipe-deck-proc-")) {
+    if (isProcessingNodeSystemName(target.systemName)) {
       graphActions.deleteProcessingNode(target.entityId, target.label);
     } else {
       graphActions.deleteDevice(target.systemName, target.label);
@@ -299,35 +304,8 @@ async function onAddNodeAction(
   type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener" | "pan",
 ) {
   contextMenu.value = null;
-  if (
-    type === "fan_out" ||
-    type === "mixer" ||
-    type === "eq5band" ||
-    type === "delay" ||
-    type === "limiter" ||
-    type === "hpf" ||
-    type === "reverb" ||
-    type === "widener" ||
-    type === "pan"
-  ) {
-    const defaultLabel =
-      type === "fan_out"
-        ? "Fan-Out"
-        : type === "mixer"
-          ? "Mixer"
-          : type === "eq5band"
-            ? "5-Band EQ"
-            : type === "delay"
-              ? "Delay"
-              : type === "limiter"
-                ? "Limiter"
-                : type === "hpf"
-                  ? "High-Pass Filter"
-                  : type === "reverb"
-                    ? "Reverb"
-                    : type === "widener"
-                      ? "Stereo Widener"
-                      : "Balance/Pan";
+  if (isProcessingNodeType(type)) {
+    const defaultLabel = defaultLabelForProcessingNodeType(type);
     // Node ids are derived from this label (`processing-{kind}-{slug}`), so
     // creating a second node of the same kind needs a distinct name — a
     // fixed default would collide with the first and be rejected outright.
@@ -545,22 +523,7 @@ watch(vueFlow.connectionClickStartHandle, (handle) => {
 });
 
 function isValidConnection(connection: Connection) {
-  // Vue Flow reuses this callback both for a live user drag (a bare Connection,
-  // no `id`) and to re-validate every already-persisted edge on each resync
-  // (which carries its own `id`). Only the former should require the target to
-  // be the open trailing slot.
-  const isExistingEdge = Boolean((connection as unknown as { id?: string }).id);
-  if (isExistingEdge) {
-    return canConnectPorts(connection.sourceHandle, connection.targetHandle, false);
-  }
-  // During an edge-update (retarget) drag, Vue Flow builds this same bare-Connection
-  // shape for the live candidate, so it's indistinguishable from a fresh connect drag
-  // above — but the unmoved end still carries its original, occupied handle id rather
-  // than an empty slot. Allow that specific handle through so only the genuinely moved
-  // end has to land on a real empty slot.
-  const pending = edgeUpdatePending.value;
-  const alsoFillable = pending ? [pending.sourceHandle, pending.targetHandle] : [];
-  return canConnectPorts(connection.sourceHandle, connection.targetHandle, true, alsoFillable);
+  return resolveConnectionValidity(connection, edgeUpdatePending.value);
 }
 
 async function commitConnection(
@@ -665,88 +628,22 @@ function reflowAndSaveGroup(group: GraphGroup) {
   group.size = bounds.size;
 }
 
-/** Where a new member would land if inserted at `edge` of `group`, given its current members. */
-function computeSlotPosition(
-  group: GraphGroup,
-  axis: GroupLayoutAxis,
-  edge: GroupEdge,
-  nodeRect: GraphRect,
-): { x: number; y: number } {
-  const members = groupMemberInputs(group);
-  if (members.length === 0) {
-    return { x: group.position.x, y: group.position.y };
-  }
-  if (axis === "row") {
-    const top = Math.min(...members.map((member) => member.position.y));
-    if (edge === "left") {
-      const minX = Math.min(...members.map((member) => member.position.x));
-      return { x: minX - MEMBER_GAP - nodeRect.width, y: top };
-    }
-    const maxX = Math.max(...members.map((member) => member.position.x + member.width));
-    return { x: maxX + MEMBER_GAP, y: top };
-  }
-  const left = Math.min(...members.map((member) => member.position.x));
-  if (edge === "top") {
-    const minY = Math.min(...members.map((member) => member.position.y));
-    return { x: left, y: minY - MEMBER_GAP - nodeRect.height };
-  }
-  const maxY = Math.max(...members.map((member) => member.position.y + member.height));
-  return { x: left, y: maxY + MEMBER_GAP };
-}
-
-/** Finds which group (if any) a loose node dragged to `nodeRect` should join, and at which edge. */
-function findDropTarget(
-  nodeRect: GraphRect,
-): { group: GraphGroup; axis: GroupLayoutAxis; edge: GroupEdge } | null {
-  for (const group of groups.value) {
-    const groupRect = {
-      x: group.position.x,
-      y: group.position.y,
-      width: group.size.width,
-      height: group.size.height,
-    };
-    const edge = nearestGroupEdge(nodeRect, groupRect);
-    if (edge) {
-      const axis: GroupLayoutAxis = edge === "left" || edge === "right" ? "row" : "column";
-      return { group, axis, edge };
-    }
-  }
-  return null;
-}
-
 function commitDirectionalInsert(
   group: GraphGroup,
   axis: GroupLayoutAxis,
   edge: GroupEdge,
   node: { id: string; dimensions: { width: number; height: number } },
 ) {
-  const nodeRect = {
-    x: 0,
-    y: 0,
-    width: node.dimensions.width || 200,
-    height: node.dimensions.height || 80,
-  };
-  const slotPosition = computeSlotPosition(group, axis, edge, nodeRect);
-  const newMember: GroupMemberInput = {
-    id: node.id,
-    position: slotPosition,
-    width: nodeRect.width,
-    height: nodeRect.height,
-  };
-  const existingMembers = groupMemberInputs(group);
-  const prepend = edge === "left" || edge === "top";
-  const orderedMembers = prepend ? [newMember, ...existingMembers] : [...existingMembers, newMember];
-
-  const { positions, bounds } = reflowMembers(axis, orderedMembers);
-  for (const member of orderedMembers) {
-    const position = positions[member.id];
+  const plan = planDirectionalInsert(groupMemberInputs(group), group.position, axis, edge, node);
+  for (const member of plan.orderedMembers) {
+    const position = plan.positions[member.id];
     saveNodePosition(member.id, position.x, position.y);
   }
 
-  group.memberIds = orderedMembers.map((member) => member.id);
+  group.memberIds = plan.orderedMembers.map((member) => member.id);
   group.layoutAxis = axis;
-  group.position = bounds.position;
-  group.size = bounds.size;
+  group.position = plan.bounds.position;
+  group.size = plan.bounds.size;
 }
 
 function onNodeDragStart(event: NodeDragEvent) {
@@ -784,13 +681,13 @@ function onNodeDrag(event: NodeDragEvent) {
     width: node.dimensions.width,
     height: node.dimensions.height,
   };
-  const target = findDropTarget(nodeRect);
+  const target = findDropTarget(nodeRect, groups.value);
   if (!target) {
     dropSlotPreview.value = null;
     return;
   }
 
-  const slotPosition = computeSlotPosition(target.group, target.axis, target.edge, nodeRect);
+  const slotPosition = computeSlotPosition(groupMemberInputs(target.group), target.group.position, target.axis, target.edge, nodeRect);
   dropSlotPreview.value = {
     groupId: target.group.id,
     axis: target.axis,
@@ -873,7 +770,7 @@ function onNodeDragStop(event: NodeDragEvent) {
   // Node isn't in any group yet — a directional drop near an existing
   // group's edge (left/right/top/bottom) inserts it there, growing the
   // group and reflowing members into an aligned row/column.
-  const target = findDropTarget(nodeRect);
+  const target = findDropTarget(nodeRect, groups.value);
   if (target) {
     commitDirectionalInsert(target.group, target.axis, target.edge, node);
     persistGroups();
@@ -946,32 +843,16 @@ watch(
     await nextTick();
     vueFlow.updateNodeInternals(current.map((node) => node.id));
 
-    const currentIds = new Set(current.map((node) => node.id));
-    const currentIdentityKeys = new Set(
-      current
-        .map((node) => (node.data as RoutingGraphNodeData)?.streamIdentityKey)
-        .filter((key): key is string => !!key),
-    );
+    const trackedNodes = current.map((node) => ({
+      id: node.id,
+      identityKey: (node.data as RoutingGraphNodeData)?.streamIdentityKey,
+    }));
+    const result = detectNewlyAddedNodes(trackedNodes, knownNodeIds.value, knownStreamIdentityKeys.value);
+    knownNodeIds.value = result.nodeIds;
+    knownStreamIdentityKeys.value = result.identityKeys;
+    if (result.addedIds.length === 0) return;
 
-    if (knownNodeIds.value === null) {
-      knownNodeIds.value = currentIds;
-      knownStreamIdentityKeys.value = currentIdentityKeys;
-      return;
-    }
-
-    const addedIds = [...currentIds].filter((id) => {
-      if (knownNodeIds.value!.has(id)) return false;
-      const identityKey = current.find((node) => node.id === id)?.data?.streamIdentityKey as
-        | string
-        | undefined;
-      if (identityKey && knownStreamIdentityKeys.value!.has(identityKey)) return false;
-      return true;
-    });
-    knownNodeIds.value = currentIds;
-    knownStreamIdentityKeys.value = currentIdentityKeys;
-    if (addedIds.length === 0) return;
-
-    await vueFlow.fitView({ nodes: addedIds, padding: 0.35, duration: 400, maxZoom: 1 });
+    await vueFlow.fitView({ nodes: result.addedIds, padding: 0.35, duration: 400, maxZoom: 1 });
   },
 );
 
