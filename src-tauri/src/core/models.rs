@@ -50,6 +50,10 @@ pub struct Device {
     pub current_targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mix_sources: Vec<MixSource>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channels: Option<u32>,
 }
 
 /// A single contributor to a virtual-mic mix, with a gain that only affects
@@ -354,6 +358,10 @@ pub struct Stream {
     pub muted: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub route_explanation: Option<RouteExplanation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_rate: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channels: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1578,6 +1586,8 @@ impl VirtualDeviceInfo {
             current_target: None,
             current_targets: Vec::new(),
             mix_sources: Vec::new(),
+            sample_rate: None,
+            channels: None,
         }
     }
 }

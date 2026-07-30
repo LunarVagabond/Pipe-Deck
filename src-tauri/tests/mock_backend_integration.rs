@@ -1575,6 +1575,8 @@ fn headset_device() -> Device {
         current_target: None,
         current_targets: Vec::new(),
         mix_sources: Vec::new(),
+        sample_rate: None,
+        channels: None,
     }
 }
 
@@ -1592,6 +1594,8 @@ fn firefox_stream(id: &str) -> Stream {
         volume_percent: None,
         muted: None,
         route_explanation: None,
+        sample_rate: None,
+        channels: None,
     }
 }
 

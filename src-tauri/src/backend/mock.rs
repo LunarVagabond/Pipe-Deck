@@ -75,6 +75,8 @@ impl MockAudioBackend {
             current_target: None,
             current_targets: Vec::new(),
             mix_sources: Vec::new(),
+            sample_rate: None,
+            channels: None,
         });
         VirtualDeviceResult {
             device_id,
@@ -157,6 +159,8 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: None,
+                    channels: None,
                 },
                 Stream {
                     id: "stream-spotify".into(),
@@ -171,6 +175,8 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: None,
+                    channels: None,
                 },
                 Stream {
                     id: "stream-steam".into(),
@@ -185,6 +191,8 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: None,
+                    channels: None,
                 },
                 Stream {
                     id: "stream-firefox".into(),
@@ -199,6 +207,8 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: None,
+                    channels: None,
                 },
                 Stream {
                     id: "stream-obs".into(),
@@ -213,6 +223,8 @@ impl MockAudioBackend {
                     volume_percent: None,
                     muted: None,
                     route_explanation: None,
+                    sample_rate: None,
+                    channels: None,
                 },
             ],
             links: vec![
@@ -312,6 +324,8 @@ fn mock_device(
         current_target: None,
         current_targets: Vec::new(),
         mix_sources: Vec::new(),
+        sample_rate: None,
+        channels: None,
     }
 }
 
@@ -658,6 +672,8 @@ impl AudioBackend for MockAudioBackend {
             current_target: None,
             current_targets: Vec::new(),
             mix_sources: Vec::new(),
+            sample_rate: None,
+            channels: None,
         });
         Ok(())
     }

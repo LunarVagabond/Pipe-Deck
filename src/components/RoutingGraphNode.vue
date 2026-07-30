@@ -257,6 +257,12 @@ function onToggleMute() {
           :title="data.routeWarningTitle"
           :aria-label="data.routeWarningTitle"
         />
+        <span
+          v-if="data.formatMismatch"
+          class="routing-graph-node-format-badge"
+          :title="data.formatMismatchTitle"
+          :aria-label="data.formatMismatchTitle"
+        />
         <div class="routing-graph-node-copy">
           <NodeCardHeader
             v-if="data.systemName"

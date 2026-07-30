@@ -1362,6 +1362,15 @@
   }
 }
 
+.routing-graph-node-format-badge {
+  flex-shrink: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  margin-left: -0.15rem;
+  background: var(--accent-teal);
+}
+
 .routing-graph-node-volume {
   flex: 1;
   min-width: 0;

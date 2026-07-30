@@ -304,6 +304,8 @@ mod tests {
                 current_target: None,
                 current_targets: Vec::new(),
                 mix_sources: Vec::new(),
+                sample_rate: None,
+                channels: None,
             }],
             streams: Vec::new(),
             links: Vec::new(),
@@ -328,6 +330,8 @@ mod tests {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         });
         normalize_stream_routing_links(&mut graph);
 
@@ -352,6 +356,8 @@ mod tests {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: None,
+                    channels: None,
                 },
                 Device {
                     id: "headset".into(),
@@ -365,6 +371,8 @@ mod tests {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: None,
+                    channels: None,
                 },
             ],
             streams: vec![Stream {
@@ -380,6 +388,8 @@ mod tests {
                 volume_percent: None,
                 muted: None,
                 route_explanation: None,
+                sample_rate: None,
+                channels: None,
             }],
             links: vec![Link {
                 id: "link-stale".into(),
@@ -430,6 +440,8 @@ mod tests {
                 volume_percent: None,
                 muted: None,
                 route_explanation: None,
+                sample_rate: None,
+                channels: None,
             }],
             processing_nodes: vec![ProcessingNode {
                 id: "processing-mixer-mixer".into(),

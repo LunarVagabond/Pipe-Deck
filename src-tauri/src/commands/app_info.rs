@@ -313,6 +313,8 @@ mod tests {
             current_target: current_target.map(str::to_string),
             current_targets: Vec::new(),
             mix_sources: Vec::new(),
+            sample_rate: None,
+            channels: None,
         }
     }
 
@@ -340,6 +342,8 @@ mod tests {
                 target_system_names: Vec::new(),
                 fallback_applied: false,
             }),
+            sample_rate: None,
+            channels: None,
         }
     }
 

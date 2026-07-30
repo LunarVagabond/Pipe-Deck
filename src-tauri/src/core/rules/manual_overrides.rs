@@ -122,6 +122,8 @@ mod tests {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         }
     }
 
@@ -162,6 +164,8 @@ mod tests {
             volume_percent: None,
             muted: None,
             route_explanation: None,
+            sample_rate: None,
+            channels: None,
         };
         let graph = RuntimeGraph {
             devices: vec![
@@ -177,6 +181,8 @@ mod tests {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: None,
+                    channels: None,
                 },
                 Device {
                     id: "speakers".into(),
@@ -190,6 +196,8 @@ mod tests {
                     current_target: None,
                     current_targets: Vec::new(),
                     mix_sources: Vec::new(),
+                    sample_rate: None,
+                    channels: None,
                 },
             ],
             streams: vec![stream],

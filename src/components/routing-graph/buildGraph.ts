@@ -9,6 +9,7 @@ import {
   streamSubtitle,
 } from "../../utils/routingLayout";
 import { actionStatusLabel, routeWarningLevel } from "../../utils/routeExplanation";
+import { formatMismatch } from "../../utils/formatMismatch";
 import { computeDeviceConnections, handlesForDevice, handlesForProcessingNode, handlesForStream } from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
@@ -43,6 +44,12 @@ export interface RoutingGraphNodeData {
    * blocked route otherwise leaves no edge and no other on-graph trace. */
   routeWarning?: "blocked" | "unavailable";
   routeWarningTitle?: string;
+  /** Set when this stream's negotiated sample-rate/channel-count differs
+   * from its current target device's — informational only (issue #156):
+   * PipeWire already resamples/remixes transparently at the link layer, so
+   * this isn't an error state, just awareness of a conversion happening. */
+  formatMismatch?: boolean;
+  formatMismatchTitle?: string;
   /** Set only for `nodeKind: "processingNode"` — which Mixer/Fan-out/EQ/stub
    * kind this is (PD-032), so the node body can render kind-specific
    * controls (per-input gain rows, a "Not implemented yet" badge, ...). */
@@ -221,9 +228,11 @@ function positionFor(
 
 export { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
 
-function streamNodeKind(stream: Stream): RoutingGraphNodeData {
+function streamNodeKind(stream: Stream, devices: Device[]): RoutingGraphNodeData {
   const playback = stream.direction === "playback";
   const warning = routeWarningLevel(stream.route_explanation);
+  const targetDevice = devices.find((device) => device.id === stream.current_target);
+  const format = targetDevice ? formatMismatch(stream, targetDevice) : { mismatch: false };
   return {
     label: streamDisplayLabel(stream),
     subtitle: streamSubtitle(stream),
@@ -239,6 +248,8 @@ function streamNodeKind(stream: Stream): RoutingGraphNodeData {
     supportsEffects: true,
     routeWarning: warning ?? undefined,
     routeWarningTitle: warning ? actionStatusLabel(stream.route_explanation?.action_status) : undefined,
+    formatMismatch: format.mismatch || undefined,
+    formatMismatchTitle: format.title,
   };
 }
 
@@ -434,7 +445,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   const sortedDevices = [...graph.devices].sort((a, b) => a.id.localeCompare(b.id));
 
   for (const stream of sortedStreams) {
-    const data = streamNodeKind(stream);
+    const data = streamNodeKind(stream, graph.devices);
     const id = streamNodeId(stream.id);
     nodes.push({
       id,
