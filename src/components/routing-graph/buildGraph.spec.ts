@@ -158,6 +158,67 @@ describe("stream layout position survives a node-id change (pause/resume jump fi
   });
 });
 
+describe("connectivity-based 3-column layout (#342)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  function xFor(graph: ReturnType<typeof makeGraph>, nodeId: string): number {
+    const built = buildRoutingGraph(graph);
+    return built.nodes.find((n) => n.id === nodeId)!.position.x;
+  }
+
+  it("places a playback stream and a physical input device (mic) in the same left column", () => {
+    const playback = makeStream({ id: "s1", direction: "playback" });
+    const mic = makeDevice({ id: "mic", kind: "physical", direction: "input" });
+    const graph = makeGraph([mic], [playback]);
+
+    expect(xFor(graph, streamNodeId("s1"))).toBe(xFor(graph, deviceNodeId("mic")));
+  });
+
+  it("places a capture stream, a physical output device, and a virtual output device in the same right column", () => {
+    const capture = makeStream({ id: "s1", direction: "capture" });
+    const speakers = makeDevice({ id: "speakers", kind: "physical", direction: "output" });
+    const virtualSink = makeDevice({ id: "sink", kind: "virtual", direction: "output" });
+    const graph = makeGraph([speakers, virtualSink], [capture]);
+
+    const streamX = xFor(graph, streamNodeId("s1"));
+    expect(xFor(graph, deviceNodeId("speakers"))).toBe(streamX);
+    expect(xFor(graph, deviceNodeId("sink"))).toBe(streamX);
+  });
+
+  it("places a virtual input device (mic-mix bus) and a processing node in the same center column", () => {
+    const virtualMic = makeDevice({ id: "filtered-mic", kind: "virtual", direction: "input" });
+    const proc = makeProcessingNode({ id: "proc-1" });
+    const graph = makeGraph([virtualMic], [], [], [proc]);
+
+    expect(xFor(graph, deviceNodeId("filtered-mic"))).toBe(xFor(graph, processingNodeNodeId("proc-1")));
+  });
+
+  it("lays out a Discord/Slack-style mic chain strictly left to right (#342 repro)", () => {
+    const mic = makeDevice({ id: "mic", kind: "physical", direction: "input" });
+    const filteredMic = makeDevice({
+      id: "filtered-mic",
+      kind: "virtual",
+      direction: "input",
+      mix_sources: [{ device_id: "mic", volume_percent: 100, muted: false }],
+    });
+    const discordCapture = makeStream({
+      id: "discord-capture",
+      direction: "capture",
+      current_target: "filtered-mic",
+    });
+    const graph = makeGraph([mic, filteredMic], [discordCapture]);
+
+    const micX = xFor(graph, deviceNodeId("mic"));
+    const filteredMicX = xFor(graph, deviceNodeId("filtered-mic"));
+    const discordX = xFor(graph, streamNodeId("discord-capture"));
+
+    expect(micX).toBeLessThan(filteredMicX);
+    expect(filteredMicX).toBeLessThan(discordX);
+  });
+});
+
 describe("Bluetooth device icon parity (#226)", () => {
   beforeEach(() => {
     stubLocalStorage();
