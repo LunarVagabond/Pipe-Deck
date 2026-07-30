@@ -149,13 +149,14 @@ export function handlesForStream(stream: Stream): RoutingGraphHandle[] {
 
 const EMPTY_CONNECTIONS: DeviceConnections = { in: [], out: [] };
 
-export function handlesForDevice(
-  device: Device,
-  connections: DeviceConnections = EMPTY_CONNECTIONS,
-): RoutingGraphHandle[] {
+/** Whether a device structurally gets an input dot and/or an output dot at
+ * all — single source of truth shared by `handlesForDevice` (what actually
+ * renders) and the routing-graph layout (issue #342, which column a device
+ * lands in), so the two can never drift apart. */
+export function deviceHandleSides(device: Device): { hasIn: boolean; hasOut: boolean } {
   const column = deviceColumn(device);
   if (!column) {
-    return [];
+    return { hasIn: false, hasOut: false };
   }
 
   const isVirtualInput = device.kind === "virtual" && device.direction === "input";
@@ -165,6 +166,14 @@ export function handlesForDevice(
   const isTerminalVirtualOutput = device.kind === "virtual" && device.direction === "output";
   const hasIn = column === "routing" || column === "outputs" || isVirtualInput;
   const hasOut = (column === "routing" || column === "inputs" || isVirtualInput) && !isTerminalVirtualOutput;
+  return { hasIn, hasOut };
+}
+
+export function handlesForDevice(
+  device: Device,
+  connections: DeviceConnections = EMPTY_CONNECTIONS,
+): RoutingGraphHandle[] {
+  const { hasIn, hasOut } = deviceHandleSides(device);
 
   const handles: RoutingGraphHandle[] = [];
   if (hasIn) {

@@ -11,7 +11,13 @@ import {
 import { actionStatusLabel, routeWarningLevel } from "../../utils/routeExplanation";
 import { formatMismatch } from "../../utils/formatMismatch";
 import { streamIdentityKey } from "../../utils/streamIdentity";
-import { computeDeviceConnections, handlesForDevice, handlesForProcessingNode, handlesForStream } from "./nodePorts";
+import {
+  computeDeviceConnections,
+  deviceHandleSides,
+  handlesForDevice,
+  handlesForProcessingNode,
+  handlesForStream,
+} from "./nodePorts";
 import type { DeviceConnections, RoutingGraphHandle } from "./nodePorts";
 import { collectRoutingEdges } from "./collectEdges";
 import { deviceNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
@@ -120,7 +126,12 @@ export interface BuiltRoutingGraph {
 // every pre-existing saved position in one shot so everything re-auto-places
 // under the current lanes; future manual drags persist under the new key
 // exactly as before.
-const LAYOUT_KEY = "pipe-deck-routing-layout-v2";
+//
+// Bumped again to v3 (issue #342) — the kind-based lane scheme (`LANE_X`)
+// was replaced outright by a connectivity-based three-column one
+// (`columnXFor`), so every existing saved position needs to re-auto-place
+// under the new columns for the same reason as the v1→v2 bump above.
+const LAYOUT_KEY = "pipe-deck-routing-layout-v3";
 
 // Bridges a stream's saved layout position across a PipeWire node-id change
 // for what's conceptually the same stream (e.g. Firefox recreating its
@@ -130,34 +141,39 @@ const LAYOUT_KEY = "pipe-deck-routing-layout-v2";
 // this only needs to survive within a session's polling ticks, not across
 // restarts like the position layout itself.
 let previousStreamIdentityByNodeId = new Map<string, string>();
-// Three-zone layout (issue #25): audio sources on the left — input hardware
-// (previously defaulted to the far right, issue #202) shares its column with
-// playback streams like a browser or game, since both are "where the audio
-// comes from" rather than something Pipe Deck generates. Capture streams
-// stay paired immediately past that shared source column (a mic or filtered
-// virtual mic feeding a capture stream is a short, forward-reading
-// connection — see #202) rather than being pulled into the center zone on
-// their own. Processing nodes and virtual sinks make up the center
-// "internal processing" zone; outputs remain the rightmost lane.
+// Three columns by connectivity shape, not by node kind (issue #342 —
+// superseding the original kind-based three-zone layout from issues
+// #25/#202, which put input hardware in the source column but capture
+// streams in their own lane between the source column and the center zone;
+// a virtual mic-mix device — genuinely a pass-through, fed by a physical mic
+// and feeding a capture stream — got stuck in the leftmost/source column
+// purely because its `direction` was `input`, producing long crossing edges
+// whenever a Discord/Slack call routed through one):
+//   - Output only (no input) → left: playback streams, physical input
+//     hardware.
+//   - Input and output → center: virtual input devices (mic-mix buses),
+//     every processing-node kind (Mixer/Fan-out/EQ/etc, PD-032).
+//   - Input only (no output) → right: capture streams, physical output
+//     hardware, virtual sink/output devices (structurally always
+//     receive-only since #293 retired forward-routing on plain virtual
+//     output devices — see `deviceHandleSides` in `nodePorts.ts`, the same
+//     hasIn/hasOut logic used here so a node's column can never disagree
+//     with whether it actually draws an input/output dot).
 //
-// Gaps: a "paired" pair (source column/captureStream, stream/processingNode,
-// processingNode/virtualSink) sits `PAIR_GAP` apart, a zone boundary
-// (captureStream/stream, virtualSink/output) sits `ZONE_GAP` apart. Both
-// must clear the widest real rendered card, not just look reasonable on
-// paper — a plain device card renders ~210-245px wide, but an Eq5Band/Delay
-// processing node renders ~260px wide. `PAIR_GAP` (300) and `ZONE_GAP` (420)
-// both still clear 260px with real margin, just tighter than an earlier pass
-// at this (320/500) that erred on the spacious side.
-const PAIR_GAP = 300;
+// `ZONE_GAP` must clear the widest real rendered card, not just look
+// reasonable on paper — a plain device card renders ~210-245px wide, but an
+// Eq5Band/Delay processing node renders ~260px wide; 420 clears that with
+// real margin.
 const ZONE_GAP = 420;
-const LANE_X: Record<RoutingNodeKind, number> = {
-  input: 40,
-  stream: 40,
-  captureStream: 40 + PAIR_GAP,
-  processingNode: 40 + PAIR_GAP + ZONE_GAP,
-  virtualSink: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP,
-  output: 40 + PAIR_GAP + ZONE_GAP + PAIR_GAP + ZONE_GAP,
-};
+const COL_SOURCE = 40;
+const COL_PASSTHROUGH = COL_SOURCE + ZONE_GAP;
+const COL_TERMINAL = COL_PASSTHROUGH + ZONE_GAP;
+
+function columnXFor(hasIn: boolean, hasOut: boolean): number {
+  if (hasOut && !hasIn) return COL_SOURCE;
+  if (hasIn && !hasOut) return COL_TERMINAL;
+  return COL_PASSTHROUGH; // both, or the (unreachable in practice) neither case
+}
 
 function loadLayout(): Record<string, { x: number; y: number }> {
   try {
@@ -228,13 +244,12 @@ function nextFreeSlot(x: number, occupiedSlots: Map<number, Set<number>>): numbe
 
 function positionFor(
   nodeId: string,
-  kind: RoutingNodeKind,
+  x: number,
   layout: Record<string, { x: number; y: number }>,
   occupiedSlots: Map<number, Set<number>>,
 ): { x: number; y: number } {
   const saved = layout[nodeId];
   if (saved) return saved;
-  const x = LANE_X[kind];
   const slot = nextFreeSlot(x, occupiedSlots);
   const position = { x, y: LANE_Y_OFFSET + slot * LANE_ROW_HEIGHT };
   layout[nodeId] = position;
@@ -446,9 +461,9 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     slots.add(slotIndexForY(position.y));
   }
 
-  function trackedPositionFor(id: string, kind: RoutingNodeKind): { x: number; y: number } {
+  function trackedPositionFor(id: string, x: number): { x: number; y: number } {
     const before = layout[id];
-    const position = positionFor(id, kind, layout, occupiedSlots);
+    const position = positionFor(id, x, layout, occupiedSlots);
     if (!before) layoutChanged = true;
     return position;
   }
@@ -495,10 +510,11 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   for (const stream of sortedStreams) {
     const data = streamNodeKind(stream, graph.devices);
     const id = streamNodeId(stream.id);
+    const x = columnXFor(stream.direction === "capture", stream.direction === "playback");
     nodes.push({
       id,
       type: "routingNode",
-      ...withGroup(id, trackedPositionFor(id, data.nodeKind)),
+      ...withGroup(id, trackedPositionFor(id, x)),
       data,
     });
   }
@@ -509,10 +525,11 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     const data = deviceNodeKind(device, deviceConnections.get(device.id) ?? { in: [], out: [] });
     if (!data) continue;
     const id = deviceNodeId(device.id);
+    const { hasIn, hasOut } = deviceHandleSides(device);
     nodes.push({
       id,
       type: "routingNode",
-      ...withGroup(id, trackedPositionFor(id, data.nodeKind)),
+      ...withGroup(id, trackedPositionFor(id, columnXFor(hasIn, hasOut))),
       data,
     });
   }
@@ -524,7 +541,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     nodes.push({
       id,
       type: "routingNode",
-      ...withGroup(id, trackedPositionFor(id, data.nodeKind)),
+      ...withGroup(id, trackedPositionFor(id, COL_PASSTHROUGH)),
       data,
     });
   }
