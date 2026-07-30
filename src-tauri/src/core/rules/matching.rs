@@ -189,6 +189,8 @@ pub(crate) fn collect_missing_metadata_skips(
                 crate::core::models::SkippedCandidate {
                     rule_key: rule.name.clone(),
                     reason,
+                    rule_id: Some(rule.id.clone()),
+                    kind: crate::core::models::SkipReason::MissingMetadata,
                 }
             })
         })

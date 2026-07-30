@@ -397,8 +397,11 @@ impl CoreEngine {
         Ok(())
     }
 
-    pub fn simulate_rules(&self) -> Vec<SimulationResult> {
-        rules::simulate_rules(&self.graph, &self.recent_streams)
+    pub fn simulate_rules(
+        &self,
+        priority_overrides: &std::collections::HashMap<String, i32>,
+    ) -> Vec<SimulationResult> {
+        rules::simulate_rules(&self.graph, &self.recent_streams, priority_overrides)
     }
 
     fn apply_restore_notice(&mut self, result: &crate::core::models::RestoreResult) {

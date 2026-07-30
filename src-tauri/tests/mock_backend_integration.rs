@@ -1559,7 +1559,7 @@ fn engine_reinitializes_cleanly_against_a_fresh_backend_instance() {
     let (engine, _guard) = mock_engine();
     assert!(!engine.runtime_graph().devices.is_empty());
     assert!(!engine.runtime_graph().streams.is_empty());
-    let _ = engine.simulate_rules();
+    let _ = engine.simulate_rules(&std::collections::HashMap::new());
 }
 
 fn headset_device() -> Device {

@@ -21,6 +21,7 @@ import { filterRecentlySeen, recentEntryAgo, recentEntryLabel } from "../utils/r
 const rules = ref<Rule[]>([]);
 const simulation = ref<SimulationResult[]>([]);
 const showSimulation = ref(false);
+const priorityPreview = ref<Record<string, number>>({});
 const showRuleModal = ref(false);
 const editingRuleId = ref<string | null>(null);
 const searchQuery = ref("");
@@ -89,6 +90,137 @@ const filteredRules = computed(() => {
 
 function liveMatchCount(rule: Rule): number {
   return simulation.value.filter((result) => result.explanation.matched_rule_key === rule.name).length;
+}
+
+interface ConflictLoser {
+  ruleId?: string;
+  ruleKey: string;
+  rule?: Rule;
+  reason: string;
+}
+
+interface ConflictEntry {
+  streamId: string;
+  streamLabel: string;
+  winnerRuleId?: string;
+  winnerRuleKey?: string;
+  winnerRule?: Rule;
+  losers: ConflictLoser[];
+}
+
+function ruleById(id?: string): Rule | undefined {
+  return id ? rules.value.find((rule) => rule.id === id) : undefined;
+}
+
+const conflicts = computed<ConflictEntry[]>(() => {
+  const entries: ConflictEntry[] = [];
+  for (const result of simulation.value) {
+    const losers = (result.explanation.skipped_candidates ?? []).filter(
+      (candidate) => candidate.kind === "lower_priority",
+    );
+    if (losers.length === 0) {
+      continue;
+    }
+    entries.push({
+      streamId: result.stream_id,
+      streamLabel: simulationLabel(result),
+      winnerRuleId: result.explanation.matched_rule_id,
+      winnerRuleKey: result.explanation.matched_rule_key,
+      winnerRule: ruleById(result.explanation.matched_rule_id),
+      losers: losers.map((candidate) => ({
+        ruleId: candidate.rule_id,
+        ruleKey: candidate.rule_key,
+        rule: ruleById(candidate.rule_id),
+        reason: candidate.reason,
+      })),
+    });
+  }
+  return entries;
+});
+
+const conflictingRuleIds = computed(() => {
+  const ids = new Set<string>();
+  for (const conflict of conflicts.value) {
+    if (conflict.winnerRuleId) {
+      ids.add(conflict.winnerRuleId);
+    }
+    for (const loser of conflict.losers) {
+      if (loser.ruleId) {
+        ids.add(loser.ruleId);
+      }
+    }
+  }
+  return ids;
+});
+
+function ruleHasConflict(rule: Rule): boolean {
+  return conflictingRuleIds.value.has(rule.id);
+}
+
+// Preview simulation is fetched separately from `simulation` (which drives the
+// stable conflict pairing above) because promoting a rule's priority can flip
+// which rule wins a stream — feeding the override back into `simulation` would
+// make the loser row a previewer clicked disappear (it becomes the winner) and
+// replace it with the *previous* winner as a brand-new, never-clicked loser row.
+const previewSimulation = ref<SimulationResult[] | null>(null);
+
+function isPreviewed(ruleId?: string): boolean {
+  return ruleId != null && ruleId in priorityPreview.value;
+}
+
+function previewedRuleResolved(streamId: string, ruleId: string): boolean {
+  const result = previewSimulation.value?.find((entry) => entry.stream_id === streamId);
+  return result?.explanation.matched_rule_id === ruleId;
+}
+
+async function refreshPreview() {
+  if (Object.keys(priorityPreview.value).length === 0) {
+    previewSimulation.value = null;
+    return;
+  }
+  try {
+    previewSimulation.value = await invoke<SimulationResult[]>("simulate_rules", {
+      priorityOverrides: priorityPreview.value,
+    });
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+async function previewPromote(loserRuleId: string, newPriority: number) {
+  priorityPreview.value = { ...priorityPreview.value, [loserRuleId]: newPriority };
+  await refreshPreview();
+}
+
+async function clearPreview(ruleId?: string) {
+  if (ruleId) {
+    const rest = { ...priorityPreview.value };
+    delete rest[ruleId];
+    priorityPreview.value = rest;
+  } else {
+    priorityPreview.value = {};
+  }
+  await refreshPreview();
+}
+
+async function applyPriorityChange(rule: Rule, newPriority: number) {
+  try {
+    await invoke("save_rule", { rule: { ...rule, priority: newPriority } });
+    const rest = { ...priorityPreview.value };
+    delete rest[rule.id];
+    priorityPreview.value = rest;
+    await loadRules();
+    await refreshPreview();
+    await applyRules();
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
 }
 
 function openCreateModal() {
@@ -417,6 +549,7 @@ onMounted(async () => {
               :target-kind-label="targetKindForSystemName(rule.action.target_system_name)"
               :target-name="targetDisplay(rule.action.target_system_name)"
               :live-match-count="liveMatchCount(rule)"
+              :has-conflict="ruleHasConflict(rule)"
               :can-move-up="index > 0"
               :can-move-down="index < filteredRules.length - 1"
               @edit="openEditModal(rule)"
@@ -428,6 +561,97 @@ onMounted(async () => {
           </tbody>
         </table>
       </div>
+    </section>
+
+    <section v-if="conflicts.length > 0" class="rules-panel rules-conflicts">
+      <div class="rules-panel-header">
+        <div>
+          <h3>Conflicts</h3>
+          <p>
+            These streams matched more than one rule. The higher-priority rule wins; promote a
+            lower rule to preview the resolution before applying it.
+          </p>
+        </div>
+        <button
+          v-if="Object.keys(priorityPreview).length > 0"
+          type="button"
+          class="rules-simulation-close"
+          @click="clearPreview()"
+        >
+          Clear preview
+        </button>
+      </div>
+
+      <article v-for="conflict in conflicts" :key="conflict.streamId" class="conflict-card">
+        <strong class="conflict-stream-label">{{ conflict.streamLabel }}</strong>
+
+        <div class="conflict-rules">
+          <div class="conflict-rule conflict-rule-winner">
+            <span class="conflict-rule-role">Winner</span>
+            <strong>{{ conflict.winnerRuleKey }}</strong>
+            <span v-if="conflict.winnerRule" class="rule-meta">
+              Priority {{ conflict.winnerRule.priority }}
+            </span>
+            <ul v-if="conflict.winnerRule" class="rule-condition-lines">
+              <li v-for="(condition, index) in conflict.winnerRule.conditions" :key="index">
+                {{ formatConditionSummary(condition) }}
+              </li>
+            </ul>
+          </div>
+
+          <div
+            v-for="loser in conflict.losers"
+            :key="`${conflict.streamId}-${loser.ruleId ?? loser.ruleKey}`"
+            class="conflict-rule conflict-rule-loser"
+          >
+            <span class="conflict-rule-role">Skipped</span>
+            <strong>{{ loser.ruleKey }}</strong>
+            <span v-if="loser.rule" class="rule-meta">Priority {{ loser.rule.priority }}</span>
+            <ul v-if="loser.rule" class="rule-condition-lines">
+              <li v-for="(condition, index) in loser.rule.conditions" :key="index">
+                {{ formatConditionSummary(condition) }}
+              </li>
+            </ul>
+            <p class="conflict-reason">{{ loser.reason }}</p>
+
+            <template v-if="loser.rule && loser.ruleId">
+              <div v-if="isPreviewed(loser.ruleId)" class="conflict-actions">
+                <span
+                  class="conflict-preview-status"
+                  :class="{
+                    'conflict-resolved': previewedRuleResolved(conflict.streamId, loser.ruleId),
+                  }"
+                >
+                  {{
+                    previewedRuleResolved(conflict.streamId, loser.ruleId)
+                      ? "Resolved in preview"
+                      : "Still conflicting in preview"
+                  }}
+                </span>
+                <button
+                  v-if="previewedRuleResolved(conflict.streamId, loser.ruleId)"
+                  type="button"
+                  class="primary"
+                  @click="applyPriorityChange(loser.rule, priorityPreview[loser.ruleId])"
+                >
+                  Apply
+                </button>
+                <button type="button" @click="clearPreview(loser.ruleId)">Cancel</button>
+              </div>
+              <button
+                v-else
+                type="button"
+                class="conflict-promote-btn"
+                @click="
+                  previewPromote(loser.ruleId, (conflict.winnerRule?.priority ?? 0) + 1)
+                "
+              >
+                Promote above "{{ conflict.winnerRuleKey }}"
+              </button>
+            </template>
+          </div>
+        </div>
+      </article>
     </section>
 
     <RuleFormModal

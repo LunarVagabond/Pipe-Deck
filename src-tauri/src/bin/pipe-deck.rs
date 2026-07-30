@@ -181,7 +181,7 @@ fn handle_rules(engine: &mut CoreEngine, args: &[String]) -> Result<(), String> 
             print_json(&config.rules)?;
         }
         "simulate" => {
-            let results = engine.simulate_rules();
+            let results = engine.simulate_rules(&std::collections::HashMap::new());
             print_json(&results)?;
         }
         "apply" => {

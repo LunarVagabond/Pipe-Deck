@@ -53,9 +53,12 @@ pub async fn toggle_rule(
 }
 
 #[tauri::command]
-pub async fn simulate_rules(state: State<'_, AppState>) -> Result<Vec<SimulationResult>, String> {
+pub async fn simulate_rules(
+    priority_overrides: Option<std::collections::HashMap<String, i32>>,
+    state: State<'_, AppState>,
+) -> Result<Vec<SimulationResult>, String> {
     let engine = state.engine.read().await;
-    Ok(engine.simulate_rules())
+    Ok(engine.simulate_rules(&priority_overrides.unwrap_or_default()))
 }
 
 #[tauri::command]
