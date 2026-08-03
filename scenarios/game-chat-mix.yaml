@@ -1,0 +1,49 @@
+version: 1
+id: game-chat-mix
+name: Game + chat mix
+description: >
+  Game audio and voice chat both mixed into a single "Game Mix" bus for a
+  simple co-op setup with no recording or streaming pipeline — game audio
+  and a teammate's voice land in the same place at headphones, and the raw
+  microphone routes straight into the chat app's capture with no filtering
+  in between.
+
+devices:
+  - id: sink-headphones
+    label: Headphones
+    kind: physical
+    direction: output
+  - id: sink-game-mix
+    label: Game Mix
+    kind: virtual
+    direction: output
+    sink_mode: single
+  - id: source-mic
+    label: Microphone
+    kind: physical
+    direction: input
+
+streams:
+  - id: stream-steam
+    app_name: Steam
+    executable: steam
+    direction: playback
+  - id: stream-discord
+    app_name: Discord
+    executable: discord
+    direction: playback
+  - id: stream-discord-capture
+    app_name: Discord
+    executable: discord
+    direction: capture
+    media_name: "Voice Chat"
+
+routes:
+  - from: stream-steam
+    to: sink-game-mix
+  - from: stream-discord
+    to: sink-game-mix
+  - from: sink-game-mix
+    to: sink-headphones
+  - from: source-mic
+    to: stream-discord-capture
