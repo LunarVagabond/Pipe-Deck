@@ -50,6 +50,7 @@ import {
   routingGraphActionsKey,
   type RoutingGraphMenuTarget,
 } from "../composables/routingGraphContext";
+import { loadExpandedGroupNodeIds, saveExpandedGroupNodeIds } from "../composables/groupExpansion";
 import { useApplyResult } from "../stores/notices";
 import { useEffectChain } from "../composables/useEffectChain";
 import { useEffectIsolation } from "../composables/useEffectIsolation";
@@ -100,6 +101,23 @@ const groups = ref<GraphGroup[]>(loadGroups());
 
 function persistGroups() {
   saveGroups(groups.value);
+}
+
+// Issue #80/PD-035: a Group node's internal wiring to its members is
+// collapsed by default, toggled per-node — purely a canvas display
+// preference, unrelated to `groups`/`GraphGroup` above (the cosmetic
+// bounding-box feature).
+const expandedGroupNodeIds = ref<Set<string>>(loadExpandedGroupNodeIds());
+
+function toggleGroupExpansionState(nodeId: string) {
+  const next = new Set(expandedGroupNodeIds.value);
+  if (next.has(nodeId)) {
+    next.delete(nodeId);
+  } else {
+    next.add(nodeId);
+  }
+  expandedGroupNodeIds.value = next;
+  saveExpandedGroupNodeIds(next);
 }
 
 const graphActions = {
@@ -202,6 +220,12 @@ const graphActions = {
   },
   isEffectIsolated(nodeId: string) {
     return isolatedNodeId.value === nodeId;
+  },
+  toggleGroupExpansion(nodeId: string) {
+    toggleGroupExpansionState(nodeId);
+  },
+  isGroupExpanded(nodeId: string) {
+    return expandedGroupNodeIds.value.has(nodeId);
   },
 };
 
@@ -327,6 +351,28 @@ async function onAddNodeAction(
   openNewDeviceDialog(type);
 }
 
+async function onGroupOutputsAction() {
+  const target = contextMenu.value;
+  contextMenu.value = null;
+  if (!target || target.kind !== "multi-node") return;
+
+  const name = await prompt({
+    title: "Name this group",
+    defaultValue: "Output Group",
+    confirmLabel: "Create",
+  });
+  const trimmed = name?.trim();
+  if (!trimmed) return;
+
+  try {
+    await invoke("create_output_group", { label: trimmed, memberDeviceIds: target.memberDeviceIds });
+    handleApplyResult({ success: true }, `${trimmed} group created`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    handleApplyResult({ success: false, message: `Couldn't create group: ${message}` }, "");
+  }
+}
+
 async function onAddStubNodeAction(stubKind: string, defaultLabel: string) {
   contextMenu.value = null;
   // Same node-id-from-label collision as the fan_out/mixer/eq5band case
@@ -383,7 +429,7 @@ const defaultEdgeOptions = {
 const layoutVersion = ref(0);
 const built = computed(() => {
   layoutVersion.value;
-  return buildRoutingGraph(props.graph, groups.value);
+  return buildRoutingGraph(props.graph, groups.value, expandedGroupNodeIds.value);
 });
 // Node ids currently mid-drag. `props.graph` can be replaced by a
 // `graph-updated` push at any moment (mixer/routing/rule commands and the
@@ -881,6 +927,7 @@ onUnmounted(() => {
       @add-stub-node="onAddStubNodeAction"
       @add-effect="onAddEffectAction"
       @bring-node-here="onBringNodeHereAction"
+      @group-outputs="onGroupOutputsAction"
       @close="contextMenu = null"
     />
     <div class="routing-graph-canvas" :class="{ 'routing-graph-canvas--idle': isIdle }">

@@ -81,6 +81,7 @@ const emit = defineEmits<{
   "add-stub-node": [stubKind: string, label: string];
   "add-effect": [kind: string];
   "bring-node-here": [nodeId: string];
+  "group-outputs": [];
 }>();
 
 const availableEffects = computed<AvailableEffect[]>(() => {
@@ -210,6 +211,10 @@ function onPickStubEffect(stubKind: string, label: string) {
       >
         Delete
       </button>
+    </template>
+    <template v-else-if="target.kind === 'multi-node'">
+      <p class="routing-graph-context-menu-label">{{ target.memberLabels.length }} outputs selected</p>
+      <button type="button" @click="emit('group-outputs')">Group Selected Outputs</button>
     </template>
     <template v-else>
       <p class="routing-graph-context-menu-label">Add node</p>

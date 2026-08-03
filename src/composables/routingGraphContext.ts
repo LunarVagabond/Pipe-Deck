@@ -30,7 +30,21 @@ export interface RoutingGraphPaneMenuTarget {
   y: number;
 }
 
-export type RoutingGraphMenuTarget = RoutingGraphNodeMenuTarget | RoutingGraphPaneMenuTarget;
+/** Opened instead of `RoutingGraphNodeMenuTarget` when 2+ output-direction
+ * device nodes are selected at the moment of a right-click (issue #80) —
+ * offers "Group Selected Outputs" rather than the normal single-node menu. */
+export interface RoutingGraphMultiNodeMenuTarget {
+  kind: "multi-node";
+  x: number;
+  y: number;
+  memberDeviceIds: string[];
+  memberLabels: string[];
+}
+
+export type RoutingGraphMenuTarget =
+  | RoutingGraphNodeMenuTarget
+  | RoutingGraphPaneMenuTarget
+  | RoutingGraphMultiNodeMenuTarget;
 
 export interface RoutingGraphActions {
   openMenu: (target: RoutingGraphMenuTarget) => void;
@@ -61,6 +75,11 @@ export interface RoutingGraphActions {
    * Fan-out nodes, devices, or streams. */
   isolateEffectNode: (nodeId: string) => void | Promise<void>;
   isEffectIsolated: (nodeId: string) => boolean;
+  /** Issue #80/PD-035: shows/hides a Group node's edges to its own
+   * members — collapsed by default. Purely canvas display state, no
+   * backend effect. */
+  toggleGroupExpansion: (nodeId: string) => void;
+  isGroupExpanded: (nodeId: string) => boolean;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

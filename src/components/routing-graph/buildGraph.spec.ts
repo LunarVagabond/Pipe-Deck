@@ -387,3 +387,26 @@ describe("pan processing node (#16)", () => {
     expect(data?.supportsEffects).toBe(false);
   });
 });
+
+describe("group processing node (issue #80)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Group subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-group-1",
+      label: "Speakers + Recorder",
+      kind: { kind: "group", volume_percent: 100, muted: false },
+      system_name: "pipe-deck-proc-group-speakers-recorder",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-group-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Group");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({ kind: "group", volume_percent: 100, muted: false });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});

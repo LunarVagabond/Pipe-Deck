@@ -199,13 +199,13 @@ export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHand
 
   // Mirrors the engine's own growability rule
   // (`CoreEngine::connect_processing_node_port`): a Mixer's inputs grow (N
-  // sources summed), a Fan-out's outputs grow (1 source to N
+  // sources summed), a Fan-out/Group's outputs grow (1 source to N
   // destinations), every other side on every kind is capped at one —
   // `buildSideHandles`'s non-multi-capable behavior already shows exactly
   // one empty slot until it's filled, then none, so a capped side never
   // grows a second (wrong) connection point once occupied.
   const inputGrowable = node.kind.kind === "mixer";
-  const outputGrowable = node.kind.kind === "fan_out";
+  const outputGrowable = node.kind.kind === "fan_out" || node.kind.kind === "group";
 
   const handles: RoutingGraphHandle[] = [];
   handles.push(...buildSideHandles("audio-in", inConnected, inputGrowable));

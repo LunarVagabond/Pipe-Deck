@@ -939,8 +939,14 @@ impl AudioBackend for MockAudioBackend {
         let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
             return Err(BackendError::Message(format!("processing node not found: {system_name}")));
         };
-        if let ProcessingNodeKind::FanOut { .. } = &node.kind {
-            node.kind = ProcessingNodeKind::FanOut { volume_percent, muted };
+        match &node.kind {
+            ProcessingNodeKind::FanOut { .. } => {
+                node.kind = ProcessingNodeKind::FanOut { volume_percent, muted };
+            }
+            ProcessingNodeKind::Group { .. } => {
+                node.kind = ProcessingNodeKind::Group { volume_percent, muted };
+            }
+            _ => {}
         }
         Ok(())
     }

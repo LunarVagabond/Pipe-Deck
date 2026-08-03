@@ -139,6 +139,15 @@ export type ProcessingNodeKind =
       muted: boolean;
     }
   | {
+      kind: "group";
+      /** Created in one atomic gesture from a multi-select of existing
+       * output devices (issue #80) rather than wired connection-by-
+       * connection like Fan-Out — functionally identical shape/mechanism
+       * otherwise (PD-035), including this same plain output volume. */
+      volume_percent: number;
+      muted: boolean;
+    }
+  | {
       kind: "eq5band";
       eq_sub: number;
       eq_bass: number;
@@ -515,6 +524,7 @@ export interface ProcessingNodePortSpec {
 export type ProcessingNodeSpecKind =
   | { kind: "mixer" }
   | { kind: "fan_out"; volume_percent: number; muted: boolean }
+  | { kind: "group"; volume_percent: number; muted: boolean }
   | {
       kind: "eq5band";
       eq_sub: number;

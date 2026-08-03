@@ -86,6 +86,7 @@ pub fn run() {
             commands::effects::remove_effect_stage,
             commands::effects::reorder_effect_stages,
             commands::processing_node::create_processing_node,
+            commands::processing_node::create_output_group,
             commands::processing_node::remove_processing_node,
             commands::processing_node::connect_processing_node_port,
             commands::processing_node::disconnect_processing_node_port,

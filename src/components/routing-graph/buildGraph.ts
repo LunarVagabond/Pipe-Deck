@@ -351,6 +351,7 @@ function deviceNodeKind(
 const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> = {
   mixer: "Mixer",
   fan_out: "Fan-Out",
+  group: "Group",
   eq5band: "5-Band EQ",
   delay: "Delay",
   limiter: "Limiter",
@@ -390,7 +391,11 @@ function slotIndexForY(y: number): number {
   return Math.round((y - LANE_Y_OFFSET) / LANE_ROW_HEIGHT);
 }
 
-export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
+export function buildRoutingGraph(
+  graph: RuntimeGraph,
+  groups: GraphGroup[] = [],
+  expandedGroupNodeIds: ReadonlySet<string> = new Set(),
+): BuiltRoutingGraph {
   const layout = loadLayout();
 
   // Saved positions are keyed by node id and never removed when a node disappears
@@ -550,7 +555,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   }
 
-  const edges = collectRoutingEdges(graph);
+  const edges = collectRoutingEdges(graph, expandedGroupNodeIds);
 
   return { nodes, edges };
 }

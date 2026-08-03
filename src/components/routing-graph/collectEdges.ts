@@ -89,8 +89,17 @@ function makeEdge(
   };
 }
 
-/** Collect deduplicated routing edges from graph links, multi-sink fan-out, and processing node ports. */
-export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
+/** Collect deduplicated routing edges from graph links, multi-sink fan-out, and processing node ports.
+ * `expandedGroupNodeIds` is the set of Group-kind processing node ids whose
+ * internal wiring to its members should render — a Group not in this set is
+ * collapsed (issue #80, PD-035): its own input edge still renders, but its
+ * output edges to each member are suppressed, so a many-member group
+ * doesn't clutter the canvas until the user opts to see inside it. Other
+ * processing node kinds are unaffected regardless of what's in the set. */
+export function collectRoutingEdges(
+  graph: RuntimeGraph,
+  expandedGroupNodeIds: ReadonlySet<string> = new Set(),
+): BuiltGraphEdge[] {
   const edges = new Map<string, BuiltGraphEdge>();
   const streamSourceSeen = new Set<string>();
   const captureStreamSeen = new Set<string>();
@@ -151,6 +160,9 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
       if (port.connected_id) {
         addEdge(`proc-in-${port.connected_id}-${node.id}`, port.connected_id, node.id);
       }
+    }
+    if (node.kind.kind === "group" && !expandedGroupNodeIds.has(node.id)) {
+      continue;
     }
     for (const port of node.outputs ?? []) {
       if (port.connected_id) {

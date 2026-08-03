@@ -234,8 +234,14 @@ impl ConfigStore {
         let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
             return Ok(());
         };
-        if let ProcessingNodeSpecKind::FanOut { .. } = &node.kind {
-            node.kind = ProcessingNodeSpecKind::FanOut { volume_percent, muted };
+        match &node.kind {
+            ProcessingNodeSpecKind::FanOut { .. } => {
+                node.kind = ProcessingNodeSpecKind::FanOut { volume_percent, muted };
+            }
+            ProcessingNodeSpecKind::Group { .. } => {
+                node.kind = ProcessingNodeSpecKind::Group { volume_percent, muted };
+            }
+            _ => {}
         }
         self.save_config(&config)
     }

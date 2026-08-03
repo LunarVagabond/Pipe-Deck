@@ -27,6 +27,8 @@ describe("routingGraphActionsKey", () => {
       bringNodeHere: () => {},
       isolateEffectNode: () => {},
       isEffectIsolated: () => false,
+      toggleGroupExpansion: () => {},
+      isGroupExpanded: () => false,
     };
 
     let injected: RoutingGraphActions | undefined;

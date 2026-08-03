@@ -20,7 +20,9 @@ use super::{CoreEngine, EngineError};
 fn processing_node_port_growable(direction: PortDirection, kind: &ProcessingNodeKind) -> bool {
     matches!(
         (direction, kind),
-        (PortDirection::Input, ProcessingNodeKind::Mixer { .. }) | (PortDirection::Output, ProcessingNodeKind::FanOut { .. })
+        (PortDirection::Input, ProcessingNodeKind::Mixer { .. })
+            | (PortDirection::Output, ProcessingNodeKind::FanOut { .. })
+            | (PortDirection::Output, ProcessingNodeKind::Group { .. })
     )
 }
 
@@ -387,10 +389,10 @@ impl CoreEngine {
         Ok(ApplyResult { success: true, message: None })
     }
 
-    /// Live-updates a Fan-Out node's own output volume/mute — a plain
-    /// device-style volume, not a shaping gain (Fan-Out has no DSP; see
-    /// `ProcessingNodeKind::FanOut` field doc). Addressed by `system_name`
-    /// directly rather than through a `Device`, same as
+    /// Live-updates a Fan-Out/Group node's own output volume/mute — a plain
+    /// device-style volume, not a shaping gain (neither kind has DSP; see
+    /// `ProcessingNodeKind::FanOut`/`Group` field docs). Addressed by
+    /// `system_name` directly rather than through a `Device`, same as
     /// `update_processing_node_input_gain`.
     pub fn update_processing_node_volume(
         &mut self,
@@ -406,7 +408,7 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
 
-        if !matches!(node.kind, ProcessingNodeKind::FanOut { .. }) {
+        if !matches!(node.kind, ProcessingNodeKind::FanOut { .. } | ProcessingNodeKind::Group { .. }) {
             return Err(EngineError::InvalidInput(format!("{node_id} has no volume to update")));
         }
 
@@ -877,10 +879,55 @@ impl CoreEngine {
             .ok_or_else(|| EngineError::NotFound(format!("processing node not found after create: {id}")))
     }
 
+    /// Creates a Group node (issue #80, PD-035) and wires every member
+    /// device's output in one gesture, instead of the connection-by-
+    /// connection build-up a hand-added Fan-Out node requires. Atomic w.r.t.
+    /// partial failure: if any member fails to wire, the freshly-created
+    /// node (and any members already wired) is torn down via
+    /// `remove_processing_node` before returning the error, so a failed
+    /// group creation never leaves a half-wired node behind.
+    pub fn create_output_group(
+        &mut self,
+        label: &str,
+        member_device_ids: &[String],
+    ) -> Result<ProcessingNode, EngineError> {
+        if member_device_ids.len() < 2 {
+            return Err(EngineError::InvalidInput("a group needs at least 2 members".into()));
+        }
+
+        let node = self.create_processing_node(label, ProcessingNodeSpecKind::Group { volume_percent: 100, muted: false })?;
+
+        for member_id in member_device_ids {
+            if let Err(error) = self.connect_processing_node_port(&node.id, PortDirection::Output, member_id) {
+                let _ = self.remove_processing_node(&node.id);
+                return Err(error);
+            }
+        }
+
+        self.graph
+            .processing_nodes
+            .iter()
+            .find(|n| n.id == node.id)
+            .cloned()
+            .ok_or_else(|| EngineError::NotFound(format!("processing node not found after group create: {}", node.id)))
+    }
+
     /// Removes a processing node. Rejects removal outright (rather than
-    /// guessing a many-to-many relink) when more than one input or more than
-    /// one output is still connected — see PD-032's "ambiguous relink" rule,
-    /// the direct lesson from #105's incomplete-teardown failure mode.
+    /// guessing a many-to-many relink, or silently dropping several live
+    /// sources/targets at once) when more than one connection is still live
+    /// on a side — see PD-032's "ambiguous relink" rule, the direct lesson
+    /// from #105's incomplete-teardown failure mode.
+    ///
+    /// One deliberate exemption (PD-035): a Fan-Out/Group's growable
+    /// *output* side is fine with any count, since removing there is never
+    /// ambiguous — there's nothing to relink, only disconnect several copies
+    /// of the same one signal, which is exactly what deleting the node
+    /// means. This is *not* extended to Mixer's growable *input* side —
+    /// deleting a Mixer that's actively summing 2+ independent live sources
+    /// is a materially bigger, more surprising action (each of those sources
+    /// loses its only route through this node, not just an extra copy), so
+    /// it keeps requiring the user to disconnect down to at most one input
+    /// first, same as before this change.
     pub fn remove_processing_node(&mut self, id: &str) -> Result<ApplyResult, EngineError> {
         let node = self
             .graph
@@ -890,11 +937,21 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {id}")))?;
 
-        let connected_inputs = node.inputs.iter().filter(|port| port.connected_id.is_some()).count();
-        let connected_outputs = node.outputs.iter().filter(|port| port.connected_id.is_some()).count();
-        if connected_inputs > 1 || connected_outputs > 1 {
+        let is_exempt_growable_output = |direction: PortDirection| {
+            direction == PortDirection::Output && processing_node_port_growable(direction, &node.kind)
+        };
+        let ambiguous_connected = |direction: PortDirection, ports: &[ProcessingNodePort]| -> usize {
+            if is_exempt_growable_output(direction) {
+                0
+            } else {
+                ports.iter().filter(|port| port.connected_id.is_some()).count()
+            }
+        };
+        let ambiguous_inputs = ambiguous_connected(PortDirection::Input, &node.inputs);
+        let ambiguous_outputs = ambiguous_connected(PortDirection::Output, &node.outputs);
+        if ambiguous_inputs > 1 || ambiguous_outputs > 1 {
             return Err(EngineError::InvalidInput(format!(
-                "cannot remove {id}: relinking {connected_inputs} input(s) and {connected_outputs} output(s) would be ambiguous - disconnect down to at most one side first"
+                "cannot remove {id}: relinking {ambiguous_inputs} input(s) and {ambiguous_outputs} output(s) would be ambiguous - disconnect down to at most one side first"
             )));
         }
 
@@ -978,6 +1035,7 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
     match kind {
         ProcessingNodeSpecKind::Mixer => "mixer",
         ProcessingNodeSpecKind::FanOut { .. } => "fan_out",
+        ProcessingNodeSpecKind::Group { .. } => "group",
         ProcessingNodeSpecKind::Eq5Band { .. } => "eq5band",
         ProcessingNodeSpecKind::Delay { .. } => "delay",
         ProcessingNodeSpecKind::Limiter { .. } => "limiter",
@@ -1134,6 +1192,9 @@ fn processing_node_from_spec_with_siblings(
         },
         ProcessingNodeSpecKind::FanOut { volume_percent, muted } => {
             ProcessingNodeKind::FanOut { volume_percent: *volume_percent, muted: *muted }
+        }
+        ProcessingNodeSpecKind::Group { volume_percent, muted } => {
+            ProcessingNodeKind::Group { volume_percent: *volume_percent, muted: *muted }
         }
         ProcessingNodeSpecKind::Eq5Band {
             eq_sub,
