@@ -62,6 +62,7 @@ Pipe Deck is **PipeWire-first** and does not replace PipeWire or WirePlumber —
 - [Plugin API](specs/Plugin_API.md)
 - [Config Spec](specs/Config_Spec.md)
 - [Rule Engine Spec](specs/Rule_Engine_Spec.md)
+- [Demo Scenario Spec](specs/Demo_Scenario_Spec.md)
 - [Audio Terminology](specs/Audio_Terminology.md)
 
 ### Developer
