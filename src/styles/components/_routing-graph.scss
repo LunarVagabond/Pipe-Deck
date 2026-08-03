@@ -296,6 +296,20 @@
   flex: 1;
 }
 
+// vue-flow only ships `.selected` styling for its own built-in node type
+// names ("default"/"input"/"output" — see theme-default.css), none of which
+// this app uses (every node registers as the one custom "routingNode" type,
+// see buildGraph.ts). Without this rule, vue-flow's selection state is
+// tracked correctly (multi-select, drag-together, and issue #80's group
+// gesture all work off it) but was never visible — a real usability gap,
+// not just cosmetic, once #80 made "select some nodes, then look at what's
+// selected before right-clicking" an actual required step rather than an
+// instant select-then-act gesture.
+.vue-flow__node.selected .routing-graph-node {
+  border-color: var(--accent-purple, #7c5cff);
+  box-shadow: 0 0 0 2px vars.translucent(--accent-purple, 45);
+}
+
 .routing-graph-node {
   min-width: 210px;
   max-width: 260px;

@@ -113,6 +113,34 @@ test.describe("RoutingGraph keyboard connect", () => {
   });
 });
 
+test.describe("RoutingGraph node selection highlight", () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
+    await page.waitForSelector(".vue-flow__node");
+  });
+
+  // vue-flow only ships `.selected` CSS for its own built-in node type names
+  // ("default"/"input"/"output"), none of which this app uses — every node
+  // registers as the one custom "routingNode" type (buildGraph.ts). Without
+  // an app-level `.selected` rule targeting that type, clicking a node did
+  // select it (vue-flow's own state was always correct — multi-select and
+  // issue #80's group gesture worked off it regardless), but nothing was
+  // ever visible, so a user had no way to confirm what was selected before
+  // acting on it.
+  test("clicking a node visibly highlights it", async ({ page }) => {
+    const node = page.locator(".vue-flow__node").first();
+    const card = node.locator(".routing-graph-node");
+
+    await expect(node).not.toHaveClass(/selected/);
+    const shadowBefore = await card.evaluate((el) => getComputedStyle(el).boxShadow);
+
+    await node.click();
+    await expect(node).toHaveClass(/selected/);
+    const shadowAfter = await card.evaluate((el) => getComputedStyle(el).boxShadow);
+    expect(shadowAfter).not.toBe(shadowBefore);
+  });
+});
+
 test.describe("RoutingGraph multi-select drag", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/src/e2e/fixtures/routing-graph-harness.html");
