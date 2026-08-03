@@ -41,8 +41,13 @@ export function makeProcessingNode(overrides: Partial<ProcessingNode> = {}): Pro
 export function makeGraph(
   devices: Device[] = [],
   streams: Stream[] = [],
-  links: Link[] = [],
+  links: Array<Partial<Link> & Pick<Link, "id" | "source_id" | "target_id">> = [],
   processingNodes: ProcessingNode[] = [],
 ): RuntimeGraph {
-  return { devices, streams, links, processing_nodes: processingNodes };
+  return {
+    devices,
+    streams,
+    links: links.map((link) => ({ is_monitor: false, ...link })),
+    processing_nodes: processingNodes,
+  };
 }

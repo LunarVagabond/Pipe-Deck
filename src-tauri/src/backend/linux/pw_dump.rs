@@ -209,6 +209,7 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
             id: format!("link-{link_id}"),
             source_id,
             target_id,
+            is_monitor: false,
         });
     }
 

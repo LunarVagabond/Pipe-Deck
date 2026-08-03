@@ -155,6 +155,7 @@ pub fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {
                     id: format!("route-stream-{}", stream.id),
                     source_id: stream.id.clone(),
                     target_id: target_id.clone(),
+                    is_monitor: false,
                 });
             }
             StreamDirection::Capture => {
@@ -162,6 +163,7 @@ pub fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {
                     id: format!("route-capture-{}", stream.id),
                     source_id: target_id.clone(),
                     target_id: stream.id.clone(),
+                    is_monitor: false,
                 });
             }
         }
@@ -217,6 +219,7 @@ fn apply_pw_link_device_routes(graph: &mut RuntimeGraph) {
                 id: format!("pwlink-{system_name}-{target_name}"),
                 source_id: device.id.clone(),
                 target_id: target_id.clone(),
+                is_monitor: true,
             });
         }
     }
@@ -276,6 +279,7 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
                 id: format!("pwlink-mix-{source_name}-{}", device.system_name),
                 source_id: source_id.clone(),
                 target_id: device.id.clone(),
+                is_monitor: false,
             });
         }
 
@@ -395,6 +399,7 @@ mod tests {
                 id: "link-stale".into(),
                 source_id: "firefox".into(),
                 target_id: "hdmi".into(),
+                is_monitor: false,
             }],
             data_source: "pipewire".into(),
             notice: None,

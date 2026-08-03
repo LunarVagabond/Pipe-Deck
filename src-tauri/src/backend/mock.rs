@@ -233,52 +233,62 @@ impl MockAudioBackend {
                     id: "link-discord-chat".into(),
                     source_id: "stream-discord".into(),
                     target_id: "sink-chat".into(),
+                    is_monitor: false,
                 },
                 Link {
                     id: "link-spotify-music".into(),
                     source_id: "stream-spotify".into(),
                     target_id: "sink-music".into(),
+                    is_monitor: false,
                 },
                 Link {
                     id: "link-steam-game".into(),
                     source_id: "stream-steam".into(),
                     target_id: "sink-game".into(),
+                    is_monitor: false,
                 },
                 Link {
                     id: "link-firefox-browser".into(),
                     source_id: "stream-firefox".into(),
                     target_id: "sink-browser".into(),
+                    is_monitor: false,
                 },
                 // Virtual sinks → outputs
                 Link {
                     id: "link-chat-headphones".into(),
                     source_id: "sink-chat".into(),
                     target_id: "sink-headphones".into(),
+                    is_monitor: true,
                 },
                 Link {
                     id: "link-music-headphones".into(),
                     source_id: "sink-music".into(),
                     target_id: "sink-headphones".into(),
+                    is_monitor: true,
                 },
                 Link {
                     id: "link-music-stream".into(),
                     source_id: "sink-music".into(),
                     target_id: "sink-stream-output".into(),
+                    is_monitor: true,
                 },
                 Link {
                     id: "link-game-headphones".into(),
                     source_id: "sink-game".into(),
                     target_id: "sink-headphones".into(),
+                    is_monitor: true,
                 },
                 Link {
                     id: "link-browser-speakers".into(),
                     source_id: "sink-browser".into(),
                     target_id: "sink-speakers".into(),
+                    is_monitor: true,
                 },
                 Link {
                     id: "link-stream-mix-output".into(),
                     source_id: "sink-stream-mix".into(),
                     target_id: "sink-stream-output".into(),
+                    is_monitor: true,
                 },
                 // Capture path — source is the device feeding the mic-filtered audio out
                 // to OBS's capture input, not the other way around; this must match the
@@ -290,11 +300,13 @@ impl MockAudioBackend {
                     id: "link-obs-mic".into(),
                     source_id: "source-mic-filtered".into(),
                     target_id: "stream-obs".into(),
+                    is_monitor: false,
                 },
                 Link {
                     id: "link-mic-filtered".into(),
                     source_id: "source-mic".into(),
                     target_id: "source-mic-filtered".into(),
+                    is_monitor: false,
                 },
             ],
             data_source: "mock".into(),

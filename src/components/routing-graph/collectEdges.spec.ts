@@ -70,6 +70,22 @@ describe("collectRoutingEdges", () => {
     expect(edges.map((edge) => edge.target).sort()).toEqual(["device:out1", "device:out2"]);
   });
 
+  it("renders a monitor-derived fan-out link as solid and dimmed, distinct from a direct route (#27)", () => {
+    const sink = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
+    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const graph = makeGraph(
+      [sink, out1],
+      [],
+      [{ id: "pwlink-sink1-out1", source_id: "sink1", target_id: "out1", is_monitor: true }],
+    );
+
+    const edges = collectRoutingEdges(graph);
+
+    expect(edges).toHaveLength(1);
+    expect(edges[0]).toMatchObject({ animated: false, class: expect.stringContaining("routing-edge--monitor") });
+    expect(edges[0].style).toMatchObject({ strokeOpacity: "0.55" });
+  });
+
   it("deduplicates a link that's also represented via fan-out targets", () => {
     const sink = makeDevice({
       id: "sink1",

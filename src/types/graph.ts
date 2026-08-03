@@ -80,6 +80,7 @@ export interface Link {
   id: string;
   source_id: string;
   target_id: string;
+  is_monitor: boolean;
 }
 
 export interface RecentStreamIdentity {
