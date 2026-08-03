@@ -115,25 +115,35 @@ describe("handlesForDevice", () => {
     expect(handles.some((h) => h.portType === "audio-in")).toBe(true);
   });
 
-  it("gives a virtual output device's existing monitor connection a real output handle, with no extra empty slot (#388)", () => {
+  it("gives a virtual output device's existing monitor connection a real but non-connectable anchor, with no extra empty slot (#388/#391)", () => {
     const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
     const handles = handlesForDevice(device, { in: [], out: ["headphones"] });
     const outHandles = handles.filter((h) => h.portType === "audio-out");
 
-    // A real anchor for the existing monitor connection — the whole point of
-    // the fix — but never a fresh empty slot, since #293/PD-033 still means
-    // no *new* arbitrary forward-route from a plain virtual output device.
+    // A real anchor for the existing monitor connection so its edge has
+    // somewhere real to land — but non-connectable (UI_Spec.md: "the
+    // frontend never rendering the handle" means never a *draggable* one,
+    // not no anchor at all), and never a fresh empty slot, since #293/PD-033
+    // still means no *new* arbitrary forward-route from a plain device.
     expect(outHandles).toEqual([
-      { id: "audio-out:headphones", type: "source", position: "right", portType: "audio-out", connectedId: "headphones" },
+      {
+        id: "audio-out:headphones",
+        type: "source",
+        position: "right",
+        portType: "audio-out",
+        connectedId: "headphones",
+        connectable: false,
+      },
     ]);
   });
 
-  it("gives every one of a virtual output device's existing multi-target monitor connections a real handle, with no extra empty slot (#388)", () => {
+  it("gives every one of a virtual output device's existing multi-target monitor connections a non-connectable anchor, with no extra empty slot (#388/#391)", () => {
     const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
     const handles = handlesForDevice(device, { in: [], out: ["headphones", "stream-output"] });
     const outHandles = handles.filter((h) => h.portType === "audio-out");
 
     expect(outHandles.map((h) => h.id)).toEqual(["audio-out:headphones", "audio-out:stream-output"]);
+    expect(outHandles.every((h) => h.connectable === false)).toBe(true);
   });
 
   it("caps a non-multi-capable side at a single filled handle with no trailing empty slot", () => {

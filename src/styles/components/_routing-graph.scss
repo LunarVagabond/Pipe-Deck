@@ -630,6 +630,21 @@
     border-color: var(--handle-color, #3fd0c9);
   }
 
+  // A "terminal" virtual output device's non-draggable anchor for its own
+  // existing monitor fan-out (#391) — real enough for its edge to land on,
+  // but visually reads as a fixed tap point, not an editable connection:
+  // dimmed, no hover glow, no pointer cursor.
+  &.is-monitor-anchor {
+    opacity: 0.55;
+    cursor: default;
+    pointer-events: none;
+
+    &:hover,
+    &:focus-visible {
+      box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
+    }
+  }
+
   &:focus-visible {
     outline: none;
     box-shadow:
