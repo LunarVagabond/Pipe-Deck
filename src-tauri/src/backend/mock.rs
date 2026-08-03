@@ -37,8 +37,39 @@ impl Default for MockAudioBackend {
 
 impl MockAudioBackend {
     pub fn new() -> Self {
+        Self::with_graph(Self::sample_graph())
+    }
+
+    /// The actual `create_backend()` entry point (issue #368): loads a
+    /// scenario from `PIPE_DECK_MOCK_SCENARIO` if set, falling back to the
+    /// default `sample_graph()` on a missing/invalid path — a typo'd
+    /// scenario path shouldn't block using Mock Mode at all, it should just
+    /// log and behave like the env var was unset. Kept separate from
+    /// `new()`, which the ~100 existing unit tests across the crate call
+    /// expecting the default sample graph unconditionally; making `new()`
+    /// itself env-sensitive would make all of them flaky under any test
+    /// that happens to set `PIPE_DECK_MOCK_SCENARIO` and run in parallel.
+    pub fn from_env() -> Self {
+        let graph = match std::env::var("PIPE_DECK_MOCK_SCENARIO") {
+            Ok(path) if !path.is_empty() => {
+                match crate::backend::scenario::load_scenario_file(std::path::Path::new(&path)) {
+                    Ok(graph) => graph,
+                    Err(error) => {
+                        eprintln!(
+                            "PIPE_DECK_MOCK_SCENARIO={path}: {error} — falling back to the default sample graph"
+                        );
+                        Self::sample_graph()
+                    }
+                }
+            }
+            _ => Self::sample_graph(),
+        };
+        Self::with_graph(graph)
+    }
+
+    fn with_graph(graph: RuntimeGraph) -> Self {
         Self {
-            graph: Mutex::new(Self::sample_graph()),
+            graph: Mutex::new(graph),
             loaded_effect_chains: Mutex::new(HashSet::new()),
             loaded_processing_nodes: Mutex::new(HashSet::new()),
         }
@@ -1101,5 +1132,75 @@ impl AudioBackend for MockAudioBackend {
         _to_is_virtual_source: bool,
     ) -> Result<(), BackendError> {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `from_env()` is the only thing sensitive to `PIPE_DECK_MOCK_SCENARIO`
+    /// — `new()` (used by ~100 other tests across the crate) never reads it
+    /// — but serializes anyway, matching the crate's `PIPE_DECK_CONFIG_DIR`
+    /// convention (`config::store::lock_config_dir_env`), so a second test
+    /// added here later can't race this one.
+    fn lock_mock_scenario_env() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+        LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[test]
+    fn from_env_loads_a_scenario_file_when_set() {
+        let _guard = lock_mock_scenario_env();
+        let dir = std::env::temp_dir().join(format!("pipe-deck-mock-scenario-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let scenario_path = dir.join("test-scenario.yaml");
+        std::fs::write(
+            &scenario_path,
+            r#"
+version: 1
+id: test
+name: Test Scenario
+devices:
+  - id: sink-a
+    label: Sink A
+    kind: virtual
+    direction: output
+streams: []
+routes: []
+"#,
+        )
+        .unwrap();
+
+        std::env::set_var("PIPE_DECK_MOCK_SCENARIO", &scenario_path);
+        let backend = MockAudioBackend::from_env();
+        std::env::remove_var("PIPE_DECK_MOCK_SCENARIO");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let graph = backend.fetch_graph().unwrap();
+        assert_eq!(graph.devices.len(), 1);
+        assert_eq!(graph.devices[0].id, "sink-a");
+        assert!(graph.notice.unwrap().contains("Test Scenario"));
+    }
+
+    #[test]
+    fn from_env_falls_back_to_sample_graph_when_unset() {
+        let _guard = lock_mock_scenario_env();
+        std::env::remove_var("PIPE_DECK_MOCK_SCENARIO");
+
+        let backend = MockAudioBackend::from_env();
+        let graph = backend.fetch_graph().unwrap();
+        assert_eq!(graph.devices.len(), MockAudioBackend::sample_graph().devices.len());
+    }
+
+    #[test]
+    fn from_env_falls_back_to_sample_graph_on_invalid_path() {
+        let _guard = lock_mock_scenario_env();
+        std::env::set_var("PIPE_DECK_MOCK_SCENARIO", "/nonexistent/pipe-deck-scenario.yaml");
+        let backend = MockAudioBackend::from_env();
+        std::env::remove_var("PIPE_DECK_MOCK_SCENARIO");
+
+        let graph = backend.fetch_graph().unwrap();
+        assert_eq!(graph.devices.len(), MockAudioBackend::sample_graph().devices.len());
     }
 }
