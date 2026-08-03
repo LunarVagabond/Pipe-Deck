@@ -1,5 +1,6 @@
 pub mod linux;
 pub mod mock;
+pub mod scenario;
 pub mod stub;
 
 use crate::core::models::{
@@ -409,7 +410,7 @@ pub trait AudioBackend: Send + Sync {
 /// a runtime plugin.
 pub fn create_backend() -> Box<dyn AudioBackend> {
     if std::env::var("PIPE_DECK_USE_MOCK").as_deref() == Ok("1") {
-        return Box::new(mock::MockAudioBackend::new());
+        return Box::new(mock::MockAudioBackend::from_env());
     }
 
     #[cfg(target_os = "linux")]
