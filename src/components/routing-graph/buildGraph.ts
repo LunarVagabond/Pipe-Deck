@@ -202,7 +202,18 @@ function loadLayout(): Record<string, { x: number; y: number }> {
 // adjacent slots of the same lane visually overlapped by design, not just
 // when dragged close together. 280 clears the tallest real card (Eq5Band)
 // with margin.
-const LANE_ROW_HEIGHT = 280;
+//
+// Applying that 280px worst-case height to *every* row regardless of what's
+// actually in the graph wastes 900px+ of vertical space on an all-plain-card
+// graph (the common case — most demo scenarios and plenty of real setups
+// have zero processing nodes), forcing fitView's zoom down toward its floor
+// and making labels illegible (#390). Rather than a fully dynamic per-node
+// row height — a much larger change to this slot-index-based layout, with
+// real regression risk to drag-position persistence and slot migration —
+// this uses the tall spacing only when the graph actually contains a
+// processing node anywhere, and the original tighter spacing otherwise.
+const LANE_ROW_HEIGHT_TALL = 280;
+const LANE_ROW_HEIGHT_PLAIN = 110;
 const LANE_Y_OFFSET = 40;
 // Matches the <Background> dot gap in RoutingGraph.vue — snapping to anything
 // coarser (e.g. LANE_ROW_HEIGHT) makes a one-dot nudge do nothing until the
@@ -259,11 +270,12 @@ function positionFor(
   x: number,
   layout: Record<string, { x: number; y: number }>,
   occupiedSlots: Map<number, Set<number>>,
+  rowHeight: number,
 ): { x: number; y: number } {
   const saved = layout[nodeId];
   if (saved) return saved;
   const slot = nextFreeSlot(x, occupiedSlots);
-  const position = { x, y: LANE_Y_OFFSET + slot * LANE_ROW_HEIGHT };
+  const position = { x, y: LANE_Y_OFFSET + slot * rowHeight };
   layout[nodeId] = position;
   return position;
 }
@@ -419,12 +431,13 @@ function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): Rout
   };
 }
 
-function slotIndexForY(y: number): number {
-  return Math.round((y - LANE_Y_OFFSET) / LANE_ROW_HEIGHT);
+function slotIndexForY(y: number, rowHeight: number): number {
+  return Math.round((y - LANE_Y_OFFSET) / rowHeight);
 }
 
 export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
   const layout = loadLayout();
+  const rowHeight = (graph.processing_nodes ?? []).length > 0 ? LANE_ROW_HEIGHT_TALL : LANE_ROW_HEIGHT_PLAIN;
 
   // Saved positions are keyed by node id and never removed when a node disappears
   // (a stream closes, a device is unplugged). Left unpruned, those stale entries
@@ -491,12 +504,12 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
       slots = new Set();
       occupiedSlots.set(position.x, slots);
     }
-    slots.add(slotIndexForY(position.y));
+    slots.add(slotIndexForY(position.y, rowHeight));
   }
 
   function trackedPositionFor(id: string, x: number): { x: number; y: number } {
     const before = layout[id];
-    const position = positionFor(id, x, layout, occupiedSlots);
+    const position = positionFor(id, x, layout, occupiedSlots, rowHeight);
     if (!before) layoutChanged = true;
     return position;
   }

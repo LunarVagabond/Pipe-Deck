@@ -219,6 +219,37 @@ describe("connectivity-based 3-column layout (#342)", () => {
   });
 });
 
+describe("row spacing scales with whether the graph has any processing node (#390)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  function yFor(graph: ReturnType<typeof makeGraph>, nodeId: string): number {
+    const built = buildRoutingGraph(graph);
+    return built.nodes.find((n) => n.id === nodeId)!.position.y;
+  }
+
+  it("uses the tight row height for an all-plain-card graph with no processing nodes", () => {
+    const speakers = makeDevice({ id: "speakers", kind: "physical", direction: "output" });
+    const headphones = makeDevice({ id: "headphones", kind: "physical", direction: "output" });
+    const graph = makeGraph([speakers, headphones]);
+
+    const gap = Math.abs(yFor(graph, deviceNodeId("speakers")) - yFor(graph, deviceNodeId("headphones")));
+    expect(gap).toBe(110);
+  });
+
+  it("uses the tall row height for the whole graph once any processing node is present", () => {
+    const speakers = makeDevice({ id: "speakers", kind: "physical", direction: "output" });
+    const headphones = makeDevice({ id: "headphones", kind: "physical", direction: "output" });
+    const virtualMic = makeDevice({ id: "filtered-mic", kind: "virtual", direction: "input" });
+    const proc = makeProcessingNode({ id: "proc-1" });
+    const graph = makeGraph([speakers, headphones, virtualMic], [], [], [proc]);
+
+    const gap = Math.abs(yFor(graph, deviceNodeId("speakers")) - yFor(graph, deviceNodeId("headphones")));
+    expect(gap).toBe(280);
+  });
+});
+
 describe("Bluetooth device icon parity (#226)", () => {
   beforeEach(() => {
     stubLocalStorage();
