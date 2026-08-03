@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from "vue";
-import { Handle, Position, useNodeId } from "@vue-flow/core";
+import { Handle, Position, useNodeId, useVueFlow } from "@vue-flow/core";
+import { invoke } from "@tauri-apps/api/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
@@ -13,6 +14,7 @@ import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
 import RoutingGraphNodeWidener from "./RoutingGraphNodeWidener.vue";
 import RoutingGraphNodePan from "./RoutingGraphNodePan.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
+import RoutingGraphNodeGroup from "./RoutingGraphNodeGroup.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useEffectChain } from "../composables/useEffectChain";
@@ -24,6 +26,7 @@ const props = defineProps<{
 
 const actions = inject(routingGraphActionsKey, null);
 const nodeId = useNodeId();
+const vueFlow = useVueFlow();
 const { pendingVolumes, clampVolume, scheduleChannelVolume, toggleChannelMute } =
   useMixerControls();
 const { chainFor } = useEffectChain();
@@ -97,6 +100,17 @@ function onResetClick() {
   )?.reset();
 }
 
+// Issue #80 follow-up: adding a member to an existing Group is a picker,
+// not drag-to-connect (Group has no output pins at all — see
+// nodePorts.ts::handlesForProcessingNode) — lists every terminal output
+// device not already a member (buildGraph.ts's groupAvailableDevices).
+const addMemberPickerOpen = ref(false);
+
+async function onAddMember(deviceId: string) {
+  addMemberPickerOpen.value = false;
+  await invoke("connect_processing_node_port", { nodeId: props.data.entityId, direction: "output", peerId: deviceId });
+}
+
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
 const outHandles = computed(() =>
   props.data.handles.filter((handle) => handle.position === "right"),
@@ -142,9 +156,34 @@ function onHandleKeydown(event: KeyboardEvent, handle: RoutingGraphHandle) {
   }
 }
 
+/** Grouping only applies to terminal outputs (hardware or plain virtual
+ * outputs) — deliberately excludes the "routing"-column virtual-sink/bus
+ * kind (`nodeKind === "virtualSink"`) and inputs, since #80 is scoped to
+ * grouping real outputs, not chaining a group behind an existing bus. */
+function isGroupableOutputNode(candidate: { data?: RoutingGraphNodeData }): boolean {
+  return candidate.data?.nodeKind === "output";
+}
+
 function onContextMenu(event: MouseEvent) {
   event.preventDefault();
   event.stopPropagation();
+
+  // A right-click landing on 2+ currently multi-selected output devices
+  // offers "Group Selected Outputs" (issue #80) instead of the normal
+  // single-node menu — shift-click/marquee-select the outputs first, then
+  // right-click any of them (or elsewhere on the canvas among them).
+  const selectedOutputs = vueFlow.getSelectedNodes.value.filter(isGroupableOutputNode);
+  if (selectedOutputs.length >= 2) {
+    actions?.openMenu({
+      kind: "multi-node",
+      x: event.clientX,
+      y: event.clientY,
+      memberDeviceIds: selectedOutputs.map((candidate) => candidate.data!.entityId),
+      memberLabels: selectedOutputs.map((candidate) => candidate.data!.label),
+    });
+    return;
+  }
+
   const deviceId = props.data.channelType === "device" ? props.data.entityId : undefined;
   actions?.openMenu({
     kind: "node",
@@ -209,6 +248,7 @@ function onToggleMute() {
       {
         'routing-graph-node--has-effects': hasEffectStages,
         'routing-graph-node--effects-bypassed': effectsState === 'bypassed',
+        'routing-graph-node--highlighted': actions?.isNodeHighlighted(data.entityId),
       },
     ]"
     @contextmenu="onContextMenu"
@@ -243,6 +283,17 @@ function onToggleMute() {
           :style="{ background: data.accent }"
         />
         <NodeTypeIcon :kind="iconKind" class="routing-graph-node-icon" />
+        <button
+          v-if="data.processingNodeKind?.kind === 'group'"
+          type="button"
+          class="icon-btn routing-graph-node-group-expand-toggle"
+          :class="{ 'routing-graph-node-group-expand-toggle--expanded': actions?.isGroupExpanded(data.entityId) }"
+          :title="actions?.isGroupExpanded(data.entityId) ? 'Hide members' : 'Show members'"
+          :aria-label="actions?.isGroupExpanded(data.entityId) ? 'Hide members' : 'Show members'"
+          @click="actions?.toggleGroupExpansion(data.entityId)"
+        >
+          ▸
+        </button>
         <span
           v-if="effectsState !== 'none'"
           class="routing-graph-node-effects-badge"
@@ -273,23 +324,52 @@ function onToggleMute() {
             @save="onRename"
             @delete="onDelete"
           >
-            <template v-if="dspWarningText" #toolbar-extra>
-              <button
-                type="button"
-                class="icon-btn routing-graph-node-header-reset"
-                title="Reset to defaults"
-                aria-label="Reset to defaults"
-                @click="onResetClick"
-              >
-                ↺
-              </button>
-              <span
-                class="routing-graph-node-dsp-warning"
-                :title="dspWarningText"
-                :aria-label="dspWarningText"
-              >
-                ⚠
-              </span>
+            <template
+              v-if="dspWarningText || data.processingNodeKind?.kind === 'group'"
+              #toolbar-extra
+            >
+              <template v-if="dspWarningText">
+                <button
+                  type="button"
+                  class="icon-btn routing-graph-node-header-reset"
+                  title="Reset to defaults"
+                  aria-label="Reset to defaults"
+                  @click="onResetClick"
+                >
+                  ↺
+                </button>
+                <span
+                  class="routing-graph-node-dsp-warning"
+                  :title="dspWarningText"
+                  :aria-label="dspWarningText"
+                >
+                  ⚠
+                </span>
+              </template>
+              <div v-if="data.processingNodeKind?.kind === 'group'" class="routing-graph-node-picker-anchor">
+                <button
+                  type="button"
+                  class="icon-btn routing-graph-node-header-add-member"
+                  title="Add output to group"
+                  aria-label="Add output to group"
+                  @click="addMemberPickerOpen = !addMemberPickerOpen"
+                >
+                  +
+                </button>
+                <div v-if="addMemberPickerOpen" class="routing-graph-node-picker">
+                  <button
+                    v-for="candidate in data.groupAvailableDevices ?? []"
+                    :key="candidate.id"
+                    type="button"
+                    @click="onAddMember(candidate.id)"
+                  >
+                    {{ candidate.label }}
+                  </button>
+                  <p v-if="(data.groupAvailableDevices ?? []).length === 0" class="routing-graph-context-menu-label">
+                    No other outputs available
+                  </p>
+                </div>
+              </div>
             </template>
           </NodeCardHeader>
           <strong v-else>{{ data.label }}</strong>
@@ -370,6 +450,13 @@ function onToggleMute() {
         :node-id="data.entityId"
         :volume-percent="data.processingNodeKind.volume_percent"
         :muted="data.processingNodeKind.muted"
+      />
+      <RoutingGraphNodeGroup
+        v-else-if="data.processingNodeKind?.kind === 'group'"
+        :node-id="data.entityId"
+        :volume-percent="data.processingNodeKind.volume_percent"
+        :muted="data.processingNodeKind.muted"
+        :members="data.groupMembers ?? []"
       />
       <p v-else-if="data.processingNodeKind?.kind === 'stub'" class="routing-graph-node-stub-label">
         Not implemented yet

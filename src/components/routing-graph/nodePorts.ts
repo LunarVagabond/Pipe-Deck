@@ -199,7 +199,7 @@ export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHand
 
   // Mirrors the engine's own growability rule
   // (`CoreEngine::connect_processing_node_port`): a Mixer's inputs grow (N
-  // sources summed), a Fan-out's outputs grow (1 source to N
+  // sources summed), a Fan-out/Group's outputs grow (1 source to N
   // destinations), every other side on every kind is capped at one —
   // `buildSideHandles`'s non-multi-capable behavior already shows exactly
   // one empty slot until it's filled, then none, so a capped side never
@@ -209,7 +209,14 @@ export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHand
 
   const handles: RoutingGraphHandle[] = [];
   handles.push(...buildSideHandles("audio-in", inConnected, inputGrowable));
-  handles.push(...buildSideHandles("audio-out", outConnected, outputGrowable));
+  // A Group node shows no output pins at all (issue #80 follow-up) — it
+  // reads as a terminal output, same as a plain hardware/virtual output
+  // device, which also has no output handle. Members are managed entirely
+  // through the node's own member-list UI (RoutingGraphNodeGroup.vue), not
+  // drag-to-connect. Revisit if per-member drag-wiring is ever wanted later.
+  if (node.kind.kind !== "group") {
+    handles.push(...buildSideHandles("audio-out", outConnected, outputGrowable));
+  }
   return handles;
 }
 

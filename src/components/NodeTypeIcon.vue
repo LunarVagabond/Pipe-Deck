@@ -52,6 +52,17 @@ defineProps<{
       stroke-linecap="round"
       stroke-linejoin="round"
     />
+    <!-- Group node: one input feeding several bundled outputs, drawn
+         inside a dashed bracket so it reads as "a container" rather than
+         a plain Fan-Out (issue #80, PD-035) -->
+    <g v-else-if="kind === 'group'" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M2.5 12h3.5" />
+      <rect x="8" y="4" width="14" height="16" rx="2.5" stroke-dasharray="2.5 2" />
+      <path d="M9.5 8h2M9.5 12h2M9.5 16h2" />
+      <circle cx="16.5" cy="8" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="16.5" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="16.5" cy="16" r="1.6" fill="currentColor" stroke="none" />
+    </g>
     <!-- Mixer node: fader sliders on a console -->
     <g v-else-if="kind === 'mixer'" stroke="currentColor" stroke-width="1.75" stroke-linecap="round">
       <path d="M6 5v14M12 5v14M18 5v14" />

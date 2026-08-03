@@ -47,7 +47,8 @@
         "depends": [
           "pipewire",
           "wireplumber",
-          "pipewire-pulse | pulseaudio-utils"
+          "pipewire-pulse | pulseaudio-utils",
+          "pipewire-bin"
         ],
         "files": {
           "/usr/lib/systemd/user/pipe-deck-daemon.service": "packaging/pipe-deck-daemon.service",
@@ -60,7 +61,8 @@
         "depends": [
           "pipewire",
           "wireplumber",
-          "pipewire-pulse"
+          "pipewire-pulse",
+          "pipewire-utils"
         ],
         "files": {
           "/usr/share/pipe-deck/ir/pipe-deck-reverb-ir.wav": "assets/ir/pipe-deck-reverb-ir.wav"

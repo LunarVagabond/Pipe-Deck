@@ -76,6 +76,18 @@ export interface RoutingGraphNodeData {
    * icon-only "bluetooth" distinction is carried separately instead of
    * replacing `nodeClass` outright. */
   iconOverride?: string;
+  /** Set only for a `group`-kind processing node (issue #80, PD-035
+   * revision) — the real device each occupied output port currently points
+   * at, resolved to id+label here (the one place with full graph access) so
+   * `RoutingGraphNodeGroup.vue` can render an inline member list without
+   * needing the whole graph threaded down to it. `portIndex` is what
+   * `disconnect_processing_node_port` needs to remove that one member. */
+  groupMembers?: { id: string; label: string; portIndex: number }[];
+  /** Set only for a `group`-kind processing node — every terminal output
+   * device (hardware or plain virtual, same eligibility as the initial
+   * "Group Selected Outputs" gesture) not already a member, for the "+ add
+   * member" picker in `RoutingGraphNodeGroup.vue`. */
+  groupAvailableDevices?: { id: string; label: string }[];
 }
 
 export interface RoutingGraphGroupData {
@@ -351,6 +363,7 @@ function deviceNodeKind(
 const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> = {
   mixer: "Mixer",
   fan_out: "Fan-Out",
+  group: "Group",
   eq5band: "5-Band EQ",
   delay: "Delay",
   limiter: "Limiter",
@@ -361,7 +374,25 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   stub: "Not implemented yet",
 };
 
-function processingNodeNodeKind(node: ProcessingNode): RoutingGraphNodeData {
+function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): RoutingGraphNodeData {
+  const memberIds = new Set((node.outputs ?? []).map((port) => port.connected_id).filter(Boolean));
+  const groupMembers =
+    node.kind.kind === "group"
+      ? (node.outputs ?? [])
+          .filter((port): port is typeof port & { connected_id: string } => Boolean(port.connected_id))
+          .map((port) => ({
+            id: port.connected_id,
+            label: graph.devices.find((device) => device.id === port.connected_id)?.label ?? port.connected_id,
+            portIndex: port.index,
+          }))
+      : undefined;
+  const groupAvailableDevices =
+    node.kind.kind === "group"
+      ? graph.devices
+          .filter((device) => deviceColumn(device) === "outputs" && !memberIds.has(device.id))
+          .map((device) => ({ id: device.id, label: device.label }))
+      : undefined;
+
   return {
     label: node.label,
     subtitle: PROCESSING_NODE_SUBTITLE[node.kind.kind],
@@ -383,6 +414,8 @@ function processingNodeNodeKind(node: ProcessingNode): RoutingGraphNodeData {
     supportsEffects: false,
     processingNodeKind: node.kind,
     processingNodeBypassed: node.bypassed,
+    groupMembers,
+    groupAvailableDevices,
   };
 }
 
@@ -536,7 +569,7 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
 
   const sortedProcessingNodes = [...(graph.processing_nodes ?? [])].sort((a, b) => a.id.localeCompare(b.id));
   for (const node of sortedProcessingNodes) {
-    const data = processingNodeNodeKind(node);
+    const data = processingNodeNodeKind(node, graph);
     const id = processingNodeNodeId(node.id);
     nodes.push({
       id,

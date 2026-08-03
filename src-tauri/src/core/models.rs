@@ -176,6 +176,21 @@ pub enum ProcessingNodeKind {
         #[serde(default)]
         muted: bool,
     },
+    /// A user-named collection of existing output devices, created in one
+    /// atomic gesture (issue #80) rather than wired connection-by-connection
+    /// like `FanOut` — functionally identical at the PipeWire level (same
+    /// growable-output, single-input shape, same `module-null-sink` +
+    /// `pw-link` fan-out mechanism), kept as its own kind rather than
+    /// reusing `FanOut` so the UI identity/icon and future divergence (e.g.
+    /// per-member volume) don't require reinterpreting an already-shipped
+    /// node kind (PD-035).
+    #[serde(rename = "group")]
+    Group {
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
     #[serde(rename = "eq5band")]
     Eq5Band {
         #[serde(default)]
@@ -310,6 +325,7 @@ impl ProcessingNodeKind {
         match self {
             ProcessingNodeKind::Mixer { .. } => "mixer",
             ProcessingNodeKind::FanOut { .. } => "fan_out",
+            ProcessingNodeKind::Group { .. } => "group",
             ProcessingNodeKind::Eq5Band { .. } => "eq5band",
             ProcessingNodeKind::Delay { .. } => "delay",
             ProcessingNodeKind::Limiter { .. } => "limiter",
@@ -713,6 +729,13 @@ pub enum ProcessingNodeSpecKind {
     Mixer,
     #[serde(rename = "fan_out")]
     FanOut {
+        #[serde(default = "default_mix_volume")]
+        volume_percent: u8,
+        #[serde(default)]
+        muted: bool,
+    },
+    #[serde(rename = "group")]
+    Group {
         #[serde(default = "default_mix_volume")]
         volume_percent: u8,
         #[serde(default)]

@@ -89,7 +89,16 @@ function makeEdge(
   };
 }
 
-/** Collect deduplicated routing edges from graph links, multi-sink fan-out, and processing node ports. */
+/** Collect deduplicated routing edges from graph links, multi-sink fan-out, and processing node ports.
+ * A Group node's edges to its own members are never drawn (issue #80,
+ * PD-035 revision) — a Group behaves like a terminal/leaf node on the
+ * canvas, the same way a plain output device never shows outgoing wiring.
+ * Its own *input* edge (whatever feeds it) still renders like any other
+ * node; only the output side to its members is suppressed. Member names are
+ * shown inline on the Group node itself instead (see `RoutingGraphNodeGroup.vue`),
+ * not as graph edges to the real device nodes elsewhere on the canvas —
+ * those real nodes stay completely clean, with no visual indication they're
+ * grouped. Other processing node kinds (Fan-out included) are unaffected. */
 export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   const edges = new Map<string, BuiltGraphEdge>();
   const streamSourceSeen = new Set<string>();
@@ -151,6 +160,9 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
       if (port.connected_id) {
         addEdge(`proc-in-${port.connected_id}-${node.id}`, port.connected_id, node.id);
       }
+    }
+    if (node.kind.kind === "group") {
+      continue;
     }
     for (const port of node.outputs ?? []) {
       if (port.connected_id) {

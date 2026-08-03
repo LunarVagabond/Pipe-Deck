@@ -401,7 +401,8 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
         match &node.kind {
-            ProcessingNodeKind::FanOut { volume_percent, muted } => {
+            ProcessingNodeKind::FanOut { volume_percent, muted }
+            | ProcessingNodeKind::Group { volume_percent, muted } => {
                 if pactl::sink_exists(&node.system_name)? {
                     return Ok(());
                 }

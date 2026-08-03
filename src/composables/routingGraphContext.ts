@@ -30,7 +30,21 @@ export interface RoutingGraphPaneMenuTarget {
   y: number;
 }
 
-export type RoutingGraphMenuTarget = RoutingGraphNodeMenuTarget | RoutingGraphPaneMenuTarget;
+/** Opened instead of `RoutingGraphNodeMenuTarget` when 2+ output-direction
+ * device nodes are selected at the moment of a right-click (issue #80) —
+ * offers "Group Selected Outputs" rather than the normal single-node menu. */
+export interface RoutingGraphMultiNodeMenuTarget {
+  kind: "multi-node";
+  x: number;
+  y: number;
+  memberDeviceIds: string[];
+  memberLabels: string[];
+}
+
+export type RoutingGraphMenuTarget =
+  | RoutingGraphNodeMenuTarget
+  | RoutingGraphPaneMenuTarget
+  | RoutingGraphMultiNodeMenuTarget;
 
 export interface RoutingGraphActions {
   openMenu: (target: RoutingGraphMenuTarget) => void;
@@ -61,6 +75,18 @@ export interface RoutingGraphActions {
    * Fan-out nodes, devices, or streams. */
   isolateEffectNode: (nodeId: string) => void | Promise<void>;
   isEffectIsolated: (nodeId: string) => boolean;
+  /** Issue #80/PD-035: shows/hides a Group node's inline member-name list
+   * (`RoutingGraphNodeGroup.vue`) — collapsed by default. Purely canvas
+   * display state, no backend effect. A Group never draws real edges to its
+   * members regardless of this state (see `collectEdges.ts`). */
+  toggleGroupExpansion: (nodeId: string) => void;
+  isGroupExpanded: (nodeId: string) => boolean;
+  /** Issue #80/PD-035: hovering a member row in a Group node's expanded list
+   * highlights that member's real node elsewhere on the canvas, so a user
+   * can locate it without a persistent edge cluttering the graph. `null`
+   * clears the highlight. Purely canvas display state. */
+  setHighlightedNode: (entityId: string | null) => void;
+  isNodeHighlighted: (entityId: string) => boolean;
 }
 
 export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =

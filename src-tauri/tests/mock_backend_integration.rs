@@ -521,6 +521,225 @@ fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
     assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
 }
 
+/// A Group Node (issue #80, PD-035) has the identical shape to Fan-out —
+/// one non-growable input, N growable outputs — proven here for coverage
+/// parity so a missed `ProcessingNodeKind::Group`/`ProcessingNodeSpecKind::Group`
+/// match arm shows up as a failing test, not just a `FanOut`-only blind spot.
+#[test]
+fn group_node_output_ports_grow_and_shrink_on_connect_disconnect() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Speaker Group", ProcessingNodeSpecKind::Group { volume_percent: 100, muted: false })
+        .expect("create group node");
+    let output_a = engine.create_virtual_output("Group A").expect("create target a");
+    let output_b = engine.create_virtual_output("Group B").expect("create target b");
+
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
+        .expect("connect output a");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id)
+        .expect("connect output b");
+
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.outputs.len(), 2);
+
+    engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0).expect("disconnect output a");
+    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    assert_eq!(refreshed.outputs.len(), 1);
+    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+}
+
+/// The core of issue #80: selecting 2+ existing outputs and grouping them in
+/// one gesture wires every member's output atomically, and — critically —
+/// grouping a device doesn't claim it exclusively. It stays independently
+/// routable as a normal Fan-out/Group output-side peer elsewhere afterward
+/// (the "doesn't read as two unrelated, disconnected devices" requirement
+/// from the issue itself).
+#[test]
+fn create_output_group_wires_all_members_atomically() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+    let output_b = engine.create_virtual_output("Recorder").expect("create output b");
+
+    let node = engine
+        .create_output_group("Speakers + Recorder", &[output_a.device_id.clone(), output_b.device_id.clone()])
+        .expect("create group");
+
+    assert_eq!(node.outputs.len(), 2);
+    assert_eq!(node.outputs[0].connected_id.as_deref(), Some(output_a.device_id.as_str()));
+    assert_eq!(node.outputs[1].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+
+    // A grouped member device is still independently usable as a Fan-out
+    // output-side peer elsewhere — grouping doesn't claim exclusivity.
+    let other_fan_out = engine
+        .create_processing_node(
+            "Other Fan-out",
+            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+        )
+        .expect("create other fan-out node");
+    engine
+        .connect_processing_node_port(&other_fan_out.id, PortDirection::Output, &output_a.device_id)
+        .expect("output_a should still be independently connectable outside the group");
+}
+
+/// A Group's entire identity is its member set — disconnecting the last
+/// remaining member removes the group itself outright, rather than leaving
+/// a zero-output husk on the canvas.
+#[test]
+fn disconnecting_a_groups_last_member_removes_the_group_entirely() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+    let output_b = engine.create_virtual_output("Recorder").expect("create output b");
+
+    let node = engine
+        .create_output_group("Speakers + Recorder", &[output_a.device_id.clone(), output_b.device_id.clone()])
+        .expect("create group");
+
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect first member");
+    assert!(
+        engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        "group should still exist with one member remaining"
+    );
+
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect last remaining member");
+    assert!(
+        !engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        "group should be auto-removed once its last member is disconnected"
+    );
+}
+
+/// The auto-remove-when-empty behavior is Group-specific — a Fan-out node
+/// with its last output disconnected stays around (a transient 0-output
+/// state may be a deliberate mid-edit step there, unlike a Group).
+#[test]
+fn disconnecting_a_fan_outs_last_output_does_not_remove_the_node() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Solo Fan-out",
+            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+        )
+        .expect("create fan-out node");
+    let output_a = engine.create_virtual_output("Target").expect("create target");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
+        .expect("connect output");
+
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect only output");
+    assert!(
+        engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        "fan-out should remain even with zero connected outputs"
+    );
+}
+
+/// A group needs at least 2 members — a single-member "group" is rejected
+/// outright rather than silently creating a degenerate one-output node.
+#[test]
+fn create_output_group_requires_at_least_two_members() {
+    let (mut engine, _guard) = mock_engine();
+
+    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+
+    let error = engine
+        .create_output_group("Solo Group", &[output_a.device_id])
+        .expect_err("a single-member group should be rejected");
+    assert!(error.to_string().contains("at least 2 members"), "{error}");
+}
+
+/// If wiring a member fails partway through, the freshly-created node (and
+/// any members already wired) is torn down — a failed group creation never
+/// leaves a half-wired node behind for the user to find and clean up.
+#[test]
+fn create_output_group_rolls_back_on_partial_wiring_failure() {
+    let (mut engine, _guard) = mock_engine();
+
+    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+
+    let error = engine
+        .create_output_group("Broken Group", &[output_a.device_id, "nonexistent-device".to_string()])
+        .expect_err("wiring a nonexistent member should fail the whole group");
+    assert!(error.to_string().contains("peer not found"), "{error}");
+
+    assert!(
+        !engine.runtime_graph().processing_nodes.iter().any(|n| n.label == "Broken Group"),
+        "a partially-wired group should be torn down, not left behind"
+    );
+}
+
+/// Deleting a Group/Fan-out node with many connected outputs succeeds in
+/// one action — there's nothing ambiguous to relink on a growable side, only
+/// disconnect. This is the fix that makes Group actually usable day-to-day
+/// (a Group is expected to routinely have 3+ members); it also retroactively
+/// fixes the same latent bug for a hand-built Fan-out chain.
+#[test]
+fn removing_a_fan_out_node_with_many_connected_outputs_succeeds() {
+    let (mut engine, _guard) = mock_engine();
+
+    let output_a = engine.create_virtual_output("Fan A").expect("create target a");
+    let output_b = engine.create_virtual_output("Fan B").expect("create target b");
+    let output_c = engine.create_virtual_output("Fan C").expect("create target c");
+
+    let node = engine
+        .create_output_group(
+            "Big Group",
+            &[output_a.device_id, output_b.device_id, output_c.device_id],
+        )
+        .expect("create group with 3 members");
+    assert_eq!(node.outputs.len(), 3);
+
+    engine.remove_processing_node(&node.id).expect("removing a many-output group should succeed");
+    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+}
+
+/// The removal fix must be side-specific, not a blanket relaxation. A
+/// Mixer's growable side is its *input* (see
+/// `removing_a_processing_node_with_multiple_connected_inputs_is_rejected`);
+/// its *output* side is still capped at one, so 2+ connected outputs should
+/// still reject removal exactly like before the Fan-out/Group fix — proving
+/// the growable-side exemption is keyed off (kind, direction), not "any side
+/// with 2+ connections is fine now."
+#[test]
+fn removing_a_mixer_node_with_multiple_connected_outputs_is_still_rejected() {
+    use pipe_deck_lib::core::models::{ProcessingNodePort, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node("Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+
+    let mut graph = engine.runtime_graph().clone();
+    if let Some(n) = graph.processing_nodes.iter_mut().find(|n| n.id == node.id) {
+        n.outputs = vec![
+            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()), feed_key: None },
+            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()), feed_key: None },
+        ];
+    }
+    engine.apply_graph_update(graph);
+
+    let error = engine.remove_processing_node(&node.id).expect_err("ambiguous removal should still be rejected");
+    assert!(error.to_string().contains("ambiguous"), "{error}");
+}
+
 /// A non-growable port side rejects a second connection outright rather
 /// than silently accepting one nothing downstream would even mean — checked
 /// on both a growable-kind's *non*-growable side (Fan-out's single input)
