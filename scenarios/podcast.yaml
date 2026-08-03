@@ -1,0 +1,50 @@
+version: 1
+id: podcast
+name: Podcast recording
+description: >
+  A host on a voice call with a remote guest, recording locally. The guest's
+  voice and the host's filtered microphone both feed a single recording bus
+  that OBS captures, while the host still monitors everything through
+  headphones.
+
+devices:
+  - id: sink-headphones
+    label: Headphones
+    kind: physical
+    direction: output
+  - id: sink-record-mix
+    label: Record Mix
+    kind: virtual
+    direction: output
+    sink_mode: single
+  - id: source-mic
+    label: Microphone
+    kind: physical
+    direction: input
+  - id: source-mic-filtered
+    label: Mic (Filtered)
+    kind: virtual
+    direction: input
+    mix_sources:
+      - device_id: source-mic
+        volume_percent: 100
+
+streams:
+  - id: stream-discord
+    app_name: Discord
+    executable: discord
+    direction: playback
+  - id: stream-obs
+    app_name: OBS
+    executable: obs
+    direction: capture
+
+routes:
+  - from: stream-discord
+    to: sink-record-mix
+  - from: sink-record-mix
+    to: sink-headphones
+  - from: source-mic-filtered
+    to: stream-obs
+  - from: source-mic
+    to: source-mic-filtered

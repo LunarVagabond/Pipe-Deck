@@ -1,0 +1,68 @@
+version: 1
+id: streaming-multi-output
+name: Streaming with multiple outputs
+description: >
+  A single "Stream Mix" bus fans out to two destinations at once: the
+  streamer's own headphones for monitoring, and a dedicated "Stream Output"
+  virtual device that OBS captures as the encoded stream's audio track —
+  the same audio routed two places simultaneously, so the streamer never
+  hears OBS's own capture/encode delay layered back on top of the source.
+
+devices:
+  - id: sink-headphones
+    label: Headphones
+    kind: physical
+    direction: output
+  - id: sink-speakers
+    label: Speakers
+    kind: physical
+    direction: output
+  - id: sink-stream-mix
+    label: Stream Mix
+    kind: virtual
+    direction: output
+    sink_mode: single
+  - id: sink-stream-output
+    label: Stream Output
+    kind: virtual
+    direction: output
+    sink_mode: single
+  - id: sink-browser
+    label: Browser
+    kind: virtual
+    direction: output
+    sink_mode: single
+
+streams:
+  - id: stream-spotify
+    app_name: Spotify
+    executable: spotify
+    direction: playback
+  - id: stream-steam
+    app_name: Steam
+    executable: steam
+    direction: playback
+  - id: stream-firefox
+    app_name: Firefox
+    executable: firefox
+    direction: playback
+  - id: stream-obs
+    app_name: OBS
+    executable: obs
+    direction: capture
+
+routes:
+  - from: stream-spotify
+    to: sink-stream-mix
+  - from: stream-steam
+    to: sink-stream-mix
+  - from: stream-firefox
+    to: sink-browser
+  - from: sink-stream-mix
+    to: sink-headphones
+  - from: sink-stream-mix
+    to: sink-stream-output
+  - from: sink-browser
+    to: sink-speakers
+  - from: sink-stream-output
+    to: stream-obs
