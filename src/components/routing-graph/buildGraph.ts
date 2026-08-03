@@ -76,6 +76,13 @@ export interface RoutingGraphNodeData {
    * icon-only "bluetooth" distinction is carried separately instead of
    * replacing `nodeClass` outright. */
   iconOverride?: string;
+  /** Set only for a `group`-kind processing node (issue #80, PD-035
+   * revision) — the real device each occupied output port currently points
+   * at, resolved to id+label here (the one place with full graph access) so
+   * `RoutingGraphNodeGroup.vue` can render an inline member list without
+   * needing the whole graph threaded down to it. `portIndex` is what
+   * `disconnect_processing_node_port` needs to remove that one member. */
+  groupMembers?: { id: string; label: string; portIndex: number }[];
 }
 
 export interface RoutingGraphGroupData {
@@ -362,7 +369,18 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
   stub: "Not implemented yet",
 };
 
-function processingNodeNodeKind(node: ProcessingNode): RoutingGraphNodeData {
+function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): RoutingGraphNodeData {
+  const groupMembers =
+    node.kind.kind === "group"
+      ? (node.outputs ?? [])
+          .filter((port): port is typeof port & { connected_id: string } => Boolean(port.connected_id))
+          .map((port) => ({
+            id: port.connected_id,
+            label: graph.devices.find((device) => device.id === port.connected_id)?.label ?? port.connected_id,
+            portIndex: port.index,
+          }))
+      : undefined;
+
   return {
     label: node.label,
     subtitle: PROCESSING_NODE_SUBTITLE[node.kind.kind],
@@ -384,6 +402,7 @@ function processingNodeNodeKind(node: ProcessingNode): RoutingGraphNodeData {
     supportsEffects: false,
     processingNodeKind: node.kind,
     processingNodeBypassed: node.bypassed,
+    groupMembers,
   };
 }
 
@@ -391,11 +410,7 @@ function slotIndexForY(y: number): number {
   return Math.round((y - LANE_Y_OFFSET) / LANE_ROW_HEIGHT);
 }
 
-export function buildRoutingGraph(
-  graph: RuntimeGraph,
-  groups: GraphGroup[] = [],
-  expandedGroupNodeIds: ReadonlySet<string> = new Set(),
-): BuiltRoutingGraph {
+export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
   const layout = loadLayout();
 
   // Saved positions are keyed by node id and never removed when a node disappears
@@ -541,7 +556,7 @@ export function buildRoutingGraph(
 
   const sortedProcessingNodes = [...(graph.processing_nodes ?? [])].sort((a, b) => a.id.localeCompare(b.id));
   for (const node of sortedProcessingNodes) {
-    const data = processingNodeNodeKind(node);
+    const data = processingNodeNodeKind(node, graph);
     const id = processingNodeNodeId(node.id);
     nodes.push({
       id,
@@ -555,7 +570,7 @@ export function buildRoutingGraph(
     localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
   }
 
-  const edges = collectRoutingEdges(graph, expandedGroupNodeIds);
+  const edges = collectRoutingEdges(graph);
 
   return { nodes, edges };
 }

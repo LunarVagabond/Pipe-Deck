@@ -90,16 +90,16 @@ function makeEdge(
 }
 
 /** Collect deduplicated routing edges from graph links, multi-sink fan-out, and processing node ports.
- * `expandedGroupNodeIds` is the set of Group-kind processing node ids whose
- * internal wiring to its members should render — a Group not in this set is
- * collapsed (issue #80, PD-035): its own input edge still renders, but its
- * output edges to each member are suppressed, so a many-member group
- * doesn't clutter the canvas until the user opts to see inside it. Other
- * processing node kinds are unaffected regardless of what's in the set. */
-export function collectRoutingEdges(
-  graph: RuntimeGraph,
-  expandedGroupNodeIds: ReadonlySet<string> = new Set(),
-): BuiltGraphEdge[] {
+ * A Group node's edges to its own members are never drawn (issue #80,
+ * PD-035 revision) — a Group behaves like a terminal/leaf node on the
+ * canvas, the same way a plain output device never shows outgoing wiring.
+ * Its own *input* edge (whatever feeds it) still renders like any other
+ * node; only the output side to its members is suppressed. Member names are
+ * shown inline on the Group node itself instead (see `RoutingGraphNodeGroup.vue`),
+ * not as graph edges to the real device nodes elsewhere on the canvas —
+ * those real nodes stay completely clean, with no visual indication they're
+ * grouped. Other processing node kinds (Fan-out included) are unaffected. */
+export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   const edges = new Map<string, BuiltGraphEdge>();
   const streamSourceSeen = new Set<string>();
   const captureStreamSeen = new Set<string>();
@@ -161,7 +161,7 @@ export function collectRoutingEdges(
         addEdge(`proc-in-${port.connected_id}-${node.id}`, port.connected_id, node.id);
       }
     }
-    if (node.kind.kind === "group" && !expandedGroupNodeIds.has(node.id)) {
+    if (node.kind.kind === "group") {
       continue;
     }
     for (const port of node.outputs ?? []) {

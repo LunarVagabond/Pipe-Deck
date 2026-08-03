@@ -409,4 +409,40 @@ describe("group processing node (issue #80)", () => {
     expect(data?.processingNodeKind).toEqual({ kind: "group", volume_percent: 100, muted: false });
     expect(data?.supportsEffects).toBe(false);
   });
+
+  it("resolves each occupied output port to its member's id/label/portIndex", () => {
+    const speakers = makeDevice({ id: "dev-out-1", label: "Speakers", direction: "output" });
+    const echo = makeDevice({ id: "dev-out-2", label: "Echo Dot", direction: "output" });
+    const node = makeProcessingNode({
+      id: "proc-group-1",
+      label: "Test Group",
+      kind: { kind: "group", volume_percent: 100, muted: false },
+      system_name: "pipe-deck-proc-group-test-group",
+      outputs: [
+        { index: 0, connected_id: "dev-out-1" },
+        { index: 1, connected_id: "dev-out-2" },
+      ],
+    });
+    const graph = makeGraph([speakers, echo], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-group-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.groupMembers).toEqual([
+      { id: "dev-out-1", label: "Speakers", portIndex: 0 },
+      { id: "dev-out-2", label: "Echo Dot", portIndex: 1 },
+    ]);
+  });
+
+  it("leaves groupMembers undefined for a non-group processing node", () => {
+    const node = makeProcessingNode({
+      id: "proc-fan-1",
+      kind: { kind: "fan_out", volume_percent: 100, muted: false },
+      outputs: [{ index: 0, connected_id: "dev-out-1" }],
+    });
+    const graph = makeGraph([makeDevice({ id: "dev-out-1" })], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find((n) => n.id === processingNodeNodeId("proc-fan-1"));
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.groupMembers).toBeUndefined();
+  });
 });

@@ -310,6 +310,16 @@
   box-shadow: 0 0 0 2px vars.translucent(--accent-purple, 45);
 }
 
+// Distinct from `.selected` (deliberate multi-select for grouping) — this
+// is a transient "here it is" pointer when hovering a member row in a Group
+// node's expanded list (issue #80, PD-035 revision), an amber glow rather
+// than the purple selection color so the two states never read as the same
+// thing even if a node happens to be both selected and highlighted at once.
+.routing-graph-node--highlighted {
+  border-color: var(--accent-amber, #ffb020) !important;
+  box-shadow: 0 0 0 2px vars.translucent(--accent-amber, 45);
+}
+
 .routing-graph-node {
   min-width: 210px;
   max-width: 260px;
@@ -1416,6 +1426,70 @@
   text-align: right;
   font-size: 0.65rem;
   color: var(--text-muted);
+}
+
+// A Group node's inline member list (issue #80, PD-035 revision) — shown
+// only when expanded via the chevron toggle. Deliberately not graph edges:
+// the real device nodes stay fully clean elsewhere on the canvas, and
+// hovering a row highlights that member instead (see
+// .routing-graph-node--highlighted).
+.routing-graph-group-members {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  margin: 0.35rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.routing-graph-group-member {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+  padding: 0.2rem 0.35rem;
+  border-radius: 6px;
+
+  &:hover {
+    background: rgba(255, 176, 32, 0.12);
+  }
+
+  &--empty {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    font-style: italic;
+
+    &:hover {
+      background: transparent;
+    }
+  }
+}
+
+.routing-graph-group-member-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.75rem;
+}
+
+.routing-graph-group-member-remove {
+  flex-shrink: 0;
+  width: 1.1rem;
+  height: 1.1rem;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  font-size: 0.65rem;
+  line-height: 1;
+  color: var(--text-muted);
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(255, 107, 107, 0.15);
+    color: #ff6b6b;
+  }
 }
 
 .vue-flow__edge-path {

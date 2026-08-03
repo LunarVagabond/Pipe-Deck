@@ -123,7 +123,7 @@ describe("collectRoutingEdges", () => {
     expect(collectRoutingEdges(graph)).toHaveLength(0);
   });
 
-  it("builds edges for a Group node's members the same as Fan-out — issue #80", () => {
+  it("never draws a Group node's edges to its own members, but keeps its own input edge — issue #80", () => {
     const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
     const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
     const out2 = makeDevice({ id: "out2", kind: "physical", direction: "output" });
@@ -138,32 +138,15 @@ describe("collectRoutingEdges", () => {
     });
     const graph = makeGraph([source, out1, out2], [], [], [node]);
 
-    // Expanded (member id passed in the expanded set) shows the full wiring.
-    const edges = collectRoutingEdges(graph, new Set(["group-1"]));
-    expect(edges).toHaveLength(3);
-    expect(edges).toContainEqual(expect.objectContaining({ source: "device:src1", target: "processingNode:group-1" }));
-    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:group-1", target: "device:out1" }));
-    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:group-1", target: "device:out2" }));
-  });
-
-  it("hides a collapsed Group's member edges but keeps its own input edge visible", () => {
-    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
-    const node = makeProcessingNode({
-      id: "group-1",
-      kind: { kind: "group", volume_percent: 100, muted: false },
-      inputs: [{ index: 0, connected_id: "src1" }],
-      outputs: [{ index: 0, connected_id: "out1" }],
-    });
-    const graph = makeGraph([source, out1], [], [], [node]);
-
-    // No expanded set passed — collapsed by default.
+    // A Group behaves like a terminal/leaf node — its members render as an
+    // inline name list on the node itself (RoutingGraphNodeGroup.vue), never
+    // as graph edges to the real device nodes elsewhere on the canvas.
     const edges = collectRoutingEdges(graph);
     expect(edges).toHaveLength(1);
     expect(edges).toContainEqual(expect.objectContaining({ source: "device:src1", target: "processingNode:group-1" }));
   });
 
-  it("does not hide a Fan-out node's member edges even when the same id isn't in expandedGroupNodeIds", () => {
+  it("still draws a Fan-out node's member edges — unlike Group, Fan-out keeps its real wiring visible", () => {
     const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
     const node = makeProcessingNode({
       id: "fan-1",

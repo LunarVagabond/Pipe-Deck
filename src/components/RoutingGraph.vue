@@ -68,8 +68,18 @@ const props = defineProps<{
 
 // Issue #227: a subtle idle glow on nodes when nothing is routed yet,
 // distinguishing "nothing routed" from "app frozen/broken" — stops the
-// instant any link exists.
-const isIdle = computed(() => props.graph.links.length === 0);
+// instant any link exists. `graph.links` only ever reflects device-to-device
+// pw-link fan-out (`apply_pw_link_device_routes`) — a stream routed through
+// a processing node (Mixer/Fan-out/Group/EQ/...) is represented purely via
+// `ProcessingNode.inputs[]`/`outputs[]`, never a `Link`, so without this
+// check routing a stream into e.g. a Group node (issue #80) — which then
+// genuinely reaches a real terminal output, same as a direct hardware
+// connection — would still read as "idle" indefinitely.
+const isIdle = computed(
+  () =>
+    props.graph.links.length === 0 &&
+    !(props.graph.processing_nodes ?? []).some((node) => node.inputs?.some((port) => port.connected_id)),
+);
 
 const { handleApplyResult } = useApplyResult();
 const { addEq5BandStage } = useEffectChain();
@@ -103,10 +113,9 @@ function persistGroups() {
   saveGroups(groups.value);
 }
 
-// Issue #80/PD-035: a Group node's internal wiring to its members is
-// collapsed by default, toggled per-node — purely a canvas display
-// preference, unrelated to `groups`/`GraphGroup` above (the cosmetic
-// bounding-box feature).
+// Issue #80/PD-035: a Group node's member-name list is collapsed by
+// default, toggled per-node — purely a canvas display preference, unrelated
+// to `groups`/`GraphGroup` above (the cosmetic bounding-box feature).
 const expandedGroupNodeIds = ref<Set<string>>(loadExpandedGroupNodeIds());
 
 function toggleGroupExpansionState(nodeId: string) {
@@ -119,6 +128,10 @@ function toggleGroupExpansionState(nodeId: string) {
   expandedGroupNodeIds.value = next;
   saveExpandedGroupNodeIds(next);
 }
+
+// Hovering a Group member row highlights that member's real node elsewhere
+// on the canvas — transient, not persisted, unlike the expand state above.
+const highlightedNodeId = ref<string | null>(null);
 
 const graphActions = {
   openMenu(target: RoutingGraphMenuTarget) {
@@ -226,6 +239,12 @@ const graphActions = {
   },
   isGroupExpanded(nodeId: string) {
     return expandedGroupNodeIds.value.has(nodeId);
+  },
+  setHighlightedNode(entityId: string | null) {
+    highlightedNodeId.value = entityId;
+  },
+  isNodeHighlighted(entityId: string) {
+    return highlightedNodeId.value === entityId;
   },
 };
 
@@ -429,7 +448,7 @@ const defaultEdgeOptions = {
 const layoutVersion = ref(0);
 const built = computed(() => {
   layoutVersion.value;
-  return buildRoutingGraph(props.graph, groups.value, expandedGroupNodeIds.value);
+  return buildRoutingGraph(props.graph, groups.value);
 });
 // Node ids currently mid-drag. `props.graph` can be replaced by a
 // `graph-updated` push at any moment (mixer/routing/rule commands and the

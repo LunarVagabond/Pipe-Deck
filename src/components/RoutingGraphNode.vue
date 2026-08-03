@@ -13,6 +13,7 @@ import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
 import RoutingGraphNodeWidener from "./RoutingGraphNodeWidener.vue";
 import RoutingGraphNodePan from "./RoutingGraphNodePan.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
+import RoutingGraphNodeGroup from "./RoutingGraphNodeGroup.vue";
 import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
 import { useMixerControls } from "../composables/useMixerControls";
 import { useEffectChain } from "../composables/useEffectChain";
@@ -235,6 +236,7 @@ function onToggleMute() {
       {
         'routing-graph-node--has-effects': hasEffectStages,
         'routing-graph-node--effects-bypassed': effectsState === 'bypassed',
+        'routing-graph-node--highlighted': actions?.isNodeHighlighted(data.entityId),
       },
     ]"
     @contextmenu="onContextMenu"
@@ -274,8 +276,8 @@ function onToggleMute() {
           type="button"
           class="icon-btn routing-graph-node-group-expand-toggle"
           :class="{ 'routing-graph-node-group-expand-toggle--expanded': actions?.isGroupExpanded(data.entityId) }"
-          :title="actions?.isGroupExpanded(data.entityId) ? 'Hide member wiring' : 'Show member wiring'"
-          :aria-label="actions?.isGroupExpanded(data.entityId) ? 'Hide member wiring' : 'Show member wiring'"
+          :title="actions?.isGroupExpanded(data.entityId) ? 'Hide members' : 'Show members'"
+          :aria-label="actions?.isGroupExpanded(data.entityId) ? 'Hide members' : 'Show members'"
           @click="actions?.toggleGroupExpansion(data.entityId)"
         >
           ▸
@@ -403,10 +405,17 @@ function onToggleMute() {
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut
-        v-else-if="data.processingNodeKind?.kind === 'fan_out' || data.processingNodeKind?.kind === 'group'"
+        v-else-if="data.processingNodeKind?.kind === 'fan_out'"
         :node-id="data.entityId"
         :volume-percent="data.processingNodeKind.volume_percent"
         :muted="data.processingNodeKind.muted"
+      />
+      <RoutingGraphNodeGroup
+        v-else-if="data.processingNodeKind?.kind === 'group'"
+        :node-id="data.entityId"
+        :volume-percent="data.processingNodeKind.volume_percent"
+        :muted="data.processingNodeKind.muted"
+        :members="data.groupMembers ?? []"
       />
       <p v-else-if="data.processingNodeKind?.kind === 'stub'" class="routing-graph-node-stub-label">
         Not implemented yet
