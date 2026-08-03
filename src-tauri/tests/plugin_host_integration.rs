@@ -143,6 +143,16 @@ for line in sys.stdin:
         break
 "#;
 
+const HANGING_PLUGIN_SCRIPT: &str = r#"#!/usr/bin/env python3
+import sys
+
+# Reads and discards everything without ever responding, so the host's
+# 5s request timeout (`REQUEST_TIMEOUT` in host.rs) is what ends the
+# `initialize` call rather than an RPC error/response from this plugin.
+for line in sys.stdin:
+    pass
+"#;
+
 const FAILING_PLUGIN_SCRIPT: &str = r#"#!/usr/bin/env python3
 import json, sys
 
@@ -213,20 +223,42 @@ fn lock_env() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Sets up isolated `PIPE_DECK_CONFIG_DIR`/`PIPE_DECK_BUNDLED_PLUGINS` env vars for one
-/// test and returns a fresh, refreshed `CoreEngine` plus the guard from `lock_env()` —
-/// callers must hold the guard for the rest of the test (see `lock_env`'s doc comment).
-/// Each test gets its own temp config dir and bundled-plugins dir, so tests don't see
-/// each other's plugin state even though the env vars themselves are global process state.
+/// Sets up isolated `PIPE_DECK_CONFIG_DIR`/`PIPE_DECK_BUNDLED_PLUGINS`/`XDG_STATE_HOME`
+/// env vars for one test and returns a fresh, refreshed `CoreEngine` plus the guard from
+/// `lock_env()` — callers must hold the guard for the rest of the test (see `lock_env`'s
+/// doc comment). Each test gets its own temp config dir, bundled-plugins dir, and audit
+/// log state dir, so tests don't see each other's plugin state (or write to the real
+/// user's `~/.local/state/pipe-deck/plugin-audit.jsonl`) even though the env vars
+/// themselves are global process state.
 fn isolated_engine(bundled_dir: &Path) -> (CoreEngine, std::sync::MutexGuard<'static, ()>) {
+    let (engine, guard, _state_dir) = isolated_engine_with_state_dir(bundled_dir);
+    (engine, guard)
+}
+
+/// Same as `isolated_engine`, but also returns the isolated `XDG_STATE_HOME` temp dir so
+/// callers can inspect the audit log it redirects to.
+fn isolated_engine_with_state_dir(
+    bundled_dir: &Path,
+) -> (CoreEngine, std::sync::MutexGuard<'static, ()>, PathBuf) {
     let guard = lock_env();
     let config_dir = unique_temp_dir("config");
+    let state_dir = unique_temp_dir("state");
     std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
     std::env::set_var("PIPE_DECK_BUNDLED_PLUGINS", bundled_dir);
     std::env::set_var("PIPE_DECK_USE_MOCK", "1");
+    std::env::set_var("XDG_STATE_HOME", &state_dir);
     let mut engine = CoreEngine::new();
     engine.refresh_graph().expect("initial refresh should succeed");
-    (engine, guard)
+    (engine, guard, state_dir)
+}
+
+fn audit_log_lines(state_dir: &Path) -> Vec<String> {
+    let path = state_dir.join("pipe-deck/plugin-audit.jsonl");
+    fs::read_to_string(&path)
+        .unwrap_or_default()
+        .lines()
+        .map(|line| line.to_string())
+        .collect()
 }
 
 #[test]
@@ -486,5 +518,80 @@ fn re_enabling_a_disabled_plugin_clears_crash_state_and_retries_immediately() {
     assert_eq!(
         failing.disabled_reason, None,
         "re-enabling should reset crash-loop state even though the retry itself failed"
+    );
+}
+
+#[test]
+fn plugin_that_never_responds_to_initialize_times_out_after_five_seconds() {
+    let bundled_dir = unique_temp_dir("bundled-timeout");
+    write_plugin(&bundled_dir, "hanging", &[], HANGING_PLUGIN_SCRIPT);
+
+    let (mut engine, _guard) = isolated_engine(&bundled_dir);
+
+    let started = std::time::Instant::now();
+    engine.initialize_plugins();
+    let elapsed = started.elapsed();
+
+    // host.rs's REQUEST_TIMEOUT is 5s; the request loop polls in <=100ms steps, so this
+    // should land close to (never much under) that bound rather than failing instantly.
+    assert!(
+        elapsed >= std::time::Duration::from_secs(5),
+        "expected initialize to block for the full 5s request timeout, took {elapsed:?}"
+    );
+
+    let hanging = engine.list_plugins().into_iter().find(|p| p.id == "hanging").unwrap();
+    assert_eq!(hanging.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Error);
+    let last_error = hanging.last_error.expect("expected a last_error to be recorded");
+    assert!(last_error.contains("timeout"), "last_error was: {last_error}");
+}
+
+#[test]
+fn audit_log_records_spawn_and_shutdown_lifecycle_events() {
+    let bundled_dir = unique_temp_dir("bundled-audit");
+    write_plugin(&bundled_dir, "echo", &["graph.read"], OK_PLUGIN_SCRIPT);
+
+    let (mut engine, _guard, state_dir) = isolated_engine_with_state_dir(&bundled_dir);
+    engine.initialize_plugins();
+    engine.set_plugin_enabled("echo", false).unwrap();
+
+    let lines = audit_log_lines(&state_dir);
+    assert!(
+        lines.iter().any(|l| l.contains(r#""plugin_id":"echo""#)
+            && l.contains(r#""action":"spawn""#)
+            && l.contains(r#""result":"ok""#)),
+        "expected a spawn audit entry for echo, got: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.contains(r#""plugin_id":"echo""#)
+            && l.contains(r#""action":"shutdown""#)
+            && l.contains(r#""result":"ok""#)),
+        "expected a shutdown audit entry for echo, got: {lines:?}"
+    );
+}
+
+#[test]
+fn audit_log_records_initialize_failure_and_crash_loop_disable() {
+    let bundled_dir = unique_temp_dir("bundled-audit-failure");
+    write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
+
+    let (mut engine, _guard, state_dir) = isolated_engine_with_state_dir(&bundled_dir);
+    engine.initialize_plugins();
+    for _ in 0..5 {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        engine.rescan_plugins().unwrap();
+    }
+
+    let lines = audit_log_lines(&state_dir);
+    assert!(
+        lines.iter().any(|l| l.contains(r#""plugin_id":"failing""#)
+            && l.contains(r#""action":"initialize""#)
+            && l.contains(r#""result":"error""#)),
+        "expected an initialize-error audit entry, got: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.contains(r#""plugin_id":"failing""#)
+            && l.contains(r#""action":"crash-loop""#)
+            && l.contains(r#""result":"error""#)),
+        "expected a crash-loop audit entry once disabled, got: {lines:?}"
     );
 }
