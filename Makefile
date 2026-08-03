@@ -86,7 +86,7 @@ clean: ## Remove build artifacts
 smoke: ## Run install and compile smoke checks
 	bash scripts/smoke-install.sh
 
-screenshots: ## Refresh docs/images/*.png from the live frontend (scripts/screenshot-app.mjs)
+screenshots: build-cli ## Refresh docs/images/*.png from the live frontend (scripts/screenshot-app.mjs)
 	$(NPM) run screenshots
 
 release-checks: ## Run the pre-release validation gate (type-check, frontend tests, cargo check, cargo test) standalone
