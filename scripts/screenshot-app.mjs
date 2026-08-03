@@ -4,12 +4,17 @@
 //
 // Runs the frontend alone (`vite`, no Tauri shell) and injects a
 // window.__TAURI_INTERNALS__ shim that answers the handful of commands each
-// captured view needs on mount, mirroring the same sample graph
-// `src-tauri/src/backend/mock.rs` seeds for PIPE_DECK_USE_MOCK=1 (that env var
-// only affects the Rust backend — a bare `vite` dev server has no Tauri IPC at
-// all, so PIPE_DECK_USE_MOCK alone doesn't get you real-looking data here).
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+// captured view needs on mount. The sample graph itself comes from
+// `pipe-deck-cli graph` run against PIPE_DECK_USE_MOCK=1 — i.e. the exact same
+// `MockAudioBackend::sample_graph()` (`src-tauri/src/backend/mock.rs`) the
+// real app seeds, not a second hand-copied JS object that could drift from it
+// (issue #366). PIPE_DECK_USE_MOCK only affects the Rust backend — a bare
+// `vite` dev server has no Tauri IPC at all — so this script still has to
+// shim window.__TAURI_INTERNALS__ itself; it just sources the data for that
+// shim from the real backend instead of reinventing it.
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -19,77 +24,37 @@ const imagesDir = join(repoRoot, "docs", "images");
 const port = 4317;
 const baseUrl = `http://localhost:${port}`;
 
-const runtimeGraph = {
-  devices: [
-    device("sink-chat", "Chat", "virtual", "output", { current_target: "sink-headphones", current_targets: ["sink-headphones"] }),
-    device("sink-music", "Music", "virtual", "output", { current_target: "sink-headphones", current_targets: ["sink-headphones", "sink-stream-output"] }),
-    device("sink-game", "Game", "virtual", "output", { current_target: "sink-headphones", current_targets: ["sink-headphones"] }),
-    device("sink-browser", "Browser", "virtual", "output", { current_target: "sink-speakers", current_targets: ["sink-speakers"] }),
-    device("sink-stream-mix", "Stream Mix", "virtual", "output", { current_target: "sink-stream-output", current_targets: ["sink-stream-output"] }),
-    device("sink-headphones", "Headphones", "physical", "output"),
-    device("sink-speakers", "Speakers", "physical", "output"),
-    device("sink-stream-output", "Stream Output", "virtual", "output"),
-    device("source-mic", "Microphone", "physical", "input"),
-    device("source-mic-filtered", "Mic (Filtered)", "virtual", "input", {
-      mix_sources: [{ device_id: "source-mic", volume_percent: 100, muted: false }],
-    }),
-  ],
-  streams: [
-    stream("stream-discord", "Discord", "discord", "playback", "sink-chat"),
-    stream("stream-spotify", "Spotify", "spotify", "playback", "sink-music"),
-    stream("stream-steam", "Steam", "steam", "playback", "sink-game"),
-    stream("stream-firefox", "Firefox", "firefox", "playback", "sink-browser"),
-    stream("stream-obs", "OBS", "obs", "capture", "source-mic-filtered"),
-  ],
-  links: [
-    link("link-discord-chat", "stream-discord", "sink-chat"),
-    link("link-spotify-music", "stream-spotify", "sink-music"),
-    link("link-steam-game", "stream-steam", "sink-game"),
-    link("link-firefox-browser", "stream-firefox", "sink-browser"),
-    link("link-chat-headphones", "sink-chat", "sink-headphones"),
-    link("link-music-headphones", "sink-music", "sink-headphones"),
-    link("link-music-stream", "sink-music", "sink-stream-output"),
-    link("link-game-headphones", "sink-game", "sink-headphones"),
-    link("link-browser-speakers", "sink-browser", "sink-speakers"),
-    link("link-stream-mix-output", "sink-stream-mix", "sink-stream-output"),
-    link("link-obs-mic", "source-mic-filtered", "stream-obs"),
-    link("link-mic-filtered", "source-mic", "source-mic-filtered"),
-  ],
-  // Deliberately omit data_source: "mock" — every view gates its
-  // "Showing sample data" banner on that field, and these captures are meant
-  // to read as ordinary screenshots of the real UI, not as a labeled demo.
-};
+function loadMockRuntimeGraph() {
+  const cargoTargetDir = process.env.CARGO_TARGET_DIR ?? join(repoRoot, "src-tauri", "target");
+  const cliBin = join(cargoTargetDir, "debug", "pipe-deck-cli");
+  if (!existsSync(cliBin)) {
+    throw new Error(`pipe-deck-cli binary not found at ${cliBin} — run \`make build-cli\` first`);
+  }
 
-function device(id, label, kind, direction, extra = {}) {
-  return {
-    id,
-    system_name: id,
-    label,
-    kind,
-    direction,
-    volume_percent: 70,
-    muted: false,
-    current_targets: [],
-    mix_sources: [],
-    ...extra,
-  };
+  // Isolated config dir so this never touches (or creates) the real
+  // ~/.config/pipe-deck/ on the machine running the screenshot script.
+  const scratchConfigDir = mkdtempSync(join(tmpdir(), "pipe-deck-screenshot-config-"));
+  try {
+    const result = spawnSync(cliBin, ["graph"], {
+      env: { ...process.env, PIPE_DECK_USE_MOCK: "1", PIPE_DECK_CONFIG_DIR: scratchConfigDir },
+      encoding: "utf8",
+    });
+    if (result.status !== 0) {
+      throw new Error(`pipe-deck-cli graph failed: ${result.stderr || result.stdout}`);
+    }
+    const graph = JSON.parse(result.stdout);
+    // Deliberately drop data_source/notice — every view gates its "Showing
+    // sample data" banner on data_source === "mock", and these captures are
+    // meant to read as ordinary screenshots of the real UI, not a labeled demo.
+    delete graph.data_source;
+    delete graph.notice;
+    return graph;
+  } finally {
+    rmSync(scratchConfigDir, { recursive: true, force: true });
+  }
 }
 
-function stream(id, appName, executable, direction, target) {
-  return {
-    id,
-    app_name: appName,
-    executable,
-    system_name: id,
-    direction,
-    current_target: target,
-    is_system: false,
-  };
-}
-
-function link(id, sourceId, targetId) {
-  return { id, source_id: sourceId, target_id: targetId };
-}
+const runtimeGraph = loadMockRuntimeGraph();
 
 const appConfig = { version: 1, profile_index: [], preferences: { theme_mode: "dark" } };
 const daemonStatus = { running: true, enabled: true, devices_restored: 7 };
