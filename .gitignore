@@ -110,3 +110,7 @@ criterion/
 tmp/
 temp/
 scratch/
+
+# Demo runner screenshot captures (scripts/demo-runner.sh MODE=screenshot) —
+# regenerable per scenario/run, not checked-in assets like docs/images/*.png
+docs/images/demo/
