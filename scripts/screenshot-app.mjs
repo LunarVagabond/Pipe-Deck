@@ -111,6 +111,7 @@ const views = [
   { id: "mixer", label: "Mixer", file: "mixer.png" },
   { id: "routing", label: "Routing", file: "routing.png" },
   { id: "sources", label: "Sources", file: "sources.png" },
+  { id: "effects", label: "Effects", file: "effects.png" },
 ];
 
 function waitForServer(url, timeoutMs = 30000) {
