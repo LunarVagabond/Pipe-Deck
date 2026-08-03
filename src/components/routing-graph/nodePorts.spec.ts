@@ -107,12 +107,33 @@ describe("handlesForDevice", () => {
     ]);
   });
 
-  it("gives a virtual output device zero output handles — #293, plain devices no longer route onward", () => {
+  it("gives an unconnected virtual output device zero output handles — #293, no fresh forward-route slot", () => {
     const device = makeDevice({ id: "term1", kind: "virtual", direction: "output" });
     const handles = handlesForDevice(device, { in: ["s1"], out: [] });
 
     expect(handles.some((h) => h.portType === "audio-out")).toBe(false);
     expect(handles.some((h) => h.portType === "audio-in")).toBe(true);
+  });
+
+  it("gives a virtual output device's existing monitor connection a real output handle, with no extra empty slot (#388)", () => {
+    const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
+    const handles = handlesForDevice(device, { in: [], out: ["headphones"] });
+    const outHandles = handles.filter((h) => h.portType === "audio-out");
+
+    // A real anchor for the existing monitor connection — the whole point of
+    // the fix — but never a fresh empty slot, since #293/PD-033 still means
+    // no *new* arbitrary forward-route from a plain virtual output device.
+    expect(outHandles).toEqual([
+      { id: "audio-out:headphones", type: "source", position: "right", portType: "audio-out", connectedId: "headphones" },
+    ]);
+  });
+
+  it("gives every one of a virtual output device's existing multi-target monitor connections a real handle, with no extra empty slot (#388)", () => {
+    const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
+    const handles = handlesForDevice(device, { in: [], out: ["headphones", "stream-output"] });
+    const outHandles = handles.filter((h) => h.portType === "audio-out");
+
+    expect(outHandles.map((h) => h.id)).toEqual(["audio-out:headphones", "audio-out:stream-output"]);
   });
 
   it("caps a non-multi-capable side at a single filled handle with no trailing empty slot", () => {
@@ -154,7 +175,7 @@ describe("handlesForProcessingNode", () => {
     expect(handles.some((h) => h.id === "audio-in:src1")).toBe(true);
   });
 
-  it("caps a fan-out node's input at one slot even if somehow multiply connected", () => {
+  it("shows a real handle per connection on a non-growable side even if somehow multiply connected, but never adds an empty slot", () => {
     const node = makeProcessingNode({
       inputs: [
         { index: 0, connected_id: "src1" },
@@ -162,10 +183,11 @@ describe("handlesForProcessingNode", () => {
       ],
     });
     const inHandles = handlesForProcessingNode(node).filter((h) => h.portType === "audio-in");
-    // Only ever one filled handle is shown for a non-growable side, and no
-    // trailing empty slot once it's occupied — matches buildSideHandles'
-    // existing non-multi-capable behavior.
-    expect(inHandles).toHaveLength(1);
+    // Every existing connection gets a real handle to anchor to — silently
+    // dropping the second one used to leave its edge anchored nowhere real
+    // (issue #388). The side still never grows a fresh *empty* slot beyond
+    // what's already connected, so this can't be used to add a third.
+    expect(inHandles.map((h) => h.id)).toEqual(["audio-in:src1", "audio-in:src2"]);
   });
 
   it("grows a mixer node's inputs but caps its output at one slot", () => {

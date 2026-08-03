@@ -106,8 +106,16 @@ function buildSideHandles(
 ): RoutingGraphHandle[] {
   const type: "source" | "target" = portType === "audio-out" ? "source" : "target";
   const position: "left" | "right" = portType === "audio-in" ? "left" : "right";
+  // Every existing connection gets a real handle regardless of `multiCapable`
+  // — capping to the first one here used to silently drop a second live
+  // connection a backend can genuinely report on a non-multi-capable side
+  // (e.g. a virtual output device's monitor fan-out discovered via raw
+  // pw-link topology; see `handlesForDevice`), leaving its edge anchored
+  // nowhere real (issue #388). `multiCapable` still fully controls whether a
+  // fresh *empty* slot gets appended below — this only affects how many
+  // already-filled slots are shown, never whether new ones can be added.
   const unique = [...new Set(connectedIds)];
-  const bound = multiCapable ? unique : unique.slice(0, 1);
+  const bound = unique;
 
   const filled: RoutingGraphHandle[] = bound.map((id) => ({
     id: `${portType}:${id}`,
@@ -179,7 +187,17 @@ export function handlesForDevice(
   if (hasIn) {
     handles.push(...buildSideHandles("audio-in", connections.in, isMultiCapableSide(device, "in")));
   }
-  if (hasOut) {
+  // `hasOut` alone denies a "terminal" virtual output device (PD-033: no new
+  // forward-routing from a plain device) a *fresh, empty, draggable* output
+  // slot — but if it already has a real monitor connection (`connections.out`
+  // non-empty, e.g. an `is_monitor` link to its current_target(s)), that
+  // existing connection still needs a real handle to anchor to, or its edge
+  // falls back to Vue Flow's default node anchor instead of a port (#388).
+  // `buildSideHandles` with `multiCapable` from `isMultiCapableSide` (false
+  // for a plain virtual output) already renders exactly the existing
+  // connections with no added empty slot, so this can't reopen PD-033's
+  // "no new arbitrary forward-route" restriction.
+  if (hasOut || connections.out.length > 0) {
     handles.push(...buildSideHandles("audio-out", connections.out, isMultiCapableSide(device, "out")));
   }
   return handles;
