@@ -64,6 +64,23 @@ Set `PIPE_DECK_USE_MOCK=1` to run against a static sample graph instead of live 
 PIPE_DECK_USE_MOCK=1 make dev
 ```
 
+### Loading a specific demo scenario
+
+By default, mock mode always seeds the same hardcoded sample graph. To get a different, equally deterministic graph — a podcast setup, a multi-output streaming setup, a game+chat mix — without touching Rust code, point `PIPE_DECK_MOCK_SCENARIO` at one of the checked-in files under `scenarios/`:
+
+```bash
+PIPE_DECK_USE_MOCK=1 PIPE_DECK_MOCK_SCENARIO=scenarios/podcast.yaml make dev
+```
+
+Or use the demo runner, which sets that env var for you and is the more convenient entry point for actually recording something:
+
+```bash
+make demo SCENARIO=podcast                              # launch the dev build against a scenario
+make demo SCENARIO=streaming-multi-output MODE=screenshot # capture its views into docs/images/demo/<scenario>/ instead
+```
+
+Run `make demo` with no `SCENARIO` to list the scenarios currently available. See [Demo Scenario Spec](../specs/Demo_Scenario_Spec.md) for the file schema, and add a new `.yaml` file under `scenarios/` to define your own — no code changes needed.
+
 ### Frontend only
 
 If you're only touching Vue/TS and don't need the Tauri shell:

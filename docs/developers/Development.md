@@ -34,6 +34,7 @@ src-tauri/src/
   backend/                   Platform-neutral AudioBackend trait boundary
     mod.rs                     AudioBackend trait, BackendError, create_backend() factory
     mock.rs                    Stateful mock backend for PIPE_DECK_USE_MOCK=1 and tests
+    scenario.rs                Loads a scenarios/*.yaml file (PIPE_DECK_MOCK_SCENARIO) into a full RuntimeGraph for mock.rs — see Demo Scenario Spec
     stub.rs                    Proof-of-concept second impl, wired in on non-Linux targets
     linux/                     The only real implementation today (LinuxPipeWireBackend + pactl/pw-link/pw-dump plumbing)
   pipewire/                  Effects/filter-chain plumbing (separate from the AudioBackend boundary)
