@@ -385,6 +385,10 @@ pub struct Link {
     pub id: String,
     pub source_id: String,
     pub target_id: String,
+    /// True when this link represents a virtual sink's monitor port fanned
+    /// out to a real device, rather than a direct app/stream routing target
+    /// (issue #27) — lets the graph view style monitor paths distinctly.
+    pub is_monitor: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

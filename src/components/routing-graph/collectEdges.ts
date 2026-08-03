@@ -43,6 +43,7 @@ function makeEdge(
   linkId: string,
   sourceId: string,
   targetId: string,
+  isMonitor: boolean,
 ): BuiltGraphEdge | null {
   const processingNodes = graph.processing_nodes ?? [];
   if (!graphEntityExists(graph.streams, graph.devices, sourceId, processingNodes)) {
@@ -80,12 +81,20 @@ function makeEdge(
     target,
     sourceHandle,
     targetHandle,
-    animated: true,
+    // A monitor path (a virtual sink's monitor port fanned out to a real
+    // device, issue #27) is rendered solid + dimmed rather than the
+    // animated dashed style every direct route gets, so multi-output
+    // fan-out reads as a secondary tap instead of the primary signal path.
+    animated: !isMonitor,
     updatable: true,
     interactionWidth: 22,
     type: isBackward ? "smoothstep" : undefined,
-    class: `routing-edge ${edgeClassForPort()}`,
-    style: { stroke: edgeColorForPorts(), strokeWidth: "2.5" },
+    class: `routing-edge ${edgeClassForPort()}${isMonitor ? " routing-edge--monitor" : ""}`,
+    style: {
+      stroke: edgeColorForPorts(),
+      strokeWidth: isMonitor ? "1.75" : "2.5",
+      ...(isMonitor ? { strokeOpacity: "0.55" } : {}),
+    },
   };
 }
 
@@ -104,7 +113,7 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   const streamSourceSeen = new Set<string>();
   const captureStreamSeen = new Set<string>();
 
-  function addEdge(linkId: string, sourceId: string, targetId: string) {
+  function addEdge(linkId: string, sourceId: string, targetId: string, isMonitor = false) {
     const streamSource = graph.streams.find(
       (stream) =>
         stream.id === sourceId &&
@@ -137,7 +146,7 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
       captureStreamSeen.add(targetId);
     }
 
-    const edge = makeEdge(graph, linkId, sourceId, targetId);
+    const edge = makeEdge(graph, linkId, sourceId, targetId, isMonitor);
     if (!edge) {
       return;
     }
@@ -149,7 +158,7 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   }
 
   for (const link of graph.links) {
-    addEdge(link.id, link.source_id, link.target_id);
+    addEdge(link.id, link.source_id, link.target_id, link.is_monitor);
   }
 
   // Processing node ports (PD-032, the Mixer Node kind generalizes and
