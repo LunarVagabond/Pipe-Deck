@@ -15,12 +15,17 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
 
 const repoRoot = dirname(dirname(fileURLToPath(import.meta.url)));
-const imagesDir = join(repoRoot, "docs", "images");
+// Overridable so the demo runner (scripts/demo-runner.sh, issue #374) can
+// capture a scenario's views into its own directory without clobbering the
+// checked-in default screenshots this script normally refreshes.
+const imagesDir = process.env.PIPE_DECK_SCREENSHOT_OUTPUT_DIR
+  ? resolve(repoRoot, process.env.PIPE_DECK_SCREENSHOT_OUTPUT_DIR)
+  : join(repoRoot, "docs", "images");
 const port = 4317;
 const baseUrl = `http://localhost:${port}`;
 
