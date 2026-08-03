@@ -147,6 +147,7 @@ impl AudioBackend for LinuxPipeWireBackend {
             stream_id: stream_id.to_string(),
             target_device_id: Some(target_device_id.to_string()),
             target_device_ids: Vec::new(),
+            target_system_name: None,
         };
         crate::core::routing::apply_routing_intent(graph, &intent)
             .map_err(|error| BackendError::Message(error.to_string()))

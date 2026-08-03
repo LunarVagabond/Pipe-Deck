@@ -12,6 +12,11 @@ pub fn capture_profile_from_graph(graph: &RuntimeGraph, id: &str, name: &str) ->
                 stream_id: stream.id.clone(),
                 target_device_id: Some(target.clone()),
                 target_device_ids: Vec::new(),
+                target_system_name: graph
+                    .devices
+                    .iter()
+                    .find(|device| &device.id == target)
+                    .map(|device| device.system_name.clone()),
             })
         })
         .collect();
@@ -24,6 +29,7 @@ pub fn capture_profile_from_graph(graph: &RuntimeGraph, id: &str, name: &str) ->
                 VolumeStateEntry {
                     volume_percent,
                     muted,
+                    system_name: Some(device.system_name.clone()),
                 },
             );
         }

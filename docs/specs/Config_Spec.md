@@ -136,6 +136,35 @@ routing_intents:
 
 Fan-out uses a `pipe-deck-split-*` virtual sink plus `pw-link` monitor routes to each output.
 
+### Device identity across BT/USB reconnects (#13, #14)
+
+A hardware device's PipeWire node id is not stable across a Bluetooth or USB
+disconnect/reconnect cycle — the device gets a brand-new id when it comes
+back. Routing intents and volume-state entries therefore also carry a
+`target_system_name`/`system_name` (the device's PipeWire `node.name`, e.g.
+`bluez_output.AA_BB_CC_DD_EE_FF.1` or an ALSA card name), captured alongside
+the id when the profile is saved:
+
+```yaml
+routing_intents:
+  - stream_id: firefox-playback
+    target_device_id: "node-79"
+    target_system_name: "bluez_output.AA_BB_CC_DD_EE_FF.1"
+volume_state:
+  node-79:
+    volume_percent: 80
+    muted: false
+    system_name: "bluez_output.AA_BB_CC_DD_EE_FF.1"
+```
+
+When a profile is applied, the raw id is used if it still matches a live
+device; otherwise the matching `system_name` is used to find whatever id the
+device currently has. If neither resolves (the device is genuinely gone),
+the routing intent fails but a volume-state entry is skipped rather than
+aborting the rest of the profile apply. Both fields are optional and absent
+on profiles saved before this existed — resolution then falls back to the
+raw id only, same as before.
+
 ### Virtual devices (`virtual_devices[]`, Phase 4)
 
 Each entry describes a Pipe Deck-owned virtual sink or source that should be recreated after reboot or session restart:
@@ -189,7 +218,7 @@ rule_overrides: []      # optional (Phase 3+)
 
 - **Metadata:** `id`, `name`, `created`, `updated`
 - **Routing intents:** stream → sink/source target mappings
-- **Volume/mute state:** optional capture of levels when saving
+- **Volume/mute state:** optional capture of levels when saving, each entry also carrying the device's `system_name` for BT/USB reconnect resolution (see above)
 - **Device assumptions:** virtual device IDs present when the profile was saved; used to restore missing devices before applying routing intents
 - **Rule overrides:** optional rule activation overrides (Phase 3+)
 

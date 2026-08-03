@@ -295,12 +295,14 @@ mod tests {
                 stream_id: "node-1".into(),
                 target_device_id: Some("node-2".into()),
                 target_device_ids: vec!["node-2".into()],
+                target_system_name: None,
             }],
             volume_state: [(
                 "node-2".into(),
                 VolumeStateEntry {
                     volume_percent: 80,
                     muted: false,
+                    system_name: None,
                 },
             )]
             .into_iter()
@@ -326,6 +328,7 @@ mod tests {
                 VolumeStateEntry {
                     volume_percent: 150,
                     muted: false,
+                    system_name: None,
                 },
             )]
             .into_iter()
@@ -385,6 +388,7 @@ mod tests {
             stream_id: "".into(),
             target_device_id: Some("node-2".into()),
             target_device_ids: vec!["node-2".into()],
+            target_system_name: None,
         }];
 
         let error =
@@ -399,6 +403,7 @@ mod tests {
             stream_id: "node-1".into(),
             target_device_id: None,
             target_device_ids: vec![],
+            target_system_name: None,
         }];
 
         let error = validate_profile(&profile).expect_err("missing targets should be rejected");
@@ -413,6 +418,7 @@ mod tests {
             VolumeStateEntry {
                 volume_percent: 50,
                 muted: false,
+                system_name: None,
             },
         )]
         .into_iter()
