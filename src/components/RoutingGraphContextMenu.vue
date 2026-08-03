@@ -99,6 +99,100 @@ const nodePickerOpen = ref(false);
  * that can be open alongside). */
 const openCategory = ref<"general" | "input" | "output" | null>(null);
 
+/** A single searchable action in the pane menu's flat command list — every
+ * category (general nodes, stub effects, input/output, "bring node here")
+ * flattens into this shape so free-text search can rank across all of them
+ * at once, letting a keyboard user skip the category flyouts entirely. */
+interface SearchableAction {
+  id: string;
+  label: string;
+  description?: string;
+  run: () => void;
+}
+
+const searchQuery = ref("");
+const searchInputRef = ref<HTMLInputElement | null>(null);
+const highlightedIndex = ref(0);
+
+const paneSearchActions = computed<SearchableAction[]>(() => {
+  if (props.target?.kind !== "pane") {
+    return [];
+  }
+  const actions: SearchableAction[] = [
+    ...GENERAL_NODE_CATALOG.map((node) => ({
+      id: `general-${node.type}`,
+      label: `+ ${node.label}`,
+      description: node.description,
+      run: () => onPickNodeType(node.type),
+    })),
+    ...STUB_EFFECT_CATALOG.map((effect) => ({
+      id: `stub-${effect.kind}`,
+      label: effect.label,
+      description: effect.description,
+      run: () => onPickStubEffect(effect.kind, effect.label),
+    })),
+    {
+      id: "io-input",
+      label: "+ Virtual Input",
+      description: IO_NODE_DESCRIPTIONS.input,
+      run: () => onPickNodeType("input"),
+    },
+    {
+      id: "io-output",
+      label: "+ Virtual Output",
+      description: IO_NODE_DESCRIPTIONS.output,
+      run: () => onPickNodeType("output"),
+    },
+    ...(props.nodes ?? []).map((node) => ({
+      id: `bring-${node.id}`,
+      label: `Bring here: ${node.label}`,
+      run: () => onPickNode(node.id),
+    })),
+  ];
+  return actions;
+});
+
+const filteredSearchActions = computed<SearchableAction[]>(() => {
+  const query = searchQuery.value.trim().toLowerCase();
+  if (!query) {
+    return [];
+  }
+  return paneSearchActions.value.filter(
+    (action) =>
+      action.label.toLowerCase().includes(query) ||
+      action.description?.toLowerCase().includes(query),
+  );
+});
+
+watch(filteredSearchActions, () => {
+  highlightedIndex.value = 0;
+});
+
+function onSearchKeydown(event: KeyboardEvent) {
+  const matches = filteredSearchActions.value;
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    if (matches.length > 0) {
+      highlightedIndex.value = (highlightedIndex.value + 1) % matches.length;
+    }
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    if (matches.length > 0) {
+      highlightedIndex.value = (highlightedIndex.value - 1 + matches.length) % matches.length;
+    }
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    matches[highlightedIndex.value]?.run();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    if (searchQuery.value) {
+      searchQuery.value = "";
+    } else {
+      emit("close");
+    }
+  }
+}
+
 const menuRef = ref<HTMLDivElement | null>(null);
 /** Clamped-to-viewport render position — starts at the raw click point
  * (`target.x`/`target.y`), then nudged left/up after mount once the menu's
@@ -128,17 +222,25 @@ async function clampPosition() {
 
 watch(
   () => props.target,
-  () => {
+  async () => {
     nodePickerOpen.value = false;
     openCategory.value = null;
+    searchQuery.value = "";
+    highlightedIndex.value = 0;
     clampPosition();
+    if (props.target?.kind === "pane") {
+      await nextTick();
+      searchInputRef.value?.focus();
+    }
   },
   { immediate: true },
 );
 // Expanding a category flyout or the "Bring node here" picker can grow the
 // menu well past its initial closed size — re-clamp whenever either opens
 // so the flyout itself doesn't run off-screen even when the closed menu fit.
-watch([openCategory, nodePickerOpen], clampPosition);
+// Typing into the pane search box swaps the categorized layout for a flat
+// results list of a different size, so it needs the same re-clamp.
+watch([openCategory, nodePickerOpen, searchQuery], clampPosition);
 
 const menuStyle = computed(() => {
   const target = props.target;
@@ -217,60 +319,84 @@ function onPickStubEffect(stubKind: string, label: string) {
       <button type="button" @click="emit('group-outputs')">Group Selected Outputs</button>
     </template>
     <template v-else>
-      <p class="routing-graph-context-menu-label">Add node</p>
-      <div class="routing-graph-node-picker-anchor">
-        <button type="button" @click="toggleCategory('general')">General ▸</button>
-        <div v-if="openCategory === 'general'" class="routing-graph-node-category-flyout">
-          <button
-            v-for="node in GENERAL_NODE_CATALOG"
-            :key="node.type"
-            type="button"
-            :title="node.description"
-            @click="onPickNodeType(node.type)"
-          >
-            + {{ node.label }}
-          </button>
-          <hr class="routing-graph-context-menu-separator" />
-          <p class="routing-graph-context-menu-label">Not yet implemented</p>
-          <button
-            v-for="effect in STUB_EFFECT_CATALOG"
-            :key="effect.kind"
-            type="button"
-            :title="effect.description"
-            @click="onPickStubEffect(effect.kind, effect.label)"
-          >
-            {{ effect.label }}
-          </button>
+      <input
+        ref="searchInputRef"
+        v-model="searchQuery"
+        type="text"
+        class="routing-graph-context-menu-search"
+        placeholder="Search actions…"
+        @keydown="onSearchKeydown"
+      />
+      <template v-if="searchQuery.trim()">
+        <button
+          v-for="(action, index) in filteredSearchActions"
+          :key="action.id"
+          type="button"
+          :class="{ 'is-highlighted': index === highlightedIndex }"
+          :title="action.description"
+          @mouseenter="highlightedIndex = index"
+          @click="action.run()"
+        >
+          {{ action.label }}
+        </button>
+        <p v-if="!filteredSearchActions.length" class="routing-graph-context-menu-label">No matches</p>
+      </template>
+      <template v-else>
+        <p class="routing-graph-context-menu-label">Add node</p>
+        <div class="routing-graph-node-picker-anchor">
+          <button type="button" @click="toggleCategory('general')">General ▸</button>
+          <div v-if="openCategory === 'general'" class="routing-graph-node-category-flyout">
+            <button
+              v-for="node in GENERAL_NODE_CATALOG"
+              :key="node.type"
+              type="button"
+              :title="node.description"
+              @click="onPickNodeType(node.type)"
+            >
+              + {{ node.label }}
+            </button>
+            <hr class="routing-graph-context-menu-separator" />
+            <p class="routing-graph-context-menu-label">Not yet implemented</p>
+            <button
+              v-for="effect in STUB_EFFECT_CATALOG"
+              :key="effect.kind"
+              type="button"
+              :title="effect.description"
+              @click="onPickStubEffect(effect.kind, effect.label)"
+            >
+              {{ effect.label }}
+            </button>
+          </div>
         </div>
-      </div>
-      <div class="routing-graph-node-picker-anchor">
-        <button type="button" @click="toggleCategory('input')">Input ▸</button>
-        <div v-if="openCategory === 'input'" class="routing-graph-node-category-flyout">
-          <button type="button" :title="IO_NODE_DESCRIPTIONS.input" @click="onPickNodeType('input')">+ Virtual Input</button>
+        <div class="routing-graph-node-picker-anchor">
+          <button type="button" @click="toggleCategory('input')">Input ▸</button>
+          <div v-if="openCategory === 'input'" class="routing-graph-node-category-flyout">
+            <button type="button" :title="IO_NODE_DESCRIPTIONS.input" @click="onPickNodeType('input')">+ Virtual Input</button>
+          </div>
         </div>
-      </div>
-      <div class="routing-graph-node-picker-anchor">
-        <button type="button" @click="toggleCategory('output')">Output ▸</button>
-        <div v-if="openCategory === 'output'" class="routing-graph-node-category-flyout">
-          <button type="button" :title="IO_NODE_DESCRIPTIONS.output" @click="onPickNodeType('output')">+ Virtual Output</button>
+        <div class="routing-graph-node-picker-anchor">
+          <button type="button" @click="toggleCategory('output')">Output ▸</button>
+          <div v-if="openCategory === 'output'" class="routing-graph-node-category-flyout">
+            <button type="button" :title="IO_NODE_DESCRIPTIONS.output" @click="onPickNodeType('output')">+ Virtual Output</button>
+          </div>
         </div>
-      </div>
 
-      <hr class="routing-graph-context-menu-separator" />
-      <div class="routing-graph-node-picker-anchor">
-        <button type="button" @click="nodePickerOpen = !nodePickerOpen">Bring node here…</button>
-        <div v-if="nodePickerOpen" class="routing-graph-node-picker">
-          <button
-            v-for="node in nodes ?? []"
-            :key="node.id"
-            type="button"
-            @click="onPickNode(node.id)"
-          >
-            {{ node.label }}
-          </button>
-          <p v-if="!nodes?.length" class="routing-graph-context-menu-label">No nodes on the board</p>
+        <hr class="routing-graph-context-menu-separator" />
+        <div class="routing-graph-node-picker-anchor">
+          <button type="button" @click="nodePickerOpen = !nodePickerOpen">Bring node here…</button>
+          <div v-if="nodePickerOpen" class="routing-graph-node-picker">
+            <button
+              v-for="node in nodes ?? []"
+              :key="node.id"
+              type="button"
+              @click="onPickNode(node.id)"
+            >
+              {{ node.label }}
+            </button>
+            <p v-if="!nodes?.length" class="routing-graph-context-menu-label">No nodes on the board</p>
+          </div>
         </div>
-      </div>
+      </template>
     </template>
   </div>
 </template>

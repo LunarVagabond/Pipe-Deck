@@ -10,8 +10,10 @@ export interface RoutingGraphNodeMenuTarget {
    * target, only a RuntimeGraph `entityId`. */
   systemName?: string;
   /** The underlying RuntimeGraph device/stream id — always present, unlike
-   * `deviceId` below which is scoped to effects-capable device nodes. This
-   * is what "Copy ID" copies. */
+   * `deviceId` below which is scoped to effects-capable device nodes.
+   * "Copy ID" copies `systemName` when present (the real PipeWire node
+   * name) and only falls back to this internal id for streams, which have
+   * no `systemName`. */
   entityId: string;
   editable: boolean;
   deletable: boolean;

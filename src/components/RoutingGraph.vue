@@ -330,7 +330,12 @@ async function onCopyIdAction() {
     return;
   }
   try {
-    await navigator.clipboard.writeText(target.entityId);
+    // Prefer the real PipeWire node name (e.g. `alsa_output.pci-...`) over
+    // our internal `node-<id>` RuntimeGraph id — that's the identifier
+    // that's actually useful in a bug report or a `pactl`/`pw-link`
+    // invocation. Streams have no PipeWire-side alias/rename target and so
+    // no `systemName`, so they fall back to `entityId`.
+    await navigator.clipboard.writeText(target.systemName ?? target.entityId);
     handleApplyResult({ success: true }, "ID copied to clipboard.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

@@ -45,7 +45,8 @@
     text-align: left;
     cursor: pointer;
 
-    &:hover {
+    &:hover,
+    &.is-highlighted {
       background: rgba(255, 255, 255, 0.06);
     }
 
@@ -55,6 +56,26 @@
       &:hover {
         background: rgba(255, 107, 107, 0.12);
       }
+    }
+  }
+
+  // Free-text filter for the pane "Add node" menu (issue: context menu
+  // search) — auto-focused on open so a keyboard-first user can start
+  // typing immediately instead of clicking through category flyouts.
+  .routing-graph-context-menu-search {
+    display: block;
+    width: 100%;
+    margin-bottom: 0.35rem;
+    padding: 0.4rem 0.6rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface-2);
+    color: var(--text);
+    font-size: 0.8rem;
+
+    &:focus {
+      outline: none;
+      border-color: var(--accent-purple, #7c5cff);
     }
   }
 }
