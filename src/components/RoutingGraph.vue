@@ -330,12 +330,11 @@ async function onCopyIdAction() {
     return;
   }
   try {
-    // Prefer the real PipeWire node name (e.g. `alsa_output.pci-...`) over
-    // our internal `node-<id>` RuntimeGraph id — that's the identifier
-    // that's actually useful in a bug report or a `pactl`/`pw-link`
-    // invocation. Streams have no PipeWire-side alias/rename target and so
-    // no `systemName`, so they fall back to `entityId`.
-    await navigator.clipboard.writeText(target.systemName ?? target.entityId);
+    // `entityId` is `node-<pipewire global id>` (see pw_dump.rs::node_id) —
+    // the bare numeric id is what's actually needed to kill an orphaned
+    // node directly (e.g. `pw-cli destroy 58`), so strip the internal
+    // "node-" prefix rather than exposing our own RuntimeGraph id format.
+    await navigator.clipboard.writeText(target.entityId.replace(/^node-/, ""));
     handleApplyResult({ success: true }, "ID copied to clipboard.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);

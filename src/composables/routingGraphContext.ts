@@ -10,10 +10,10 @@ export interface RoutingGraphNodeMenuTarget {
    * target, only a RuntimeGraph `entityId`. */
   systemName?: string;
   /** The underlying RuntimeGraph device/stream id — always present, unlike
-   * `deviceId` below which is scoped to effects-capable device nodes.
-   * "Copy ID" copies `systemName` when present (the real PipeWire node
-   * name) and only falls back to this internal id for streams, which have
-   * no `systemName`. */
+   * `deviceId` below which is scoped to effects-capable device nodes. This
+   * is `node-<pipewire global id>` (`pw_dump.rs::node_id`); "Copy ID" strips
+   * the "node-" prefix and copies the bare numeric PipeWire id, which is
+   * what's actually needed to kill an orphaned node directly. */
   entityId: string;
   editable: boolean;
   deletable: boolean;
