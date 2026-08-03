@@ -955,6 +955,15 @@ pub struct RoutingIntent {
     pub target_device_id: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub target_device_ids: Vec<String>,
+    /// `system_name` of the target device at capture time, e.g.
+    /// `bluez_output.AA_BB_CC_DD_EE_FF.1` or an ALSA card name. A hardware
+    /// device's PipeWire node id is not stable across a BT/USB
+    /// disconnect-reconnect cycle (#13, #14) — `system_name` is, so it's
+    /// used to re-resolve `target_device_id` to whatever the live id
+    /// happens to be when the intent is applied. `None` for profiles saved
+    /// before this field existed; resolution then falls back to the raw id.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_system_name: Option<String>,
 }
 
 impl RoutingIntent {
@@ -1002,6 +1011,12 @@ pub struct VolumeStateEntry {
     pub volume_percent: u8,
     #[serde(default)]
     pub muted: bool,
+    /// `system_name` of the device this entry was captured for — same
+    /// stable-identity fallback as `RoutingIntent::target_system_name`
+    /// (#13, #14), used to re-resolve the id when it no longer matches a
+    /// live device (e.g. after a BT/USB reconnect assigned a new one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_name: Option<String>,
 }
 
 /// A single dynamics processing block (compressor, limiter, or noise gate).

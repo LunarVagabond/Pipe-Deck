@@ -70,6 +70,7 @@ mod tests {
                 stream_id: "slack".into(),
                 target_device_id: Some("speakers".into()),
                 target_device_ids: Vec::new(),
+                target_system_name: None,
             }],
             volume_state: Default::default(),
             device_assumptions: Default::default(),
