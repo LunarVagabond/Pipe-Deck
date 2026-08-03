@@ -7,11 +7,18 @@ test.describe("Group node member list (issue #80, PD-035 revision)", () => {
   });
 
   test("draws no edges from the Group node to its real members", async ({ page }) => {
-    // Only the two plain device nodes and the group node itself — no edges
-    // at all, since the group has no input connected in this fixture and
-    // its output side never renders as edges regardless.
-    await expect(page.locator(".vue-flow__node")).toHaveCount(3);
+    // The three plain device nodes (two members, one not-yet-added) plus
+    // the group node itself — no edges at all, since the group has no
+    // input connected in this fixture and its output side never renders as
+    // edges regardless.
+    await expect(page.locator(".vue-flow__node")).toHaveCount(4);
     await expect(page.locator(".vue-flow__edge")).toHaveCount(0);
+  });
+
+  test("the group node has no output pin, only an input pin", async ({ page }) => {
+    const groupNode = page.locator(".vue-flow__node", { hasText: "Test Group" });
+    await expect(groupNode.locator(".routing-graph-node-ports--in .vue-flow__handle")).toHaveCount(1);
+    await expect(groupNode.locator(".routing-graph-node-ports--out .vue-flow__handle")).toHaveCount(0);
   });
 
   test("member list is hidden until expanded, then shows both member names", async ({ page }) => {
@@ -52,7 +59,23 @@ test.describe("Group node member list (issue #80, PD-035 revision)", () => {
     // without throwing/crashing the page (mirrors the existing keyboard-connect
     // test's same "no backend" caveat).
     await removeButton.click();
-    await expect(page.locator(".vue-flow__node")).toHaveCount(3);
+    await expect(page.locator(".vue-flow__node")).toHaveCount(4);
+  });
+
+  test("+ add member button opens a picker of outputs not already in the group", async ({ page }) => {
+    await page.click('button[aria-label="Add output to group"]');
+
+    const picker = page.locator(".routing-graph-node-picker");
+    await expect(picker).toBeVisible();
+    const options = picker.locator("button");
+    await expect(options).toHaveCount(1);
+    await expect(options.first()).toContainText("HDMI");
+
+    // No live Tauri runtime in this harness, so connect_processing_node_port
+    // can't actually apply — this just proves the click reaches the handler
+    // and closes the picker, same "no backend" caveat as the remove-button test.
+    await options.first().click();
+    await expect(page.locator(".routing-graph-node-picker")).toHaveCount(0);
   });
 
   test("the real member node itself shows no group-connection wiring or badge", async ({ page }) => {

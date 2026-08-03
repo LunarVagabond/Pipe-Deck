@@ -83,6 +83,11 @@ export interface RoutingGraphNodeData {
    * needing the whole graph threaded down to it. `portIndex` is what
    * `disconnect_processing_node_port` needs to remove that one member. */
   groupMembers?: { id: string; label: string; portIndex: number }[];
+  /** Set only for a `group`-kind processing node — every terminal output
+   * device (hardware or plain virtual, same eligibility as the initial
+   * "Group Selected Outputs" gesture) not already a member, for the "+ add
+   * member" picker in `RoutingGraphNodeGroup.vue`. */
+  groupAvailableDevices?: { id: string; label: string }[];
 }
 
 export interface RoutingGraphGroupData {
@@ -370,6 +375,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
 };
 
 function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): RoutingGraphNodeData {
+  const memberIds = new Set((node.outputs ?? []).map((port) => port.connected_id).filter(Boolean));
   const groupMembers =
     node.kind.kind === "group"
       ? (node.outputs ?? [])
@@ -379,6 +385,12 @@ function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): Rout
             label: graph.devices.find((device) => device.id === port.connected_id)?.label ?? port.connected_id,
             portIndex: port.index,
           }))
+      : undefined;
+  const groupAvailableDevices =
+    node.kind.kind === "group"
+      ? graph.devices
+          .filter((device) => deviceColumn(device) === "outputs" && !memberIds.has(device.id))
+          .map((device) => ({ id: device.id, label: device.label }))
       : undefined;
 
   return {
@@ -403,6 +415,7 @@ function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): Rout
     processingNodeKind: node.kind,
     processingNodeBypassed: node.bypassed,
     groupMembers,
+    groupAvailableDevices,
   };
 }
 

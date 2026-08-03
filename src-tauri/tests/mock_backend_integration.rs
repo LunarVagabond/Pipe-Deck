@@ -589,6 +589,68 @@ fn create_output_group_wires_all_members_atomically() {
         .expect("output_a should still be independently connectable outside the group");
 }
 
+/// A Group's entire identity is its member set — disconnecting the last
+/// remaining member removes the group itself outright, rather than leaving
+/// a zero-output husk on the canvas.
+#[test]
+fn disconnecting_a_groups_last_member_removes_the_group_entirely() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+    let output_b = engine.create_virtual_output("Recorder").expect("create output b");
+
+    let node = engine
+        .create_output_group("Speakers + Recorder", &[output_a.device_id.clone(), output_b.device_id.clone()])
+        .expect("create group");
+
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect first member");
+    assert!(
+        engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        "group should still exist with one member remaining"
+    );
+
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect last remaining member");
+    assert!(
+        !engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        "group should be auto-removed once its last member is disconnected"
+    );
+}
+
+/// The auto-remove-when-empty behavior is Group-specific — a Fan-out node
+/// with its last output disconnected stays around (a transient 0-output
+/// state may be a deliberate mid-edit step there, unlike a Group).
+#[test]
+fn disconnecting_a_fan_outs_last_output_does_not_remove_the_node() {
+    use pipe_deck_lib::core::models::PortDirection;
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Solo Fan-out",
+            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+        )
+        .expect("create fan-out node");
+    let output_a = engine.create_virtual_output("Target").expect("create target");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
+        .expect("connect output");
+
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect only output");
+    assert!(
+        engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        "fan-out should remain even with zero connected outputs"
+    );
+}
+
 /// A group needs at least 2 members — a single-member "group" is rejected
 /// outright rather than silently creating a degenerate one-output node.
 #[test]

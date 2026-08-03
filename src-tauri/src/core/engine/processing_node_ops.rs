@@ -222,6 +222,26 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
+
+        // A Group node's entire identity is its member set (issue #80,
+        // PD-035 revision: it's presented as a terminal output with 1-many
+        // internal members, not a general-purpose building block) — unlike
+        // Fan-out, where a transient 0-output state might be a deliberate
+        // mid-edit step, a Group with zero remaining members is meaningless.
+        // Disconnecting the last one removes the group outright rather than
+        // leaving an empty husk on the canvas.
+        if direction == PortDirection::Output && matches!(node.kind, ProcessingNodeKind::Group { .. }) {
+            let still_has_outputs = self
+                .graph
+                .processing_nodes
+                .iter()
+                .find(|n| n.id == node_id)
+                .is_some_and(|n| n.outputs.iter().any(|port| port.connected_id.is_some()));
+            if !still_has_outputs {
+                return self.remove_processing_node(node_id);
+            }
+        }
+
         Ok(ApplyResult { success: true, message: None })
     }
 

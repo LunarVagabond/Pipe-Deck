@@ -205,11 +205,18 @@ export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHand
   // one empty slot until it's filled, then none, so a capped side never
   // grows a second (wrong) connection point once occupied.
   const inputGrowable = node.kind.kind === "mixer";
-  const outputGrowable = node.kind.kind === "fan_out" || node.kind.kind === "group";
+  const outputGrowable = node.kind.kind === "fan_out";
 
   const handles: RoutingGraphHandle[] = [];
   handles.push(...buildSideHandles("audio-in", inConnected, inputGrowable));
-  handles.push(...buildSideHandles("audio-out", outConnected, outputGrowable));
+  // A Group node shows no output pins at all (issue #80 follow-up) — it
+  // reads as a terminal output, same as a plain hardware/virtual output
+  // device, which also has no output handle. Members are managed entirely
+  // through the node's own member-list UI (RoutingGraphNodeGroup.vue), not
+  // drag-to-connect. Revisit if per-member drag-wiring is ever wanted later.
+  if (node.kind.kind !== "group") {
+    handles.push(...buildSideHandles("audio-out", outConnected, outputGrowable));
+  }
   return handles;
 }
 

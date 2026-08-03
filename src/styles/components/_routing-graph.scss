@@ -510,6 +510,18 @@
     }
   }
 
+  // "+ add member" (a Group node's header action) — same compact sizing as
+  // Reset above.
+  .node-card-actions .routing-graph-node-header-add-member {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-muted);
+
+    &:hover {
+      color: var(--text);
+    }
+  }
+
   // The DSP warning icon sits in the header row (next to Reset/Delete) for
   // any DSP-backed processing node — see `_routing-graph.scss`'s other
   // `.routing-graph-node-dsp-warning` rule for the shared color/opacity;

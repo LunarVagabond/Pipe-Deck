@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, inject, ref } from "vue";
 import { Handle, Position, useNodeId, useVueFlow } from "@vue-flow/core";
+import { invoke } from "@tauri-apps/api/core";
 import NodeCardHeader from "./NodeCardHeader.vue";
 import NodeTypeIcon from "./NodeTypeIcon.vue";
 import RoutingGraphNodeEffects from "./RoutingGraphNodeEffects.vue";
@@ -97,6 +98,17 @@ function onResetClick() {
     widenerRef.value ??
     panRef.value
   )?.reset();
+}
+
+// Issue #80 follow-up: adding a member to an existing Group is a picker,
+// not drag-to-connect (Group has no output pins at all — see
+// nodePorts.ts::handlesForProcessingNode) — lists every terminal output
+// device not already a member (buildGraph.ts's groupAvailableDevices).
+const addMemberPickerOpen = ref(false);
+
+async function onAddMember(deviceId: string) {
+  addMemberPickerOpen.value = false;
+  await invoke("connect_processing_node_port", { nodeId: props.data.entityId, direction: "output", peerId: deviceId });
 }
 
 const inHandles = computed(() => props.data.handles.filter((handle) => handle.position === "left"));
@@ -312,23 +324,52 @@ function onToggleMute() {
             @save="onRename"
             @delete="onDelete"
           >
-            <template v-if="dspWarningText" #toolbar-extra>
-              <button
-                type="button"
-                class="icon-btn routing-graph-node-header-reset"
-                title="Reset to defaults"
-                aria-label="Reset to defaults"
-                @click="onResetClick"
-              >
-                ↺
-              </button>
-              <span
-                class="routing-graph-node-dsp-warning"
-                :title="dspWarningText"
-                :aria-label="dspWarningText"
-              >
-                ⚠
-              </span>
+            <template
+              v-if="dspWarningText || data.processingNodeKind?.kind === 'group'"
+              #toolbar-extra
+            >
+              <template v-if="dspWarningText">
+                <button
+                  type="button"
+                  class="icon-btn routing-graph-node-header-reset"
+                  title="Reset to defaults"
+                  aria-label="Reset to defaults"
+                  @click="onResetClick"
+                >
+                  ↺
+                </button>
+                <span
+                  class="routing-graph-node-dsp-warning"
+                  :title="dspWarningText"
+                  :aria-label="dspWarningText"
+                >
+                  ⚠
+                </span>
+              </template>
+              <div v-if="data.processingNodeKind?.kind === 'group'" class="routing-graph-node-picker-anchor">
+                <button
+                  type="button"
+                  class="icon-btn routing-graph-node-header-add-member"
+                  title="Add output to group"
+                  aria-label="Add output to group"
+                  @click="addMemberPickerOpen = !addMemberPickerOpen"
+                >
+                  +
+                </button>
+                <div v-if="addMemberPickerOpen" class="routing-graph-node-picker">
+                  <button
+                    v-for="candidate in data.groupAvailableDevices ?? []"
+                    :key="candidate.id"
+                    type="button"
+                    @click="onAddMember(candidate.id)"
+                  >
+                    {{ candidate.label }}
+                  </button>
+                  <p v-if="(data.groupAvailableDevices ?? []).length === 0" class="routing-graph-context-menu-label">
+                    No other outputs available
+                  </p>
+                </div>
+              </div>
             </template>
           </NodeCardHeader>
           <strong v-else>{{ data.label }}</strong>
