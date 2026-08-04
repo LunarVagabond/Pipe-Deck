@@ -1,0 +1,36 @@
+@use "../variables" as vars;
+
+.soundboard-view {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.soundboard-view .eyebrow {
+  margin: 0;
+  color: var(--accent-teal);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.soundboard-empty-state {
+  display: grid;
+  gap: 0.3rem;
+  padding: 1rem;
+  border-radius: 0.8rem;
+  background: vars.translucent(--background, 45);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+
+  strong {
+    color: var(--text);
+  }
+
+  p {
+    margin: 0;
+    color: var(--text-muted);
+  }
+}

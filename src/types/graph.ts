@@ -587,5 +587,6 @@ export type AppView =
   | "routing"
   | "mixer"
   | "sources"
+  | "soundboard"
   | "effects"
   | "settings";
