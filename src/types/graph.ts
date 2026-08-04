@@ -242,6 +242,8 @@ export interface SoundboardBoard {
   id: string;
   name: string;
   folder: string;
+  /** clip id (file name) -> target device system_name. Set via #398. */
+  clip_targets: Record<string, string>;
 }
 
 export interface SoundboardClip {

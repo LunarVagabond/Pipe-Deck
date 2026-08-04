@@ -46,7 +46,7 @@ describe("Soundboard", () => {
   });
 
   it("lists clips for the active tab", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx" }];
+    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
     const clips: SoundboardClip[] = [
       { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
     ];
@@ -66,7 +66,7 @@ describe("Soundboard", () => {
   });
 
   it("refresh button re-lists clips for the active tab", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx" }];
+    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
     let clips: SoundboardClip[] = [];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -112,7 +112,7 @@ describe("Soundboard", () => {
   });
 
   it("shows the backend error message when listing fails", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/missing" }];
+    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/missing", clip_targets: {} }];
     mockInvoke({
       list_soundboard_boards: () => boards,
       list_soundboard_sounds: () => {
@@ -126,7 +126,7 @@ describe("Soundboard", () => {
   });
 
   it("deletes the active tab after confirmation", async () => {
-    let boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx" }];
+    let boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
     mockInvoke({
       list_soundboard_boards: () => boards,
       list_soundboard_sounds: () => [],
