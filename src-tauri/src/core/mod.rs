@@ -7,4 +7,5 @@ pub mod restore;
 pub mod routing;
 pub mod routing_rules;
 pub mod rules;
+pub mod soundboard;
 pub mod stream_identity;

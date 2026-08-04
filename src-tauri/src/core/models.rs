@@ -464,6 +464,11 @@ pub struct Preferences {
     pub light_scheme: String,
     #[serde(default = "default_notice_duration_ms")]
     pub notice_duration_ms: u32,
+    /// User-named tabs for the Soundboard (#127), each backing its own
+    /// folder of clips (Soundux-style — e.g. "Music", "SFX"). Empty until
+    /// the user adds one; no default board is created for them.
+    #[serde(default)]
+    pub soundboard_boards: Vec<crate::core::soundboard::SoundboardBoard>,
 }
 
 fn default_theme_mode() -> String {
@@ -494,6 +499,7 @@ impl Default for Preferences {
             dark_scheme: default_dark_scheme(),
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
+            soundboard_boards: Vec::new(),
         }
     }
 }

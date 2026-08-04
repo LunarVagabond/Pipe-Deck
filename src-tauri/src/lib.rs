@@ -30,6 +30,7 @@ pub fn run() {
         }))
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::app_info::get_app_info,
@@ -117,6 +118,10 @@ pub fn run() {
             commands::plugins::list_plugin_discovery_errors,
             commands::plugins::list_plugin_capability_metadata,
             commands::plugins::list_plugin_routing_suggestions,
+            commands::soundboard::list_soundboard_boards,
+            commands::soundboard::save_soundboard_board,
+            commands::soundboard::delete_soundboard_board,
+            commands::soundboard::list_soundboard_sounds,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

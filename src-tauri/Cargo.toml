@@ -36,6 +36,7 @@ flate2 = "1"
 tar = "0.4"
 regex = "1"
 tauri-plugin-http = "2.5.9"
+tauri-plugin-dialog = "2"
 
 # Native, restart-free effects transport (issue #148, cutover in #149) —
 # links `libpipewire` directly (via `pipewire-rs`) from the daemon binary to
