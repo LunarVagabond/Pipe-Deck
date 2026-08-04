@@ -14,7 +14,6 @@ const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "oga", "mp3", "aif
 /// convention as `Rule.id` — see `Rules.vue`) and passed in on save; the
 /// backend never mints one itself.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub struct SoundboardBoard {
     pub id: String,
     pub name: String,
@@ -33,7 +32,6 @@ pub struct SoundboardBoard {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
 pub struct SoundboardClip {
     /// The file name (stem + extension) — stable and unique within a single
     /// folder, so it doubles as an id and as the key into
