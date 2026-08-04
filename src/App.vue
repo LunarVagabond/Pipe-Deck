@@ -16,6 +16,7 @@ import Profiles from "./views/Profiles.vue";
 import Routing from "./views/Routing.vue";
 import Rules from "./views/Rules.vue";
 import Settings from "./views/Settings.vue";
+import Soundboard from "./views/Soundboard.vue";
 import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
 import { useNewDeviceDialog } from "./stores/newDeviceDialog";
@@ -39,6 +40,7 @@ const navItems = ref<
   { id: "routing", label: "Routing", enabled: true },
   { id: "mixer", label: "Mixer", enabled: true },
   { id: "sources", label: "Sources", enabled: true },
+  { id: "soundboard", label: "Soundboard", enabled: true },
   { id: "effects", label: "Effects", enabled: true },
   { id: "settings", label: "Settings", enabled: true },
 ]);
@@ -284,6 +286,7 @@ onUnmounted(() => {
         <Routing v-else-if="activeView === 'routing'" />
         <Mixer v-else-if="activeView === 'mixer'" />
         <Sources v-else-if="activeView === 'sources'" />
+        <Soundboard v-else-if="activeView === 'soundboard'" />
         <Effects v-else-if="activeView === 'effects'" />
         <Settings v-else-if="activeView === 'settings'" />
       </main>

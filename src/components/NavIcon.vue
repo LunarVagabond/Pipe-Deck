@@ -67,6 +67,11 @@ defineProps<{
       stroke-linecap="round"
       stroke-linejoin="round"
     />
+    <!-- Soundboard: trigger pad with a play mark -->
+    <g v-else-if="kind === 'soundboard'" fill="none" stroke="currentColor" stroke-width="1.75">
+      <rect x="3" y="3" width="18" height="18" rx="3" />
+      <path d="M10 8.5l6 3.5-6 3.5V8.5z" fill="currentColor" stroke="none" />
+    </g>
     <!-- Effects: processing curve -->
     <path
       v-else-if="kind === 'effects'"
