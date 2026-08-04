@@ -95,6 +95,12 @@ make build          # production bundles (deb/rpm/AppImage/binary)
 
 Enable background restore from the in-app **Settings** view (installs user unit, runs `systemctl --user enable --now`).
 
+### AppImage GLib patch (issue #349)
+
+`make build`'s AppImage step is followed by `scripts/fix-appimage-glib.sh`, which strips linuxdeploy's bundled `libglib-2.0`/`libgobject-2.0`/`libgio-2.0`/`libgmodule-2.0` out of the `.AppDir` before it's repackaged. Those libs aren't on upstream's `probonopd/AppImages` excludelist the way `libEGL`/`libGL`/Mesa are, so linuxdeploy bundles them; AppRun then points `LD_LIBRARY_PATH` at the AppDir ahead of the system path, and on a host whose system GLib is newer than the one bundled at build time, WebKitGTK's GDK/EGL context setup runs through that mismatched GObject/GLib and aborts with `Could not create default EGL display: EGL_BAD_PARAMETER` — a malformed-attribute error, not a missing-driver one, and the AppImage is the only affected format (the `.deb` links the host's own webkit2gtk). Removing the bundled copies is safe: LD_LIBRARY_PATH only adds a search dir ahead of the default path, so if a lib isn't there the dynamic linker falls through to the host's copy, same as already happens for EGL/GL.
+
+The script requires `unsquashfs`/`mksquashfs` (`squashfs-tools`); if they're not installed, `make build` logs a warning and skips the patch rather than failing — CI installs `squashfs-tools` explicitly so release builds are always patched. Since the patch mutates the `.AppImage` after Tauri's own build-time updater signing, `make build` re-signs it via `tauri signer sign` whenever `TAURI_SIGNING_PRIVATE_KEY`(`_PATH`) is set (as it is in CI); unsigned local dev builds just get the patch with no `.sig`.
+
 ### Uninstalling
 
 Tauri's bundler has no `postrm`/`postinst`/`%postun` hook config for the `.deb`/`.rpm` targets above — package removal only removes package-owned files (the binary, desktop file, the `/usr/lib/systemd/user/` unit template), never the per-user state Pipe Deck writes at runtime (config, the *enabled* systemd unit under `~/.config/systemd/user/`, live `pactl` virtual device modules). `pipe-deck-cli cleanup [--purge-config]` (issue #169) is the explicit, scriptable answer until/unless a future packaging change adds real pre/post-removal hooks; see `docs/developers/Uninstall.md` for the full breakdown and the Flatpak sandboxing caveat.

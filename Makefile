@@ -55,6 +55,20 @@ build-cli: build-daemon-dev ## Build pipe-deck CLI binary (debug)
 
 build: build-daemon ## Build production desktop bundles (.deb, .rpm, AppImage, binary)
 	$(NPM) run tauri build
+	@appimage=$$(ls $(CARGO_TARGET_DIR)/release/bundle/appimage/*.AppImage 2>/dev/null | head -n1); \
+	if [ -z "$$appimage" ]; then \
+		exit 0; \
+	fi; \
+	if ! command -v unsquashfs >/dev/null || ! command -v mksquashfs >/dev/null; then \
+		echo "squashfs-tools not installed; skipping AppImage glib fix for issue #349 (see scripts/fix-appimage-glib.sh) — install squashfs-tools to patch local builds too"; \
+		exit 0; \
+	fi; \
+	bash scripts/fix-appimage-glib.sh "$$appimage"; \
+	if [ -n "$$TAURI_SIGNING_PRIVATE_KEY" ] || [ -n "$$TAURI_SIGNING_PRIVATE_KEY_PATH" ]; then \
+		$(NPM) exec tauri signer sign "$$appimage"; \
+	else \
+		echo "TAURI_SIGNING_PRIVATE_KEY not set; skipping updater re-sign of patched AppImage (dev build)"; \
+	fi
 
 build-frontend: ## Type-check and build the Vue frontend
 	$(NPM) run build
