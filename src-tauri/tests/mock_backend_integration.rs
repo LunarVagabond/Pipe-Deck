@@ -1959,3 +1959,22 @@ fn latency_ping_handles_an_empty_path() {
     assert!(result.hops.is_empty());
     assert_eq!(result.total_latency_ms, Some(0.0));
 }
+
+#[test]
+fn play_sound_reaches_the_backend_for_a_known_device() {
+    let (engine, _guard) = mock_engine();
+    let device_id = engine.runtime_graph().devices[0].id.clone();
+
+    let result = engine.play_sound(std::path::Path::new("/tmp/does-not-matter.wav"), &device_id);
+
+    assert!(result.is_ok(), "expected play_sound to succeed, got {result:?}");
+}
+
+#[test]
+fn play_sound_rejects_an_unknown_device_id() {
+    let (engine, _guard) = mock_engine();
+
+    let result = engine.play_sound(std::path::Path::new("/tmp/does-not-matter.wav"), "no-such-device");
+
+    assert!(matches!(result, Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))));
+}

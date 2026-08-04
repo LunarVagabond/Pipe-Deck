@@ -27,6 +27,10 @@ pub struct MockAudioBackend {
     /// (PD-032) — tracked so `is_processing_node_loaded` reflects real
     /// load/unload calls instead of always answering `false`.
     loaded_processing_nodes: Mutex<HashSet<String>>,
+    /// `(path, target_system_name)` for every `play_sound` call (#393) — no
+    /// trait query for this exists yet, so tests assert against this field
+    /// directly rather than through the trait.
+    played_sounds: Mutex<Vec<(std::path::PathBuf, String)>>,
 }
 
 impl Default for MockAudioBackend {
@@ -72,6 +76,7 @@ impl MockAudioBackend {
             graph: Mutex::new(graph),
             loaded_effect_chains: Mutex::new(HashSet::new()),
             loaded_processing_nodes: Mutex::new(HashSet::new()),
+            played_sounds: Mutex::new(Vec::new()),
         }
     }
 
@@ -748,6 +753,14 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn play_sound(&self, path: &std::path::Path, target_system_name: &str) -> Result<(), BackendError> {
+        self.played_sounds
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push((path.to_path_buf(), target_system_name.to_string()));
+        Ok(())
+    }
+
     fn platform_audio_version(&self) -> Option<String> {
         Some("1.0.0 (mock)".to_string())
     }
@@ -1202,5 +1215,24 @@ routes: []
 
         let graph = backend.fetch_graph().unwrap();
         assert_eq!(graph.devices.len(), MockAudioBackend::sample_graph().devices.len());
+    }
+
+    #[test]
+    fn play_sound_records_the_call() {
+        let backend = MockAudioBackend::new();
+        let dir = std::env::temp_dir().join(format!("pipe-deck-play-sound-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let clip = dir.join("clip.wav");
+        std::fs::write(&clip, b"not real audio, just needs to exist").unwrap();
+
+        backend.play_sound(&clip, "pipe-deck-virtual-mic").unwrap();
+        backend.play_sound(&clip, "pipe-deck-virtual-mic").unwrap();
+
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let played = backend.played_sounds.lock().unwrap();
+        assert_eq!(played.len(), 2);
+        assert_eq!(played[0], (clip.clone(), "pipe-deck-virtual-mic".to_string()));
+        assert_eq!(played[1], (clip, "pipe-deck-virtual-mic".to_string()));
     }
 }

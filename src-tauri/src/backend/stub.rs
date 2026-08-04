@@ -162,6 +162,12 @@ impl AudioBackend for StubBackend {
         ))
     }
 
+    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
+
     fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
