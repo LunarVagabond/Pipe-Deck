@@ -413,6 +413,18 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
 - **Related bug found and fixed during this work, not part of the original design**: `resolve_playback_target_device_id` (`backend/linux/stream_match.rs`) had a branch for Mixer's per-input `pipe-deck-feed-*` indirection but none for a processing node's *own* system_name — which is exactly what Fan-out/Group use, since a stream's sink-input moves directly onto the node's own backing sink for those kinds. A stream routed into a Fan-out/Group looked unrouted (or showed the wrong target) after any refresh that re-derives `current_target` from live pactl state, e.g. an app restart, while the node's own port bookkeeping still correctly reported it connected. Fixed by adding the missing direct-match branch.
 - Rationale: builds directly on PD-032/033/034 rather than introducing a new PipeWire primitive — zero new backend risk, minimal new Rust surface (one enum variant, one bulk method composing two already-tested single-port operations, one narrowed removal check), and the frontend's internal-wiring visibility requirement is satisfied by `collectEdges.ts`'s existing generic edge-drawing with zero new code there.
 
+### PD-036 Soundboard Clip Playback Is Fire-and-Forget `pw-cat`, Not a Tracked Object
+
+- Status: Accepted
+- Context: The Soundboard epic (#127) needs a backend primitive (#393) to play a short clip's audio into a target device (a virtual input or hardware input passthrough) on demand. Unlike every other `AudioBackend` capability, this isn't a persistent object with lifecycle (create/remove/list) or graph presence (device/stream/processing node) — it's a one-shot action with a start and, eventually, a natural end.
+- Decision:
+  - `AudioBackend::play_sound(path, target_system_name)` (`backend/mod.rs`) shells out to `pw-cat --playback --target <target_system_name> <path>` (`backend/linux/play_sound.rs`), going through `sysproc::command` like every other external PipeWire/PulseAudio process this codebase spawns, never `std::process::Command` directly (see `sysproc.rs`'s own doc comment for why). `--target` accepts a node name directly, so no `pw-dump` id/serial lookup is needed the way `pw_link.rs`'s port-linking helpers need one.
+  - The call is spawned (`Command::spawn`, not `.output()`/`.wait()`) and returns as soon as the process starts, not when playback finishes. No completion signal, progress, or stop handle is returned to the caller — `play_sound` answers "did playback start," nothing more. An interrupt/stop mechanism is deliberately deferred to its own ticket (#399) rather than speculatively built alongside the primitive, consistent with this project's general preference (see CLAUDE.md's task-sizing guidance) for not building for hypothetical needs ahead of a ticket that actually needs them.
+  - `target_system_name` is a plain device `system_name`, resolved by the caller (`CoreEngine::play_sound`, `core/engine/soundboard_ops.rs`) from a domain `device_id` against the current graph — the same convention `hold_sink_inputs_for_swap`/`list_mic_feeds` already use for one-off, non-persistent backend calls, rather than the `(graph, id)` pair `route_stream`/`set_device_volume` take for routing/mixer state that needs to write back into the graph itself. `play_sound` never mutates `RuntimeGraph`.
+  - File existence is validated synchronously before spawning (`path.is_file()` in `backend/linux/play_sound.rs`) so a bad path fails immediately and legibly, rather than surfacing only as a silent, unobserved `pw-cat` exit some time later — the one piece of synchronous validation that's actually possible without waiting on the spawned process.
+- Constraints: no volume, mixing with other simultaneous clips, or effects-chain routing for a playing clip in this first slice — a clip plays at its own recorded level straight into the target device's raw input. Per-sound target-device mapping (#395), UI (#396/#398), and stop/interrupt (#399) are separate, later tickets; this decision covers only the playback primitive itself.
+- Rationale: reusing `pw-cat` (already the standard PipeWire CLI playback tool, present on any system with PipeWire installed) over hand-rolling a native `pw_filter` playback client keeps the initial soundboard primitive minimal and consistent with this project's preference for proven builtin tooling over new bespoke transports (the same reasoning CLAUDE.md gives for favoring PipeWire's own filter-chain filters over third-party plugins). Fire-and-forget, no persistent tracked object, matches the actual shape of the problem — a clip trigger is momentary, not a routable graph citizen — and keeps this first ticket's surface area small enough to independently test against both the mock backend and a real PipeWire session before any UI exists to drive it.
+
 ## Related Documents
 
 - `docs/product/Product_Requirements.md`
@@ -420,6 +432,7 @@ Centralized record of accepted product and architecture decisions for Pipe Deck.
 - `docs/architecture/System_Architecture.md`
 - `docs/architecture/PipeWire_Design.md`
 - `docs/specs/UI_Spec.md`
+- `docs/specs/Soundboard_Spec.md`
 - `docs/specs/Theming.md`
 - `docs/specs/Config_Spec.md`
 - `docs/specs/Plugin_API.md`

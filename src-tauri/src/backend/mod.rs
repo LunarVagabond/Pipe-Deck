@@ -129,6 +129,15 @@ pub trait AudioBackend: Send + Sync {
     fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo>;
     fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError>;
 
+    // --- Soundboard (#127): one-shot clip playback ---
+
+    /// Plays `path`'s audio into `target_system_name` (a virtual input or a
+    /// hardware input's underlying device). Fire-and-forget: this returns
+    /// once playback has *started*, not once the clip finishes, and gives
+    /// the caller no handle to stop it early — an interrupt mechanism is
+    /// tracked separately (issue #399) rather than speculatively built here.
+    fn play_sound(&self, path: &std::path::Path, target_system_name: &str) -> Result<(), BackendError>;
+
     // Live routing-state queries used only as rule-matching fallbacks when
     // `RuntimeGraph`'s own `current_targets`/`current_target` are stale or
     // missing (see core/rules/matching.rs, core/rules/evaluation.rs). A
@@ -549,6 +558,10 @@ impl AudioBackend for EmptyAudioBackend {
     }
 
     fn set_virtual_device_alias(&self, _system_name: &str, _alias: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 

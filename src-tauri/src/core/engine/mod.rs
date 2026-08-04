@@ -6,6 +6,7 @@ mod passthrough_ops;
 mod processing_node_ops;
 mod profile_ops;
 mod routing_ops;
+mod soundboard_ops;
 mod virtual_ops;
 
 use crate::config::ConfigStore;
