@@ -144,4 +144,50 @@ describe("Soundboard", () => {
     expect(invokeMock).toHaveBeenCalledWith("delete_soundboard_board", { boardId: "b1" });
     expect(pushNoticeMock).toHaveBeenCalledWith("success", "Tab deleted");
   });
+
+  it("clicking a tile with a target plays it", async () => {
+    const boards: SoundboardBoard[] = [
+      { id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: { "air-horn.wav": "pipe-deck-stream-mic" } },
+    ];
+    const clips: SoundboardClip[] = [
+      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
+    ];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => clips,
+      play_soundboard_clip: () => null,
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    const tile = wrapper.find(".soundboard-tile");
+    expect(tile.classes()).not.toContain("no-target");
+    await tile.trigger("click");
+    await flushPromises();
+
+    expect(invokeMock).toHaveBeenCalledWith("play_soundboard_clip", { boardId: "b1", clipId: "air-horn.wav" });
+  });
+
+  it("marks a tile with no target assigned and surfaces the backend error on click", async () => {
+    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
+    const clips: SoundboardClip[] = [
+      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
+    ];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => clips,
+      play_soundboard_clip: () => {
+        throw new Error('"air-horn" has no target device set yet');
+      },
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    const tile = wrapper.find(".soundboard-tile");
+    expect(tile.classes()).toContain("no-target");
+    await tile.trigger("click");
+    await flushPromises();
+
+    expect(pushNoticeMock).toHaveBeenCalledWith("error", '"air-horn" has no target device set yet');
+  });
 });

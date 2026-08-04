@@ -122,6 +122,7 @@ pub fn run() {
             commands::soundboard::save_soundboard_board,
             commands::soundboard::delete_soundboard_board,
             commands::soundboard::list_soundboard_sounds,
+            commands::soundboard::play_soundboard_clip,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

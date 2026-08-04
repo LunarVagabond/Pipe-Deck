@@ -80,6 +80,28 @@
   border-radius: 12px;
   text-align: center;
   min-width: 0;
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+
+  &:hover:not(:disabled) {
+    border-color: var(--accent-purple);
+  }
+
+  &:disabled {
+    cursor: not-allowed;
+  }
+
+  &.playing {
+    border-color: var(--accent-teal);
+    background: color-mix(in srgb, var(--accent-teal) 12%, var(--surface-1));
+  }
+
+  &.no-target {
+    opacity: 0.55;
+  }
 }
 
 .soundboard-tile-icon {

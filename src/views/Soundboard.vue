@@ -10,8 +10,10 @@ import type { SoundboardBoard, SoundboardClip } from "../types/graph";
 
 const ADD_TAB_OPTION = "__add_tab__";
 
-// #397 (play button wiring) and #398 (per-sound target-device picker) land
-// in later tickets — clips are listed here, not yet playable or assignable.
+// #398 (per-sound target-device picker) lands in a later ticket — a clip
+// with no target assigned yet is playable in the sense that the click is
+// wired up, but the backend rejects it (no UI to assign one exists before
+// #398, only direct config.yaml edits).
 const { handleApplyResult } = useApplyResult();
 const { prompt } = usePrompt();
 const { confirm } = useConfirm();
@@ -22,6 +24,7 @@ const clips = ref<SoundboardClip[]>([]);
 const loadingBoards = ref(true);
 const loadingClips = ref(false);
 const error = ref<string | null>(null);
+const playingClipId = ref<string | null>(null);
 
 const activeBoard = computed(() => boards.value.find((board) => board.id === activeBoardId.value) ?? null);
 
@@ -45,6 +48,25 @@ async function loadClips() {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
     loadingClips.value = false;
+  }
+}
+
+function hasTarget(clip: SoundboardClip): boolean {
+  return Boolean(activeBoard.value?.clip_targets[clip.id]);
+}
+
+async function playClip(clip: SoundboardClip) {
+  if (!activeBoardId.value || playingClipId.value) return;
+  playingClipId.value = clip.id;
+  try {
+    await invoke("play_soundboard_clip", { boardId: activeBoardId.value, clipId: clip.id });
+  } catch (err) {
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  } finally {
+    playingClipId.value = null;
   }
 }
 
@@ -205,10 +227,19 @@ onMounted(async () => {
       </div>
 
       <div v-else class="soundboard-grid">
-        <article v-for="clip in clips" :key="clip.id" class="soundboard-tile">
+        <button
+          v-for="clip in clips"
+          :key="clip.id"
+          type="button"
+          class="soundboard-tile"
+          :class="{ playing: playingClipId === clip.id, 'no-target': !hasTarget(clip) }"
+          :disabled="playingClipId !== null"
+          :title="hasTarget(clip) ? clip.label : `${clip.label} — no target device set yet`"
+          @click="playClip(clip)"
+        >
           <span class="soundboard-tile-icon">🔊</span>
           <span class="soundboard-tile-label">{{ clip.label }}</span>
-        </article>
+        </button>
       </div>
     </template>
   </div>

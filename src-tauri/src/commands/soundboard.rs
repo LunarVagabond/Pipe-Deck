@@ -1,6 +1,8 @@
 use crate::config::ConfigStore;
 use crate::core::soundboard::{self, SoundboardBoard, SoundboardClip, SoundboardError};
+use crate::AppState;
 use std::path::PathBuf;
+use tauri::State;
 
 #[tauri::command]
 pub fn list_soundboard_boards() -> Vec<SoundboardBoard> {
@@ -28,4 +30,10 @@ pub fn list_soundboard_sounds(board_id: String) -> Result<Vec<SoundboardClip>, S
         .ok_or_else(|| SoundboardError::BoardNotFound(board_id).to_string())?;
 
     soundboard::list_sounds(&PathBuf::from(board.folder)).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn play_soundboard_clip(board_id: String, clip_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let engine = state.engine.read().await;
+    engine.play_soundboard_clip(&board_id, &clip_id).map_err(|error| error.to_string())
 }
