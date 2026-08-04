@@ -117,6 +117,9 @@ pub fn run() {
             commands::plugins::list_plugin_discovery_errors,
             commands::plugins::list_plugin_capability_metadata,
             commands::plugins::list_plugin_routing_suggestions,
+            commands::soundboard::get_soundboard_folder,
+            commands::soundboard::set_soundboard_folder,
+            commands::soundboard::list_soundboard_sounds,
         ])
         .setup(|app| {
             tray::setup_tray(app)?;

@@ -235,6 +235,14 @@ export interface Preferences {
   dark_scheme?: string;
   light_scheme?: string;
   notice_duration_ms?: number;
+  soundboard_folder?: string | null;
+}
+
+export interface SoundboardClip {
+  id: string;
+  file_name: string;
+  label: string;
+  path: string;
 }
 
 export interface StreamRouteRule {

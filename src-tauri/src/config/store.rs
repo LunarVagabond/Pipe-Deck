@@ -396,6 +396,19 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    /// `folder` empty clears the setting back to unset, matching how a
+    /// blanked-out text field reads to a user — not a distinct "invalid
+    /// path" error.
+    pub fn set_soundboard_folder(&self, folder: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.soundboard_folder = if folder.trim().is_empty() {
+            None
+        } else {
+            Some(folder.trim().to_string())
+        };
+        self.save_config(&config)
+    }
+
     pub fn set_sidebar_collapsed(&self, collapsed: bool) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         config.preferences.sidebar_collapsed = collapsed;
@@ -880,6 +893,20 @@ mod tests {
             assert_eq!(preferences.dark_scheme, "copper-dusk");
             assert_eq!(preferences.light_scheme, "meadow-light");
             assert_eq!(preferences.notice_duration_ms, 8000);
+        });
+    }
+
+    #[test]
+    fn soundboard_folder_round_trips_and_blank_clears_it() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            assert_eq!(store.preferences().soundboard_folder, None);
+
+            store.set_soundboard_folder("/home/user/Sounds").unwrap();
+            assert_eq!(store.preferences().soundboard_folder, Some("/home/user/Sounds".to_string()));
+
+            store.set_soundboard_folder("  ").unwrap();
+            assert_eq!(store.preferences().soundboard_folder, None);
         });
     }
 

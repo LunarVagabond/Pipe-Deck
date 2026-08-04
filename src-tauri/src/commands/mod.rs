@@ -10,4 +10,5 @@ pub mod processing_node;
 pub mod profile;
 pub mod routing;
 pub mod rules;
+pub mod soundboard;
 pub mod virtual_device;

@@ -464,6 +464,12 @@ pub struct Preferences {
     pub light_scheme: String,
     #[serde(default = "default_notice_duration_ms")]
     pub notice_duration_ms: u32,
+    /// Folder the Soundboard tab (#127) lists clips from. `None` until the
+    /// user sets one — no default guess, since there's no convention for
+    /// where a user keeps sound clips the way there is for e.g. XDG music
+    /// dirs (which are for music libraries, not short trigger clips).
+    #[serde(default)]
+    pub soundboard_folder: Option<String>,
 }
 
 fn default_theme_mode() -> String {
@@ -494,6 +500,7 @@ impl Default for Preferences {
             dark_scheme: default_dark_scheme(),
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
+            soundboard_folder: None,
         }
     }
 }
