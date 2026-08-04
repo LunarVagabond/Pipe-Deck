@@ -30,7 +30,7 @@ pub struct MockAudioBackend {
     /// `(path, target_system_name)` for every `play_sound` call (#393) — no
     /// trait query for this exists yet, so tests assert against this field
     /// directly rather than through the trait.
-    played_sounds: Mutex<Vec<(std::path::PathBuf, String)>>,
+    played_sounds: Mutex<Vec<(std::path::PathBuf, String, u8)>>,
 }
 
 impl Default for MockAudioBackend {
@@ -753,11 +753,11 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn play_sound(&self, path: &std::path::Path, target_system_name: &str) -> Result<(), BackendError> {
+    fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError> {
         self.played_sounds
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push((path.to_path_buf(), target_system_name.to_string()));
+            .push((path.to_path_buf(), target_system_name.to_string(), volume_percent));
         Ok(())
     }
 
@@ -1225,14 +1225,14 @@ routes: []
         let clip = dir.join("clip.wav");
         std::fs::write(&clip, b"not real audio, just needs to exist").unwrap();
 
-        backend.play_sound(&clip, "pipe-deck-virtual-mic").unwrap();
-        backend.play_sound(&clip, "pipe-deck-virtual-mic").unwrap();
+        backend.play_sound(&clip, "pipe-deck-virtual-mic", 100).unwrap();
+        backend.play_sound(&clip, "pipe-deck-virtual-mic", 40).unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);
 
         let played = backend.played_sounds.lock().unwrap();
         assert_eq!(played.len(), 2);
-        assert_eq!(played[0], (clip.clone(), "pipe-deck-virtual-mic".to_string()));
-        assert_eq!(played[1], (clip, "pipe-deck-virtual-mic".to_string()));
+        assert_eq!(played[0], (clip.clone(), "pipe-deck-virtual-mic".to_string(), 100));
+        assert_eq!(played[1], (clip, "pipe-deck-virtual-mic".to_string(), 40));
     }
 }

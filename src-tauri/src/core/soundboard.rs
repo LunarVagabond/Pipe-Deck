@@ -3,7 +3,6 @@
 //! `AudioBackend::play_sound`, wired in by #397).
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 use std::path::Path;
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "oga", "mp3", "aiff", "aif", "m4a", "opus"];
@@ -13,33 +12,49 @@ const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "oga", "mp3", "aif
 /// soundboard. `id` is generated client-side (`crypto.randomUUID()`, same
 /// convention as `Rule.id` — see `Rules.vue`) and passed in on save; the
 /// backend never mints one itself.
+///
+/// Playback destinations (#398) are board-wide, not per-clip: every clip in
+/// a tab plays through the same `target`/`monitor` devices at the same
+/// volumes. `target` is the mic/virtual-input feed other people or apps
+/// hear; `monitor` is a local output (e.g. the user's own speakers) so they
+/// can hear/test a clip without it going out to the target at the same
+/// level, or without sending it to the target at all. Either leg is
+/// independently optional; per-clip overrides were deliberately cut after
+/// initial review — mapping destinations per-*tab* instead of per-*board*
+/// (i.e. more granular than this) is a possible future ticket, not
+/// something to build speculatively now. Both device fields are
+/// `system_name`, not a domain device id — the same convention as every
+/// other persisted device reference in `config.yaml`
+/// (`StreamRouteRule.target_system_name`, `MixSourceSpec.source_system_name`),
+/// since a domain id is only stable for one session while `system_name`
+/// survives a restart.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SoundboardBoard {
     pub id: String,
     pub name: String,
     pub folder: String,
-    /// `SoundboardClip.id` (a file name, unique within this board's own
-    /// folder — never global) → target device `system_name`. `system_name`
-    /// rather than a domain device id, matching how every other persisted
-    /// device reference in `config.yaml` is keyed (`StreamRouteRule.target_system_name`,
-    /// `MixSourceSpec.source_system_name`) — a domain id is only stable for
-    /// one session; `CoreEngine.device_id_remap` exists specifically to
-    /// paper over it changing across a device recreation, which a
-    /// persisted-to-disk reference can't rely on. #397 is what actually
-    /// reads this to drive playback; this ticket only persists it.
     #[serde(default)]
-    pub clip_targets: HashMap<String, String>,
+    pub target_system_name: Option<String>,
+    #[serde(default = "default_volume_percent")]
+    pub target_volume_percent: u8,
+    #[serde(default)]
+    pub monitor_system_name: Option<String>,
+    #[serde(default = "default_volume_percent")]
+    pub monitor_volume_percent: u8,
+}
+
+fn default_volume_percent() -> u8 {
+    100
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SoundboardClip {
     /// The file name (stem + extension) — stable and unique within a single
-    /// folder, so it doubles as an id and as the key into
-    /// `SoundboardBoard.clip_targets`.
+    /// folder, so it doubles as an id.
     pub id: String,
     pub file_name: String,
     /// File stem, used as the default display label until a user can
-    /// rename a clip (not yet — no UI for that exists before #398).
+    /// rename a clip (not yet — no UI for that exists yet).
     pub label: String,
     pub path: String,
 }

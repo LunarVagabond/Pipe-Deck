@@ -6,9 +6,10 @@ use crate::core::soundboard;
 use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
-    /// Plays `path` into `target_device_id`'s underlying device (a virtual
-    /// input or a hardware input passthrough). Fire-and-forget — see
-    /// `AudioBackend::play_sound` for what that does and doesn't guarantee.
+    /// Plays `path` into `target_device_id`'s underlying device at full
+    /// volume (a virtual input or a hardware input passthrough). Fire-and-
+    /// forget — see `AudioBackend::play_sound` for what that does and
+    /// doesn't guarantee.
     pub fn play_sound(&self, path: &Path, target_device_id: &str) -> Result<(), EngineError> {
         let device = self
             .graph
@@ -18,7 +19,7 @@ impl CoreEngine {
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {target_device_id}")))?;
 
         self.adapter
-            .play_sound(path, &device.system_name)
+            .play_sound(path, &device.system_name, 100)
             .map_err(|error| EngineError::Adapter(error.to_string()))
     }
 
@@ -26,9 +27,17 @@ impl CoreEngine {
     /// disk rather than trusting a client-supplied path: loads the board,
     /// re-lists its folder (so only a file that's actually a direct, still-
     /// present child of the configured folder can ever be played — `clip_id`
-    /// crosses the IPC boundary as a plain string), and looks up its
-    /// persisted target `system_name` (#395's `clip_targets`). Errors if the
-    /// board/clip doesn't exist or the clip has no target assigned yet.
+    /// crosses the IPC boundary as a plain string), and plays it through the
+    /// board's own destinations (#398's `target`/`monitor` — board-wide, not
+    /// per-clip).
+    ///
+    /// A clip can play on either or both of two independent legs — `target`
+    /// (what other people/apps hear, e.g. a virtual mic) and `monitor` (a
+    /// local output so the user can hear/test the clip themselves) — each
+    /// with its own volume. Both are attempted if configured; if both are
+    /// configured and one fails, the other still plays and the failure is
+    /// still surfaced (not silently swallowed). Errors if the board/clip
+    /// doesn't exist, or if the board has neither leg configured yet.
     pub fn play_soundboard_clip(&self, board_id: &str, clip_id: &str) -> Result<(), EngineError> {
         let config = ConfigStore::new().load_config().map_err(|error| EngineError::Config(error.to_string()))?;
         let board = config
@@ -44,14 +53,30 @@ impl CoreEngine {
             .find(|clip| clip.id == clip_id)
             .ok_or_else(|| EngineError::NotFound(format!("clip not found: {clip_id}")))?;
 
-        let target = board
-            .clip_targets
-            .get(clip_id)
-            .ok_or_else(|| EngineError::InvalidInput(format!("\"{}\" has no target device set yet", clip.label)))?;
+        if board.target_system_name.is_none() && board.monitor_system_name.is_none() {
+            return Err(EngineError::InvalidInput(format!(
+                "\"{}\" tab has no target or monitor device set yet",
+                board.name
+            )));
+        }
 
-        self.adapter
-            .play_sound(Path::new(&clip.path), target)
-            .map_err(|error| EngineError::Adapter(error.to_string()))
+        let mut errors = Vec::new();
+        if let Some(target) = &board.target_system_name {
+            if let Err(error) = self.adapter.play_sound(Path::new(&clip.path), target, board.target_volume_percent) {
+                errors.push(format!("target: {error}"));
+            }
+        }
+        if let Some(monitor) = &board.monitor_system_name {
+            if let Err(error) = self.adapter.play_sound(Path::new(&clip.path), monitor, board.monitor_volume_percent) {
+                errors.push(format!("monitor: {error}"));
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(EngineError::Adapter(errors.join("; ")))
+        }
     }
 }
 
@@ -86,7 +111,7 @@ mod live_tests {
 
     #[test]
     #[ignore]
-    fn play_soundboard_clip_resolves_board_and_target_and_plays() {
+    fn play_soundboard_clip_plays_both_target_and_monitor_legs() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = crate::config::store::lock_config_dir_env();
@@ -102,33 +127,38 @@ mod live_tests {
         let mut engine = CoreEngine::new();
         engine.refresh_graph().expect("initial graph refresh");
 
-        let created = engine
-            .create_virtual_input("Pipe Deck Soundboard Clip Play Test")
-            .expect("create disposable test device");
+        let target_device = engine
+            .create_virtual_input("Pipe Deck Soundboard Clip Play Test Target")
+            .expect("create disposable target device");
+        let monitor_device = engine
+            .create_virtual_input("Pipe Deck Soundboard Clip Play Test Monitor")
+            .expect("create disposable monitor device");
 
-        let mut clip_targets = std::collections::HashMap::new();
-        clip_targets.insert("test.wav".to_string(), created.system_name.clone());
         let board = soundboard::SoundboardBoard {
             id: "live-test-board".into(),
             name: "Live Test".into(),
             folder: sounds_dir.display().to_string(),
-            clip_targets,
+            target_system_name: Some(target_device.system_name.clone()),
+            target_volume_percent: 100,
+            monitor_system_name: Some(monitor_device.system_name.clone()),
+            monitor_volume_percent: 50,
         };
         ConfigStore::new().ensure_layout().unwrap();
         ConfigStore::new().save_soundboard_board(board).unwrap();
 
         let result = engine.play_soundboard_clip("live-test-board", "test.wav");
 
-        let _ = engine.remove_virtual_device(&created.system_name);
+        let _ = engine.remove_virtual_device(&target_device.system_name);
+        let _ = engine.remove_virtual_device(&monitor_device.system_name);
         let _ = std::fs::remove_dir_all(&config_dir);
         let _ = std::fs::remove_dir_all(&sounds_dir);
         std::env::remove_var("PIPE_DECK_CONFIG_DIR");
 
-        result.expect("play_soundboard_clip should succeed against a real board/clip/target");
+        result.expect("play_soundboard_clip should succeed against real target/monitor devices");
     }
 
     #[test]
-    fn play_soundboard_clip_errors_when_clip_has_no_target_assigned() {
+    fn play_soundboard_clip_errors_when_board_has_no_destination_configured() {
         let _guard = crate::config::store::lock_config_dir_env();
         let config_dir = std::env::temp_dir().join(format!(
             "pipe-deck-soundboard-ops-unit-test-config-{}",
@@ -153,7 +183,10 @@ mod live_tests {
             id: "unit-test-board".into(),
             name: "Unit Test".into(),
             folder: sounds_dir.display().to_string(),
-            clip_targets: std::collections::HashMap::new(),
+            target_system_name: None,
+            target_volume_percent: 100,
+            monitor_system_name: None,
+            monitor_volume_percent: 100,
         };
         ConfigStore::new().ensure_layout().unwrap();
         ConfigStore::new().save_soundboard_board(board).unwrap();
@@ -166,6 +199,50 @@ mod live_tests {
         std::env::remove_var("PIPE_DECK_USE_MOCK");
 
         assert!(matches!(result, Err(EngineError::InvalidInput(_))));
+    }
+
+    #[test]
+    fn play_soundboard_clip_plays_monitor_only_board_via_mock() {
+        let _guard = crate::config::store::lock_config_dir_env();
+        let config_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-soundboard-ops-unit-test-monitor-only-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&config_dir);
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
+        std::env::set_var("PIPE_DECK_USE_MOCK", "1");
+
+        let sounds_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-soundboard-ops-unit-test-monitor-only-sounds-{}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&sounds_dir);
+        std::fs::create_dir_all(&sounds_dir).unwrap();
+        std::fs::write(sounds_dir.join("test-only.wav"), b"fake").unwrap();
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("mock refresh_graph should not fail");
+
+        let board = soundboard::SoundboardBoard {
+            id: "monitor-only-board".into(),
+            name: "Monitor Only".into(),
+            folder: sounds_dir.display().to_string(),
+            target_system_name: None,
+            target_volume_percent: 100,
+            monitor_system_name: Some("pipe-deck-mock-monitor".to_string()),
+            monitor_volume_percent: 60,
+        };
+        ConfigStore::new().ensure_layout().unwrap();
+        ConfigStore::new().save_soundboard_board(board).unwrap();
+
+        let result = engine.play_soundboard_clip("monitor-only-board", "test-only.wav");
+
+        let _ = std::fs::remove_dir_all(&config_dir);
+        let _ = std::fs::remove_dir_all(&sounds_dir);
+        std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+        std::env::remove_var("PIPE_DECK_USE_MOCK");
+
+        result.expect("a monitor-only board should still play");
     }
 
     #[test]

@@ -914,7 +914,10 @@ mod tests {
                 id: "board-1".into(),
                 name: "SFX".into(),
                 folder: "/home/user/SFX".into(),
-                clip_targets: Default::default(),
+                target_system_name: None,
+                target_volume_percent: 100,
+                monitor_system_name: None,
+                monitor_volume_percent: 100,
             };
             store.save_soundboard_board(sfx.clone()).unwrap();
             assert_eq!(store.preferences().soundboard_boards, vec![sfx.clone()]);
@@ -923,7 +926,10 @@ mod tests {
                 id: "board-2".into(),
                 name: "Music".into(),
                 folder: "/home/user/Music".into(),
-                clip_targets: Default::default(),
+                target_system_name: None,
+                target_volume_percent: 100,
+                monitor_system_name: None,
+                monitor_volume_percent: 100,
             };
             store.save_soundboard_board(music.clone()).unwrap();
             assert_eq!(store.preferences().soundboard_boards, vec![sfx.clone(), music.clone()]);
@@ -932,7 +938,10 @@ mod tests {
                 id: "board-1".into(),
                 name: "Sound Effects".into(),
                 folder: "/home/user/SFX".into(),
-                clip_targets: Default::default(),
+                target_system_name: None,
+                target_volume_percent: 100,
+                monitor_system_name: None,
+                monitor_volume_percent: 100,
             };
             store.save_soundboard_board(renamed_sfx.clone()).unwrap();
             assert_eq!(store.preferences().soundboard_boards, vec![renamed_sfx, music.clone()]);
@@ -943,38 +952,37 @@ mod tests {
     }
 
     #[test]
-    fn soundboard_clip_target_mapping_round_trips_via_board_save() {
+    fn soundboard_board_destinations_round_trip_via_board_save() {
         use crate::core::soundboard::SoundboardBoard;
-        use std::collections::HashMap;
 
         with_temp_config(|store| {
             store.ensure_layout().unwrap();
 
-            let mut clip_targets = HashMap::new();
-            clip_targets.insert("air-horn.wav".to_string(), "pipe-deck-stream-mic".to_string());
             let board = SoundboardBoard {
                 id: "board-1".into(),
                 name: "SFX".into(),
                 folder: "/home/user/SFX".into(),
-                clip_targets: clip_targets.clone(),
+                target_system_name: Some("pipe-deck-stream-mic".to_string()),
+                target_volume_percent: 100,
+                monitor_system_name: Some("alsa_output.pci-hdmi".to_string()),
+                monitor_volume_percent: 40,
             };
             store.save_soundboard_board(board).unwrap();
 
             let reloaded = store.preferences().soundboard_boards;
-            assert_eq!(reloaded[0].clip_targets, clip_targets);
+            assert_eq!(reloaded[0].target_system_name, Some("pipe-deck-stream-mic".to_string()));
+            assert_eq!(reloaded[0].monitor_system_name, Some("alsa_output.pci-hdmi".to_string()));
+            assert_eq!(reloaded[0].monitor_volume_percent, 40);
 
             let mut updated = reloaded[0].clone();
-            updated.clip_targets.insert("cat-meow.wav".to_string(), "pipe-deck-headset-mic".to_string());
-            updated.clip_targets.remove("air-horn.wav");
+            updated.target_system_name = None;
+            updated.monitor_volume_percent = 25;
             store.save_soundboard_board(updated).unwrap();
 
             let reloaded = store.preferences().soundboard_boards;
-            assert_eq!(reloaded[0].clip_targets.len(), 1);
-            assert_eq!(
-                reloaded[0].clip_targets.get("cat-meow.wav"),
-                Some(&"pipe-deck-headset-mic".to_string())
-            );
-            assert!(!reloaded[0].clip_targets.contains_key("air-horn.wav"));
+            assert_eq!(reloaded[0].target_system_name, None);
+            assert_eq!(reloaded[0].monitor_system_name, Some("alsa_output.pci-hdmi".to_string()));
+            assert_eq!(reloaded[0].monitor_volume_percent, 25);
         });
     }
 

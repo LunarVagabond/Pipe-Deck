@@ -250,8 +250,8 @@ impl AudioBackend for LinuxPipeWireBackend {
         self.registry.list_devices().iter().map(|entry| entry.to_info()).collect()
     }
 
-    fn play_sound(&self, path: &std::path::Path, target_system_name: &str) -> Result<(), BackendError> {
-        crate::backend::linux::play_sound::play_sound(path, target_system_name)
+    fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError> {
+        crate::backend::linux::play_sound::play_sound(path, target_system_name, volume_percent)
     }
 
     fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError> {

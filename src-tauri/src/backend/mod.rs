@@ -131,12 +131,14 @@ pub trait AudioBackend: Send + Sync {
 
     // --- Soundboard (#127): one-shot clip playback ---
 
-    /// Plays `path`'s audio into `target_system_name` (a virtual input or a
-    /// hardware input's underlying device). Fire-and-forget: this returns
-    /// once playback has *started*, not once the clip finishes, and gives
-    /// the caller no handle to stop it early — an interrupt mechanism is
-    /// tracked separately (issue #399) rather than speculatively built here.
-    fn play_sound(&self, path: &std::path::Path, target_system_name: &str) -> Result<(), BackendError>;
+    /// Plays `path`'s audio into `target_system_name` (a virtual input, a
+    /// hardware input's underlying device, or — for a Soundboard clip's
+    /// monitor leg, #398 — a plain output sink) at `volume_percent` (0-100).
+    /// Fire-and-forget: this returns once playback has *started*, not once
+    /// the clip finishes, and gives the caller no handle to stop it early —
+    /// an interrupt mechanism is tracked separately (issue #399) rather
+    /// than speculatively built here.
+    fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError>;
 
     // Live routing-state queries used only as rule-matching fallbacks when
     // `RuntimeGraph`'s own `current_targets`/`current_target` are stale or
@@ -561,7 +563,7 @@ impl AudioBackend for EmptyAudioBackend {
         Err(BackendError::Message(self.notice.clone()))
     }
 
-    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str) -> Result<(), BackendError> {
+    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str, _volume_percent: u8) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 
