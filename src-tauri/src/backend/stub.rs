@@ -162,7 +162,7 @@ impl AudioBackend for StubBackend {
         ))
     }
 
-    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str) -> Result<(), BackendError> {
+    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str, _volume_percent: u8) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))

@@ -1,22 +1,20 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import SegmentedControl from "../components/SegmentedControl.vue";
 import { useApplyResult } from "../stores/notices";
 import { usePrompt } from "../stores/prompt";
 import { useConfirm } from "../stores/confirm";
+import { useRuntimeGraph } from "../stores/runtimeGraph";
 import type { SoundboardBoard, SoundboardClip } from "../types/graph";
 
 const ADD_TAB_OPTION = "__add_tab__";
 
-// #398 (per-sound target-device picker) lands in a later ticket — a clip
-// with no target assigned yet is playable in the sense that the click is
-// wired up, but the backend rejects it (no UI to assign one exists before
-// #398, only direct config.yaml edits).
 const { handleApplyResult } = useApplyResult();
 const { prompt } = usePrompt();
 const { confirm } = useConfirm();
+const { graph } = useRuntimeGraph();
 
 const boards = ref<SoundboardBoard[]>([]);
 const activeBoardId = ref<string | null>(null);
@@ -27,6 +25,23 @@ const error = ref<string | null>(null);
 const playingClipId = ref<string | null>(null);
 
 const activeBoard = computed(() => boards.value.find((board) => board.id === activeBoardId.value) ?? null);
+
+const hasBoardDestination = computed(
+  () => Boolean(activeBoard.value?.target_system_name || activeBoard.value?.monitor_system_name),
+);
+
+// "Target" is what other people/apps hear — a virtual mic or a hardware
+// input's underlying device. "Monitor" is a local output (e.g. the user's
+// own speakers/headphones) so they can hear/test a clip without it going
+// out to the target, or hear it at a different level than the target gets.
+// These apply to every clip in the active tab — not per-clip (kept simple
+// deliberately; per-tab granularity is as far as this goes for now).
+const targetDeviceOptions = computed(() =>
+  graph.value.devices.filter((device) => device.direction === "input" || device.direction === "duplex"),
+);
+const monitorDeviceOptions = computed(() =>
+  graph.value.devices.filter((device) => device.direction === "output" || device.direction === "duplex"),
+);
 
 async function loadBoards() {
   loadingBoards.value = true;
@@ -49,10 +64,6 @@ async function loadClips() {
   } finally {
     loadingClips.value = false;
   }
-}
-
-function hasTarget(clip: SoundboardClip): boolean {
-  return Boolean(activeBoard.value?.clip_targets[clip.id]);
 }
 
 async function playClip(clip: SoundboardClip) {
@@ -96,7 +107,15 @@ async function addBoard() {
   const folder = await open({ directory: true, multiple: false, title: `Folder for "${name}"` });
   if (!folder || Array.isArray(folder)) return;
 
-  const board: SoundboardBoard = { id: crypto.randomUUID(), name, folder, clip_targets: {} };
+  const board: SoundboardBoard = {
+    id: crypto.randomUUID(),
+    name,
+    folder,
+    target_system_name: null,
+    target_volume_percent: 100,
+    monitor_system_name: null,
+    monitor_volume_percent: 100,
+  };
   try {
     await invoke("save_soundboard_board", { board });
     handleApplyResult({ success: true }, `Added "${name}" tab`);
@@ -175,6 +194,49 @@ async function deleteActiveBoard() {
   }
 }
 
+// Local editable copies of the active board's destination fields — kept
+// separate from `activeBoard` so the volume sliders can update their
+// displayed number on every drag tick (`input`) without persisting on every
+// tick too; persistence only happens on `change` (selection made / slider
+// released).
+const targetSystemName = ref<string | null>(null);
+const targetVolume = ref(100);
+const monitorSystemName = ref<string | null>(null);
+const monitorVolume = ref(100);
+
+watch(
+  activeBoard,
+  (board) => {
+    targetSystemName.value = board?.target_system_name ?? null;
+    targetVolume.value = board?.target_volume_percent ?? 100;
+    monitorSystemName.value = board?.monitor_system_name ?? null;
+    monitorVolume.value = board?.monitor_volume_percent ?? 100;
+  },
+  { immediate: true },
+);
+
+async function saveDestinations() {
+  const board = activeBoard.value;
+  if (!board) return;
+  try {
+    await invoke("save_soundboard_board", {
+      board: {
+        ...board,
+        target_system_name: targetSystemName.value,
+        target_volume_percent: targetVolume.value,
+        monitor_system_name: monitorSystemName.value,
+        monitor_volume_percent: monitorVolume.value,
+      },
+    });
+    await loadBoards();
+  } catch (err) {
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
 onMounted(async () => {
   await loadBoards();
   await loadClips();
@@ -218,6 +280,54 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div v-if="activeBoard" class="soundboard-destinations">
+        <div class="soundboard-destination">
+          <label class="soundboard-destination-label" for="soundboard-target-device">
+            Target (others hear this)
+          </label>
+          <select id="soundboard-target-device" v-model="targetSystemName" @change="saveDestinations">
+            <option :value="null">None</option>
+            <option v-for="device in targetDeviceOptions" :key="device.id" :value="device.system_name">
+              {{ device.label }}
+            </option>
+          </select>
+          <div class="soundboard-destination-volume-row">
+            <input
+              v-model.number="targetVolume"
+              type="range"
+              min="0"
+              max="100"
+              :disabled="!targetSystemName"
+              @change="saveDestinations"
+            />
+            <span class="soundboard-destination-volume-value">{{ targetVolume }}%</span>
+          </div>
+        </div>
+
+        <div class="soundboard-destination">
+          <label class="soundboard-destination-label" for="soundboard-monitor-device">
+            Monitor (you hear this)
+          </label>
+          <select id="soundboard-monitor-device" v-model="monitorSystemName" @change="saveDestinations">
+            <option :value="null">None</option>
+            <option v-for="device in monitorDeviceOptions" :key="device.id" :value="device.system_name">
+              {{ device.label }}
+            </option>
+          </select>
+          <div class="soundboard-destination-volume-row">
+            <input
+              v-model.number="monitorVolume"
+              type="range"
+              min="0"
+              max="100"
+              :disabled="!monitorSystemName"
+              @change="saveDestinations"
+            />
+            <span class="soundboard-destination-volume-value">{{ monitorVolume }}%</span>
+          </div>
+        </div>
+      </div>
+
       <p v-if="loadingClips" class="status">Loading clips…</p>
       <p v-else-if="error" class="status error">{{ error }}</p>
 
@@ -232,9 +342,9 @@ onMounted(async () => {
           :key="clip.id"
           type="button"
           class="soundboard-tile"
-          :class="{ playing: playingClipId === clip.id, 'no-target': !hasTarget(clip) }"
+          :class="{ playing: playingClipId === clip.id, 'no-target': !hasBoardDestination }"
           :disabled="playingClipId !== null"
-          :title="hasTarget(clip) ? clip.label : `${clip.label} — no target device set yet`"
+          :title="hasBoardDestination ? clip.label : `${clip.label} — this tab has no target or monitor device set yet`"
           @click="playClip(clip)"
         >
           <span class="soundboard-tile-icon">🔊</span>

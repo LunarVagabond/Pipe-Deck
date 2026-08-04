@@ -1,7 +1,8 @@
 import { mount, flushPromises } from "@vue/test-utils";
+import { ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import Soundboard from "./Soundboard.vue";
-import type { SoundboardBoard, SoundboardClip } from "../types/graph";
+import type { Device, RuntimeGraph, SoundboardBoard, SoundboardClip } from "../types/graph";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -28,6 +29,42 @@ vi.mock("../stores/confirm", () => ({
   useConfirm: () => ({ confirm: confirmMock }),
 }));
 
+function makeDevice(overrides: Partial<Device> = {}): Device {
+  return {
+    id: "device-1",
+    system_name: "pipe-deck-stream-mic",
+    label: "Stream Mic",
+    kind: "virtual",
+    direction: "input",
+    ...overrides,
+  } as Device;
+}
+
+const graph = ref<RuntimeGraph>({
+  devices: [
+    makeDevice({ id: "mic", system_name: "pipe-deck-stream-mic", label: "Stream Mic", direction: "input" }),
+    makeDevice({ id: "hdmi", system_name: "alsa_output.pci-hdmi", label: "HDMI Speakers", direction: "output" }),
+  ],
+  streams: [],
+  links: [],
+});
+vi.mock("../stores/runtimeGraph", () => ({
+  useRuntimeGraph: () => ({ graph }),
+}));
+
+function makeBoard(overrides: Partial<SoundboardBoard> = {}): SoundboardBoard {
+  return {
+    id: "b1",
+    name: "SFX",
+    folder: "/sounds/sfx",
+    target_system_name: null,
+    target_volume_percent: 100,
+    monitor_system_name: null,
+    monitor_volume_percent: 100,
+    ...overrides,
+  };
+}
+
 function mockInvoke(handlers: Record<string, (args?: unknown) => unknown>) {
   invokeMock.mockImplementation((command: string, args?: unknown) => {
     const handler = handlers[command];
@@ -46,7 +83,7 @@ describe("Soundboard", () => {
   });
 
   it("lists clips for the active tab", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
+    const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
       { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
     ];
@@ -66,7 +103,7 @@ describe("Soundboard", () => {
   });
 
   it("refresh button re-lists clips for the active tab", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
+    const boards: SoundboardBoard[] = [makeBoard()];
     let clips: SoundboardClip[] = [];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -112,7 +149,7 @@ describe("Soundboard", () => {
   });
 
   it("shows the backend error message when listing fails", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/missing", clip_targets: {} }];
+    const boards: SoundboardBoard[] = [makeBoard({ folder: "/missing" })];
     mockInvoke({
       list_soundboard_boards: () => boards,
       list_soundboard_sounds: () => {
@@ -126,7 +163,7 @@ describe("Soundboard", () => {
   });
 
   it("deletes the active tab after confirmation", async () => {
-    let boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
+    let boards: SoundboardBoard[] = [makeBoard()];
     mockInvoke({
       list_soundboard_boards: () => boards,
       list_soundboard_sounds: () => [],
@@ -145,10 +182,8 @@ describe("Soundboard", () => {
     expect(pushNoticeMock).toHaveBeenCalledWith("success", "Tab deleted");
   });
 
-  it("clicking a tile with a target plays it", async () => {
-    const boards: SoundboardBoard[] = [
-      { id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: { "air-horn.wav": "pipe-deck-stream-mic" } },
-    ];
+  it("clicking a tile plays it when the tab has a destination configured", async () => {
+    const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
     const clips: SoundboardClip[] = [
       { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
     ];
@@ -168,8 +203,8 @@ describe("Soundboard", () => {
     expect(invokeMock).toHaveBeenCalledWith("play_soundboard_clip", { boardId: "b1", clipId: "air-horn.wav" });
   });
 
-  it("marks a tile with no target assigned and surfaces the backend error on click", async () => {
-    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx", clip_targets: {} }];
+  it("marks tiles dimmed when the tab has no destination and surfaces the backend error on click", async () => {
+    const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
       { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
     ];
@@ -177,7 +212,7 @@ describe("Soundboard", () => {
       list_soundboard_boards: () => boards,
       list_soundboard_sounds: () => clips,
       play_soundboard_clip: () => {
-        throw new Error('"air-horn" has no target device set yet');
+        throw new Error('"SFX" tab has no target or monitor device set yet');
       },
     });
     const wrapper = mount(Soundboard);
@@ -188,6 +223,48 @@ describe("Soundboard", () => {
     await tile.trigger("click");
     await flushPromises();
 
-    expect(pushNoticeMock).toHaveBeenCalledWith("error", '"air-horn" has no target device set yet');
+    expect(pushNoticeMock).toHaveBeenCalledWith("error", '"SFX" tab has no target or monitor device set yet');
+  });
+
+  it("saves the tab's target device on selection", async () => {
+    let boards: SoundboardBoard[] = [makeBoard()];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => [],
+      save_soundboard_board: (args) => {
+        boards = [(args as { board: SoundboardBoard }).board];
+      },
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    await wrapper.find("#soundboard-target-device").setValue("pipe-deck-stream-mic");
+    await flushPromises();
+
+    const savedBoard = invokeMock.mock.calls.filter((call) => call[0] === "save_soundboard_board").at(-1)?.[1] as {
+      board: SoundboardBoard;
+    };
+    expect(savedBoard.board.target_system_name).toBe("pipe-deck-stream-mic");
+  });
+
+  it("saves the tab's monitor device and volume", async () => {
+    let boards: SoundboardBoard[] = [makeBoard()];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => [],
+      save_soundboard_board: (args) => {
+        boards = [(args as { board: SoundboardBoard }).board];
+      },
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    await wrapper.find("#soundboard-monitor-device").setValue("alsa_output.pci-hdmi");
+    await flushPromises();
+
+    const savedBoard = invokeMock.mock.calls.filter((call) => call[0] === "save_soundboard_board").at(-1)?.[1] as {
+      board: SoundboardBoard;
+    };
+    expect(savedBoard.board.monitor_system_name).toBe("alsa_output.pci-hdmi");
   });
 });

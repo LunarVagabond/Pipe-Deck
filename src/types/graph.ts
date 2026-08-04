@@ -242,8 +242,11 @@ export interface SoundboardBoard {
   id: string;
   name: string;
   folder: string;
-  /** clip id (file name) -> target device system_name. Set via #398. */
-  clip_targets: Record<string, string>;
+  /** Board-wide playback destinations — every clip in this tab plays through these. */
+  target_system_name: string | null;
+  target_volume_percent: number;
+  monitor_system_name: string | null;
+  monitor_volume_percent: number;
 }
 
 export interface SoundboardClip {
