@@ -464,12 +464,11 @@ pub struct Preferences {
     pub light_scheme: String,
     #[serde(default = "default_notice_duration_ms")]
     pub notice_duration_ms: u32,
-    /// Folder the Soundboard tab (#127) lists clips from. `None` until the
-    /// user sets one — no default guess, since there's no convention for
-    /// where a user keeps sound clips the way there is for e.g. XDG music
-    /// dirs (which are for music libraries, not short trigger clips).
+    /// User-named tabs for the Soundboard (#127), each backing its own
+    /// folder of clips (Soundux-style — e.g. "Music", "SFX"). Empty until
+    /// the user adds one; no default board is created for them.
     #[serde(default)]
-    pub soundboard_folder: Option<String>,
+    pub soundboard_boards: Vec<crate::core::soundboard::SoundboardBoard>,
 }
 
 fn default_theme_mode() -> String {
@@ -500,7 +499,7 @@ impl Default for Preferences {
             dark_scheme: default_dark_scheme(),
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
-            soundboard_folder: None,
+            soundboard_boards: Vec::new(),
         }
     }
 }

@@ -6,6 +6,7 @@
   "permissions": [
     "core:default",
     "updater:default",
+    "dialog:default",
     {
       "identifier": "http:default",
       "allow": [{ "url": "https://github.com/**" }]

@@ -235,7 +235,13 @@ export interface Preferences {
   dark_scheme?: string;
   light_scheme?: string;
   notice_duration_ms?: number;
-  soundboard_folder?: string | null;
+  soundboard_boards?: SoundboardBoard[];
+}
+
+export interface SoundboardBoard {
+  id: string;
+  name: string;
+  folder: string;
 }
 
 export interface SoundboardClip {

@@ -1,62 +1,160 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { computed, onMounted, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
+import SegmentedControl from "../components/SegmentedControl.vue";
 import { useApplyResult } from "../stores/notices";
-import type { SoundboardClip } from "../types/graph";
+import { usePrompt } from "../stores/prompt";
+import { useConfirm } from "../stores/confirm";
+import type { SoundboardBoard, SoundboardClip } from "../types/graph";
+
+const ADD_TAB_OPTION = "__add_tab__";
 
 // #397 (play button wiring) and #398 (per-sound target-device picker) land
 // in later tickets — clips are listed here, not yet playable or assignable.
 const { handleApplyResult } = useApplyResult();
+const { prompt } = usePrompt();
+const { confirm } = useConfirm();
 
-const folder = ref("");
-const folderInput = ref("");
+const boards = ref<SoundboardBoard[]>([]);
+const activeBoardId = ref<string | null>(null);
 const clips = ref<SoundboardClip[]>([]);
-const loading = ref(true);
+const loadingBoards = ref(true);
+const loadingClips = ref(false);
 const error = ref<string | null>(null);
-const saving = ref(false);
 
-async function loadFolder() {
-  const value = await invoke<string | null>("get_soundboard_folder");
-  folder.value = value ?? "";
-  folderInput.value = folder.value;
+const activeBoard = computed(() => boards.value.find((board) => board.id === activeBoardId.value) ?? null);
+
+async function loadBoards() {
+  loadingBoards.value = true;
+  boards.value = await invoke<SoundboardBoard[]>("list_soundboard_boards");
+  if (!boards.value.some((board) => board.id === activeBoardId.value)) {
+    activeBoardId.value = boards.value[0]?.id ?? null;
+  }
+  loadingBoards.value = false;
 }
 
 async function loadClips() {
-  loading.value = true;
-  error.value = null;
   clips.value = [];
-  if (!folder.value) {
-    loading.value = false;
-    return;
-  }
+  error.value = null;
+  if (!activeBoardId.value) return;
+  loadingClips.value = true;
   try {
-    clips.value = await invoke<SoundboardClip[]>("list_soundboard_sounds");
+    clips.value = await invoke<SoundboardClip[]>("list_soundboard_sounds", { boardId: activeBoardId.value });
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
-    loading.value = false;
+    loadingClips.value = false;
   }
 }
 
-async function saveFolder() {
-  saving.value = true;
+function selectBoard(boardId: string) {
+  if (boardId === ADD_TAB_OPTION) {
+    addBoard();
+    return;
+  }
+  activeBoardId.value = boardId;
+  loadClips();
+}
+
+const tabOptions = computed(() => [
+  ...boards.value.map((board) => ({ value: board.id, label: board.name })),
+  { value: ADD_TAB_OPTION, label: "+" },
+]);
+
+async function addBoard() {
+  const name = await prompt({
+    title: "New soundboard tab",
+    message: "Name this tab (e.g. \"SFX\", \"Music\")",
+    placeholder: "SFX",
+    confirmLabel: "Next: choose folder",
+  });
+  if (!name) return;
+
+  const folder = await open({ directory: true, multiple: false, title: `Folder for "${name}"` });
+  if (!folder || Array.isArray(folder)) return;
+
+  const board: SoundboardBoard = { id: crypto.randomUUID(), name, folder };
   try {
-    await invoke("set_soundboard_folder", { folder: folderInput.value });
-    handleApplyResult({ success: true }, "Soundboard folder saved");
-    await loadFolder();
+    await invoke("save_soundboard_board", { board });
+    handleApplyResult({ success: true }, `Added "${name}" tab`);
+    await loadBoards();
+    selectBoard(board.id);
+  } catch (err) {
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
+async function renameActiveBoard() {
+  const board = activeBoard.value;
+  if (!board) return;
+  const name = await prompt({
+    title: "Rename tab",
+    message: "New name for this tab",
+    defaultValue: board.name,
+  });
+  if (!name || name === board.name) return;
+
+  try {
+    await invoke("save_soundboard_board", { board: { ...board, name } });
+    handleApplyResult({ success: true }, "Tab renamed");
+    await loadBoards();
+  } catch (err) {
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
+async function changeActiveBoardFolder() {
+  const board = activeBoard.value;
+  if (!board) return;
+  const folder = await open({ directory: true, multiple: false, title: `Folder for "${board.name}"` });
+  if (!folder || Array.isArray(folder)) return;
+
+  try {
+    await invoke("save_soundboard_board", { board: { ...board, folder } });
+    handleApplyResult({ success: true }, "Folder updated");
+    await loadBoards();
     await loadClips();
   } catch (err) {
     handleApplyResult(
       { success: false, message: err instanceof Error ? err.message : String(err) },
       "",
     );
-  } finally {
-    saving.value = false;
+  }
+}
+
+async function deleteActiveBoard() {
+  const board = activeBoard.value;
+  if (!board) return;
+  const confirmed = await confirm(`Delete the "${board.name}" tab? Sound files on disk are not affected.`, {
+    title: "Delete tab",
+    confirmLabel: "Delete",
+    cancelLabel: "Cancel",
+  });
+  if (!confirmed) return;
+
+  try {
+    await invoke("delete_soundboard_board", { boardId: board.id });
+    handleApplyResult({ success: true }, "Tab deleted");
+    activeBoardId.value = null;
+    await loadBoards();
+    await loadClips();
+  } catch (err) {
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
   }
 }
 
 onMounted(async () => {
-  await loadFolder();
+  await loadBoards();
   await loadClips();
 });
 </script>
@@ -69,38 +167,48 @@ onMounted(async () => {
       </div>
     </header>
 
-    <form class="soundboard-folder-form" @submit.prevent="saveFolder">
-      <label class="soundboard-folder-label" for="soundboard-folder-input">Sound clips folder</label>
-      <div class="soundboard-folder-row">
-        <input
-          id="soundboard-folder-input"
-          v-model="folderInput"
-          type="text"
-          placeholder="/home/you/Sounds"
-          autocomplete="off"
-        />
-        <button type="submit" :disabled="saving">Save</button>
+    <p v-if="loadingBoards" class="status">Loading tabs…</p>
+
+    <template v-else-if="boards.length === 0">
+      <div class="soundboard-empty-state">
+        <strong>No soundboard tabs yet.</strong>
+        <p>Add a tab and point it at a folder of sound files to get started.</p>
       </div>
-    </form>
+      <div class="view-actions">
+        <button type="button" @click="addBoard">+ Add tab</button>
+      </div>
+    </template>
 
-    <p v-if="loading" class="status">Loading clips…</p>
-    <p v-else-if="error" class="status error">{{ error }}</p>
+    <template v-else>
+      <SegmentedControl
+        :model-value="activeBoardId ?? ''"
+        :options="tabOptions"
+        @update:model-value="selectBoard"
+      />
 
-    <div v-else-if="!folder" class="soundboard-empty-state">
-      <strong>No sound clips configured yet.</strong>
-      <p>Point Pipe Deck at a folder of sound files above to get started.</p>
-    </div>
+      <div v-if="activeBoard" class="soundboard-board-toolbar">
+        <span class="soundboard-board-folder" :title="activeBoard.folder">{{ activeBoard.folder }}</span>
+        <div class="view-actions">
+          <button type="button" @click="changeActiveBoardFolder">Change folder</button>
+          <button type="button" @click="renameActiveBoard">Rename</button>
+          <button type="button" @click="deleteActiveBoard">Delete tab</button>
+        </div>
+      </div>
 
-    <div v-else-if="clips.length === 0" class="soundboard-empty-state">
-      <strong>No supported sound files found.</strong>
-      <p>Add wav, flac, ogg, mp3, aiff, m4a, or opus files to "{{ folder }}".</p>
-    </div>
+      <p v-if="loadingClips" class="status">Loading clips…</p>
+      <p v-else-if="error" class="status error">{{ error }}</p>
 
-    <div v-else class="soundboard-grid">
-      <article v-for="clip in clips" :key="clip.id" class="soundboard-tile">
-        <span class="soundboard-tile-icon">🔊</span>
-        <span class="soundboard-tile-label">{{ clip.label }}</span>
-      </article>
-    </div>
+      <div v-else-if="clips.length === 0" class="soundboard-empty-state">
+        <strong>No supported sound files found.</strong>
+        <p v-if="activeBoard">Add wav, flac, ogg, mp3, aiff, m4a, or opus files to "{{ activeBoard.folder }}".</p>
+      </div>
+
+      <div v-else class="soundboard-grid">
+        <article v-for="clip in clips" :key="clip.id" class="soundboard-tile">
+          <span class="soundboard-tile-icon">🔊</span>
+          <span class="soundboard-tile-label">{{ clip.label }}</span>
+        </article>
+      </div>
+    </template>
   </div>
 </template>

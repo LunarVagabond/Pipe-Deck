@@ -1,26 +1,31 @@
 use crate::config::ConfigStore;
-use crate::core::soundboard::{self, SoundboardClip, SoundboardError};
+use crate::core::soundboard::{self, SoundboardBoard, SoundboardClip, SoundboardError};
 use std::path::PathBuf;
 
 #[tauri::command]
-pub fn get_soundboard_folder() -> Option<String> {
-    ConfigStore::new().load_config().ok()?.preferences.soundboard_folder
+pub fn list_soundboard_boards() -> Vec<SoundboardBoard> {
+    ConfigStore::new().load_config().map(|config| config.preferences.soundboard_boards).unwrap_or_default()
 }
 
 #[tauri::command]
-pub fn set_soundboard_folder(folder: String) -> Result<(), String> {
-    ConfigStore::new().set_soundboard_folder(&folder).map_err(|error| error.to_string())
+pub fn save_soundboard_board(board: SoundboardBoard) -> Result<(), String> {
+    ConfigStore::new().save_soundboard_board(board).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
-pub fn list_soundboard_sounds() -> Result<Vec<SoundboardClip>, String> {
-    let folder = ConfigStore::new()
-        .load_config()
-        .map_err(|error| error.to_string())?
+pub fn delete_soundboard_board(board_id: String) -> Result<(), String> {
+    ConfigStore::new().delete_soundboard_board(&board_id).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn list_soundboard_sounds(board_id: String) -> Result<Vec<SoundboardClip>, String> {
+    let config = ConfigStore::new().load_config().map_err(|error| error.to_string())?;
+    let board = config
         .preferences
-        .soundboard_folder
-        .ok_or(SoundboardError::NotConfigured)
-        .map_err(|error| error.to_string())?;
+        .soundboard_boards
+        .into_iter()
+        .find(|board| board.id == board_id)
+        .ok_or_else(|| SoundboardError::BoardNotFound(board_id).to_string())?;
 
-    soundboard::list_sounds(&PathBuf::from(folder)).map_err(|error| error.to_string())
+    soundboard::list_sounds(&PathBuf::from(board.folder)).map_err(|error| error.to_string())
 }

@@ -35,49 +35,21 @@
   }
 }
 
-.soundboard-folder-form {
+.soundboard-board-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.soundboard-folder-label {
+.soundboard-board-folder {
   font-size: 0.8rem;
   color: var(--text-muted);
-}
-
-.soundboard-folder-row {
-  display: flex;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-
-  input {
-    flex: 1;
-    min-width: 16rem;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface-2);
-    color: var(--text);
-    padding: 0.45rem 0.7rem;
-  }
-
-  button {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    background: var(--surface-2);
-    color: var(--text);
-    padding: 0.5rem 0.9rem;
-    cursor: pointer;
-
-    &:hover:not(:disabled) {
-      border-color: var(--accent-purple);
-    }
-
-    &:disabled {
-      opacity: 0.45;
-      cursor: not-allowed;
-    }
-  }
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .soundboard-view .status {

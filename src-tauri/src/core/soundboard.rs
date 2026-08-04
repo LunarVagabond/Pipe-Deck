@@ -7,6 +7,19 @@ use std::path::Path;
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "oga", "mp3", "aiff", "aif", "m4a", "opus"];
 
+/// A user-named tab, each backing its own folder of clips — Soundux-style
+/// (e.g. "Music", "SFX"), rather than one global folder for the whole
+/// soundboard. `id` is generated client-side (`crypto.randomUUID()`, same
+/// convention as `Rule.id` — see `Rules.vue`) and passed in on save; the
+/// backend never mints one itself.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundboardBoard {
+    pub id: String,
+    pub name: String,
+    pub folder: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SoundboardClip {
@@ -23,8 +36,8 @@ pub struct SoundboardClip {
 
 #[derive(Debug, thiserror::Error)]
 pub enum SoundboardError {
-    #[error("no soundboard folder is configured")]
-    NotConfigured,
+    #[error("soundboard board not found: {0}")]
+    BoardNotFound(String),
     #[error("soundboard folder not found: {0}")]
     FolderMissing(String),
     #[error("soundboard path is not a folder: {0}")]

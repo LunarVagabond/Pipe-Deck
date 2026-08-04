@@ -396,16 +396,22 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
-    /// `folder` empty clears the setting back to unset, matching how a
-    /// blanked-out text field reads to a user — not a distinct "invalid
-    /// path" error.
-    pub fn set_soundboard_folder(&self, folder: &str) -> Result<(), ConfigError> {
+    /// Upserts by `board.id` — an id already present in
+    /// `soundboard_boards` is updated in place (rename or folder change),
+    /// otherwise the board is appended. Same upsert-by-id convention as
+    /// `save_rule`/`Rule.id`, with the id minted client-side.
+    pub fn save_soundboard_board(&self, board: crate::core::soundboard::SoundboardBoard) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        config.preferences.soundboard_folder = if folder.trim().is_empty() {
-            None
-        } else {
-            Some(folder.trim().to_string())
-        };
+        match config.preferences.soundboard_boards.iter_mut().find(|existing| existing.id == board.id) {
+            Some(existing) => *existing = board,
+            None => config.preferences.soundboard_boards.push(board),
+        }
+        self.save_config(&config)
+    }
+
+    pub fn delete_soundboard_board(&self, board_id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.soundboard_boards.retain(|board| board.id != board_id);
         self.save_config(&config)
     }
 
@@ -897,16 +903,39 @@ mod tests {
     }
 
     #[test]
-    fn soundboard_folder_round_trips_and_blank_clears_it() {
+    fn soundboard_board_save_upserts_by_id_and_delete_removes_it() {
+        use crate::core::soundboard::SoundboardBoard;
+
         with_temp_config(|store| {
             store.ensure_layout().unwrap();
-            assert_eq!(store.preferences().soundboard_folder, None);
+            assert!(store.preferences().soundboard_boards.is_empty());
 
-            store.set_soundboard_folder("/home/user/Sounds").unwrap();
-            assert_eq!(store.preferences().soundboard_folder, Some("/home/user/Sounds".to_string()));
+            let sfx = SoundboardBoard {
+                id: "board-1".into(),
+                name: "SFX".into(),
+                folder: "/home/user/SFX".into(),
+            };
+            store.save_soundboard_board(sfx.clone()).unwrap();
+            assert_eq!(store.preferences().soundboard_boards, vec![sfx.clone()]);
 
-            store.set_soundboard_folder("  ").unwrap();
-            assert_eq!(store.preferences().soundboard_folder, None);
+            let music = SoundboardBoard {
+                id: "board-2".into(),
+                name: "Music".into(),
+                folder: "/home/user/Music".into(),
+            };
+            store.save_soundboard_board(music.clone()).unwrap();
+            assert_eq!(store.preferences().soundboard_boards, vec![sfx.clone(), music.clone()]);
+
+            let renamed_sfx = SoundboardBoard {
+                id: "board-1".into(),
+                name: "Sound Effects".into(),
+                folder: "/home/user/SFX".into(),
+            };
+            store.save_soundboard_board(renamed_sfx.clone()).unwrap();
+            assert_eq!(store.preferences().soundboard_boards, vec![renamed_sfx, music.clone()]);
+
+            store.delete_soundboard_board("board-1").unwrap();
+            assert_eq!(store.preferences().soundboard_boards, vec![music]);
         });
     }
 
