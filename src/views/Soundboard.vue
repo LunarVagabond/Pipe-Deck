@@ -189,6 +189,7 @@ onMounted(async () => {
       <div v-if="activeBoard" class="soundboard-board-toolbar">
         <span class="soundboard-board-folder" :title="activeBoard.folder">{{ activeBoard.folder }}</span>
         <div class="view-actions">
+          <button type="button" :disabled="loadingClips" @click="loadClips">Refresh</button>
           <button type="button" @click="changeActiveBoardFolder">Change folder</button>
           <button type="button" @click="renameActiveBoard">Rename</button>
           <button type="button" @click="deleteActiveBoard">Delete tab</button>

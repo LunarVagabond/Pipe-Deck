@@ -65,6 +65,25 @@ describe("Soundboard", () => {
     expect(wrapper.text()).toContain("SFX");
   });
 
+  it("refresh button re-lists clips for the active tab", async () => {
+    const boards: SoundboardBoard[] = [{ id: "b1", name: "SFX", folder: "/sounds/sfx" }];
+    let clips: SoundboardClip[] = [];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => clips,
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+    expect(wrapper.text()).not.toContain("air-horn");
+
+    clips = [{ id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" }];
+    const refreshButton = wrapper.findAll("button").find((btn) => btn.text() === "Refresh");
+    await refreshButton?.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("air-horn");
+  });
+
   it("adds a new tab via prompt + native folder picker", async () => {
     let boards: SoundboardBoard[] = [];
     mockInvoke({
