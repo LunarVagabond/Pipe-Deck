@@ -74,7 +74,7 @@ async function addBoard() {
   const folder = await open({ directory: true, multiple: false, title: `Folder for "${name}"` });
   if (!folder || Array.isArray(folder)) return;
 
-  const board: SoundboardBoard = { id: crypto.randomUUID(), name, folder };
+  const board: SoundboardBoard = { id: crypto.randomUUID(), name, folder, clip_targets: {} };
   try {
     await invoke("save_soundboard_board", { board });
     handleApplyResult({ success: true }, `Added "${name}" tab`);

@@ -3,6 +3,7 @@
 //! `AudioBackend::play_sound`, wired in by #397).
 
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::Path;
 
 const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "oga", "mp3", "aiff", "aif", "m4a", "opus"];
@@ -18,14 +19,25 @@ pub struct SoundboardBoard {
     pub id: String,
     pub name: String,
     pub folder: String,
+    /// `SoundboardClip.id` (a file name, unique within this board's own
+    /// folder — never global) → target device `system_name`. `system_name`
+    /// rather than a domain device id, matching how every other persisted
+    /// device reference in `config.yaml` is keyed (`StreamRouteRule.target_system_name`,
+    /// `MixSourceSpec.source_system_name`) — a domain id is only stable for
+    /// one session; `CoreEngine.device_id_remap` exists specifically to
+    /// paper over it changing across a device recreation, which a
+    /// persisted-to-disk reference can't rely on. #397 is what actually
+    /// reads this to drive playback; this ticket only persists it.
+    #[serde(default)]
+    pub clip_targets: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct SoundboardClip {
     /// The file name (stem + extension) — stable and unique within a single
-    /// folder, so it doubles as an id until #395 introduces persisted
-    /// per-clip config keyed some other way.
+    /// folder, so it doubles as an id and as the key into
+    /// `SoundboardBoard.clip_targets`.
     pub id: String,
     pub file_name: String,
     /// File stem, used as the default display label until a user can
