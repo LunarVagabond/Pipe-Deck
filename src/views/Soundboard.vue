@@ -11,6 +11,47 @@ import type { SoundboardBoard, SoundboardClip } from "../types/graph";
 
 const ADD_TAB_OPTION = "__add_tab__";
 
+// Clip layout is a cosmetic display preference, not backend state — same
+// lightweight localStorage-backed approach as the routing graph's group
+// expansion (`composables/groupExpansion.ts`), no store/composable needed
+// for a single view.
+type ClipLayout = "cards" | "list";
+type CardSize = "small" | "medium" | "large";
+const LAYOUT_KEY = "pipe-deck-soundboard-layout";
+const CARD_SIZE_KEY = "pipe-deck-soundboard-card-size";
+
+function loadClipLayout(): ClipLayout {
+  return localStorage.getItem(LAYOUT_KEY) === "list" ? "list" : "cards";
+}
+
+function loadCardSize(): CardSize {
+  const stored = localStorage.getItem(CARD_SIZE_KEY);
+  return stored === "small" || stored === "large" ? stored : "medium";
+}
+
+const clipLayout = ref<ClipLayout>(loadClipLayout());
+const cardSize = ref<CardSize>(loadCardSize());
+
+const layoutOptions = [
+  { value: "cards", label: "▦" },
+  { value: "list", label: "☰" },
+];
+const cardSizeOptions = [
+  { value: "small", label: "S" },
+  { value: "medium", label: "M" },
+  { value: "large", label: "L" },
+];
+
+function selectClipLayout(value: string) {
+  clipLayout.value = value === "list" ? "list" : "cards";
+  localStorage.setItem(LAYOUT_KEY, clipLayout.value);
+}
+
+function selectCardSize(value: string) {
+  cardSize.value = value === "small" || value === "large" ? value : "medium";
+  localStorage.setItem(CARD_SIZE_KEY, cardSize.value);
+}
+
 const { handleApplyResult } = useApplyResult();
 const { prompt } = usePrompt();
 const { confirm } = useConfirm();
@@ -401,6 +442,16 @@ onMounted(async () => {
         </div>
       </div>
 
+      <div v-if="activeBoard && clips.length > 0" class="soundboard-layout-toolbar">
+        <SegmentedControl
+          :model-value="cardSize"
+          :options="cardSizeOptions"
+          :disabled="clipLayout !== 'cards'"
+          @update:model-value="selectCardSize"
+        />
+        <SegmentedControl :model-value="clipLayout" :options="layoutOptions" @update:model-value="selectClipLayout" />
+      </div>
+
       <p v-if="loadingClips" class="status">Loading clips…</p>
       <p v-else-if="error" class="status error">{{ error }}</p>
 
@@ -409,13 +460,21 @@ onMounted(async () => {
         <p v-if="activeBoard">Add wav, flac, ogg, mp3, aiff, m4a, or opus files to "{{ activeBoard.folder }}".</p>
       </div>
 
-      <div v-else class="soundboard-grid">
+      <div
+        v-else
+        class="soundboard-clips"
+        :class="clipLayout === 'list' ? 'soundboard-list' : `soundboard-grid soundboard-grid--${cardSize}`"
+      >
         <button
           v-for="clip in clips"
           :key="clip.id"
           type="button"
           class="soundboard-tile"
-          :class="{ playing: playingClipId === clip.id, 'no-target': !hasBoardDestination }"
+          :class="{
+            playing: playingClipId === clip.id,
+            'no-target': !hasBoardDestination,
+            'soundboard-tile--list': clipLayout === 'list',
+          }"
           :disabled="playingClipId !== null && playingClipId !== clip.id"
           :title="
             playingClipId === clip.id

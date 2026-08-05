@@ -29,6 +29,18 @@ vi.mock("../stores/confirm", () => ({
   useConfirm: () => ({ confirm: confirmMock }),
 }));
 
+// jsdom in this project's vitest config doesn't back window.localStorage by
+// default (see RoutingGraph.spec.ts's note) — Soundboard.vue reads/writes it
+// directly for the clip layout/card size preference, so a minimal in-memory
+// stub is needed just to get past mount.
+const localStorageStore = new Map<string, string>();
+vi.stubGlobal("localStorage", {
+  getItem: (key: string) => localStorageStore.get(key) ?? null,
+  setItem: (key: string, value: string) => localStorageStore.set(key, value),
+  removeItem: (key: string) => localStorageStore.delete(key),
+  clear: () => localStorageStore.clear(),
+});
+
 function makeDevice(overrides: Partial<Device> = {}): Device {
   return {
     id: "device-1",
@@ -273,6 +285,40 @@ describe("Soundboard", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("switches between cards and list layout, and adjusts card size", async () => {
+    const boards: SoundboardBoard[] = [makeBoard()];
+    const clips: SoundboardClip[] = [
+      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
+    ];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => clips,
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    // Cards layout, medium size by default.
+    expect(wrapper.find(".soundboard-grid").exists()).toBe(true);
+    expect(wrapper.find(".soundboard-grid--medium").exists()).toBe(true);
+
+    const sizeButtons = wrapper.findAll(".soundboard-layout-toolbar .segmented-control-option");
+    await sizeButtons[2].trigger("click"); // large
+    await flushPromises();
+    expect(wrapper.find(".soundboard-grid--large").exists()).toBe(true);
+
+    const listButton = wrapper.findAll(".soundboard-layout-toolbar .segmented-control-option").at(-1);
+    await listButton?.trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".soundboard-list").exists()).toBe(true);
+    expect(wrapper.find(".soundboard-grid").exists()).toBe(false);
+    expect(wrapper.find(".soundboard-tile").classes()).toContain("soundboard-tile--list");
+    // The size selector stays mounted (not removed) so the toolbar doesn't
+    // jump around when toggling layout, just disabled while in list mode.
+    const [smallButton] = wrapper.findAll(".soundboard-layout-toolbar .segmented-control-option");
+    expect(smallButton.attributes("disabled")).toBeDefined();
   });
 
   it("marks tiles dimmed when the tab has no destination and surfaces the backend error on click", async () => {
