@@ -354,6 +354,7 @@ impl MockAudioBackend {
             notice: Some(
                 "Sample data only. Unset PIPE_DECK_USE_MOCK to use live PipeWire.".into(),
             ),
+            default_output_system_name: Some("sink-headphones".into()),
             ..Default::default()
         }
     }

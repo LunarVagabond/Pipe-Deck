@@ -386,6 +386,7 @@ mod tests {
             notice: None,
             recent_stream_identities: Vec::new(),
             processing_nodes: Vec::new(),
+            default_output_system_name: None,
         };
         let bundle = format_diagnostics_bundle(
             &InstallKind::Deb,
@@ -420,6 +421,7 @@ mod tests {
             notice: None,
             recent_stream_identities: Vec::new(),
             processing_nodes: Vec::new(),
+            default_output_system_name: None,
         };
         let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, "unknown", None, None, &graph);
 
@@ -442,6 +444,7 @@ mod tests {
             notice: None,
             recent_stream_identities: Vec::new(),
             processing_nodes: Vec::new(),
+            default_output_system_name: None,
         };
         let summary = format_graph_summary(&graph);
 
@@ -463,6 +466,7 @@ mod tests {
             notice: None,
             recent_stream_identities: Vec::new(),
             processing_nodes: Vec::new(),
+            default_output_system_name: None,
         };
         let summary = format_graph_summary(&graph);
 

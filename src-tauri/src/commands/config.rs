@@ -70,6 +70,13 @@ pub fn set_sidebar_collapsed(collapsed: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_onboarding_dismissed(dismissed: bool) -> Result<(), String> {
+    ConfigStore::new()
+        .set_onboarding_dismissed(dismissed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn list_themes() -> Vec<crate::core::models::ResolvedScheme> {
     let config_store = ConfigStore::new();
     ThemeStore::new(config_store.config_dir().clone()).list_schemes()

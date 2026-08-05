@@ -421,6 +421,12 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_onboarding_dismissed(&self, dismissed: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.onboarding_dismissed = dismissed;
+        self.save_config(&config)
+    }
+
     pub fn set_theme_mode(&self, mode: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         config.preferences.theme_mode = mode.to_string();

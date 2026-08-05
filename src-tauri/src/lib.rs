@@ -45,6 +45,7 @@ pub fn run() {
             commands::config::set_show_system_streams,
             commands::config::set_auto_apply_rules,
             commands::config::set_sidebar_collapsed,
+            commands::config::set_onboarding_dismissed,
             commands::config::list_themes,
             commands::config::set_theme_mode,
             commands::config::set_dark_scheme,

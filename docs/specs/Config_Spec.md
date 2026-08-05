@@ -59,6 +59,7 @@ preferences:
   notice_duration_ms: 5000        # toast auto-dismiss delay; 0 means "until dismissed"
   close_behavior: null            # null (ask once) | "minimize" | "quit"
   update_channel: latest          # "latest" | "prerelease"
+  onboarding_dismissed: false     # first-run checklist dismissed forever once true
 active_profile: gaming
 profile_index:
   - id: gaming

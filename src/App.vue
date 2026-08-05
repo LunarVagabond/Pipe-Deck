@@ -6,6 +6,7 @@ import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import PromptDialog from "./components/PromptDialog.vue";
 import ShortcutsModal from "./components/ShortcutsModal.vue";
+import OnboardingChecklist from "./components/OnboardingChecklist.vue";
 import AppFooter from "./components/AppFooter.vue";
 import NewDeviceDialog from "./components/NewDeviceDialog.vue";
 import NavIcon from "./components/NavIcon.vue";
@@ -329,6 +330,7 @@ onUnmounted(() => {
       <AppFooter />
     </div>
 
+    <OnboardingChecklist />
     <NoticeStack />
     <ConfirmDialog />
     <PromptDialog />
