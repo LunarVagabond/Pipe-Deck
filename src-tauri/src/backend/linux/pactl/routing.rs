@@ -7,6 +7,7 @@ use crate::backend::linux::pactl::r#virtual::{
     feed_sink_name_for_virtual_input, sink_exists,
 };
 use crate::backend::linux::pw_link;
+use crate::backend::linux::pw_metadata_native as native;
 use std::collections::HashSet;
 use crate::sysproc;
 
@@ -269,10 +270,16 @@ fn resolve_clear_capture_source(
 }
 
 fn get_default_sink_name() -> Option<String> {
+    if let Some(result) = native::default_sink_name() {
+        return result.ok().flatten();
+    }
     read_pactl_default_name(&["get-default-sink"])
 }
 
 fn get_default_source_name() -> Option<String> {
+    if let Some(result) = native::default_source_name() {
+        return result.ok().flatten();
+    }
     read_pactl_default_name(&["get-default-source"])
 }
 

@@ -423,6 +423,20 @@ pub fn list_capture_sources_for_sink(sink_system_name: &str) -> Vec<String> {
     list_capture_sources_for_target_ports(sink_system_name, "playback_")
 }
 
+/// Same discovery again, but against an arbitrary capture-direction
+/// stream's own input ports — an empty prefix, not `"input_"`/`"playback_"`,
+/// since a stream's port names follow no Pipe Deck naming convention (same
+/// reasoning `route_capture_stream` already applies on the target side).
+/// Used by `graph_routing.rs::apply_native_capture_targets` (#432, Gap 1) to
+/// derive a capture stream's `current_target` from its live port link
+/// instead of a `pactl` source-index lookup.
+pub fn list_capture_sources_for_stream(stream_system_name: &str) -> Vec<String> {
+    if let Some(sources) = native::list_capture_sources_for_stream(stream_system_name) {
+        return sources;
+    }
+    list_capture_sources_for_target_ports(stream_system_name, "")
+}
+
 fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_prefix: &str) -> Vec<String> {
     let target_prefix = format!("{target_system_name}:{target_port_prefix}");
     let mut sources = Vec::new();
