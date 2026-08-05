@@ -71,3 +71,11 @@ libc = { version = "0.2" }
 # extension `core::soundboard::list_sounds` already supports (wav/flac/
 # ogg/mp3/aiff/m4a/opus).
 lofty = "0.24.0"
+
+# Native systemd user-session control (#425): daemon/systemd.rs talks
+# directly to org.freedesktop.systemd1 over the session D-Bus instead of
+# shelling out to `systemctl --user`. Pure Rust, no libdbus linkage (the
+# `libdbus-sys` entry in Cargo.lock is pre-existing, from tao/tauri, and
+# unrelated). "blocking" gives a synchronous API without pulling in an async
+# runtime for what's at most a few calls per app session.
+zbus = { version = "5.18.0", features = ["blocking"] }
