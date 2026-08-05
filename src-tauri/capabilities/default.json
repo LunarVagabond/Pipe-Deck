@@ -9,7 +9,10 @@
     "dialog:default",
     {
       "identifier": "http:default",
-      "allow": [{ "url": "https://github.com/**" }]
+      "allow": [
+        { "url": "https://github.com/**" },
+        { "url": "https://api.github.com/**" }
+      ]
     }
   ]
 }

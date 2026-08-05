@@ -238,6 +238,7 @@ export interface Preferences {
   soundboard_boards?: SoundboardBoard[];
   /** "minimize" | "quit"; absent/null means the user hasn't been asked yet. */
   close_behavior?: string;
+  update_channel?: string;
 }
 
 export interface SoundboardBoard {

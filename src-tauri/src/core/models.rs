@@ -474,10 +474,23 @@ pub struct Preferences {
     /// from any default — so the one-time prompt (#295) knows to fire.
     #[serde(default)]
     pub close_behavior: Option<String>,
+    /// Which manifest the in-app updater checks: "latest" (default, the
+    /// newest published non-prerelease GitHub release) or "prerelease"
+    /// (the newest tagged release regardless of prerelease status). Only
+    /// governs the manual "Check for updates" comparison and download-link
+    /// flow — the Tauri updater plugin's one-click AppImage auto-install
+    /// path always checks the stable channel (see src-tauri/tauri.conf.json's
+    /// static `plugins.updater.endpoints`).
+    #[serde(default = "default_update_channel")]
+    pub update_channel: String,
 }
 
 fn default_theme_mode() -> String {
     "dark".into()
+}
+
+fn default_update_channel() -> String {
+    "latest".into()
 }
 
 fn default_notice_duration_ms() -> u32 {
@@ -505,7 +518,11 @@ impl Default for Preferences {
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
             soundboard_boards: Vec::new(),
+<<<<<<< HEAD
             close_behavior: None,
+=======
+            update_channel: default_update_channel(),
+>>>>>>> origin/434-updater-prerelease-channel-setting
         }
     }
 }

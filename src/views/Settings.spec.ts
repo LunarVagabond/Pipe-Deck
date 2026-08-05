@@ -55,6 +55,9 @@ const installComplete = ref(false);
 const ensureAppInfoMock = vi.hoisted(() => vi.fn());
 const checkForUpdatesNowMock = vi.hoisted(() => vi.fn());
 const installUpdateNowMock = vi.hoisted(() => vi.fn());
+const ensureUpdateChannelMock = vi.hoisted(() => vi.fn());
+const setUpdateChannelMock = vi.hoisted(() => vi.fn());
+const updateChannel = ref<"latest" | "prerelease">("latest");
 vi.mock("../stores/updateStatus", () => ({
   useUpdateStatus: () => ({
     appInfo,
@@ -65,7 +68,10 @@ vi.mock("../stores/updateStatus", () => ({
     installComplete,
     updateStatus: computed(() => (checkingUpdates.value ? "checking" : (updateResult.value?.status ?? "unknown"))),
     updateStatusText: computed(() => updateResult.value?.status ?? "unknown"),
+    updateChannel,
     ensureAppInfo: ensureAppInfoMock,
+    ensureUpdateChannel: ensureUpdateChannelMock,
+    setUpdateChannel: setUpdateChannelMock,
     checkForUpdatesNow: checkForUpdatesNowMock,
     installUpdateNow: installUpdateNowMock,
   }),
@@ -132,6 +138,9 @@ beforeEach(() => {
   });
   checkForUpdatesNowMock.mockReset();
   installUpdateNowMock.mockReset();
+  ensureUpdateChannelMock.mockReset().mockResolvedValue("latest");
+  setUpdateChannelMock.mockReset();
+  updateChannel.value = "latest";
   setThemeModeMock.mockClear();
   setDarkSchemeMock.mockClear();
   setLightSchemeMock.mockClear();

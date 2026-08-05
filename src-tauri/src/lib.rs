@@ -51,6 +51,7 @@ pub fn run() {
             commands::config::set_light_scheme,
             commands::config::set_notice_duration_ms,
             commands::config::set_close_behavior,
+            commands::config::set_update_channel,
             commands::profile::get_profile,
             commands::profile::save_profile,
             commands::profile::save_profile_as,

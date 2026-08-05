@@ -58,6 +58,7 @@ preferences:
   light_scheme: paper-deck        # scheme id used when resolved mode is light
   notice_duration_ms: 5000        # toast auto-dismiss delay; 0 means "until dismissed"
   close_behavior: null            # null (ask once) | "minimize" | "quit"
+  update_channel: latest          # "latest" | "prerelease"
 active_profile: gaming
 profile_index:
   - id: gaming
@@ -189,6 +190,7 @@ On first run after upgrade, existing `pipe-deck-*` PipeWire modules are migrated
 - **dark_scheme** / **light_scheme:** ids of the color scheme applied when the resolved mode is dark or light, respectively — selected independently, so a user can pair any dark scheme with any light scheme. Default to the built-in `midnight-deck` and `paper-deck`.
 - **notice_duration_ms:** how long a toast notice (route applied, profile saved, errors, ...) stays on screen before auto-dismissing, in milliseconds. `0` means the notice stays until manually dismissed. Defaults to `5000` (5 seconds), matching prior hardcoded behavior.
 - **close_behavior:** what clicking the window's close (X) button does — `"minimize"` hides the window (app keeps running in the background/tray), `"quit"` exits the app. `null`/absent means the user hasn't chosen yet; the first X click shows a one-time prompt, and the answer is persisted here so later clicks act without asking again. Changeable anytime in Settings.
+- **update_channel:** `"latest"` or `"prerelease"` — which GitHub release the in-app "Check for updates" comparison uses. `"latest"` (default) checks the newest published non-prerelease release; `"prerelease"` checks the newest tagged release regardless of prerelease status. Only affects the manual check/download-link flow — the bundled Tauri updater's one-click AppImage auto-install path always checks the `"latest"` channel (its endpoint is fixed at build time in `src-tauri/tauri.conf.json`), so a `"prerelease"` user still gets a manual download link rather than a one-click install.
 - Scheme ids resolve against the 4 built-in schemes plus any user-authored custom schemes under `<config_dir>/themes/*.yaml`. If a selected custom scheme's file is missing (deleted, moved), the app falls back to the built-in default for that mode. See [Theming](../specs/Theming.md) for the scheme file schema and fallback/merge rules.
 
 ### Daemon status and safe mode (Phase 4)

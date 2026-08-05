@@ -23,6 +23,11 @@ const THEME_MODE_OPTIONS = [
   { value: "system", label: "Follow system" },
 ];
 
+const UPDATE_CHANNEL_OPTIONS = [
+  { value: "latest", label: "Latest" },
+  { value: "prerelease", label: "Pre-release" },
+];
+
 const NOTICE_DURATION_OPTIONS = [
   { value: "3000", label: "3s" },
   { value: "5000", label: "5s" },
@@ -92,7 +97,10 @@ const {
   installComplete,
   updateStatus,
   updateStatusText,
+  updateChannel,
   ensureAppInfo,
+  ensureUpdateChannel,
+  setUpdateChannel,
   checkForUpdatesNow,
   installUpdateNow,
 } = useUpdateStatus();
@@ -156,6 +164,7 @@ async function loadSettings() {
   capabilityMetadata.value = await invoke("list_plugin_capability_metadata");
   discoveryErrors.value = await invoke("list_plugin_discovery_errors");
   await ensureAppInfo();
+  await ensureUpdateChannel();
   configPaths.value = await invoke("get_config_paths");
 }
 
@@ -831,6 +840,22 @@ onMounted(() => {
         >
           <img :src="BMC_BUTTON_SRC" alt="Buy me a coffee" width="162" height="45" />
         </a>
+      </div>
+
+      <div class="settings-row">
+        <div>
+          <p class="settings-row-label">Update channel</p>
+          <p class="settings-row-hint">
+            Pre-release opts into the newest tagged GitHub release regardless of prerelease
+            status. AppImage one-click installs still auto-update from the Latest channel only —
+            Pre-release downloads open the release page instead.
+          </p>
+        </div>
+        <SegmentedControl
+          :model-value="updateChannel"
+          :options="UPDATE_CHANNEL_OPTIONS"
+          @update:model-value="(value) => setUpdateChannel(value as 'latest' | 'prerelease')"
+        />
       </div>
 
       <div class="settings-row">
