@@ -4,6 +4,7 @@ use crate::backend::BackendError;
 use crate::backend::linux::pactl::parse::{list_sink_inputs, load_sink_index_names};
 use crate::backend::linux::pactl::run_pactl;
 use crate::backend::linux::pw_link;
+use crate::backend::linux::pw_virtual_device_native as native;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -245,7 +246,17 @@ pub fn source_exists(name: &str) -> Result<bool, BackendError> {
     Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
 
+/// Prefix marking a `module_id` as backed by a natively-created node (#422)
+/// rather than a real `pactl` module index — `unload_module` dispatches on
+/// it to pick the right teardown path.
+const NATIVE_MODULE_ID_PREFIX: &str = "native:";
+
 pub fn create_null_sink(name: &str, description: &str) -> Result<String, BackendError> {
+    if let Some(result) = native::create_output(name, description) {
+        result?;
+        return Ok(format!("{NATIVE_MODULE_ID_PREFIX}{name}"));
+    }
+
     let props = description_module_args(description);
     let output = run_pactl(&[
         "load-module",
@@ -261,6 +272,11 @@ pub fn create_null_sink(name: &str, description: &str) -> Result<String, Backend
 /// PipeWire does not provide `module-null-source`. Create a virtual capture
 /// endpoint using a null sink configured as an Audio/Source node.
 pub fn create_virtual_source(name: &str, description: &str) -> Result<String, BackendError> {
+    if let Some(result) = native::create_input(name, description) {
+        result?;
+        return Ok(format!("{NATIVE_MODULE_ID_PREFIX}{name}"));
+    }
+
     let props = description_module_args(description);
     let output = run_pactl(&[
         "load-module",
@@ -354,6 +370,11 @@ pub struct PactlVirtualModule {
 }
 
 pub fn unload_module(module_id: &str) -> Result<(), BackendError> {
+    if let Some(system_name) = module_id.strip_prefix(NATIVE_MODULE_ID_PREFIX) {
+        if let Some(result) = native::remove(system_name) {
+            return result;
+        }
+    }
     run_pactl(&["unload-module", module_id]).map(|_| ())
 }
 
