@@ -473,7 +473,7 @@ impl CoreEngine {
     /// all, briefly hold those streams on a scratch sink so the caller can
     /// move them back once the swapped-to sink is confirmed up. Shared by
     /// `apply_effect_chain_structural` and `remove_effect_chain_structural`.
-    fn hold_sink_inputs_for_swap_if_output(&self, device: &crate::core::models::Device, is_input: bool) -> Result<Vec<u32>, EngineError> {
+    fn hold_sink_inputs_for_swap_if_output(&self, device: &crate::core::models::Device, is_input: bool) -> Result<Vec<String>, EngineError> {
         if is_input {
             return Ok(Vec::new());
         }

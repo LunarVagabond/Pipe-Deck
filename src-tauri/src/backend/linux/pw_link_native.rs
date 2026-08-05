@@ -23,6 +23,17 @@
 //! unchanged, same "fall back to the shellout for what's missing" contract
 //! #411 established for node-id lookup. `Some(_)` means the native path ran
 //! to completion (successfully or not) and its result should be used as-is.
+//!
+//! `route_playback_stream`/`route_capture_stream` (#428, the last slice of
+//! #413) extend this same port-linking machinery to stream routing
+//! (`pactl move-sink-input`/`move-source-output`'s replacement): a stream is
+//! just another `Stream/Output`/`Stream/Input`-class node — confirmed live
+//! that `core::models::Stream.system_name` is already populated from the
+//! live node's `node.name`, same as any device — so "moving" one is the same
+//! disconnect-old/link-new operation as device-to-device routing, just
+//! *exclusive* (disconnect every existing link first, not only the ones to
+//! one particular target) since a stream draws from or sends to exactly one
+//! place, unlike a sink's monitor fan-out. See PD-047.
 
 use crate::backend::BackendError;
 use pipewire as pw;
@@ -224,6 +235,19 @@ impl Connection {
     fn links_from_output_ports(&self, output_port_ids: &[u32]) -> Vec<(u32, u32)> {
         let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         index.links.values().filter(|(output, _)| output_port_ids.contains(output)).copied().collect()
+    }
+
+    /// The input-side counterpart to [`Self::links_from_output_ports`] — every
+    /// currently-linked pair whose *input* port belongs to `input_port_ids`,
+    /// regardless of which node the output side belongs to. Needed for stream
+    /// routing (#428): a capture-direction stream's own input ports can be
+    /// fed from exactly one source at a time, so "what currently feeds this
+    /// stream" has to be found from the input side, unlike every earlier
+    /// query in this module (all of which start from a known *output* side —
+    /// a device's monitor/capture ports fanning out to one or more targets).
+    fn links_into_input_ports(&self, input_port_ids: &[u32]) -> Vec<(u32, u32)> {
+        let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        index.links.values().filter(|(_, input)| input_port_ids.contains(input)).copied().collect()
     }
 
     /// Finds the link global id (if any) currently connecting `output_port_id`
@@ -578,6 +602,54 @@ pub fn disconnect_sink_monitor(source_system_name: &str) -> Option<Result<(), Ba
     Some(destroy_pairs(conn, &existing))
 }
 
+/// Input-side counterpart to [`disconnect_sink_monitor`] (#428) — removes
+/// every link currently feeding `target_system_name`'s input ports,
+/// regardless of source. Used to clear a capture-direction stream's current
+/// routing before re-routing it elsewhere, since (unlike a sink's monitor,
+/// which can legitimately fan out to several targets) a stream only ever
+/// draws from one source at a time.
+pub fn disconnect_all_inputs(target_system_name: &str) -> Option<Result<(), BackendError>> {
+    let conn = connection()?;
+    let target_node_id = conn.node_id(target_system_name)?;
+    let target_port_ids: Vec<u32> =
+        conn.ports_for_node(target_node_id, PortDirection::Input).into_iter().map(|(id, _)| id).collect();
+    let existing = conn.links_into_input_ports(&target_port_ids);
+    Some(destroy_pairs(conn, &existing))
+}
+
+/// Exclusively routes a playback-direction stream's output ports into
+/// `target_system_name`'s `playback_*` ports (#428) — first disconnecting
+/// *every* existing output link the stream currently has (a stream routes to
+/// exactly one target, unlike a sink's monitor fan-out), then linking fresh.
+/// `target_system_name` is whatever `pactl/routing.rs::resolve_playback_sink_name`
+/// already resolved it to (the target device directly, a per-mix-source feed
+/// sink, or the synthetic "Unrouted" sink) — always a genuine sink-shaped
+/// node with `playback_*` ports, so no direction/prefix branching is needed
+/// here the way device-to-device routing needs `target_is_virtual_source`.
+/// The stream's own ports are never prefix-filtered (same as every other
+/// "source" side in this module) since an arbitrary app's port names follow
+/// no Pipe Deck naming convention.
+pub fn route_playback_stream(stream_system_name: &str, target_system_name: &str) -> Option<Result<(), BackendError>> {
+    if let Some(Err(error)) = disconnect_sink_monitor(stream_system_name) {
+        return Some(Err(error));
+    }
+    link_target_ports(stream_system_name, target_system_name, "playback_")
+}
+
+/// Exclusively routes `source_system_name` (the real capture-providing
+/// device — hardware mic, virtual mic, ...) into a capture-direction
+/// stream's own input ports (#428) — first disconnecting every existing
+/// link currently feeding the stream, then linking fresh. The stream's own
+/// ports are matched with an empty prefix (any input port), for the same
+/// arbitrary-naming reason `route_playback_stream` never prefix-filters the
+/// stream side either.
+pub fn route_capture_stream(source_system_name: &str, stream_system_name: &str) -> Option<Result<(), BackendError>> {
+    if let Some(Err(error)) = disconnect_all_inputs(stream_system_name) {
+        return Some(Err(error));
+    }
+    link_target_ports(source_system_name, stream_system_name, "")
+}
+
 pub fn has_output_ports(system_name: &str) -> Option<bool> {
     let conn = connection()?;
     let node_id = conn.node_id(system_name)?;
@@ -742,5 +814,165 @@ mod live_tests {
             }
         }
         false
+    }
+
+    /// A long-lived `pw-cat --playback` stream, looped in a `sh` wrapper so
+    /// it outlives the short test clip's own runtime for the duration of
+    /// the test — killing the shell (`Drop`) reaps the loop and whatever
+    /// `pw-cat` child is currently running via its own process group.
+    struct LoopedPlaybackStream {
+        child: std::process::Child,
+    }
+
+    impl LoopedPlaybackStream {
+        fn spawn(target_system_name: &str) -> Self {
+            let clip = "/usr/share/sounds/speech-dispatcher/test.wav";
+            assert!(std::path::Path::new(clip).is_file(), "expected a system test wav to exist at {clip}");
+            let child = crate::sysproc::command("sh")
+                .args(["-c", &format!("while true; do pw-cat --playback --target '{target_system_name}' '{clip}'; done")])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("failed to spawn looped pw-cat");
+            Self { child }
+        }
+    }
+
+    impl Drop for LoopedPlaybackStream {
+        fn drop(&mut self) {
+            // `pkill`, not `self.child.kill()` — the `sh -c` wrapper's own
+            // pid is what we hold, but the actual `pw-cat` doing the playing
+            // is a grandchild `sh` spawns fresh on every loop iteration;
+            // killing just the wrapper leaves a `pw-cat` orphaned mid-clip.
+            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn routes_a_playback_stream_between_targets_exclusively() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let target_a = backend.create_virtual_output("Pipe Deck Stream Route Target A", false).expect("create target A");
+        let target_b = backend.create_virtual_output("Pipe Deck Stream Route Target B", false).expect("create target B");
+
+        wait_until_indexed(&[&target_a.system_name, &target_b.system_name]);
+        let _stream = LoopedPlaybackStream::spawn(&target_a.system_name);
+
+        // Wait for the looped pw-cat to actually register as a live node
+        // with real ports before routing it anywhere.
+        let indexed = (0..50).any(|_| {
+            if connection().is_some_and(|conn| conn.node_id("pw-cat").is_some()) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(indexed, "expected the looped pw-cat stream to register as a live node");
+
+        let route_result = route_playback_stream("pw-cat", &target_b.system_name);
+        assert!(route_result.is_some(), "expected the native path to run, not fall back to the CLI");
+        route_result.unwrap().expect("native stream route should succeed");
+
+        let routed_to_b = (0..20).any(|_| {
+            if pw_link_l_shows_a_link_between("pw-cat", &target_b.system_name) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(routed_to_b, "expected pw-cat to be linked into target B after routing");
+        assert!(
+            !pw_link_l_shows_a_link_between("pw-cat", &target_a.system_name),
+            "expected the exclusive route to have disconnected pw-cat from target A"
+        );
+
+        let _ = backend.remove_virtual_device(&target_a.system_name);
+        let _ = backend.remove_virtual_device(&target_b.system_name);
+    }
+
+    /// A long-lived `pw-cat --record` stream — the capture-direction
+    /// counterpart to `LoopedPlaybackStream`, discarding whatever it
+    /// records rather than needing an input clip.
+    struct LoopedRecordStream {
+        child: std::process::Child,
+    }
+
+    impl LoopedRecordStream {
+        fn spawn() -> Self {
+            let child = crate::sysproc::command("sh")
+                .args(["-c", "while true; do pw-cat --record --format=s16 --rate=48000 --channels=2 /dev/null; done"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("failed to spawn looped pw-cat --record");
+            Self { child }
+        }
+    }
+
+    impl Drop for LoopedRecordStream {
+        fn drop(&mut self) {
+            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn routes_a_capture_stream_between_sources_exclusively() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let source_a = backend.create_virtual_output("Pipe Deck Capture Route Source A", false).expect("create source A");
+        let source_b = backend.create_virtual_output("Pipe Deck Capture Route Source B", false).expect("create source B");
+
+        wait_until_indexed(&[&source_a.system_name, &source_b.system_name]);
+        let _stream = LoopedRecordStream::spawn();
+
+        let indexed = (0..50).any(|_| {
+            if connection().is_some_and(|conn| conn.node_id("pw-cat").is_some()) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(indexed, "expected the looped pw-cat --record stream to register as a live node");
+
+        let route_a = route_capture_stream(&source_a.system_name, "pw-cat");
+        assert!(route_a.is_some(), "expected the native path to run, not fall back to the CLI");
+        route_a.unwrap().expect("native capture route to source A should succeed");
+
+        let routed_to_a = (0..20).any(|_| {
+            if pw_link_l_shows_a_link_between(&source_a.system_name, "pw-cat") {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(routed_to_a, "expected pw-cat to be fed by source A after routing");
+
+        let route_b = route_capture_stream(&source_b.system_name, "pw-cat");
+        assert!(route_b.is_some());
+        route_b.unwrap().expect("native capture route to source B should succeed");
+
+        let routed_to_b = (0..20).any(|_| {
+            if pw_link_l_shows_a_link_between(&source_b.system_name, "pw-cat") {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(routed_to_b, "expected pw-cat to be fed by source B after re-routing");
+        assert!(
+            !pw_link_l_shows_a_link_between(&source_a.system_name, "pw-cat"),
+            "expected the exclusive route to have disconnected pw-cat from source A"
+        );
+
+        let _ = backend.remove_virtual_device(&source_a.system_name);
+        let _ = backend.remove_virtual_device(&source_b.system_name);
     }
 }

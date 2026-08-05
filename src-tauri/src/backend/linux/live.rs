@@ -362,18 +362,24 @@ impl AudioBackend for LinuxPipeWireBackend {
         Ok(())
     }
 
-    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<u32>, BackendError> {
-        let held = pactl::sink_input_indices_on(device_system_name);
+    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<String>, BackendError> {
+        // Same query either native or CLI-backed path uses to answer "what's
+        // currently feeding this sink's playback ports" — #412 already built
+        // it for capture-source-into-sink discovery, and a playback stream
+        // feeding an ordinary sink is the exact same shape of query. See
+        // #428's own module doc comment for why a stream is just another
+        // node like any other here.
+        let held = pw_link::list_capture_sources_for_sink(device_system_name);
         if !held.is_empty() {
             pactl::ensure_holding_sink()?;
-            for index in &held {
-                pactl::move_sink_input_with_retry(*index, pactl::HOLDING_SINK_NAME, Duration::from_secs(5));
+            for stream_system_name in &held {
+                move_stream_with_retry(stream_system_name, pactl::HOLDING_SINK_NAME, Duration::from_secs(5));
             }
         }
         Ok(held)
     }
 
-    /// Moves held sink-inputs back onto `target_system_name`, retrying each move
+    /// Moves held streams back onto `target_system_name`, retrying each move
     /// for a few seconds rather than a single fire-and-forget attempt — a plain
     /// sink recreated moments ago by `revert_to_plain_device` (or an
     /// effects-hosted node reloaded by `swap_to_effect_chain`) can still be a
@@ -381,9 +387,9 @@ impl AudioBackend for LinuxPipeWireBackend {
     /// wait already gave up, and a move attempted at exactly that instant would
     /// otherwise silently fail with nothing ever retrying it — permanently
     /// stranding audio on the "Pipe Deck (temporary hold)" sink.
-    fn release_held_sink_inputs(&self, held_indices: &[u32], target_system_name: &str) -> Result<(), BackendError> {
-        for index in held_indices {
-            pactl::move_sink_input_with_retry(*index, target_system_name, Duration::from_secs(5));
+    fn release_held_sink_inputs(&self, held_streams: &[String], target_system_name: &str) -> Result<(), BackendError> {
+        for stream_system_name in held_streams {
+            move_stream_with_retry(stream_system_name, target_system_name, Duration::from_secs(5));
         }
         let _ = pactl::remove_holding_sink();
         Ok(())
@@ -1182,6 +1188,25 @@ fn parse_pipewire_version(text: &str) -> Option<String> {
         .map(|version| version.trim().to_string())
 }
 
+/// Retries `pw_link::route_playback_stream` until it succeeds or `timeout`
+/// elapses (#428's stream-routing replacement for `pactl::move_sink_input_with_retry`)
+/// — a target sink recreated moments ago by `revert_to_plain_device` (or an
+/// effects-hosted node reloaded by `swap_to_effect_chain`) can still be a
+/// beat away from actually being live even after that caller's own shorter
+/// wait already gave up.
+fn move_stream_with_retry(stream_system_name: &str, target_system_name: &str, timeout: Duration) {
+    let start = Instant::now();
+    loop {
+        if pw_link::route_playback_stream(stream_system_name, target_system_name).is_ok() {
+            return;
+        }
+        if start.elapsed() > timeout {
+            return;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+}
+
 /// Resolves each path node to a live PipeWire node id, then computes
 /// theoretical/buffering latency per hop from a single `pw-top -b -n 2` run
 /// (see `pipewire::pw_top` for why two iterations are required). `Device`/
@@ -1426,5 +1451,128 @@ mod version_tests {
         let result = push_eq_params_and_reforce_volume(|| Ok(()), || reforced.set(true));
         assert!(reforced.get());
         assert!(result.is_ok());
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    //! `#[ignore]`d: hits a real PipeWire session, same rationale as every
+    //! other `live_tests` module in this codebase. Exercises
+    //! `hold_sink_inputs_for_swap`/`release_held_sink_inputs` (#428) —
+    //! the actual trait methods `effects_ops.rs`'s structural-swap path
+    //! calls — directly, rather than driving the full effects-swap flow,
+    //! to isolate whether the hold/release dance itself (now stream-name
+    //! keyed, not `pactl` sink-input-index keyed) actually parks and
+    //! restores a real stream correctly.
+    use super::*;
+    use crate::backend::AudioBackend;
+    use std::process::{Child, Command, Stdio};
+
+    struct LoopedPlaybackStream {
+        child: Child,
+    }
+
+    impl LoopedPlaybackStream {
+        fn spawn(target_system_name: &str) -> Self {
+            let clip = "/usr/share/sounds/speech-dispatcher/test.wav";
+            assert!(std::path::Path::new(clip).is_file(), "expected a system test wav to exist at {clip}");
+            let child = Command::new("sh")
+                .args(["-c", &format!("while true; do pw-cat --playback --target '{target_system_name}' '{clip}'; done")])
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn()
+                .expect("failed to spawn looped pw-cat");
+            Self { child }
+        }
+    }
+
+    impl Drop for LoopedPlaybackStream {
+        fn drop(&mut self) {
+            let _ = Command::new("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    #[test]
+    #[ignore]
+    fn holds_and_releases_a_real_stream_across_a_simulated_swap() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend.create_virtual_output("Pipe Deck Hold Release Test", false).expect("create disposable device");
+
+        let _stream = LoopedPlaybackStream::spawn(&device.system_name);
+        let indexed = (0..50).any(|_| {
+            if pw_link::has_output_ports("pw-cat") {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(indexed, "expected the looped pw-cat stream to register as a live node");
+
+        // Give the stream a moment to actually land on the device (pw-cat's
+        // own --target resolution is itself async) before holding it.
+        let landed = (0..20).any(|_| {
+            if pw_link::list_capture_sources_for_sink(&device.system_name).iter().any(|name| name == "pw-cat") {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(landed, "expected pw-cat to land on the disposable device before the hold/release test begins");
+
+        let held = backend.hold_sink_inputs_for_swap(&device.system_name).expect("hold should succeed");
+        assert_eq!(held, vec!["pw-cat".to_string()], "expected the held list to be the stream's own node name");
+
+        let held_on_holding_sink = (0..20).any(|_| {
+            if pw_link_native_shows_link("pw-cat", pactl::HOLDING_SINK_NAME) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(held_on_holding_sink, "expected pw-cat to be parked on the holding sink");
+        assert!(
+            !pw_link_native_shows_link("pw-cat", &device.system_name),
+            "expected pw-cat to no longer be linked into the original device while held"
+        );
+
+        backend.release_held_sink_inputs(&held, &device.system_name).expect("release should succeed");
+
+        let released_back = (0..20).any(|_| {
+            if pw_link_native_shows_link("pw-cat", &device.system_name) {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(released_back, "expected pw-cat to be moved back onto the original device after release");
+
+        let _ = backend.remove_virtual_device(&device.system_name);
+    }
+
+    fn pw_link_native_shows_link(source_system_name: &str, target_system_name: &str) -> bool {
+        let output = crate::sysproc::command("pw-link").arg("-l").output().expect("failed to run pw-link -l");
+        let text = String::from_utf8_lossy(&output.stdout);
+        let source_prefix = format!("{source_system_name}:");
+        let target_prefix = format!("{target_system_name}:");
+        let mut current_target: Option<String> = None;
+        for line in text.lines() {
+            if let Some(port) = line.strip_prefix("  |<- ") {
+                if let Some(target) = &current_target {
+                    if target.starts_with(&target_prefix) && port.trim().starts_with(&source_prefix) {
+                        return true;
+                    }
+                }
+                continue;
+            }
+            let trimmed = line.trim();
+            if !trimmed.is_empty() && trimmed.contains(':') && !line.starts_with("  |") {
+                current_target = Some(trimmed.to_string());
+            }
+        }
+        false
     }
 }
