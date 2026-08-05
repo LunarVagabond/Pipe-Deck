@@ -1,4 +1,17 @@
+//! `pw-link`-CLI-backed port discovery/linking. Every public function here
+//! now tries `pw_link_native` (#412, step 3 of #8's native `pipewire-rs`
+//! migration) first and only falls back to the `pw-link -o`/`-i`/`-l`/
+//! `src dst`/`-d` shellouts implemented below when the native connection
+//! hasn't started or hasn't indexed one of the endpoints yet — same
+//! "fall back to the shellout for what's missing" contract #411 established
+//! for node-id lookup, not a permanent CLI removal. The port-pairing logic
+//! (cycling sorted source ports across sorted target ports for mono/stereo
+//! fan-out, never suffix-guessing `FL`/`FR`) is preserved identically in
+//! both implementations — see `pw_link_native::pair_ports` and this file's
+//! own `pair_capture_ports`.
+
 use crate::backend::BackendError;
+use crate::backend::linux::pw_link_native as native;
 use crate::sysproc;
 
 /// Links a virtual sink's monitor ports into a target's playback (or, for a
@@ -15,6 +28,17 @@ use crate::sysproc;
 /// group, only the mono/stereo cycling below, so it worked, while adding it
 /// *after* a stereo hardware target had already been fanned out did not.
 pub fn link_sink_monitor_to_target(
+    source_system_name: &str,
+    target_system_name: &str,
+    target_is_virtual_source: bool,
+) -> Result<(), BackendError> {
+    if let Some(result) = native::link_sink_monitor_to_target(source_system_name, target_system_name, target_is_virtual_source) {
+        return result;
+    }
+    link_sink_monitor_to_target_cli(source_system_name, target_system_name, target_is_virtual_source)
+}
+
+fn link_sink_monitor_to_target_cli(
     source_system_name: &str,
     target_system_name: &str,
     target_is_virtual_source: bool,
@@ -54,6 +78,17 @@ pub fn is_sink_monitor_routed_to(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> bool {
+    if let Some(result) = native::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_virtual_source) {
+        return result;
+    }
+    is_sink_monitor_routed_to_cli(source_system_name, target_system_name, target_is_virtual_source)
+}
+
+fn is_sink_monitor_routed_to_cli(
+    source_system_name: &str,
+    target_system_name: &str,
+    target_is_virtual_source: bool,
+) -> bool {
     let target_port_prefix = if target_is_virtual_source { "input_" } else { "playback_" };
     let source_ports = output_ports_for(source_system_name);
     let target_ports = target_ports_with_prefix(target_system_name, target_port_prefix);
@@ -72,6 +107,13 @@ fn monitor_route_matches(source_system_name: &str, desired: &[(String, String)])
 }
 
 pub fn list_all_monitor_routes_for_source(source_system_name: &str) -> Vec<String> {
+    if let Some(targets) = native::list_all_monitor_routes_for_source(source_system_name) {
+        return targets;
+    }
+    list_all_monitor_routes_for_source_cli(source_system_name)
+}
+
+fn list_all_monitor_routes_for_source_cli(source_system_name: &str) -> Vec<String> {
     let mut targets = Vec::new();
     for (_, target_port) in list_monitor_links_for_source(source_system_name) {
         if let Some(target_name) = capture_source_name_from_port(&target_port) {
@@ -87,6 +129,13 @@ pub fn disconnect_sink_monitor_route(
     source_system_name: &str,
     target_system_name: &str,
 ) -> Result<(), BackendError> {
+    if let Some(result) = native::disconnect_sink_monitor_route(source_system_name, target_system_name) {
+        return result;
+    }
+    disconnect_sink_monitor_route_cli(source_system_name, target_system_name)
+}
+
+fn disconnect_sink_monitor_route_cli(source_system_name: &str, target_system_name: &str) -> Result<(), BackendError> {
     let target_prefix = format!("{target_system_name}:");
     disconnect_links(
         list_monitor_links_for_source(source_system_name)
@@ -96,6 +145,9 @@ pub fn disconnect_sink_monitor_route(
 }
 
 pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), BackendError> {
+    if let Some(result) = native::disconnect_sink_monitor(source_system_name) {
+        return result;
+    }
     disconnect_links(list_monitor_links_for_source(source_system_name))
 }
 
@@ -110,6 +162,9 @@ pub fn link_capture_source_to_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Result<(), BackendError> {
+    if let Some(result) = native::link_capture_source_to_virtual_input(capture_source_system_name, virtual_input_system_name) {
+        return result;
+    }
     link_capture_source_to_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
 }
 
@@ -117,6 +172,9 @@ pub fn disconnect_capture_source_from_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Result<(), BackendError> {
+    if let Some(result) = native::disconnect_capture_source_from_virtual_input(capture_source_system_name, virtual_input_system_name) {
+        return result;
+    }
     disconnect_capture_source_from_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
 }
 
@@ -128,6 +186,9 @@ pub fn link_capture_source_to_sink(
     capture_source_system_name: &str,
     sink_system_name: &str,
 ) -> Result<(), BackendError> {
+    if let Some(result) = native::link_capture_source_to_sink(capture_source_system_name, sink_system_name) {
+        return result;
+    }
     link_capture_source_to_target_ports(capture_source_system_name, sink_system_name, "playback_")
 }
 
@@ -135,6 +196,9 @@ pub fn disconnect_capture_source_from_sink(
     capture_source_system_name: &str,
     sink_system_name: &str,
 ) -> Result<(), BackendError> {
+    if let Some(result) = native::disconnect_capture_source_from_sink(capture_source_system_name, sink_system_name) {
+        return result;
+    }
     disconnect_capture_source_from_target_ports(capture_source_system_name, sink_system_name, "playback_")
 }
 
@@ -260,6 +324,9 @@ fn output_ports_for(system_name: &str) -> Vec<String> {
 /// used to confirm a node has actually registered its ports before wiring
 /// anything to it (a node/sink can exist slightly before its ports do).
 pub fn has_output_ports(system_name: &str) -> bool {
+    if let Some(result) = native::has_output_ports(system_name) {
+        return result;
+    }
     !output_ports_for(system_name).is_empty()
 }
 
@@ -268,6 +335,9 @@ pub fn has_output_ports(system_name: &str) -> bool {
 /// effects inlet (`effect_input.*`) has registered its ports before wiring
 /// the mic-mix feed into it.
 pub fn has_input_ports(system_name: &str) -> bool {
+    if let Some(result) = native::has_input_ports(system_name) {
+        return result;
+    }
     let prefix = format!("{system_name}:");
     list_ports("-i").into_iter().any(|port| port.starts_with(&prefix))
 }
@@ -296,12 +366,18 @@ fn pair_capture_ports(source_ports: &[String], target_ports: &[String]) -> Vec<(
 }
 
 pub fn list_capture_sources_for_virtual_input(virtual_input_system_name: &str) -> Vec<String> {
+    if let Some(sources) = native::list_capture_sources_for_virtual_input(virtual_input_system_name) {
+        return sources;
+    }
     list_capture_sources_for_target_ports(virtual_input_system_name, "input_")
 }
 
 /// Same discovery as `list_capture_sources_for_virtual_input`, but against a
 /// regular sink's playback ports (a per-mix-source feed sink).
 pub fn list_capture_sources_for_sink(sink_system_name: &str) -> Vec<String> {
+    if let Some(sources) = native::list_capture_sources_for_sink(sink_system_name) {
+        return sources;
+    }
     list_capture_sources_for_target_ports(sink_system_name, "playback_")
 }
 
@@ -342,6 +418,9 @@ fn list_monitor_links_for_source(source_system_name: &str) -> Vec<(String, Strin
 /// destination simultaneously right after this exact move: `pactl` reported
 /// success, but audio kept flowing to the old destination too).
 pub fn disconnect_stale_output_links(source_system_name: &str, keep_target_system_name: &str) -> Result<(), BackendError> {
+    if let Some(result) = native::disconnect_stale_output_links(source_system_name, keep_target_system_name) {
+        return result;
+    }
     let keep_prefix = format!("{keep_target_system_name}:");
     let stale = links_from_source(source_system_name)
         .into_iter()
