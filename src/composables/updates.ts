@@ -7,6 +7,13 @@ export const UPDATE_MANIFEST_URL =
   "https://github.com/LunarVagabond/Pipe-Deck/releases/latest/download/latest.json";
 export const RELEASES_PAGE = "https://github.com/LunarVagabond/Pipe-Deck/releases/latest";
 
+// The GitHub Releases list API — a different host from the static releases/latest/download
+// asset above, so its own allow-list entry is needed in src-tauri/capabilities/default.json.
+export const GITHUB_RELEASES_API_URL =
+  "https://api.github.com/repos/LunarVagabond/Pipe-Deck/releases";
+
+export type UpdateChannel = "latest" | "prerelease";
+
 export interface UpdatePlatform {
   url: string;
   signature?: string;
@@ -65,8 +72,10 @@ export function platformKeyForInstallKind(installKind: InstallKind): string | nu
   }
 }
 
-export async function fetchUpdateManifest(): Promise<UpdateManifest> {
-  const response = await fetch(UPDATE_MANIFEST_URL, {
+export async function fetchUpdateManifest(
+  manifestUrl: string = UPDATE_MANIFEST_URL,
+): Promise<UpdateManifest> {
+  const response = await fetch(manifestUrl, {
     headers: { Accept: "application/json" },
   });
   if (!response.ok) {
@@ -75,11 +84,60 @@ export async function fetchUpdateManifest(): Promise<UpdateManifest> {
   return (await response.json()) as UpdateManifest;
 }
 
-export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResult> {
+interface GithubReleaseSummary {
+  tag_name: string;
+  draft: boolean;
+  html_url: string;
+}
+
+/**
+ * The newest published (non-draft) release regardless of its `prerelease`
+ * flag — used by the "prerelease" update channel to opt into whatever tag
+ * shipped most recently, stable or not. Every tagged release (see
+ * scripts/stage-release.sh) uploads its own `latest.json` asset alongside
+ * the platform bundles, so once the tag is known here the same manifest
+ * shape used by the stable channel can be fetched from that release's own
+ * download URL instead of hand-building one from raw asset names.
+ */
+export async function fetchNewestReleaseTag(): Promise<GithubReleaseSummary> {
+  const response = await fetch(GITHUB_RELEASES_API_URL, {
+    headers: { Accept: "application/vnd.github+json" },
+  });
+  if (!response.ok) {
+    throw new Error(`Releases lookup failed (${response.status})`);
+  }
+  const releases = (await response.json()) as GithubReleaseSummary[];
+  const newest = releases.find((release) => !release.draft);
+  if (!newest) {
+    throw new Error("No published releases found on GitHub");
+  }
+  return newest;
+}
+
+export function manifestUrlForTag(tag: string): string {
+  return `https://github.com/LunarVagabond/Pipe-Deck/releases/download/${tag}/latest.json`;
+}
+
+export function releasePageForTag(tag: string): string {
+  return `https://github.com/LunarVagabond/Pipe-Deck/releases/tag/${tag}`;
+}
+
+export async function checkForUpdates(
+  appInfo: AppInfo,
+  channel: UpdateChannel = "latest",
+): Promise<UpdateCheckResult> {
   const currentVersion = appInfo.releaseVersion;
 
   try {
-    const manifest = await fetchUpdateManifest();
+    let manifestUrl = UPDATE_MANIFEST_URL;
+    let releaseUrl = RELEASES_PAGE;
+    if (channel === "prerelease") {
+      const release = await fetchNewestReleaseTag();
+      manifestUrl = manifestUrlForTag(release.tag_name);
+      releaseUrl = release.html_url || releasePageForTag(release.tag_name);
+    }
+
+    const manifest = await fetchUpdateManifest(manifestUrl);
     const latestVersion = manifest.version?.replace(/^v/i, "") ?? "";
     if (!latestVersion) {
       return {
@@ -97,7 +155,7 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
         status: "dev_build",
         currentVersion: appInfo.buildRevision,
         latestVersion,
-        releaseUrl: RELEASES_PAGE,
+        releaseUrl,
         canAutoInstall: false,
       };
     }
@@ -105,14 +163,23 @@ export async function checkForUpdates(appInfo: AppInfo): Promise<UpdateCheckResu
     const platformKey = platformKeyForInstallKind(appInfo.installKind);
     const platform = platformKey ? manifest.platforms[platformKey] : undefined;
     const downloadUrl = platform?.url;
+    // The Tauri updater plugin's one-click AppImage auto-install path (installUpdate()
+    // below, via @tauri-apps/plugin-updater's checkUpdater()) always checks the static
+    // stable-channel endpoint baked into tauri.conf.json at build time — it has no way
+    // to be pointed at a prerelease tag at runtime. Force the manual "Get update"
+    // download-link flow instead of the auto-installer whenever this channel-aware
+    // check resolved a prerelease release, so the two never disagree about which
+    // build is about to be installed.
     const canAutoInstall =
-      appInfo.installKind === "app_image" && Boolean(platform?.signature && downloadUrl);
+      channel === "latest" &&
+      appInfo.installKind === "app_image" &&
+      Boolean(platform?.signature && downloadUrl);
 
     return {
       status: compareUpdateStatus(currentVersion, latestVersion),
       currentVersion,
       latestVersion,
-      releaseUrl: RELEASES_PAGE,
+      releaseUrl,
       downloadUrl,
       canAutoInstall,
       error:

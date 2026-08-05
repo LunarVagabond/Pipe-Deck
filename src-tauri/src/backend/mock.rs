@@ -35,6 +35,11 @@ pub struct MockAudioBackend {
     /// actually kill in the mock, so this just records that a stop was
     /// requested for tests to assert against.
     soundboard_stop_calls: Mutex<u32>,
+    /// system_name of the current default output device (#11) — seeded to
+    /// the first Output/Duplex device in the starting graph so
+    /// `default_output_device_name` has something to answer immediately,
+    /// same as a real PipeWire session always having *some* default sink.
+    default_output: Mutex<Option<String>>,
 }
 
 impl Default for MockAudioBackend {
@@ -76,12 +81,21 @@ impl MockAudioBackend {
     }
 
     fn with_graph(graph: RuntimeGraph) -> Self {
+        let default_output = graph
+            .devices
+            .iter()
+            .find(|device| {
+                device.kind != DeviceKind::Virtual
+                    && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+            })
+            .map(|device| device.system_name.clone());
         Self {
             graph: Mutex::new(graph),
             loaded_effect_chains: Mutex::new(HashSet::new()),
             loaded_processing_nodes: Mutex::new(HashSet::new()),
             played_sounds: Mutex::new(Vec::new()),
             soundboard_stop_calls: Mutex::new(0),
+            default_output: Mutex::new(default_output),
         }
     }
 
@@ -354,6 +368,7 @@ impl MockAudioBackend {
             notice: Some(
                 "Sample data only. Unset PIPE_DECK_USE_MOCK to use live PipeWire.".into(),
             ),
+            default_output_system_name: Some("sink-headphones".into()),
             ..Default::default()
         }
     }
@@ -472,6 +487,26 @@ impl AudioBackend for MockAudioBackend {
             .find(|stream| stream.id == stream_id)
             .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
         stream.muted = Some(muted);
+        Ok(())
+    }
+
+    fn default_output_device_name(&self) -> Option<String> {
+        self.default_output.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+    }
+
+    fn set_default_output_device(&self, system_name: &str) -> Result<(), BackendError> {
+        let graph = self.lock();
+        let exists = graph.devices.iter().any(|device| {
+            device.system_name == system_name
+                && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+        });
+        if !exists {
+            return Err(BackendError::Message(format!(
+                "output device not found: {system_name}"
+            )));
+        }
+        drop(graph);
+        *self.default_output.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(system_name.to_string());
         Ok(())
     }
 

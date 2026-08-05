@@ -90,6 +90,18 @@ The default dashboard uses a four-column routing matrix:
 
 Connection lines draw between linked nodes. Authored policies are managed in the **Rules** view; dashboard dropdown changes also persist lightweight `routing_rules` at lower priority.
 
+## First-Run Onboarding Checklist (issue #5)
+
+A dismissible, non-blocking panel docked bottom-right of the app shell (mounted globally in `App.vue`, not scoped to a single view) — never a modal or multi-step wizard that blocks app use. Shown when `preferences.onboarding_dismissed` is false/unset.
+
+Lists three items, each read live from current app state rather than a static flag, so completing a step outside the checklist (e.g. the system tray) is reflected immediately:
+
+- **PipeWire detected** — derived from whether the runtime graph loaded any devices without error. Links out to the PipeWire prerequisites section of `docs/developers/Getting_Started.md`.
+- **Default output set** — derived from `RuntimeGraph.default_output_system_name`. Links to the **Sources** view.
+- **Profile created (optional)** — derived from whether any saved profile exists. Links to the **Profiles** view.
+
+A single close control dismisses the whole checklist as one unit (no per-item "never show again") and persists `onboarding_dismissed: true` so it never reappears.
+
 ## Rules View (Phase 3)
 
 Componentized under `src/components/rules/` (issue #277/#116 UX pass): `RuleListItem.vue` (one table row), `RuleConditionEditor.vue` (one condition row, reused inside the modal), and `RuleFormModal.vue` (the full create/edit dialog) — `Rules.vue` itself is the thin orchestrator (data loading, save/delete/toggle/reorder, search filtering).

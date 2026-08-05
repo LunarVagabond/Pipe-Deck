@@ -227,6 +227,7 @@ pub fn expand_scenario(scenario: ScenarioFile) -> Result<RuntimeGraph, String> {
         )),
         recent_stream_identities: Vec::new(),
         processing_nodes: scenario.processing_nodes,
+        default_output_system_name: None,
     })
 }
 

@@ -237,6 +237,7 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
         links,
         data_source: "pipewire".into(),
         notice: None,
+        default_output_system_name: crate::backend::linux::pactl::get_default_sink_name(),
         ..Default::default()
     };
 

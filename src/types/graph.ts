@@ -213,6 +213,10 @@ export interface RuntimeGraph {
   notice?: string;
   recent_stream_identities?: RecentStreamIdentity[];
   processing_nodes?: ProcessingNode[];
+  /** `system_name` of the current default output device, if PipeWire has
+   * one configured. Used by the first-run onboarding checklist to check
+   * "default output set" without new detection plumbing. */
+  default_output_system_name?: string;
 }
 
 export interface DeviceAliasEntry {
@@ -236,6 +240,12 @@ export interface Preferences {
   light_scheme?: string;
   notice_duration_ms?: number;
   soundboard_boards?: SoundboardBoard[];
+  /** "minimize" | "quit"; absent/null means the user hasn't been asked yet. */
+  close_behavior?: string;
+  update_channel?: string;
+  /** Whether the first-run onboarding checklist has been dismissed. Never
+   * re-shown once true — no per-step tracking. */
+  onboarding_dismissed?: boolean;
 }
 
 export interface SoundboardBoard {

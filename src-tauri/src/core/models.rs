@@ -426,6 +426,11 @@ pub struct RuntimeGraph {
     /// addressable ports rather than at most one implicit stream in/out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub processing_nodes: Vec<ProcessingNode>,
+    /// `system_name` of the current default output device, if PipeWire has
+    /// one configured (issue #5's onboarding checklist reads this to check
+    /// "default output set" without new detection plumbing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_output_system_name: Option<String>,
 }
 
 fn default_data_source() -> String {
@@ -469,10 +474,32 @@ pub struct Preferences {
     /// the user adds one; no default board is created for them.
     #[serde(default)]
     pub soundboard_boards: Vec<crate::core::soundboard::SoundboardBoard>,
+    /// Behavior when the window's close (X) button is clicked: `"minimize"`
+    /// or `"quit"`. `None` means the user hasn't been asked yet — distinct
+    /// from any default — so the one-time prompt (#295) knows to fire.
+    #[serde(default)]
+    pub close_behavior: Option<String>,
+    /// Which manifest the in-app updater checks: "latest" (default, the
+    /// newest published non-prerelease GitHub release) or "prerelease"
+    /// (the newest tagged release regardless of prerelease status). Only
+    /// governs the manual "Check for updates" comparison and download-link
+    /// flow — the Tauri updater plugin's one-click AppImage auto-install
+    /// path always checks the stable channel (see src-tauri/tauri.conf.json's
+    /// static `plugins.updater.endpoints`).
+    #[serde(default = "default_update_channel")]
+    pub update_channel: String,
+    /// Whether the first-run onboarding checklist has been dismissed
+    /// (issue #5). Never re-shown once true — no per-step tracking.
+    #[serde(default)]
+    pub onboarding_dismissed: bool,
 }
 
 fn default_theme_mode() -> String {
     "dark".into()
+}
+
+fn default_update_channel() -> String {
+    "latest".into()
 }
 
 fn default_notice_duration_ms() -> u32 {
@@ -500,6 +527,9 @@ impl Default for Preferences {
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
             soundboard_boards: Vec::new(),
+            close_behavior: None,
+            update_channel: default_update_channel(),
+            onboarding_dismissed: false,
         }
     }
 }

@@ -70,6 +70,13 @@ pub fn set_sidebar_collapsed(collapsed: bool) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub fn set_onboarding_dismissed(dismissed: bool) -> Result<(), String> {
+    ConfigStore::new()
+        .set_onboarding_dismissed(dismissed)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn list_themes() -> Vec<crate::core::models::ResolvedScheme> {
     let config_store = ConfigStore::new();
     ThemeStore::new(config_store.config_dir().clone()).list_schemes()
@@ -80,6 +87,23 @@ pub fn set_theme_mode(mode: String) -> Result<(), String> {
     ConfigStore::new()
         .set_theme_mode(&mode)
         .map_err(|error| error.to_string())
+}
+
+/// Persists the user's close-button choice. `apply_now` distinguishes the
+/// two callers: the one-time prompt (#295) answers *for* a click that's
+/// already in flight, so it passes `true` to also perform the hide/exit
+/// immediately — otherwise the window is left in limbo (not hidden, not
+/// quit). A plain preference change from Settings passes `false`, since no
+/// close is in progress there.
+#[tauri::command]
+pub fn set_close_behavior(behavior: String, apply_now: bool, app: tauri::AppHandle) -> Result<(), String> {
+    ConfigStore::new()
+        .set_close_behavior(&behavior)
+        .map_err(|error| error.to_string())?;
+    if apply_now {
+        crate::tray::apply_close_behavior(&app, &behavior);
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -100,5 +124,12 @@ pub fn set_light_scheme(id: String) -> Result<(), String> {
 pub fn set_notice_duration_ms(ms: u32) -> Result<(), String> {
     ConfigStore::new()
         .set_notice_duration_ms(ms)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn set_update_channel(channel: String) -> Result<(), String> {
+    ConfigStore::new()
+        .set_update_channel(&channel)
         .map_err(|error| error.to_string())
 }

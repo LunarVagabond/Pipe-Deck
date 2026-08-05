@@ -3,9 +3,13 @@ import {
   compareUpdateStatus,
   platformKeyForInstallKind,
   fetchUpdateManifest,
+  fetchNewestReleaseTag,
+  manifestUrlForTag,
+  releasePageForTag,
   checkForUpdates,
   installUpdate,
   UPDATE_MANIFEST_URL,
+  GITHUB_RELEASES_API_URL,
   RELEASES_PAGE,
   updateStatusLabel,
 } from "./updates";
@@ -98,6 +102,81 @@ describe("fetchUpdateManifest", () => {
     fetchMock.mockResolvedValue({ ok: false, status: 404 });
 
     await expect(fetchUpdateManifest()).rejects.toThrow("404");
+  });
+
+  it("fetches an arbitrary manifest URL when one is passed explicitly", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: "1.4.0-preview", platforms: {} }),
+    });
+
+    const manifest = await fetchUpdateManifest("https://example.test/latest.json");
+
+    expect(fetchMock).toHaveBeenCalledWith("https://example.test/latest.json", {
+      headers: { Accept: "application/json" },
+    });
+    expect(manifest.version).toBe("1.4.0-preview");
+  });
+});
+
+describe("manifestUrlForTag / releasePageForTag", () => {
+  it("builds the per-tag latest.json download URL", () => {
+    expect(manifestUrlForTag("v1.4.0-preview")).toBe(
+      "https://github.com/LunarVagabond/Pipe-Deck/releases/download/v1.4.0-preview/latest.json",
+    );
+  });
+
+  it("builds the per-tag release page URL", () => {
+    expect(releasePageForTag("v1.4.0-preview")).toBe(
+      "https://github.com/LunarVagabond/Pipe-Deck/releases/tag/v1.4.0-preview",
+    );
+  });
+});
+
+describe("fetchNewestReleaseTag", () => {
+  it("fetches the GitHub releases API and returns the newest non-draft release", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/v1.4.0-preview" },
+          { tag_name: "v1.3.0", draft: false, html_url: "https://example.test/v1.3.0" },
+        ]),
+    });
+
+    const release = await fetchNewestReleaseTag();
+
+    expect(fetchMock).toHaveBeenCalledWith(GITHUB_RELEASES_API_URL, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+    expect(release.tag_name).toBe("v1.4.0-preview");
+  });
+
+  it("skips draft releases when picking the newest", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve([
+          { tag_name: "v1.5.0-draft", draft: true, html_url: "https://example.test/v1.5.0-draft" },
+          { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/v1.4.0-preview" },
+        ]),
+    });
+
+    const release = await fetchNewestReleaseTag();
+
+    expect(release.tag_name).toBe("v1.4.0-preview");
+  });
+
+  it("throws when no non-draft releases exist", async () => {
+    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
+
+    await expect(fetchNewestReleaseTag()).rejects.toThrow("No published releases found");
+  });
+
+  it("throws with the response status when the releases lookup is not ok", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 403 });
+
+    await expect(fetchNewestReleaseTag()).rejects.toThrow("403");
   });
 });
 
@@ -216,6 +295,96 @@ describe("checkForUpdates", () => {
     expect(result.status).toBe("error");
     expect(result.error).toContain("500");
     expect(result.canAutoInstall).toBe(false);
+  });
+});
+
+describe("checkForUpdates with the prerelease channel", () => {
+  it("looks up the newest release tag, then fetches that release's own latest.json", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/releases/v1.4.0-preview" },
+          ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            version: "1.4.0-preview",
+            platforms: {
+              "linux-x86_64-appimage": { url: "https://example.test/app.AppImage", signature: "sig" },
+            },
+          }),
+      });
+
+    const result = await checkForUpdates(appInfo(), "prerelease");
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, GITHUB_RELEASES_API_URL, {
+      headers: { Accept: "application/vnd.github+json" },
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "https://github.com/LunarVagabond/Pipe-Deck/releases/download/v1.4.0-preview/latest.json",
+      { headers: { Accept: "application/json" } },
+    );
+    expect(result.status).toBe("severely_outdated");
+    expect(result.latestVersion).toBe("1.4.0-preview");
+    expect(result.releaseUrl).toBe("https://example.test/releases/v1.4.0-preview");
+  });
+
+  it("never allows auto-install, even for an app_image install with a signed platform entry", async () => {
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve([
+            { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/releases/v1.4.0-preview" },
+          ]),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            version: "1.4.0-preview",
+            platforms: {
+              "linux-x86_64-appimage": { url: "https://example.test/app.AppImage", signature: "sig" },
+            },
+          }),
+      });
+
+    const result = await checkForUpdates(appInfo(), "prerelease");
+
+    // The Tauri updater plugin's one-click AppImage installer always checks the
+    // static stable-channel endpoint baked into tauri.conf.json — it can't be
+    // pointed at this prerelease tag, so the manual download-link flow must be
+    // used instead of the auto-installer here.
+    expect(result.canAutoInstall).toBe(false);
+    expect(result.downloadUrl).toBe("https://example.test/app.AppImage");
+  });
+
+  it("surfaces the releases lookup failure as an error result", async () => {
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403 });
+
+    const result = await checkForUpdates(appInfo(), "prerelease");
+
+    expect(result.status).toBe("error");
+    expect(result.error).toContain("403");
+  });
+
+  it("defaults to the latest channel when no channel argument is passed", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: "1.3.0", platforms: {} }),
+    });
+
+    await checkForUpdates(appInfo());
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(UPDATE_MANIFEST_URL, {
+      headers: { Accept: "application/json" },
+    });
   });
 });
 

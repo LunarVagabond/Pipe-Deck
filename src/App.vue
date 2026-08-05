@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, provide, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import NoticeStack from "./components/NoticeStack.vue";
 import ConfirmDialog from "./components/ConfirmDialog.vue";
 import PromptDialog from "./components/PromptDialog.vue";
 import ShortcutsModal from "./components/ShortcutsModal.vue";
+import OnboardingChecklist from "./components/OnboardingChecklist.vue";
 import AppFooter from "./components/AppFooter.vue";
 import NewDeviceDialog from "./components/NewDeviceDialog.vue";
 import NavIcon from "./components/NavIcon.vue";
@@ -19,6 +21,7 @@ import Settings from "./views/Settings.vue";
 import Soundboard from "./views/Soundboard.vue";
 import Sources from "./views/Sources.vue";
 import { useApplyResult } from "./stores/notices";
+import { useConfirm } from "./stores/confirm";
 import { useNewDeviceDialog } from "./stores/newDeviceDialog";
 import { useUpdateStatus } from "./stores/updateStatus";
 import { useRuntimeGraph } from "./stores/runtimeGraph";
@@ -55,6 +58,7 @@ const { graph: runtimeGraph, loading: runtimeGraphLoading, error: runtimeGraphEr
 const { refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass } = useDaemonStatus();
 const { resolvedKind, setMode } = useTheme();
 const { openShortcutsModal } = useShortcutsModal();
+const { confirm } = useConfirm();
 
 const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
 
@@ -135,15 +139,48 @@ function onWindowKeydown(event: KeyboardEvent) {
   openShortcutsModal();
 }
 
+// First click of the window's X with no close-behavior preference saved yet
+// (backend/tray.rs's CloseRequested handler) — the window stays open (Rust
+// already prevented the close) while we ask the user to pick a default.
+// set_close_behavior persists the answer AND performs the hide/exit for
+// this click (apply_now: true), so the window isn't left in limbo.
+async function onCloseBehaviorPromptNeeded() {
+  const wantsQuit = await confirm(
+    "What should happen when you click the window's close button? You can change this later in Settings.",
+    {
+      title: "Close button behavior",
+      confirmLabel: "Quit the app",
+      cancelLabel: "Minimize to background",
+    },
+  );
+  const behavior = wantsQuit ? "quit" : "minimize";
+  try {
+    await invoke("set_close_behavior", { behavior, applyNow: true });
+  } catch (error) {
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  }
+}
+
+let unlistenCloseBehaviorPrompt: (() => void) | null = null;
+
 onMounted(() => {
   void refreshDaemonStatus();
   void loadPreferences();
   void checkForUpdatesNow();
   window.addEventListener("keydown", onWindowKeydown);
+  void listen("close-behavior-prompt-needed", () => {
+    void onCloseBehaviorPromptNeeded();
+  }).then((unlisten) => {
+    unlistenCloseBehaviorPrompt = unlisten;
+  });
 });
 
 onUnmounted(() => {
   window.removeEventListener("keydown", onWindowKeydown);
+  unlistenCloseBehaviorPrompt?.();
 });
 </script>
 
@@ -293,6 +330,7 @@ onUnmounted(() => {
       <AppFooter />
     </div>
 
+    <OnboardingChecklist />
     <NoticeStack />
     <ConfirmDialog />
     <PromptDialog />

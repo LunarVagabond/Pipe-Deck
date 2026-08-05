@@ -70,6 +70,26 @@ pub trait AudioBackend: Send + Sync {
     fn set_stream_volume(&self, graph: &RuntimeGraph, stream_id: &str, percent: u8) -> Result<(), BackendError>;
     fn set_stream_mute(&self, graph: &RuntimeGraph, stream_id: &str, muted: bool) -> Result<(), BackendError>;
 
+    /// The `system_name` of the current default output device (sink), if
+    /// one can be determined (#11's tray quick controls). Read-only
+    /// complement to `set_default_output_device`. Defaults to `None` so a
+    /// backend with no concept of "default output" (e.g. `StubBackend`)
+    /// doesn't need an explicit override.
+    fn default_output_device_name(&self) -> Option<String> {
+        None
+    }
+
+    /// Makes the sink named `system_name` the PipeWire/PulseAudio default
+    /// output (#11's tray "switch default output" action), mirroring
+    /// `pactl set-default-sink`. Errs by default — only a backend that can
+    /// actually change the system default (today, only
+    /// `LinuxPipeWireBackend`, via `pactl`) needs to override this.
+    fn set_default_output_device(&self, _system_name: &str) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "setting the default output device is not supported by this backend".into(),
+        ))
+    }
+
     // Routing: set or clear a single stream/device route.
     fn clear_stream_target(
         &self,

@@ -421,9 +421,27 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_onboarding_dismissed(&self, dismissed: bool) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.onboarding_dismissed = dismissed;
+        self.save_config(&config)
+    }
+
     pub fn set_theme_mode(&self, mode: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         config.preferences.theme_mode = mode.to_string();
+        self.save_config(&config)
+    }
+
+    pub fn set_close_behavior(&self, behavior: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.close_behavior = Some(behavior.to_string());
+        self.save_config(&config)
+    }
+
+    pub fn set_update_channel(&self, channel: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.update_channel = channel.to_string();
         self.save_config(&config)
     }
 
@@ -882,6 +900,7 @@ mod tests {
             assert_eq!(config.preferences.dark_scheme, "midnight-deck");
             assert_eq!(config.preferences.light_scheme, "paper-deck");
             assert_eq!(config.preferences.notice_duration_ms, 5000);
+            assert_eq!(config.preferences.update_channel, "latest");
         });
     }
 
@@ -899,6 +918,20 @@ mod tests {
             assert_eq!(preferences.dark_scheme, "copper-dusk");
             assert_eq!(preferences.light_scheme, "meadow-light");
             assert_eq!(preferences.notice_duration_ms, 8000);
+        });
+    }
+
+    #[test]
+    fn update_channel_setter_round_trips_and_defaults_to_latest() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            assert_eq!(store.preferences().update_channel, "latest");
+
+            store.set_update_channel("prerelease").unwrap();
+            assert_eq!(store.preferences().update_channel, "prerelease");
+
+            store.set_update_channel("latest").unwrap();
+            assert_eq!(store.preferences().update_channel, "latest");
         });
     }
 
