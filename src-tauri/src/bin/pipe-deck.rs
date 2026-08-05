@@ -232,12 +232,10 @@ cleanup [--purge-config]   Unload virtual devices + remove the daemon unit;\n   
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::PermissionsExt;
 
     /// Serializes tests that mutate process-wide env vars — same rationale
-    /// as `config::store::lock_config_dir_env` and `daemon::lock_daemon_env`
-    /// (this bin is a separate crate from the lib, so it can't reuse either
-    /// lock directly and needs its own).
+    /// as `config::store::lock_config_dir_env` (this bin is a separate crate
+    /// from the lib, so it can't reuse that lock directly and needs its own).
     fn lock_cli_test_env() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
         LOCK.get_or_init(|| std::sync::Mutex::new(()))
@@ -250,23 +248,8 @@ mod tests {
         COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
     }
 
-    /// A fake `systemctl` on `PATH`, recording invocations to a file instead
-    /// of touching a real systemd session — see `daemon::mod::tests` for the
-    /// full rationale (PR #256).
-    fn install_fake_systemctl(dir: &std::path::Path) -> std::path::PathBuf {
-        let calls_file = dir.join("systemctl.calls");
-        let script_path = dir.join("systemctl");
-        let script = format!("#!/bin/sh\necho \"$@\" >> \"{}\"\nexit 0\n", calls_file.display());
-        std::fs::write(&script_path, script).expect("write fake systemctl script");
-        let mut perms = std::fs::metadata(&script_path).unwrap().permissions();
-        perms.set_mode(0o755);
-        std::fs::set_permissions(&script_path, perms).unwrap();
-        calls_file
-    }
-
     struct CleanupTestEnv {
         temp_dir: std::path::PathBuf,
-        previous_path: Option<String>,
         previous_config_dir: Option<String>,
         previous_config_home: Option<String>,
         previous_state_home: Option<String>,
@@ -276,10 +259,6 @@ mod tests {
 
     impl Drop for CleanupTestEnv {
         fn drop(&mut self) {
-            match &self.previous_path {
-                Some(value) => std::env::set_var("PATH", value),
-                None => std::env::remove_var("PATH"),
-            }
             match &self.previous_config_dir {
                 Some(value) => std::env::set_var("PIPE_DECK_CONFIG_DIR", value),
                 None => std::env::remove_var("PIPE_DECK_CONFIG_DIR"),
@@ -306,7 +285,7 @@ mod tests {
     /// or `~/.local/state/pipe-deck` — `XDG_STATE_HOME` in particular is easy
     /// to forget since `state_dir()` falls back to a real `$HOME` path
     /// without it.
-    fn setup_cleanup_test_env() -> (CleanupTestEnv, std::path::PathBuf, std::path::PathBuf) {
+    fn setup_cleanup_test_env() -> (CleanupTestEnv, std::path::PathBuf) {
         let lock = lock_cli_test_env();
         let temp_dir = std::env::temp_dir().join(format!(
             "pipe-deck-cli-cleanup-test-{}-{}",
@@ -315,14 +294,6 @@ mod tests {
         ));
         let _ = std::fs::remove_dir_all(&temp_dir);
         std::fs::create_dir_all(&temp_dir).expect("create temp dir");
-        let calls_file = install_fake_systemctl(&temp_dir);
-
-        let previous_path = std::env::var("PATH").ok();
-        let new_path = match &previous_path {
-            Some(existing) => format!("{}:{existing}", temp_dir.display()),
-            None => temp_dir.display().to_string(),
-        };
-        std::env::set_var("PATH", new_path);
 
         let config_dir = temp_dir.join("config");
         std::fs::create_dir_all(&config_dir).unwrap();
@@ -345,21 +316,29 @@ mod tests {
         (
             CleanupTestEnv {
                 temp_dir,
-                previous_path,
                 previous_config_dir,
                 previous_config_home,
                 previous_state_home,
                 previous_use_mock,
                 _lock: lock,
             },
-            calls_file,
             config_dir,
         )
     }
 
     #[test]
+    #[ignore]
+    // `#[ignore]`d (#425): `handle_cleanup` calls `daemon::uninstall_user_service_unit()`,
+    // which now issues a real `zbus` `StopUnit`/`DisableUnitFiles` call against
+    // the literal `pipe-deck-daemon.service` unit name over the real session
+    // D-Bus — there's no PATH to fake anymore (see `daemon::mod::tests`' own
+    // comment for the retired `FakeSystemctl` and its PR #256 rationale, which
+    // applies identically here). Unlike the file/config-dir assertions below,
+    // that call is not sandboxed by `PIPE_DECK_CONFIG_DIR`/`XDG_CONFIG_HOME` —
+    // running this on a machine with the real background-restore service
+    // actually enabled would disable/stop it for real. Run manually only.
     fn handle_cleanup_removes_daemon_unit_and_purges_config_when_requested() {
-        let (_env, calls_file, config_dir) = setup_cleanup_test_env();
+        let (_env, config_dir) = setup_cleanup_test_env();
         let unit_dir = config_dir.join("systemd/user");
         std::fs::create_dir_all(&unit_dir).unwrap();
         std::fs::write(unit_dir.join("pipe-deck-daemon.service"), "[Service]\n").unwrap();
@@ -368,11 +347,6 @@ mod tests {
 
         assert!(result.is_ok(), "{result:?}");
         assert!(!unit_dir.join("pipe-deck-daemon.service").exists());
-        assert!(
-            std::fs::read_to_string(&calls_file)
-                .unwrap_or_default()
-                .contains("disable --now pipe-deck-daemon.service"),
-        );
         assert!(!config_dir.exists(), "config dir should be purged");
     }
 }
