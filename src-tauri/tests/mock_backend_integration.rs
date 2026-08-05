@@ -1981,3 +1981,51 @@ fn play_sound_rejects_an_unknown_device_id() {
 
     assert!(matches!(result, Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))));
 }
+
+#[test]
+fn default_output_device_starts_seeded_and_switches_to_another_output() {
+    let (mut engine, _guard) = mock_engine();
+
+    let starting_default = engine
+        .default_output_device()
+        .expect("mock backend should seed a default output")
+        .id
+        .clone();
+
+    let other = engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .find(|device| {
+            matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex) && device.id != starting_default
+        })
+        .expect("mock sample graph should have more than one output device")
+        .id
+        .clone();
+
+    engine.set_default_output_device(&other).expect("switching default output should succeed");
+
+    assert_eq!(engine.default_output_device().map(|device| device.id.clone()), Some(other));
+}
+
+#[test]
+fn set_default_output_device_rejects_an_unknown_device_id() {
+    let (mut engine, _guard) = mock_engine();
+
+    let result = engine.set_default_output_device("no-such-device");
+
+    assert!(matches!(result, Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))));
+}
+
+#[test]
+fn toggle_default_output_mute_flips_the_default_devices_mute_state() {
+    let (mut engine, _guard) = mock_engine();
+
+    let starting_muted = engine.default_output_muted().expect("mock backend should have a default output");
+
+    engine.toggle_default_output_mute().expect("toggling default output mute should succeed");
+    assert_eq!(engine.default_output_muted(), Some(!starting_muted));
+
+    engine.toggle_default_output_mute().expect("toggling back should succeed");
+    assert_eq!(engine.default_output_muted(), Some(starting_muted));
+}

@@ -178,6 +178,14 @@ impl AudioBackend for LinuxPipeWireBackend {
         crate::backend::linux::pactl::set_stream_mute(graph, stream_id, muted)
     }
 
+    fn default_output_device_name(&self) -> Option<String> {
+        pactl::default_output_system_name()
+    }
+
+    fn set_default_output_device(&self, system_name: &str) -> Result<(), BackendError> {
+        pactl::set_default_output_system_name(system_name)
+    }
+
     fn clear_stream_target(
         &self,
         graph: &RuntimeGraph,

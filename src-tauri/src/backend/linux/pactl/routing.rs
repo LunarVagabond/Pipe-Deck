@@ -283,6 +283,24 @@ fn get_default_source_name() -> Option<String> {
     read_pactl_default_name(&["get-default-source"])
 }
 
+/// Public wrapper around [`get_default_sink_name`] (#11) — the tray's
+/// default-output quick control needs to read the current default sink the
+/// same way `resolve_clear_playback_sink` already does internally, rather
+/// than re-implementing the native-metadata-then-pactl-fallback dance.
+pub fn default_output_system_name() -> Option<String> {
+    get_default_sink_name()
+}
+
+/// Sets `system_name` as the PipeWire/PulseAudio default sink (#11's tray
+/// "switch default output" action). No native `pw::metadata` write path
+/// exists yet (only the read side does, see `pw_metadata_native.rs`), so
+/// this always shells out to `pactl set-default-sink`, mirroring how
+/// `move_stream_to_sink_name` and friends already fall back to `pactl` for
+/// state-changing routing operations elsewhere in this module.
+pub fn set_default_output_system_name(system_name: &str) -> Result<(), BackendError> {
+    crate::backend::linux::pactl::run_pactl(&["set-default-sink", system_name]).map(|_| ())
+}
+
 fn read_pactl_default_name(args: &[&str]) -> Option<String> {
     let output = sysproc::command("pactl").args(args).output().ok()?;
     if !output.status.success() {
