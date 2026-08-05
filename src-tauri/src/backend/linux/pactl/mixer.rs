@@ -2,6 +2,7 @@ use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirec
 use crate::backend::BackendError;
 use crate::backend::linux::pactl::parse::{find_sink_input_index, find_source_output_index};
 use crate::backend::linux::pactl::run_pactl;
+use crate::backend::linux::pw_mixer_native as native;
 
 /// Moves a single sink-input (an app's playback stream) onto a different
 /// sink by raw name, bypassing `RuntimeGraph` lookup. Used to temporarily
@@ -20,19 +21,25 @@ pub fn set_device_volume(device_id: &str, graph: &RuntimeGraph, percent: u8) -> 
         .ok_or_else(|| BackendError::Message(format!("device not found: {device_id}")))?;
 
     let percent = percent.min(100);
-    let volume_arg = format!("{percent}%");
+    let channels = device.channels.unwrap_or(2).max(1);
+
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => {
+            let monitor_name = uses_monitor_fan_out(device).then(|| monitor_source_name(&device.system_name));
+            if let Some(result) = native::set_device_volume(&device.system_name, percent, channels, monitor_name.as_deref()) {
+                return result;
+            }
+            let volume_arg = format!("{percent}%");
             run_pactl(&["set-sink-volume", &device.system_name, &volume_arg])?;
-            if uses_monitor_fan_out(device) {
-                run_pactl(&[
-                    "set-source-volume",
-                    &monitor_source_name(&device.system_name),
-                    &volume_arg,
-                ])?;
+            if let Some(monitor_name) = monitor_name {
+                run_pactl(&["set-source-volume", &monitor_name, &volume_arg])?;
             }
         }
         DeviceDirection::Input => {
+            if let Some(result) = native::set_device_volume(&device.system_name, percent, channels, None) {
+                return result;
+            }
+            let volume_arg = format!("{percent}%");
             run_pactl(&[
                 "set-source-volume",
                 &device.system_name,
@@ -50,19 +57,23 @@ pub fn set_device_mute(device_id: &str, graph: &RuntimeGraph, muted: bool) -> Re
         .find(|device| device.id == device_id)
         .ok_or_else(|| BackendError::Message(format!("device not found: {device_id}")))?;
 
-    let flag = if muted { "1" } else { "0" };
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => {
+            let monitor_name = uses_monitor_fan_out(device).then(|| monitor_source_name(&device.system_name));
+            if let Some(result) = native::set_device_mute(&device.system_name, muted, monitor_name.as_deref()) {
+                return result;
+            }
+            let flag = if muted { "1" } else { "0" };
             run_pactl(&["set-sink-mute", &device.system_name, flag])?;
-            if uses_monitor_fan_out(device) {
-                run_pactl(&[
-                    "set-source-mute",
-                    &monitor_source_name(&device.system_name),
-                    flag,
-                ])?;
+            if let Some(monitor_name) = monitor_name {
+                run_pactl(&["set-source-mute", &monitor_name, flag])?;
             }
         }
         DeviceDirection::Input => {
+            if let Some(result) = native::set_device_mute(&device.system_name, muted, None) {
+                return result;
+            }
+            let flag = if muted { "1" } else { "0" };
             run_pactl(&["set-source-mute", &device.system_name, flag])?;
         }
     }
@@ -127,6 +138,9 @@ pub fn set_stream_mute(
 /// `RuntimeGraph` lookup. Used for per-mix-source feed sinks, which are
 /// intentionally hidden from the graph's device list.
 pub fn set_sink_volume_by_name(system_name: &str, percent: u8) -> Result<(), BackendError> {
+    if let Some(result) = native::set_device_volume(system_name, percent, 2, None) {
+        return result;
+    }
     let volume_arg = format!("{}%", percent.min(100));
     run_pactl(&["set-sink-volume", system_name, &volume_arg]).map(|_| ())
 }
@@ -156,6 +170,9 @@ pub fn sink_volume_percent(system_name: &str) -> Result<Option<u8>, BackendError
 /// Muting here never touches any `pw-link` connection: the feed sink stays
 /// wired exactly as it was, only its own mute flag changes.
 pub fn set_sink_mute_by_name(system_name: &str, muted: bool) -> Result<(), BackendError> {
+    if let Some(result) = native::set_device_mute(system_name, muted, None) {
+        return result;
+    }
     let flag = if muted { "1" } else { "0" };
     run_pactl(&["set-sink-mute", system_name, flag]).map(|_| ())
 }
