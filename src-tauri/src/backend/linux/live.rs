@@ -314,6 +314,15 @@ impl AudioBackend for LinuxPipeWireBackend {
         Ok(())
     }
 
+    fn find_live_node_id(&self, node_name: &str) -> Result<Option<u32>, BackendError> {
+        if let Some(watcher) = &self.native_graph {
+            if let Some(id) = watcher.find_node_id(node_name) {
+                return Ok(Some(id));
+            }
+        }
+        crate::pipewire::pw_cli::find_node_id_by_name(node_name)
+    }
+
     fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError> {
         let _ = crate::backend::linux::pactl::sync_feed_sink_for_virtual_input(system_name, alias);
         let _ = self.registry.set_label(system_name, alias);
@@ -335,7 +344,7 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
-        measure_latency_ping_live(path)
+        measure_latency_ping_live(path, self.native_graph.as_ref())
     }
 
     fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError> {
@@ -1177,9 +1186,15 @@ fn parse_pipewire_version(text: &str) -> Option<String> {
 /// theoretical/buffering latency per hop from a single `pw-top -b -n 2` run
 /// (see `pipewire::pw_top` for why two iterations are required). `Device`/
 /// `Stream` ids are `"node-{n}"` and resolve for free by stripping the
-/// prefix; anything else (processing nodes) falls back to a bulk
-/// `system_name` lookup via `pw_cli::find_node_ids_by_names`.
-fn measure_latency_ping_live(path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+/// prefix; anything else (processing nodes) resolves via `native_graph`'s
+/// live name index (#411) first, falling back to the bulk `pw-dump`
+/// shellout (`pw_cli::find_node_ids_by_names`) for whatever's still missing
+/// — either because the native watcher isn't running or a node is too
+/// recent to have reached the index yet.
+fn measure_latency_ping_live(
+    path: &[LatencyPathNode],
+    native_graph: Option<&pw_registry::NativeGraphWatcher>,
+) -> Result<LatencyPingResult, BackendError> {
     let mut resolved_ids: Vec<Option<u32>> = Vec::with_capacity(path.len());
     let mut names_to_resolve: Vec<String> = Vec::new();
 
@@ -1194,11 +1209,21 @@ fn measure_latency_ping_live(path: &[LatencyPathNode]) -> Result<LatencyPingResu
         }
     }
 
-    let name_lookup = if names_to_resolve.is_empty() {
+    let mut name_lookup = if names_to_resolve.is_empty() {
         std::collections::HashMap::new()
     } else {
-        crate::pipewire::pw_cli::find_node_ids_by_names(&names_to_resolve)?
+        native_graph
+            .map(|watcher| watcher.find_node_ids(&names_to_resolve))
+            .unwrap_or_default()
     };
+    let still_missing: Vec<String> = names_to_resolve
+        .iter()
+        .filter(|name| !name_lookup.contains_key(*name))
+        .cloned()
+        .collect();
+    if !still_missing.is_empty() {
+        name_lookup.extend(crate::pipewire::pw_cli::find_node_ids_by_names(&still_missing)?);
+    }
 
     for (index, node) in path.iter().enumerate() {
         if resolved_ids[index].is_some() {

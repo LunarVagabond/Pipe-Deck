@@ -149,6 +149,21 @@ pub trait AudioBackend: Send + Sync {
         Ok(())
     }
 
+    /// Resolves a live PipeWire node's id from its `node.name` (#411) — used
+    /// by the effects "Live Params" fast path
+    /// (`core/engine/effects_ops.rs::set_effect_chain_live_params`) to find
+    /// an already-running filter-chain node to push a `pw-cli set-param`
+    /// update to. The default implementation falls back to the original
+    /// `pw-dump`-shellout workaround (`pipewire::pw_cli::find_node_id_by_name`)
+    /// — correct everywhere, just not instant. `LinuxPipeWireBackend`
+    /// overrides this to consult its own live registry index first (#410's
+    /// `pw_registry::NativeGraphWatcher`) when available, falling back to
+    /// the same shellout on a miss (e.g. a node created within the last
+    /// debounce window that hasn't reached the index yet).
+    fn find_live_node_id(&self, node_name: &str) -> Result<Option<u32>, BackendError> {
+        crate::pipewire::pw_cli::find_node_id_by_name(node_name)
+    }
+
     // Live routing-state queries used only as rule-matching fallbacks when
     // `RuntimeGraph`'s own `current_targets`/`current_target` are stale or
     // missing (see core/rules/matching.rs, core/rules/evaluation.rs). A

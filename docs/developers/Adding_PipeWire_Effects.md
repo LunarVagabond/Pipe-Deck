@@ -70,7 +70,15 @@ builtin filter list (Mixer, Copy, Biquads, Parametric EQ, and more).
    synchronous `pw-dump` snapshot lookup instead
    (`pipewire::pw_cli::find_node_id_by_name`, reused by
    `native_host::set_param`'s node lookup and `load_chain`'s post-creation
-   readiness wait).
+   readiness wait). This module (`native_host`/`native-effects`) runs only in
+   the daemon process, so it can't reuse the GUI process's own long-lived
+   registry connection (`backend/linux/pw_registry.rs`, #410/#411) — that
+   connection maintains a live index continuously instead of hitting this
+   gotcha at all (a listener registered once, at connection start, before
+   anything it cares about exists, does see every announcement), but it's
+   process-local to the GUI and a different subsystem from this one. A
+   daemon-side equivalent (its own persistent index over its own connection)
+   is a plausible future improvement, not something #410/#411 did.
 
 3. **`node.passive = true` belongs on the playback side, always** — even
    for a node like an EQ that isn't itself a user-selectable device. Every

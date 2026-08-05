@@ -25,6 +25,16 @@
 //! does *not* yet replace (the `pactl` enrichment pass, and per-node
 //! `Format` param round trips for sample rate — both flagged as follow-on
 //! work, not silently dropped).
+//!
+//! Also maintains a plain `node.name -> id` index (`NativeGraphWatcher::
+//! find_node_id`/`find_node_ids`, #411) over *every* live Node — including
+//! `pipe-deck-*`/`effect_output.*`/`effect_input.*` names `pw_dump::normalize`
+//! deliberately filters out of the UI-facing graph — so GUI-process call
+//! sites that used to shell out to `pw-dump` just to resolve a node id
+//! (`pipewire::pw_cli::find_node_id_by_name`'s original workaround, needed
+//! because a registry `global` listener only ever fires once per object and
+//! misses anything created before it attached) can query this connection's
+//! already-current state instead. See PD-041.
 
 use crate::backend::linux::graph_enrich;
 use crate::backend::linux::pw_dump::{self, PwDumpObject};
@@ -93,19 +103,24 @@ pub struct NativeGraphWatcher {
     _core: std::mem::ManuallyDrop<CoreRc>,
     _registry: std::mem::ManuallyDrop<RegistryRc>,
     _global_listener: std::mem::ManuallyDrop<pw::registry::Listener>,
+    // `node.name -> id` over every live Node (#411) — a plain, already-Sync
+    // `Arc<Mutex<..>>`, unlike the `pw`-owned fields above; doesn't need or
+    // affect the `unsafe impl`s below. Written by the assembler thread on
+    // every registry event, read by `find_node_id`/`find_node_ids`.
+    name_index: Arc<Mutex<HashMap<String, u32>>>,
 }
 
-// SAFETY: every touch of the pw types above happens either during setup
-// (the calling thread, before `start()` returns) or from callbacks pw's own
-// thread loop invokes on its own internal thread — never concurrently from
-// two threads at once. This is the same contract `pipewire/native_host.rs`'s
-// `NativeHost` relies on for its own `unsafe impl Send`.
+// SAFETY: every touch of the `pw`-owned fields above happens either during
+// setup (the calling thread, before `start()` returns) or from callbacks
+// pw's own thread loop invokes on its own internal thread — never
+// concurrently from two threads at once. This is the same contract
+// `pipewire/native_host.rs`'s `NativeHost` relies on for its own
+// `unsafe impl Send`. None of them are ever mutated again after `start()`
+// returns (only read on `Drop`, which itself is a no-op — see the
+// `ManuallyDrop` note above), so sharing `&NativeGraphWatcher` across
+// threads has nothing to race on for those fields; `name_index` needs no
+// such justification, being an ordinary `Arc<Mutex<..>>`.
 unsafe impl Send for NativeGraphWatcher {}
-// SAFETY: `LinuxPipeWireBackend` (`AudioBackend: Send + Sync`) holds this
-// directly as a plain field, not behind its own `Mutex` — but nothing here
-// is ever mutated again after `start()` returns it (every field is only
-// read on `Drop`), so sharing `&NativeGraphWatcher` across threads has
-// nothing to race on.
 unsafe impl Sync for NativeGraphWatcher {}
 
 impl NativeGraphWatcher {
@@ -172,7 +187,9 @@ impl NativeGraphWatcher {
         // loop's own internal dispatch thread, which must stay responsive
         // for the connection's own protocol traffic.
         let (ready_tx, ready_rx) = mpsc::channel::<()>();
-        thread::spawn(move || run_assembler(rx, cached_graph, listener_slot, ready_tx));
+        let name_index: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
+        let assembler_name_index = name_index.clone();
+        thread::spawn(move || run_assembler(rx, cached_graph, listener_slot, assembler_name_index, ready_tx));
 
         let _ = ready_rx.recv_timeout(INITIAL_GRAPH_TIMEOUT);
 
@@ -182,7 +199,34 @@ impl NativeGraphWatcher {
             _core: std::mem::ManuallyDrop::new(core),
             _registry: std::mem::ManuallyDrop::new(registry),
             _global_listener: std::mem::ManuallyDrop::new(global_listener),
+            name_index,
         })
+    }
+
+    /// Resolves a live node's id from its `node.name` (#411) — covers every
+    /// Node this connection has ever seen announced and not yet removed,
+    /// including names `pw_dump::normalize` filters out of the UI-facing
+    /// graph (`pipe-deck-*`, `effect_output.*`, `effect_input.*`). Returns
+    /// `None` on a miss — callers should fall back to the original
+    /// `pw-dump`-shellout lookup (`pipewire::pw_cli::find_node_id_by_name`)
+    /// rather than treat a miss as "node doesn't exist": a node created
+    /// within the last `DEBOUNCE`/`MAX_COALESCE_WINDOW` may not have reached
+    /// this index yet.
+    pub fn find_node_id(&self, node_name: &str) -> Option<u32> {
+        self.name_index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(node_name)
+            .copied()
+    }
+
+    /// Bulk form of [`Self::find_node_id`] — one lock acquisition for
+    /// several names at once, only returning the ones actually found
+    /// (missing names are simply absent from the result, same "fall back to
+    /// the shellout for what's missing" contract as the single-name form).
+    pub fn find_node_ids(&self, names: &[String]) -> HashMap<String, u32> {
+        let index = self.name_index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        names.iter().filter_map(|name| index.get(name).map(|id| (name.clone(), *id))).collect()
     }
 }
 
@@ -214,6 +258,7 @@ fn run_assembler(
     rx: mpsc::Receiver<RegistryEvent>,
     cached_graph: Arc<Mutex<RuntimeGraph>>,
     listener_slot: Arc<Mutex<Option<GraphListener>>>,
+    name_index: Arc<Mutex<HashMap<String, u32>>>,
     ready_tx: mpsc::Sender<()>,
 ) {
     let mut live: LiveObjects = HashMap::new();
@@ -222,15 +267,20 @@ fn run_assembler(
     loop {
         match rx.recv_timeout(POLL_INTERVAL) {
             Ok(first) => {
-                apply_event(&mut live, first);
+                apply_event(&mut live, &name_index, first);
 
                 // Coalesce a burst of events (startup, or many nodes
                 // appearing/disappearing at once) into a single rebuild.
+                // The name index itself (unlike `cached_graph`) is updated
+                // per-event below, not just once at the end of this
+                // coalescing — #411's callers want the smallest possible
+                // miss window, not the same debounce this module's UI-facing
+                // graph rebuild is fine waiting on.
                 let deadline = Instant::now() + MAX_COALESCE_WINDOW;
                 loop {
                     match rx.recv_timeout(DEBOUNCE) {
                         Ok(event) => {
-                            apply_event(&mut live, event);
+                            apply_event(&mut live, &name_index, event);
                             if Instant::now() >= deadline {
                                 break;
                             }
@@ -256,13 +306,34 @@ fn run_assembler(
     }
 }
 
-fn apply_event(live: &mut LiveObjects, event: RegistryEvent) {
+fn apply_event(live: &mut LiveObjects, name_index: &Mutex<HashMap<String, u32>>, event: RegistryEvent) {
     match event {
         RegistryEvent::Global { id, object_type, props } => {
+            if object_type == "PipeWire:Interface:Node" {
+                if let Some(name) = props.get("node.name").and_then(|value| value.as_str()) {
+                    name_index
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .insert(name.to_string(), id);
+                }
+            }
             live.insert(id, (object_type, props));
         }
         RegistryEvent::Removed { id } => {
-            live.remove(&id);
+            if let Some((object_type, props)) = live.remove(&id) {
+                if object_type == "PipeWire:Interface:Node" {
+                    if let Some(name) = props.get("node.name").and_then(|value| value.as_str()) {
+                        let mut index = name_index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        // Only remove if this id is still the one on record
+                        // for that name — guards against a rare
+                        // remove-then-immediately-recreate-with-a-new-id
+                        // race clobbering a just-inserted newer entry.
+                        if index.get(name) == Some(&id) {
+                            index.remove(name);
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -387,5 +458,39 @@ mod live_tests {
 
         assert!(saw_creation, "expected a live graph push reflecting the new pw-cat stream");
         assert!(saw_removal, "expected a live graph push reflecting the stream's removal");
+    }
+
+    #[test]
+    #[ignore]
+    fn find_live_node_id_resolves_a_pipe_deck_device_hidden_from_the_ui_graph() {
+        // The whole point of #411: `pipe-deck-*` node names are exactly what
+        // `pw_dump::normalize` filters out of the UI-facing graph (see the
+        // previous test's comment) — proving `find_live_node_id` resolves
+        // one anyway is what distinguishes this from just re-testing #410's
+        // graph watcher.
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+
+        let created = backend
+            .create_virtual_input("Pipe Deck Node Lookup Test")
+            .expect("create disposable test device");
+
+        // The live registry index updates per-event, not on the graph's own
+        // debounce window (see `run_assembler`'s doc comment) — but still
+        // asynchronous relative to `create_virtual_input` returning, so poll
+        // briefly rather than asserting on the very first attempt.
+        let found = (0..20).find_map(|_| {
+            let id = backend.find_live_node_id(&created.system_name).ok().flatten();
+            if id.is_some() {
+                return id;
+            }
+            thread::sleep(Duration::from_millis(100));
+            None
+        });
+
+        let _ = backend.remove_virtual_device(&created.system_name);
+
+        assert!(found.is_some(), "expected find_live_node_id to resolve the disposable virtual device");
     }
 }

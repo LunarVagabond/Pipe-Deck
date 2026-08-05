@@ -305,7 +305,9 @@ impl CoreEngine {
             });
         }
 
-        let Some(node_id) = pw_cli::find_node_id_by_name(&device.system_name)
+        let Some(node_id) = self
+            .adapter
+            .find_live_node_id(&device.system_name)
             .map_err(|error| EngineError::Adapter(error.to_string()))?
         else {
             return Ok(ApplyResult {
