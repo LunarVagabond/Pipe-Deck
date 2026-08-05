@@ -102,3 +102,10 @@ pub fn set_notice_duration_ms(ms: u32) -> Result<(), String> {
         .set_notice_duration_ms(ms)
         .map_err(|error| error.to_string())
 }
+
+#[tauri::command]
+pub fn set_update_channel(channel: String) -> Result<(), String> {
+    ConfigStore::new()
+        .set_update_channel(&channel)
+        .map_err(|error| error.to_string())
+}

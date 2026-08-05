@@ -236,6 +236,7 @@ export interface Preferences {
   light_scheme?: string;
   notice_duration_ms?: number;
   soundboard_boards?: SoundboardBoard[];
+  update_channel?: string;
 }
 
 export interface SoundboardBoard {
