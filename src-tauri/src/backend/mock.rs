@@ -1135,11 +1135,11 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<u32>, BackendError> {
+    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<String>, BackendError> {
         Ok(Vec::new())
     }
 
-    fn release_held_sink_inputs(&self, _held_indices: &[u32], _target_system_name: &str) -> Result<(), BackendError> {
+    fn release_held_sink_inputs(&self, _held_streams: &[String], _target_system_name: &str) -> Result<(), BackendError> {
         Ok(())
     }
 

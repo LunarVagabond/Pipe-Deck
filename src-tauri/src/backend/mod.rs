@@ -212,16 +212,18 @@ pub trait AudioBackend: Send + Sync {
     /// preserved as a parameter rather than silently unifying the two.
     fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError>;
 
-    /// Briefly parks any sink-inputs currently playing into
-    /// `device_system_name` on a scratch holding sink, for the duration of
-    /// a module swap. Returns the held sink-input indices for a later
+    /// Briefly parks any streams currently playing into `device_system_name`
+    /// on a scratch holding sink, for the duration of a module swap. Returns
+    /// the held streams' own `system_name`s (#428 — an opaque-to-the-caller
+    /// handle either way; a native re-link identifies a stream by its own
+    /// node name rather than a `pactl` sink-input index) for a later
     /// `release_held_sink_inputs` call. A no-op (empty result) if nothing
     /// is currently playing into the device.
-    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<u32>, BackendError>;
+    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<String>, BackendError>;
 
-    /// Moves previously held sink-inputs back onto `target_system_name` and
+    /// Moves previously held streams back onto `target_system_name` and
     /// tears down the scratch holding sink if nothing else is using it.
-    fn release_held_sink_inputs(&self, held_indices: &[u32], target_system_name: &str) -> Result<(), BackendError>;
+    fn release_held_sink_inputs(&self, held_streams: &[String], target_system_name: &str) -> Result<(), BackendError>;
 
     /// Whatever's currently monitor-linked into `target_system_name`'s
     /// input ports — must be captured before a module swap severs them.
@@ -595,11 +597,11 @@ impl AudioBackend for EmptyAudioBackend {
         Err(BackendError::Message(self.notice.clone()))
     }
 
-    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<u32>, BackendError> {
+    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<String>, BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 
-    fn release_held_sink_inputs(&self, _held_indices: &[u32], _target_system_name: &str) -> Result<(), BackendError> {
+    fn release_held_sink_inputs(&self, _held_streams: &[String], _target_system_name: &str) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }
 

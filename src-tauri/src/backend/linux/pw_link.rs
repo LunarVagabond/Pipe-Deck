@@ -151,6 +151,48 @@ pub fn disconnect_sink_monitor(source_system_name: &str) -> Result<(), BackendEr
     disconnect_links(list_monitor_links_for_source(source_system_name))
 }
 
+/// Input-side counterpart to `disconnect_sink_monitor` (#428) — removes
+/// every link currently feeding `target_system_name`'s input ports,
+/// regardless of source.
+pub fn disconnect_all_inputs(target_system_name: &str) -> Result<(), BackendError> {
+    if let Some(result) = native::disconnect_all_inputs(target_system_name) {
+        return result;
+    }
+    disconnect_links(links_into_target(target_system_name))
+}
+
+/// Exclusively routes a playback-direction stream into `target_system_name`'s
+/// `playback_*` ports (#428, the stream-routing replacement for `pactl
+/// move-sink-input`) — disconnects every existing output link the stream has
+/// first (a stream routes to exactly one target, unlike a sink's monitor
+/// fan-out), then links fresh. `target_system_name` is whatever
+/// `pactl/routing.rs::resolve_playback_sink_name` already resolved it to —
+/// always a genuine sink-shaped node. The stream's own ports are never
+/// prefix-filtered (same as every "source" side elsewhere in this file)
+/// since an arbitrary app's port names follow no Pipe Deck naming convention.
+pub fn route_playback_stream(stream_system_name: &str, target_system_name: &str) -> Result<(), BackendError> {
+    if let Some(result) = native::route_playback_stream(stream_system_name, target_system_name) {
+        return result;
+    }
+    disconnect_sink_monitor(stream_system_name)?;
+    link_capture_source_to_target_ports(stream_system_name, target_system_name, "playback_")
+}
+
+/// Exclusively routes `source_system_name` (the real capture-providing
+/// device) into a capture-direction stream's own input ports (#428, the
+/// `pactl move-source-output` replacement) — disconnects every existing
+/// link currently feeding the stream first, then links fresh. The stream's
+/// own ports are matched with an empty prefix (any input port) for the same
+/// arbitrary-naming reason `route_playback_stream` never prefix-filters the
+/// stream side either.
+pub fn route_capture_stream(source_system_name: &str, stream_system_name: &str) -> Result<(), BackendError> {
+    if let Some(result) = native::route_capture_stream(source_system_name, stream_system_name) {
+        return result;
+    }
+    disconnect_all_inputs(stream_system_name)?;
+    link_capture_source_to_target_ports(source_system_name, stream_system_name, "")
+}
+
 /// Mix a hardware capture source into a virtual microphone's sink inputs.
 ///
 /// Ports are discovered rather than assumed to be a stereo FL/FR pair, since
@@ -439,6 +481,17 @@ fn links_from_source(source_system_name: &str) -> Vec<(String, String)> {
     run_pw_link_list()
         .into_iter()
         .filter(|(source_port, _)| source_port.starts_with(&prefix))
+        .collect()
+}
+
+/// Input-side counterpart to `links_from_source` — every currently-linked
+/// pair whose *input* port belongs to `target_system_name`, regardless of
+/// source. Backs `disconnect_all_inputs` (#428).
+fn links_into_target(target_system_name: &str) -> Vec<(String, String)> {
+    let prefix = format!("{target_system_name}:");
+    run_pw_link_list()
+        .into_iter()
+        .filter(|(_, input_port)| input_port.starts_with(&prefix))
         .collect()
 }
 
