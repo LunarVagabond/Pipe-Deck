@@ -1855,6 +1855,7 @@ fn rule_added_after_a_stream_already_exists_is_applied_on_next_refresh() {
         notice: None,
         recent_stream_identities: Vec::new(),
         processing_nodes: Vec::new(),
+        default_output_system_name: None,
     };
     engine.apply_graph_update(graph.clone());
 
@@ -1892,6 +1893,7 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
         notice: None,
         recent_stream_identities: Vec::new(),
         processing_nodes: Vec::new(),
+        default_output_system_name: None,
     };
     engine.apply_graph_update(base_graph);
     let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
@@ -1907,6 +1909,7 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
         notice: None,
         recent_stream_identities: Vec::new(),
         processing_nodes: Vec::new(),
+        default_output_system_name: None,
     };
     engine.apply_graph_update(next_graph);
 

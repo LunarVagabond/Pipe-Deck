@@ -1,0 +1,100 @@
+.onboarding-checklist {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  z-index: 30;
+  width: min(320px, calc(100vw - 2.5rem));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-1);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+}
+
+.onboarding-checklist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  h2 {
+    margin: 0;
+    font-size: 0.95rem;
+  }
+}
+
+.onboarding-checklist-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-2);
+  color: var(--text-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+
+  &:hover {
+    color: var(--text);
+    border-color: rgba(124, 92, 255, 0.45);
+  }
+}
+
+.onboarding-checklist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.onboarding-checklist-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.onboarding-checklist-item-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  flex-shrink: 0;
+  margin-top: 0.1rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--success, #4caf7d);
+}
+
+.onboarding-checklist-item--done .onboarding-checklist-item-check {
+  border-color: var(--success, #4caf7d);
+  background: rgba(76, 175, 125, 0.15);
+}
+
+.onboarding-checklist-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.onboarding-checklist-item-label {
+  font-size: 0.85rem;
+  color: var(--text);
+}
+
+.onboarding-checklist-item--done .onboarding-checklist-item-label {
+  color: var(--text-muted);
+  text-decoration: line-through;
+}
+
+.onboarding-checklist-item-action {
+  align-self: flex-start;
+  font-size: 0.78rem;
+}

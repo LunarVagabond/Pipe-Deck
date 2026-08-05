@@ -269,7 +269,7 @@ fn resolve_clear_capture_source(
     Ok(UNROUTED_CAPTURE_SOURCE.to_string())
 }
 
-fn get_default_sink_name() -> Option<String> {
+pub(crate) fn get_default_sink_name() -> Option<String> {
     if let Some(result) = native::default_sink_name() {
         return result.ok().flatten();
     }

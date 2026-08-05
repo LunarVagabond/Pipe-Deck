@@ -57,6 +57,7 @@ preferences:
   dark_scheme: midnight-deck      # scheme id used when resolved mode is dark
   light_scheme: paper-deck        # scheme id used when resolved mode is light
   notice_duration_ms: 5000        # toast auto-dismiss delay; 0 means "until dismissed"
+  onboarding_dismissed: false     # first-run checklist dismissed forever once true
 active_profile: gaming
 profile_index:
   - id: gaming

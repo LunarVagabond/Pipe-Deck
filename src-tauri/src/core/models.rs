@@ -426,6 +426,11 @@ pub struct RuntimeGraph {
     /// addressable ports rather than at most one implicit stream in/out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub processing_nodes: Vec<ProcessingNode>,
+    /// `system_name` of the current default output device, if PipeWire has
+    /// one configured (issue #5's onboarding checklist reads this to check
+    /// "default output set" without new detection plumbing).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_output_system_name: Option<String>,
 }
 
 fn default_data_source() -> String {
@@ -469,6 +474,10 @@ pub struct Preferences {
     /// the user adds one; no default board is created for them.
     #[serde(default)]
     pub soundboard_boards: Vec<crate::core::soundboard::SoundboardBoard>,
+    /// Whether the first-run onboarding checklist has been dismissed
+    /// (issue #5). Never re-shown once true — no per-step tracking.
+    #[serde(default)]
+    pub onboarding_dismissed: bool,
 }
 
 fn default_theme_mode() -> String {
@@ -500,6 +509,7 @@ impl Default for Preferences {
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
             soundboard_boards: Vec::new(),
+            onboarding_dismissed: false,
         }
     }
 }
