@@ -202,7 +202,19 @@ pub fn normalize(objects: &[PwDumpObject]) -> RuntimeGraph {
         }
 
         if stream_ids.contains(&source_id) {
+            // Playback direction: the stream is the link's output side, the
+            // device it's routed to is the input side.
             stream_targets.insert(source_id.clone(), target_id.clone());
+        } else if stream_ids.contains(&target_id) {
+            // Capture direction (#432, Gap 1): the stream is the link's
+            // *input* side (a mic app records the device's output), so the
+            // roles are reversed from the playback case above — this branch
+            // is what makes a capture stream's `current_target` derivable
+            // from the live graph at all; before this, only
+            // `graph_enrich::apply_pactl_capture_targets`'s `pactl
+            // source-index` resolution ever set it, and nothing here
+            // covered the capture direction.
+            stream_targets.insert(target_id.clone(), source_id.clone());
         }
 
         links.push(Link {
@@ -654,5 +666,162 @@ mod tests {
         assert_eq!(graph.streams.len(), 1);
         assert_eq!(graph.streams[0].app_name, "Firefox");
         assert_eq!(graph.streams[0].current_target.as_deref(), Some("node-35"));
+    }
+
+    /// Capture-direction counterpart to `skips_fabricated_media_classes`'s
+    /// `current_target` assertion (#432, Gap 1) — a capture stream is the
+    /// link's *input* side (it records a source device's output), the
+    /// reverse of a playback stream's own output-side role, so it needs its
+    /// own branch in `normalize`'s link-walk rather than falling out of the
+    /// same one for free. Before that branch existed, a capture stream's
+    /// `current_target` was never set here at all — only
+    /// `graph_enrich::apply_pactl_capture_targets`'s `pactl` resolution ever
+    /// filled it in.
+    #[test]
+    fn derives_current_target_for_a_capture_stream_from_its_link() {
+        let objects = vec![
+            PwDumpObject {
+                id: 40,
+                object_type: "PipeWire:Interface:Node".into(),
+                info: Some(serde_json::json!({
+                    "props": {
+                        "media.class": "Audio/Source",
+                        "node.name": "alsa_input.usb-headset",
+                        "node.description": "Headset Mono",
+                    }
+                })),
+            },
+            PwDumpObject {
+                id: 80,
+                object_type: "PipeWire:Interface:Node".into(),
+                info: Some(serde_json::json!({
+                    "props": {
+                        "media.class": "Stream/Input/Audio",
+                        "application.name": "Discord"
+                    }
+                })),
+            },
+            PwDumpObject {
+                id: 81,
+                object_type: "PipeWire:Interface:Link".into(),
+                info: Some(serde_json::json!({
+                    "output-node-id": 40,
+                    "input-node-id": 80
+                })),
+            },
+        ];
+
+        let graph = normalize(&objects);
+        assert_eq!(graph.devices.len(), 1);
+        assert_eq!(graph.streams.len(), 1);
+        assert_eq!(graph.streams[0].app_name, "Discord");
+        assert_eq!(graph.streams[0].current_target.as_deref(), Some("node-40"));
+    }
+}
+
+#[cfg(test)]
+mod live_tests {
+    //! `#[ignore]`d: hits a real PipeWire session, same rationale as every
+    //! other `live_tests` module in this codebase. Confirms
+    //! `derives_current_target_for_a_capture_stream_from_its_link`'s fixture
+    //! test holds against a *real* `pw-dump` snapshot, not just a
+    //! hand-built one — calling `run_snapshot`/`normalize` directly (not
+    //! through `live.rs::enumerate_pipewire`) so `graph_enrich::
+    //! enrich_graph_from_pactl`'s separate pactl-based
+    //! `apply_pactl_capture_targets` never runs, isolating this test to
+    //! `normalize`'s own link-derived target — the actual thing #432, Gap 1
+    //! replaces it with.
+    use super::*;
+    use crate::backend::linux::pw_link;
+    use std::thread;
+    use std::time::Duration;
+
+    struct LoopedRecordStream {
+        child: std::process::Child,
+    }
+
+    impl LoopedRecordStream {
+        fn spawn() -> Self {
+            let child = crate::sysproc::command("sh")
+                .args(["-c", "while true; do pw-cat --record --format=s16 --rate=48000 --channels=2 /dev/null; done"])
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .expect("failed to spawn looped pw-cat --record");
+            Self { child }
+        }
+    }
+
+    impl Drop for LoopedRecordStream {
+        fn drop(&mut self) {
+            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = self.child.kill();
+            let _ = self.child.wait();
+        }
+    }
+
+    fn snapshot_graph() -> RuntimeGraph {
+        let stdout = run_snapshot().expect("pw-dump snapshot should succeed");
+        let objects: Vec<PwDumpObject> = serde_json::from_slice(&stdout).expect("pw-dump output should parse");
+        normalize(&objects)
+    }
+
+    #[test]
+    #[ignore]
+    fn derives_current_target_for_a_real_capture_stream_from_a_live_snapshot() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        // Deliberately a *real* hardware capture source, not a disposable
+        // virtual device: `normalize` unconditionally excludes every
+        // `pipe-deck-*` node from `graph.devices` (see
+        // `pipe_deck_devices_are_left_to_virtual_registry` above — virtual
+        // devices are merged in later, by `core::engine::virtual_ops`, a
+        // layer this test calls `normalize` beneath), so a virtual source's
+        // own link could never resolve to a known device id here regardless
+        // of whether this branch is correct — that's a different, unrelated
+        // limitation this specific test isn't about. The real target case is
+        // covered instead by `graph_routing::live_tests::
+        // resolves_a_capture_streams_target_to_a_virtual_device_natively`,
+        // which runs after the virtual-device merge step.
+        let hardware_source = {
+            let graph = snapshot_graph();
+            graph
+                .devices
+                .into_iter()
+                .find(|device| device.direction == DeviceDirection::Input)
+                .expect("expected at least one real hardware capture device on this session")
+        };
+
+        let _stream = LoopedRecordStream::spawn();
+        let routed = (0..50).any(|_| {
+            if pw_link::route_capture_stream(&hardware_source.system_name, "pw-cat").is_ok() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(100));
+            false
+        });
+        assert!(routed, "expected the capture route to succeed once pw-cat registers as a live node");
+
+        let found = (0..20).find_map(|_| {
+            // Re-assert the route on every attempt, not just once up front —
+            // a fresh `pw-cat --record` with no explicit target auto-connects
+            // to the session's default source the moment it appears, racing
+            // this test's own explicit route (confirmed live via a manual
+            // `pw-dump` link dump showing two simultaneous input links to
+            // `pw-cat`). Re-issuing `route_capture_stream` (itself a
+            // disconnect-then-link, #428) on every poll converges past that
+            // race instead of asserting on whichever link order the
+            // auto-connect and this test happened to land in.
+            let _ = pw_link::route_capture_stream(&hardware_source.system_name, "pw-cat");
+            let graph = snapshot_graph();
+            let stream = graph.streams.iter().find(|stream| stream.system_name.as_deref() == Some("pw-cat")).cloned();
+            if stream.as_ref().and_then(|s| s.current_target.as_ref()).is_some() {
+                return stream;
+            }
+            thread::sleep(Duration::from_millis(100));
+            None
+        });
+        let stream = found.expect("expected a live snapshot to show pw-cat's current_target once routed");
+        assert_eq!(stream.current_target.as_deref(), Some(hardware_source.id.as_str()));
     }
 }

@@ -6,6 +6,7 @@ pub mod play_sound;
 pub mod pw_dump;
 pub mod pw_link;
 pub mod pw_link_native;
+pub mod pw_metadata_native;
 pub mod pw_mixer_native;
 pub mod pw_registry;
 pub mod pw_virtual_device_native;

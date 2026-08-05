@@ -18,74 +18,6 @@ pub fn finalize_graph(graph: &mut RuntimeGraph) {
 pub fn enrich_graph_from_pactl(graph: &mut RuntimeGraph) {
     merge_pactl_playback_streams(graph);
     merge_pactl_capture_streams(graph);
-    apply_pactl_playback_targets(graph);
-    apply_pactl_capture_targets(graph);
-}
-
-pub fn apply_pactl_playback_targets(graph: &mut RuntimeGraph) {
-    let sink_names = pactl::load_sink_index_names();
-    let mut updates: Vec<(String, String)> = Vec::new();
-
-    for input in pactl::list_sink_inputs() {
-        let Some(sink_index) = input.sink_index else {
-            continue;
-        };
-        let Some(sink_name) = sink_names.get(&sink_index) else {
-            continue;
-        };
-        let Some(target_id) = resolve_playback_target_device_id(graph, sink_name) else {
-            continue;
-        };
-        let Some(stream_id) = graph
-            .streams
-            .iter()
-            .find(|stream| stream_matches_pactl_input(stream, &input))
-            .map(|stream| stream.id.clone())
-        else {
-            continue;
-        };
-        updates.push((stream_id, target_id));
-    }
-
-    for (stream_id, target_id) in updates {
-        let Some(stream) = graph.streams.iter_mut().find(|stream| stream.id == stream_id) else {
-            continue;
-        };
-        stream.current_target = Some(target_id);
-    }
-}
-
-pub fn apply_pactl_capture_targets(graph: &mut RuntimeGraph) {
-    let source_names = pactl::load_source_index_names();
-    let mut updates: Vec<(String, String)> = Vec::new();
-
-    for output in pactl::list_source_outputs() {
-        let Some(source_index) = output.source_index else {
-            continue;
-        };
-        let Some(source_name) = source_names.get(&source_index) else {
-            continue;
-        };
-        let Some(target_id) = resolve_capture_target_device_id(graph, source_name) else {
-            continue;
-        };
-        let Some(stream_id) = graph
-            .streams
-            .iter()
-            .find(|stream| stream_matches_pactl_source_output(stream, &output))
-            .map(|stream| stream.id.clone())
-        else {
-            continue;
-        };
-        updates.push((stream_id, target_id));
-    }
-
-    for (stream_id, target_id) in updates {
-        let Some(stream) = graph.streams.iter_mut().find(|stream| stream.id == stream_id) else {
-            continue;
-        };
-        stream.current_target = Some(target_id);
-    }
 }
 
 /// Refresh volume/mute from pactl. Virtual pipe-deck devices are merged after pw-dump
@@ -103,6 +35,31 @@ pub(in crate::backend) fn apply_device_aliases(devices: &mut [Device]) {
     }
 }
 
+/// Device/stream volume and mute are deliberately still `pactl`-based
+/// (#432, Gap 1's remaining piece) — spiked replacing this with
+/// `pw_mixer_native::channel_volume_percent`/`mute_state` and found no real
+/// win, for two independent reasons:
+///
+/// - A virtual output's Pulse-compat `{name}.monitor` source (folded into
+///   `apply_pactl_levels`'s device-level reading below) is not a real
+///   PipeWire node at all — confirmed live via `pw-dump`, no node with that
+///   name ever appears — it's bookkeeping `pipewire-pulse` itself
+///   maintains, invisible to the raw PipeWire graph `pw_mixer_native.rs`
+///   talks to. This is the exact same wall `pw_mixer_native::set_device_volume`/
+///   `set_device_mute`'s own `monitor_system_name` resolution already hits
+///   (a `None` node id for `.monitor` bails the whole write to the CLI
+///   path) — every virtual output, this app's primary object, would still
+///   need the `pactl` fallback regardless.
+/// - A stream's volume/mute (`apply_pactl_stream_levels` below, plus the
+///   assignment inside `merge_pactl_playback_streams`/
+///   `merge_pactl_capture_streams`) is read from the *same*
+///   `pactl::list_sink_inputs`/`list_source_outputs` call already required
+///   for stream identity matching — the shell-out already happens
+///   regardless of this function, so a native per-stream `query_props`
+///   round trip would only add N native round trips per refresh, not
+///   remove any existing `pactl` call.
+///
+/// See PD-050 for the fuller writeup.
 #[derive(Default)]
 struct PactlEndpoint {
     volume_percent: Option<u8>,

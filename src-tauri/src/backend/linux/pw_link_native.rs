@@ -670,6 +670,14 @@ pub fn list_capture_sources_for_sink(sink_system_name: &str) -> Option<Vec<Strin
     list_capture_sources_for_target_ports(sink_system_name, "playback_")
 }
 
+/// Native equivalent of `pw_link.rs::list_capture_sources_for_stream` — an
+/// empty port-name prefix, since a stream's own input ports follow no Pipe
+/// Deck naming convention (same reasoning `route_capture_stream` already
+/// applies here).
+pub fn list_capture_sources_for_stream(stream_system_name: &str) -> Option<Vec<String>> {
+    list_capture_sources_for_target_ports(stream_system_name, "")
+}
+
 fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_prefix: &str) -> Option<Vec<String>> {
     let conn = connection()?;
     let target_node_id = conn.node_id(target_system_name)?;
