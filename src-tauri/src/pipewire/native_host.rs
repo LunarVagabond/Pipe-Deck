@@ -61,7 +61,7 @@ use pipewire::sys as pw_sys;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::Cursor;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -134,6 +134,21 @@ struct NativeHost {
     // `registry` pointing at a torn-down connection.
     registry: pw::registry::RegistryRc,
     _core: pw::core::CoreRc,
+    // Kept alive for the connection's whole life so the `node_ids` index it
+    // feeds keeps updating — dropping the listener early would silently
+    // freeze the index at whatever it last saw.
+    _node_listener: pw::registry::Listener,
+    // `node.name -> id` (#430) — this daemon process's own equivalent of
+    // `pw_registry.rs::NativeGraphWatcher`'s index (#411, GUI-process only,
+    // since the daemon has no access to that connection — different OS
+    // process). A plain `Arc<Mutex<..>>` rather than a field the outer
+    // `NATIVE_HOST` mutex alone protects: the registry `global`/`global_remove`
+    // callbacks run on the thread loop's own internal dispatch thread, which
+    // must be able to update this without acquiring `NATIVE_HOST`'s mutex —
+    // `load_chain`/`set_param` already hold that mutex while doing other
+    // `pw` work, and a callback trying to re-acquire it recursively would
+    // risk a deadlock this independent lock avoids entirely.
+    node_ids: Arc<Mutex<HashMap<String, u32>>>,
     loaded: HashMap<String, ModuleHandle>,
 }
 
@@ -141,6 +156,7 @@ struct NativeHost {
 // controlled from a thread other than the one the loop itself runs on (that
 // is the entire point of `pw_thread_loop`) — every access to them here goes
 // through `thread_loop.lock()` first, matching that API's own contract.
+// `node_ids` is a plain `Arc<Mutex<..>>`, `Send`-safe regardless.
 unsafe impl Send for NativeHost {}
 
 static NATIVE_HOST: OnceLock<Mutex<NativeHost>> = OnceLock::new();
@@ -154,21 +170,77 @@ fn host() -> &'static Mutex<NativeHost> {
         let thread_loop = unsafe { pw::thread_loop::ThreadLoopRc::new(Some("pipe-deck-native-host"), None) }
             .expect("failed to create PipeWire thread loop");
         thread_loop.start();
-        let (context, core, registry) = {
+
+        let node_ids: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
+        // `id -> name` isn't kept as a struct field — it only exists to let
+        // the `global_remove` closure below know which `node_ids` entry a
+        // dying id used to own, so it's captured by that closure alone
+        // rather than exposed more broadly.
+        let id_to_name: Arc<Mutex<HashMap<u32, String>>> = Arc::new(Mutex::new(HashMap::new()));
+
+        let (context, core, registry, node_listener) = {
             let _lock = thread_loop.lock();
             let context = pw::context::ContextRc::new(&thread_loop, None).expect("failed to create PipeWire context");
             let core = context.connect_rc(None).expect("failed to connect to PipeWire core");
             let registry = core.get_registry_rc().expect("failed to get PipeWire registry");
-            (context, core, registry)
+
+            let add_node_ids = node_ids.clone();
+            let add_id_to_name = id_to_name.clone();
+            let remove_node_ids = node_ids.clone();
+            let remove_id_to_name = id_to_name.clone();
+            let node_listener = registry
+                .add_listener_local()
+                .global(move |global| {
+                    if global.type_ != pw::types::ObjectType::Node {
+                        return;
+                    }
+                    let Some(name) = global.props.and_then(|props| props.get("node.name")) else {
+                        return;
+                    };
+                    let name = name.to_string();
+                    add_node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(name.clone(), global.id);
+                    add_id_to_name.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(global.id, name);
+                })
+                .global_remove(move |id| {
+                    let Some(name) =
+                        remove_id_to_name.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&id)
+                    else {
+                        return;
+                    };
+                    let mut node_ids = remove_node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    // Only remove if this id is still on record for that
+                    // name — guards against a rare remove-then-immediately-
+                    // recreate-with-a-new-id race clobbering a just-inserted
+                    // newer entry (same guard `pw_registry.rs::apply_event`
+                    // and `pw_link_native.rs::Index::apply` both use).
+                    if node_ids.get(&name) == Some(&id) {
+                        node_ids.remove(&name);
+                    }
+                })
+                .register();
+
+            (context, core, registry, node_listener)
         };
+
         Mutex::new(NativeHost {
             thread_loop,
             context,
             registry,
             _core: core,
+            _node_listener: node_listener,
+            node_ids,
             loaded: HashMap::new(),
         })
     })
+}
+
+/// Resolves `node_name`'s live id via this connection's own `node_ids`
+/// index (#430) — `None` on a miss, same "fall back to the shellout for
+/// what's missing" contract #411 established for the GUI-process
+/// equivalent, since a node created within the last instant may not have
+/// reached the index yet.
+fn find_live_node_id(guard: &NativeHost, node_name: &str) -> Option<u32> {
+    guard.node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(node_name).copied()
 }
 
 /// How long to sleep, lock released, per poll attempt while waiting for the
@@ -247,6 +319,7 @@ pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChain
     }
 
     guard.loaded.insert(device_system_name.to_string(), ModuleHandle(module_ptr));
+    let node_ids = guard.node_ids.clone();
     drop(guard);
 
     // Wait for the playback side's ports to actually be visible externally
@@ -256,9 +329,13 @@ pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChain
     // enough of a margin: the module registering with the server is an async
     // round trip whose latency isn't bounded by anything this process
     // controls. Same bounded budget as `set_param`'s lookup, just polling a
-    // different condition (port visibility, not node existence).
+    // different condition (port visibility, not node existence). Checks this
+    // connection's own `node_ids` index (#430) first, falling back to the
+    // `pw-dump` shellout on a miss.
     for _ in 0..SETTLE_ATTEMPTS {
-        if crate::pipewire::pw_cli::find_node_id_by_name(&playback_name).ok().flatten().is_some() {
+        let found = node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).contains_key(&playback_name)
+            || crate::pipewire::pw_cli::find_node_id_by_name(&playback_name).ok().flatten().is_some();
+        if found {
             break;
         }
         settle();
@@ -292,16 +369,20 @@ pub fn is_loaded(device_system_name: &str) -> bool {
 /// Pushes a live `Props` param update — `(control_name, value)` pairs — to
 /// the already-loaded filter-chain node named `device_system_name`, over
 /// this process's own persistent PipeWire connection for the actual push.
-/// Finds the target node's id via a synchronous `pw-dump` snapshot
-/// (`pipewire::pw_cli::find_node_id_by_name`, the same lookup the
-/// device-attached EQ path already uses) rather than a registry `global`
-/// listener — a listener only ever sees a `global` *announcement* event,
-/// which the server sends to this client exactly once, the first time each
-/// object becomes visible. A listener registered any time after that never
-/// sees it again, so waiting on one here would only ever work in the narrow
-/// window right after the node was first created — not on every later call
-/// (issue #303: this made every EQ slider drag after the first fail with
-/// "no live PipeWire node found").
+///
+/// Finds the target node's id via this connection's own `node_ids` index
+/// first (#430), falling back to a synchronous `pw-dump` snapshot
+/// (`pipewire::pw_cli::find_node_id_by_name`) on a miss. `node_ids` isn't a
+/// one-off listener registered at call time — a *fresh* listener only ever
+/// sees a `global` *announcement* event, which the server sends exactly
+/// once, the first time each object becomes visible, so a listener
+/// registered after that (as this function would if it made its own) never
+/// sees it again — that's what made every EQ slider drag after the first
+/// fail with "no live PipeWire node found" before #303's fix. `node_ids` is
+/// instead registered once, when this connection is first created
+/// (`host()`), and kept continuously updated for the connection's whole
+/// life — so by the time any given `set_param` call runs, it's very likely
+/// already seen the node's original announcement, whenever that was.
 pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(), NativeHostError> {
     if params.is_empty() {
         return Ok(());
@@ -310,9 +391,10 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
     let guard = host().lock().expect("native host mutex poisoned");
 
     let mut id = None;
-    for _ in 0..SETTLE_ATTEMPTS {
-        id = crate::pipewire::pw_cli::find_node_id_by_name(device_system_name).ok().flatten();
-        if id.is_some() {
+    for attempt in 0..SETTLE_ATTEMPTS {
+        id = find_live_node_id(&guard, device_system_name)
+            .or_else(|| crate::pipewire::pw_cli::find_node_id_by_name(device_system_name).ok().flatten());
+        if id.is_some() || attempt + 1 == SETTLE_ATTEMPTS {
             break;
         }
         settle();
@@ -362,4 +444,84 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
     settle();
 
     Ok(())
+}
+
+/// Test-only accessor for `host()`'s own `node_ids` index — lets
+/// `live_tests` confirm the index actually resolved a node natively rather
+/// than every call quietly falling through to the `pw_cli` shellout, which a
+/// pass/fail assertion on `load_chain`/`set_param`'s own return value alone
+/// couldn't distinguish (both paths produce the same success either way).
+#[cfg(test)]
+fn is_indexed(node_name: &str) -> bool {
+    find_live_node_id(&host().lock().expect("native host mutex poisoned"), node_name).is_some()
+}
+
+#[cfg(test)]
+mod live_tests {
+    //! `#[ignore]`d: hits a real PipeWire session, same rationale as every
+    //! other `live_tests` module in this codebase. Runs in-process (unlike
+    //! `daemon::ipc::client::live_tests`, which spawns a real daemon
+    //! subprocess and talks over IPC) so it can inspect `host()`'s own
+    //! `node_ids` index directly via `is_indexed` — proof the native lookup
+    //! actually resolved something, not just that `load_chain`/`set_param`
+    //! happened to succeed via the `pw_cli` fallback either way.
+    use super::*;
+    use crate::core::models::EffectStage;
+
+    #[test]
+    #[ignore]
+    fn load_chain_and_set_param_resolve_the_node_via_the_native_index() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let device_system_name = "pipe-deck-native-host-index-test";
+        let cleanup = || {
+            let _ = unload_chain(device_system_name);
+        };
+
+        let config = EffectChainConfig {
+            stages: vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 0,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        };
+
+        let playback_name = match load_chain(device_system_name, false, &config) {
+            Ok(name) => name,
+            Err(error) => {
+                cleanup();
+                panic!("load_chain failed: {error}");
+            }
+        };
+
+        if !is_indexed(&playback_name) {
+            cleanup();
+            panic!("expected the native node_ids index to have resolved {playback_name:?} after load_chain");
+        }
+
+        // Waits well past the narrow "just announced" window (`settle`'s own
+        // budget already elapsed once inside `load_chain`), matching
+        // `daemon::ipc::client::live_tests::set_param_finds_a_node_created_well_before_the_call`'s
+        // own regression rationale — a persistent index, unlike a one-off
+        // listener, should resolve this exactly as well seconds later as it
+        // did immediately after creation.
+        std::thread::sleep(Duration::from_secs(2));
+
+        if !is_indexed(device_system_name) {
+            cleanup();
+            panic!("expected the native node_ids index to still have {device_system_name:?} well after creation");
+        }
+
+        if let Err(error) = set_param(device_system_name, &[("eq_bass:Gain".to_string(), 3.0)]) {
+            cleanup();
+            panic!("set_param failed well after node creation: {error}");
+        }
+
+        cleanup();
+    }
 }
