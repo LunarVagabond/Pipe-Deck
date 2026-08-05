@@ -10,6 +10,7 @@ use crate::backend::linux::graph_routing;
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_dump::{self, PwDumpObject};
 use crate::backend::linux::pw_link;
+use crate::backend::linux::pw_registry;
 use crate::backend::linux::split_sink;
 use crate::backend::linux::virtual_devices::{VirtualDeviceEntry, VirtualDeviceRegistry};
 use crate::backend::linux::virtual_mic_mix;
@@ -43,6 +44,13 @@ pub struct LinuxPipeWireBackend {
     // spawned them (see PD-036's rationale for why the trait boundary owns
     // this kind of one-off process, not the engine).
     soundboard_playback: Arc<Mutex<Vec<std::process::Child>>>,
+    // Native `pw::registry`-based graph transport (#410, PD-040) — `None`
+    // when it failed to start (e.g. PipeWire unreachable at construction
+    // time), in which case `fetch_graph`/`subscribe` fall back to the
+    // original `pw-dump`-shellout transport unchanged. Holding this alive
+    // for as long as the backend itself lives is what keeps the connection
+    // (and its background thread-loop/assembler threads) running.
+    native_graph: Option<pw_registry::NativeGraphWatcher>,
 }
 
 impl LinuxPipeWireBackend {
@@ -57,11 +65,20 @@ impl LinuxPipeWireBackend {
         let listener = Arc::new(Mutex::new(None));
         let registry = VirtualDeviceRegistry::new();
 
+        let native_graph = match pw_registry::NativeGraphWatcher::start(cached_graph.clone(), listener.clone()) {
+            Ok(watcher) => Some(watcher),
+            Err(error) => {
+                eprintln!("native PipeWire graph watcher unavailable, falling back to pw-dump: {error}");
+                None
+            }
+        };
+
         Ok(Self {
             cached_graph,
             listener,
             registry,
             soundboard_playback: Arc::new(Mutex::new(Vec::new())),
+            native_graph,
         })
     }
 
@@ -81,6 +98,19 @@ impl LinuxPipeWireBackend {
 
 impl AudioBackend for LinuxPipeWireBackend {
     fn fetch_graph(&self) -> Result<RuntimeGraph, BackendError> {
+        // The native watcher's assembler thread keeps `cached_graph` fresh
+        // continuously (instantly on topology changes, at least once a
+        // second otherwise — see `pw_registry::POLL_INTERVAL`'s doc
+        // comment), so there's nothing to re-shell for; a plain read is
+        // both correct and far cheaper than a fresh `pw-dump` round trip.
+        if self.native_graph.is_some() {
+            let cached = self
+                .cached_graph
+                .lock()
+                .map_err(|_| BackendError::Message("graph lock poisoned".into()))?;
+            return Ok(cached.clone());
+        }
+
         match enumerate_pipewire() {
             Ok(graph) => {
                 let mut cached = self
@@ -114,13 +144,20 @@ impl AudioBackend for LinuxPipeWireBackend {
             .map_err(|_| BackendError::Message("listener lock poisoned".into()))? =
             Some(listener);
 
-        let cached_graph = self.cached_graph.clone();
-        let listener_slot = self.listener.clone();
-        thread::spawn(move || {
-            if !run_pw_dump_monitor(&cached_graph, &listener_slot) {
-                run_poll_loop(&cached_graph, &listener_slot);
-            }
-        });
+        // The native watcher's assembler thread already reads from this
+        // same `listener` slot on every rebuild (started back in `new()`,
+        // before any listener existed to call) — nothing left to spawn.
+        // Only fall back to the pw-dump-shellout transport if the native
+        // connection never came up.
+        if self.native_graph.is_none() {
+            let cached_graph = self.cached_graph.clone();
+            let listener_slot = self.listener.clone();
+            thread::spawn(move || {
+                if !run_pw_dump_monitor(&cached_graph, &listener_slot) {
+                    run_poll_loop(&cached_graph, &listener_slot);
+                }
+            });
+        }
 
         Ok(())
     }
