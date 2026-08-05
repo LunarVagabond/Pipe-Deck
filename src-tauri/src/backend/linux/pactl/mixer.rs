@@ -148,6 +148,9 @@ pub fn set_sink_volume_by_name(system_name: &str, percent: u8) -> Result<(), Bac
 /// Reads the current volume of a sink by its raw system/module name. Used to
 /// reflect a per-mix-source feed sink's gain back into the runtime graph.
 pub fn sink_volume_percent(system_name: &str) -> Result<Option<u8>, BackendError> {
+    if let Some(result) = native::channel_volume_percent(system_name) {
+        return result;
+    }
     let output = run_pactl(&["list", "sinks"])?;
     let mut current_name = None;
 
@@ -179,6 +182,9 @@ pub fn set_sink_mute_by_name(system_name: &str, muted: bool) -> Result<(), Backe
 
 /// Reads the current mute state of a sink by its raw system/module name.
 pub fn sink_mute_state(system_name: &str) -> Result<Option<bool>, BackendError> {
+    if let Some(result) = native::mute_state(system_name) {
+        return result;
+    }
     let output = run_pactl(&["list", "sinks"])?;
     let mut current_name = None;
 
