@@ -5,6 +5,7 @@ pub mod pactl;
 pub mod play_sound;
 pub mod pw_dump;
 pub mod pw_link;
+pub mod pw_link_native;
 pub mod pw_registry;
 pub mod split_sink;
 pub mod stream_match;
