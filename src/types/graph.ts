@@ -254,6 +254,8 @@ export interface SoundboardClip {
   file_name: string;
   label: string;
   path: string;
+  /** Probed from the file's own header/metadata; null if it couldn't be read. */
+  duration_seconds: number | null;
 }
 
 export interface StreamRouteRule {

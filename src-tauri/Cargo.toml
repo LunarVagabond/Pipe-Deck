@@ -64,3 +64,10 @@ sd-notify = { version = "0.5" }
 # transitively via tauri/tokio; declared directly here since Cargo requires
 # that to call it.
 libc = { version = "0.2" }
+
+# Soundboard (#399): reads a clip's duration from its file header/metadata
+# without decoding its audio, so the frontend can render a Spotify-style
+# progress bar. Pure Rust, no system package required — covers every
+# extension `core::soundboard::list_sounds` already supports (wav/flac/
+# ogg/mp3/aiff/m4a/opus).
+lofty = "0.24.0"

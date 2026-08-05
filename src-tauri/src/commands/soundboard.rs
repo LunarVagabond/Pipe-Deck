@@ -37,3 +37,9 @@ pub async fn play_soundboard_clip(board_id: String, clip_id: String, state: Stat
     let engine = state.engine.read().await;
     engine.play_soundboard_clip(&board_id, &clip_id).map_err(|error| error.to_string())
 }
+
+#[tauri::command]
+pub async fn stop_soundboard_clip(state: State<'_, AppState>) -> Result<(), String> {
+    let engine = state.engine.read().await;
+    engine.stop_soundboard_clip().map_err(|error| error.to_string())
+}

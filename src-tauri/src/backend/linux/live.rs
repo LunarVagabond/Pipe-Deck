@@ -36,6 +36,13 @@ pub struct LinuxPipeWireBackend {
     cached_graph: Arc<Mutex<RuntimeGraph>>,
     listener: Arc<Mutex<Option<GraphListener>>>,
     registry: Arc<VirtualDeviceRegistry>,
+    // Soundboard (#399): the `pw-cat` child process(es) for whatever clip is
+    // currently playing — up to two (a target leg and a monitor leg, #398),
+    // never more since the UI only ever lets one clip play at a time. Kept
+    // here rather than on `CoreEngine` because the backend is what actually
+    // spawned them (see PD-036's rationale for why the trait boundary owns
+    // this kind of one-off process, not the engine).
+    soundboard_playback: Arc<Mutex<Vec<std::process::Child>>>,
 }
 
 impl LinuxPipeWireBackend {
@@ -54,6 +61,7 @@ impl LinuxPipeWireBackend {
             cached_graph,
             listener,
             registry,
+            soundboard_playback: Arc::new(Mutex::new(Vec::new())),
         })
     }
 
@@ -251,7 +259,22 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError> {
-        crate::backend::linux::play_sound::play_sound(path, target_system_name, volume_percent)
+        let child = crate::backend::linux::play_sound::play_sound(path, target_system_name, volume_percent)?;
+        let mut playback = self.soundboard_playback.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        // Drop anything that's already finished on its own before adding the
+        // new leg, so this doesn't grow unbounded across many clip triggers.
+        playback.retain_mut(|existing| !matches!(existing.try_wait(), Ok(Some(_))));
+        playback.push(child);
+        Ok(())
+    }
+
+    fn stop_sound(&self) -> Result<(), BackendError> {
+        let mut playback = self.soundboard_playback.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for mut child in playback.drain(..) {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        Ok(())
     }
 
     fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError> {

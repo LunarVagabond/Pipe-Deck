@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import SegmentedControl from "../components/SegmentedControl.vue";
@@ -23,6 +23,46 @@ const loadingBoards = ref(true);
 const loadingClips = ref(false);
 const error = ref<string | null>(null);
 const playingClipId = ref<string | null>(null);
+// Elapsed/remaining time is interpolated client-side from the clip's probed
+// duration (#399) rather than pushed from the backend — `play_soundboard_clip`
+// only ever tells us playback *started* (PD-036), never when it finishes, so
+// there's nothing to subscribe to. `playingDurationSeconds` is null when the
+// clip's duration couldn't be probed (see `SoundboardClip.duration_seconds`);
+// the progress bar degrades to an elapsed-only counter with no fixed end.
+const playingDurationSeconds = ref<number | null>(null);
+const playingElapsedSeconds = ref(0);
+let playingStartedAt = 0;
+let progressTimer: ReturnType<typeof setInterval> | null = null;
+const PROGRESS_TICK_MS = 200;
+
+function clearProgressTimer() {
+  if (progressTimer !== null) {
+    clearInterval(progressTimer);
+    progressTimer = null;
+  }
+}
+
+function resetPlaybackState() {
+  clearProgressTimer();
+  playingClipId.value = null;
+  playingDurationSeconds.value = null;
+  playingElapsedSeconds.value = 0;
+}
+
+onUnmounted(clearProgressTimer);
+
+const playingProgressPercent = computed(() => {
+  const duration = playingDurationSeconds.value;
+  if (!duration) return 0;
+  return Math.min(100, (playingElapsedSeconds.value / duration) * 100);
+});
+
+function formatTime(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const secs = total % 60;
+  return `${minutes}:${secs.toString().padStart(2, "0")}`;
+}
 
 const activeBoard = computed(() => boards.value.find((board) => board.id === activeBoardId.value) ?? null);
 
@@ -69,15 +109,48 @@ async function loadClips() {
 async function playClip(clip: SoundboardClip) {
   if (!activeBoardId.value || playingClipId.value) return;
   playingClipId.value = clip.id;
+  playingDurationSeconds.value = clip.duration_seconds;
+  playingElapsedSeconds.value = 0;
+  playingStartedAt = Date.now();
+  clearProgressTimer();
+  progressTimer = setInterval(() => {
+    playingElapsedSeconds.value = (Date.now() - playingStartedAt) / 1000;
+    const duration = playingDurationSeconds.value;
+    if (duration !== null && playingElapsedSeconds.value >= duration) {
+      resetPlaybackState();
+    }
+  }, PROGRESS_TICK_MS);
+
   try {
     await invoke("play_soundboard_clip", { boardId: activeBoardId.value, clipId: clip.id });
+  } catch (err) {
+    resetPlaybackState();
+    handleApplyResult(
+      { success: false, message: err instanceof Error ? err.message : String(err) },
+      "",
+    );
+  }
+}
+
+async function stopClip() {
+  if (!playingClipId.value) return;
+  try {
+    await invoke("stop_soundboard_clip");
   } catch (err) {
     handleApplyResult(
       { success: false, message: err instanceof Error ? err.message : String(err) },
       "",
     );
   } finally {
-    playingClipId.value = null;
+    resetPlaybackState();
+  }
+}
+
+function handleTileClick(clip: SoundboardClip) {
+  if (clip.id === playingClipId.value) {
+    stopClip();
+  } else {
+    playClip(clip);
   }
 }
 
@@ -343,12 +416,27 @@ onMounted(async () => {
           type="button"
           class="soundboard-tile"
           :class="{ playing: playingClipId === clip.id, 'no-target': !hasBoardDestination }"
-          :disabled="playingClipId !== null"
-          :title="hasBoardDestination ? clip.label : `${clip.label} — this tab has no target or monitor device set yet`"
-          @click="playClip(clip)"
+          :disabled="playingClipId !== null && playingClipId !== clip.id"
+          :title="
+            playingClipId === clip.id
+              ? `${clip.label} — click to stop`
+              : hasBoardDestination
+                ? clip.label
+                : `${clip.label} — this tab has no target or monitor device set yet`
+          "
+          @click="handleTileClick(clip)"
         >
-          <span class="soundboard-tile-icon">🔊</span>
+          <span class="soundboard-tile-icon">{{ playingClipId === clip.id ? "⏹" : "🔊" }}</span>
           <span class="soundboard-tile-label">{{ clip.label }}</span>
+          <div v-if="playingClipId === clip.id" class="soundboard-tile-progress">
+            <div class="soundboard-tile-progress-bar">
+              <div class="soundboard-tile-progress-fill" :style="{ width: `${playingProgressPercent}%` }" />
+            </div>
+            <div class="soundboard-tile-progress-times">
+              <span>{{ formatTime(playingElapsedSeconds) }}</span>
+              <span v-if="playingDurationSeconds !== null">{{ formatTime(playingDurationSeconds) }}</span>
+            </div>
+          </div>
         </button>
       </div>
     </template>

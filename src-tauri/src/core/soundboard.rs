@@ -47,7 +47,7 @@ fn default_volume_percent() -> u8 {
     100
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SoundboardClip {
     /// The file name (stem + extension) — stable and unique within a single
     /// folder, so it doubles as an id.
@@ -57,6 +57,14 @@ pub struct SoundboardClip {
     /// rename a clip (not yet — no UI for that exists yet).
     pub label: String,
     pub path: String,
+    /// Playback length, probed from the file's own header/metadata (#399,
+    /// via `lofty` — cheap, no audio decoding). `None` if the file couldn't
+    /// be probed (corrupt/unsupported internals despite a supported
+    /// extension) — the frontend falls back to an elapsed-only counter with
+    /// no fixed end when this is missing, rather than erroring the whole
+    /// clip out.
+    #[serde(default)]
+    pub duration_seconds: Option<f64>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -97,17 +105,29 @@ pub fn list_sounds(folder: &Path) -> Result<Vec<SoundboardClip>, SoundboardError
             }
             let file_name = path.file_name()?.to_str()?.to_string();
             let label = path.file_stem()?.to_str()?.to_string();
+            let duration_seconds = probe_duration_seconds(&path);
             Some(SoundboardClip {
                 id: file_name.clone(),
                 file_name,
                 label,
                 path: path.display().to_string(),
+                duration_seconds,
             })
         })
         .collect();
 
     clips.sort_by(|a, b| a.file_name.cmp(&b.file_name));
     Ok(clips)
+}
+
+/// Best-effort duration probe via `lofty` (reads the file's own header/
+/// metadata, no audio decoding) — `None` on any failure so one unreadable
+/// clip never fails the whole folder listing.
+fn probe_duration_seconds(path: &Path) -> Option<f64> {
+    use lofty::file::AudioFile;
+
+    let tagged_file = lofty::read_from_path(path).ok()?;
+    Some(tagged_file.properties().duration().as_secs_f64())
 }
 
 #[cfg(test)]
@@ -137,6 +157,9 @@ mod tests {
         assert_eq!(clips[0].file_name, "a-drop.mp3");
         assert_eq!(clips[0].label, "a-drop");
         assert_eq!(clips[1].file_name, "b-air-horn.wav");
+        // Neither file has real audio content ("fake" bytes), so probing
+        // fails gracefully rather than erroring the listing.
+        assert_eq!(clips[0].duration_seconds, None);
     }
 
     #[test]
@@ -166,5 +189,41 @@ mod tests {
         let clips = list_sounds(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
         assert!(clips.is_empty());
+    }
+
+    /// A minimal, valid 8-bit mono PCM WAV of exactly `seconds` at 8kHz —
+    /// enough for `lofty` to read real header/duration data without
+    /// depending on any file present on the host system.
+    fn make_wav_bytes(seconds: u32) -> Vec<u8> {
+        const SAMPLE_RATE: u32 = 8000;
+        let data_len = SAMPLE_RATE * seconds;
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&(36 + data_len).to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // mono
+        bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes());
+        bytes.extend_from_slice(&SAMPLE_RATE.to_le_bytes()); // byte rate (1 byte/sample)
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // block align
+        bytes.extend_from_slice(&8u16.to_le_bytes()); // bits per sample
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_len.to_le_bytes());
+        bytes.extend(std::iter::repeat(128u8).take(data_len as usize));
+        bytes
+    }
+
+    #[test]
+    fn probes_duration_from_a_real_wav_header() {
+        let dir = temp_dir("duration");
+        std::fs::write(dir.join("two-seconds.wav"), make_wav_bytes(2)).unwrap();
+
+        let clips = list_sounds(&dir).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let duration = clips[0].duration_seconds.expect("a real WAV should yield a probed duration");
+        assert!((duration - 2.0).abs() < 0.05, "expected ~2s, got {duration}");
     }
 }

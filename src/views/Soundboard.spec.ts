@@ -85,7 +85,7 @@ describe("Soundboard", () => {
   it("lists clips for the active tab", async () => {
     const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
+      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -113,7 +113,7 @@ describe("Soundboard", () => {
     await flushPromises();
     expect(wrapper.text()).not.toContain("air-horn");
 
-    clips = [{ id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" }];
+    clips = [{ id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 }];
     const refreshButton = wrapper.findAll("button").find((btn) => btn.text() === "Refresh");
     await refreshButton?.trigger("click");
     await flushPromises();
@@ -185,7 +185,7 @@ describe("Soundboard", () => {
   it("clicking a tile plays it when the tab has a destination configured", async () => {
     const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
+      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -203,10 +203,82 @@ describe("Soundboard", () => {
     expect(invokeMock).toHaveBeenCalledWith("play_soundboard_clip", { boardId: "b1", clipId: "air-horn.wav" });
   });
 
+  it("shows a progress bar with elapsed/remaining time while a clip plays, and stops it on a second click", async () => {
+    vi.useFakeTimers();
+    try {
+      const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
+      const clips: SoundboardClip[] = [
+        { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 4 },
+      ];
+      mockInvoke({
+        list_soundboard_boards: () => boards,
+        list_soundboard_sounds: () => clips,
+        play_soundboard_clip: () => null,
+        stop_soundboard_clip: () => null,
+      });
+      const wrapper = mount(Soundboard);
+      await flushPromises();
+
+      const tile = wrapper.find(".soundboard-tile");
+      await tile.trigger("click");
+      await flushPromises();
+
+      expect(tile.classes()).toContain("playing");
+      expect(wrapper.find(".soundboard-tile-progress").exists()).toBe(true);
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:00");
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:04");
+
+      await vi.advanceTimersByTimeAsync(2000);
+      await flushPromises();
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:02");
+      // The right-hand number is the clip's static length, not a countdown.
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:04");
+
+      await tile.trigger("click");
+      await flushPromises();
+
+      expect(invokeMock).toHaveBeenCalledWith("stop_soundboard_clip");
+      expect(wrapper.find(".soundboard-tile-progress").exists()).toBe(false);
+      expect(tile.classes()).not.toContain("playing");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears playback state on its own once elapsed time reaches the clip's duration", async () => {
+    vi.useFakeTimers();
+    try {
+      const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
+      const clips: SoundboardClip[] = [
+        { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 1 },
+      ];
+      mockInvoke({
+        list_soundboard_boards: () => boards,
+        list_soundboard_sounds: () => clips,
+        play_soundboard_clip: () => null,
+      });
+      const wrapper = mount(Soundboard);
+      await flushPromises();
+
+      const tile = wrapper.find(".soundboard-tile");
+      await tile.trigger("click");
+      await flushPromises();
+      expect(tile.classes()).toContain("playing");
+
+      await vi.advanceTimersByTimeAsync(1200);
+      await flushPromises();
+
+      expect(tile.classes()).not.toContain("playing");
+      expect(wrapper.find(".soundboard-tile-progress").exists()).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("marks tiles dimmed when the tab has no destination and surfaces the backend error on click", async () => {
     const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav" },
+      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
