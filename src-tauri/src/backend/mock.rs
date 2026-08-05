@@ -31,6 +31,10 @@ pub struct MockAudioBackend {
     /// trait query for this exists yet, so tests assert against this field
     /// directly rather than through the trait.
     played_sounds: Mutex<Vec<(std::path::PathBuf, String, u8)>>,
+    /// Number of `stop_sound` calls (#399) — no tracked process exists to
+    /// actually kill in the mock, so this just records that a stop was
+    /// requested for tests to assert against.
+    soundboard_stop_calls: Mutex<u32>,
 }
 
 impl Default for MockAudioBackend {
@@ -77,6 +81,7 @@ impl MockAudioBackend {
             loaded_effect_chains: Mutex::new(HashSet::new()),
             loaded_processing_nodes: Mutex::new(HashSet::new()),
             played_sounds: Mutex::new(Vec::new()),
+            soundboard_stop_calls: Mutex::new(0),
         }
     }
 
@@ -761,6 +766,11 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    fn stop_sound(&self) -> Result<(), BackendError> {
+        *self.soundboard_stop_calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
+        Ok(())
+    }
+
     fn platform_audio_version(&self) -> Option<String> {
         Some("1.0.0 (mock)".to_string())
     }
@@ -1234,5 +1244,14 @@ routes: []
         assert_eq!(played.len(), 2);
         assert_eq!(played[0], (clip.clone(), "pipe-deck-virtual-mic".to_string(), 100));
         assert_eq!(played[1], (clip, "pipe-deck-virtual-mic".to_string(), 40));
+    }
+
+    #[test]
+    fn stop_sound_records_the_call() {
+        let backend = MockAudioBackend::new();
+        backend.stop_sound().unwrap();
+        backend.stop_sound().unwrap();
+
+        assert_eq!(*backend.soundboard_stop_calls.lock().unwrap(), 2);
     }
 }

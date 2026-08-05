@@ -78,6 +78,13 @@ impl CoreEngine {
             Err(EngineError::Adapter(errors.join("; ")))
         }
     }
+
+    /// Interrupts whatever Soundboard clip is currently playing (#399) —
+    /// thin passthrough to `AudioBackend::stop_sound`, which owns the
+    /// actual process handle(s) (see PD-036's rationale for that split).
+    pub fn stop_soundboard_clip(&self) -> Result<(), EngineError> {
+        self.adapter.stop_sound().map_err(|error| EngineError::Adapter(error.to_string()))
+    }
 }
 
 #[cfg(test)]
@@ -266,5 +273,20 @@ mod live_tests {
         std::env::remove_var("PIPE_DECK_USE_MOCK");
 
         assert!(matches!(result, Err(EngineError::NotFound(_))));
+    }
+
+    #[test]
+    fn stop_soundboard_clip_delegates_to_the_adapter() {
+        let _guard = crate::config::store::lock_config_dir_env();
+        std::env::set_var("PIPE_DECK_USE_MOCK", "1");
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("mock refresh_graph should not fail");
+
+        let result = engine.stop_soundboard_clip();
+
+        std::env::remove_var("PIPE_DECK_USE_MOCK");
+
+        result.expect("stop_soundboard_clip should succeed against the mock backend");
     }
 }

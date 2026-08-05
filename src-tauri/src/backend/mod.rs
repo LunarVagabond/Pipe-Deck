@@ -135,10 +135,19 @@ pub trait AudioBackend: Send + Sync {
     /// hardware input's underlying device, or — for a Soundboard clip's
     /// monitor leg, #398 — a plain output sink) at `volume_percent` (0-100).
     /// Fire-and-forget: this returns once playback has *started*, not once
-    /// the clip finishes, and gives the caller no handle to stop it early —
-    /// an interrupt mechanism is tracked separately (issue #399) rather
-    /// than speculatively built here.
+    /// the clip finishes. The implementation is responsible for tracking
+    /// whatever process/handle it spawned so a later `stop_sound` call can
+    /// interrupt it (issue #399) — callers get no handle back here.
     fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError>;
+
+    /// Interrupts whatever Soundboard clip is currently playing (#399) —
+    /// both the target and monitor legs (#398), if both were started. A
+    /// no-op default (`Ok(())`) is provided since a backend with no
+    /// tracked playback simply has nothing to stop; only `play_sound`
+    /// implementations that actually track a handle need to override this.
+    fn stop_sound(&self) -> Result<(), BackendError> {
+        Ok(())
+    }
 
     // Live routing-state queries used only as rule-matching fallbacks when
     // `RuntimeGraph`'s own `current_targets`/`current_target` are stale or
