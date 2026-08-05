@@ -427,6 +427,12 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn set_close_behavior(&self, behavior: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.preferences.close_behavior = Some(behavior.to_string());
+        self.save_config(&config)
+    }
+
     pub fn set_dark_scheme(&self, id: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         config.preferences.dark_scheme = id.to_string();

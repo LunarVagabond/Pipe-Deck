@@ -236,6 +236,8 @@ export interface Preferences {
   light_scheme?: string;
   notice_duration_ms?: number;
   soundboard_boards?: SoundboardBoard[];
+  /** "minimize" | "quit"; absent/null means the user hasn't been asked yet. */
+  close_behavior?: string;
 }
 
 export interface SoundboardBoard {

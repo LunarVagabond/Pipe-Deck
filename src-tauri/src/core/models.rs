@@ -469,6 +469,11 @@ pub struct Preferences {
     /// the user adds one; no default board is created for them.
     #[serde(default)]
     pub soundboard_boards: Vec<crate::core::soundboard::SoundboardBoard>,
+    /// Behavior when the window's close (X) button is clicked: `"minimize"`
+    /// or `"quit"`. `None` means the user hasn't been asked yet — distinct
+    /// from any default — so the one-time prompt (#295) knows to fire.
+    #[serde(default)]
+    pub close_behavior: Option<String>,
 }
 
 fn default_theme_mode() -> String {
@@ -500,6 +505,7 @@ impl Default for Preferences {
             light_scheme: default_light_scheme(),
             notice_duration_ms: default_notice_duration_ms(),
             soundboard_boards: Vec::new(),
+            close_behavior: None,
         }
     }
 }

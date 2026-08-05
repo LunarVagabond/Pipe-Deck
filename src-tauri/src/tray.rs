@@ -1,7 +1,8 @@
+use crate::config::ConfigStore;
 use tauri::{
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
-    Manager,
+    Emitter, Manager,
 };
 
 pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
@@ -48,15 +49,46 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+/// Close (X) behavior is user-configurable (#295): "minimize" hides the
+/// window (today's long-standing default), "quit" exits the process, and
+/// an unset preference (first launch, or an install that predates #295)
+/// means the user hasn't been asked yet. `api.prevent_close()` always runs
+/// first regardless of branch — the "quit" case still exits deliberately
+/// via `app.exit(0)` rather than letting the close proceed, and the unset
+/// case needs the window to stay open under the prompt.
 pub fn attach_close_to_tray(app: &tauri::AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
-        let window_handle = window.clone();
+        let app_handle = app.clone();
         window.on_window_event(move |event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                let _ = window_handle.hide();
                 api.prevent_close();
+
+                let behavior = ConfigStore::new()
+                    .load_config()
+                    .ok()
+                    .and_then(|config| config.preferences.close_behavior);
+
+                match behavior.as_deref() {
+                    Some("quit") => app_handle.exit(0),
+                    Some("minimize") => hide_main_window(&app_handle),
+                    _ => {
+                        let _ = app_handle.emit("close-behavior-prompt-needed", ());
+                    }
+                }
             }
         });
+    }
+}
+
+/// Persists via `set_close_behavior` are the answer to the one-time prompt
+/// as well as a settings change, so this performs the action for whichever
+/// close click prompted the choice (or, from Settings, is a no-op window
+/// action since the window is already visible/open).
+pub(crate) fn apply_close_behavior(app: &tauri::AppHandle, behavior: &str) {
+    if behavior == "quit" {
+        app.exit(0);
+    } else {
+        hide_main_window(app);
     }
 }
 

@@ -82,6 +82,23 @@ pub fn set_theme_mode(mode: String) -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+/// Persists the user's close-button choice. `apply_now` distinguishes the
+/// two callers: the one-time prompt (#295) answers *for* a click that's
+/// already in flight, so it passes `true` to also perform the hide/exit
+/// immediately — otherwise the window is left in limbo (not hidden, not
+/// quit). A plain preference change from Settings passes `false`, since no
+/// close is in progress there.
+#[tauri::command]
+pub fn set_close_behavior(behavior: String, apply_now: bool, app: tauri::AppHandle) -> Result<(), String> {
+    ConfigStore::new()
+        .set_close_behavior(&behavior)
+        .map_err(|error| error.to_string())?;
+    if apply_now {
+        crate::tray::apply_close_behavior(&app, &behavior);
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn set_dark_scheme(id: String) -> Result<(), String> {
     ConfigStore::new()

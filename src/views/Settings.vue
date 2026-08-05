@@ -30,6 +30,11 @@ const NOTICE_DURATION_OPTIONS = [
   { value: "0", label: "Until dismissed" },
 ];
 
+const CLOSE_BEHAVIOR_OPTIONS = [
+  { value: "minimize", label: "Minimize to background" },
+  { value: "quit", label: "Quit the app" },
+];
+
 type SettingsTab = "general" | "background" | "plugins" | "about";
 
 const tabs: { id: SettingsTab; label: string }[] = [
@@ -43,6 +48,7 @@ const activeTab = ref<SettingsTab>("general");
 const restoreOnStartup = ref(true);
 const backgroundRestore = ref(false);
 const autoApplyRules = ref(true);
+const closeBehavior = ref<string>("minimize");
 const { daemonStatus, refreshDaemonStatus, lastRunText } = useDaemonStatus();
 const plugins = ref<PluginStatus[]>([]);
 const capabilityMetadata = ref<CapabilityInfo[]>([]);
@@ -138,11 +144,13 @@ async function loadSettings() {
       restore_on_startup?: boolean;
       background_restore?: boolean;
       auto_apply_rules?: boolean;
+      close_behavior?: string;
     };
   }>("get_config");
   restoreOnStartup.value = config.preferences?.restore_on_startup ?? true;
   backgroundRestore.value = config.preferences?.background_restore ?? false;
   autoApplyRules.value = config.preferences?.auto_apply_rules ?? true;
+  closeBehavior.value = config.preferences?.close_behavior ?? "minimize";
   await refreshDaemonStatus();
   plugins.value = await invoke("list_plugins");
   capabilityMetadata.value = await invoke("list_plugin_capability_metadata");
@@ -236,6 +244,24 @@ async function setAutoApplyRules(enabled: boolean) {
     handleApplyResult({ success: true }, "Auto-apply rules preference saved");
   } catch (error) {
     autoApplyRules.value = !enabled;
+    handleApplyResult(
+      { success: false, message: error instanceof Error ? error.message : String(error) },
+      "",
+    );
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function setCloseBehavior(behavior: string) {
+  const previous = closeBehavior.value;
+  closeBehavior.value = behavior;
+  busy.value = true;
+  try {
+    await invoke("set_close_behavior", { behavior, applyNow: false });
+    handleApplyResult({ success: true }, "Close button preference saved");
+  } catch (error) {
+    closeBehavior.value = previous;
     handleApplyResult(
       { success: false, message: error instanceof Error ? error.message : String(error) },
       "",
@@ -495,6 +521,22 @@ onMounted(() => {
           :model-value="String(noticeDurationMs)"
           :options="NOTICE_DURATION_OPTIONS"
           @update:model-value="(value) => setNoticeDuration(Number(value))"
+        />
+      </div>
+
+      <p class="settings-subheading">Window</p>
+
+      <div class="settings-row">
+        <div>
+          <p class="settings-row-label">When closing the window</p>
+          <p class="settings-row-hint">
+            Choose what happens when you click the window's close button.
+          </p>
+        </div>
+        <SegmentedControl
+          :model-value="closeBehavior"
+          :options="CLOSE_BEHAVIOR_OPTIONS"
+          @update:model-value="setCloseBehavior"
         />
       </div>
     </div>
