@@ -1,5 +1,6 @@
 ## Issue
 
+<!-- Title/commits must follow: [#<issue>] - <short description> -->
 Closes #<!-- omit for [noissue]/[hotfix] maintainer quick fixes -->
 
 ## What changed
@@ -15,3 +16,4 @@ Closes #<!-- omit for [noissue]/[hotfix] maintainer quick fixes -->
 
 - [ ] `make check` passes (or I noted why not)
 - [ ] Docs updated if behavior changed
+- [ ] I ran `/claim` on the linked issue before starting this work
