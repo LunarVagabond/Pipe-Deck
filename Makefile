@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke screenshots demo release release-checks release-skip-tests
+.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
 
 NPM ?= npm
 CARGO ?= cargo
@@ -105,6 +105,9 @@ screenshots: build-cli ## Refresh docs/images/*.png from the live frontend (scri
 
 demo: ## Run/capture a named demo scenario (SCENARIO=<name> [MODE=dev|screenshot]; see scripts/demo-runner.sh)
 	bash scripts/demo-runner.sh
+
+simulate-claim-check: ## Dry-run the claim-check CI gate locally (ARGS='--pr 454' or ARGS='--title ... --author ... --body ...')
+	node scripts/simulate-claim-check.mjs $(ARGS)
 
 release-checks: ## Run the pre-release validation gate (type-check, frontend tests, cargo check, cargo test) standalone
 	bash scripts/release-checks.sh
