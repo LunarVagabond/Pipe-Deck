@@ -1,6 +1,6 @@
 ## Issue
 
-<!-- Title/commits must follow: [#<issue>] - <short description> -->
+<!-- Title must follow: [#<issue>] - <short description> (commits are squashed into this on merge, so this is the one that has to be right) -->
 Closes #<!-- omit for [noissue]/[hotfix] maintainer quick fixes -->
 
 ## What changed

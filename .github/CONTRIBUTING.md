@@ -57,11 +57,15 @@ Open an issue first when the work is non-trivial. The issue carries context (fea
 
 ### Commit Messages
 
+Merges into `main` are **squash-only** — your branch's individual commits never appear in `main`'s history, only the squashed PR title does (see [Pull Request Titles](#pull-request-titles) below, which *is* strict). Because of that, commit messages on your branch are a suggested convention, not a requirement: write them however helps you work, `wip`/`fixup`/whatever included.
+
+If you'd like to follow the convention anyway (it makes review easier, and CI leaves a non-blocking hint if a commit doesn't match), it's the same pattern as PR titles:
+
 ```
 [#<issue>] - <short description>
 ```
 
-**`[noissue]` and `[hotfix]` are restricted.** Both exist only for the maintainer and a small, explicitly-named set of trusted core developers, and both skip ticket overhead — they are the wrong way to handle most work, and are deliberately not available to general contributors or to AI agents. If you are not on that short list, every commit and PR needs a real issue number. The two tags mean different things:
+**`[noissue]` and `[hotfix]` are restricted.** Both exist only for the maintainer and a small, explicitly-named set of trusted core developers. If you are not on that short list, use your issue number when you do tag commits. The two tags mean different things:
 
 - `[noissue]` — trivial, no ticket is warranted at all (typo, comment, one-line fix).
 - `[hotfix]` — must be fixed now and there's a clear path to the fix, but there wasn't time to write up a ticket first. Reaching for this signals "this was a real bug/issue," not "there was nothing to file."
@@ -78,13 +82,11 @@ Examples:
 - `[noissue] - Fix typo in Contributing commit examples` (maintainer/core-only example)
 - `[hotfix] - Guard against null device id crashing the mixer` (maintainer/core-only example)
 
-Keep descriptions focused on **what changed** in that commit. Use the issue number from GitHub (`#123`) when one exists. One logical change per commit when practical.
-
-A CI check enforces this format on every non-merge commit in a PR (merge commits from `git merge main` into your branch are exempted) — a malformed message fails the check rather than waiting on a reviewer to catch it by eye.
+A CI job flags non-matching commit messages as a hint in the check output, but it never fails the PR — only the [PR title](#pull-request-titles) check is a blocking gate.
 
 ### Pull Request Titles
 
-Use the same pattern as commits:
+**This one is a hard requirement, unlike commit messages above.** Merges are squash-only, so the PR title becomes the actual commit message on `main` — it's the one place this format has to be right.
 
 ```
 [#123] - Add bass slider to mixer panel
@@ -94,7 +96,7 @@ Use the same pattern as commits:
 
 `[noissue]` and `[hotfix]` follow the same restriction as commit messages above — maintainer and named core developers only. Everyone else opens an issue first and references it in the title. The PR body can go deeper on approach and testing.
 
-A CI check enforces this title format the same way as commit messages — a malformed title fails the check rather than waiting on a reviewer to catch it by eye.
+A CI check enforces this title format — a malformed title fails the check rather than waiting on a reviewer to catch it by eye.
 
 ### AI-Assisted Contributions
 
