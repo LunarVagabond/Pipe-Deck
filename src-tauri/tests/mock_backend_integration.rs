@@ -1919,7 +1919,7 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
 
 #[test]
 fn latency_ping_sums_hops_present_in_the_graph() {
-    let (mut engine, _guard) = mock_engine();
+    let (engine, _guard) = mock_engine();
     let device_id = engine.runtime_graph().devices[0].id.clone();
     let stream_id = engine.runtime_graph().streams[0].id.clone();
 
@@ -1938,7 +1938,7 @@ fn latency_ping_sums_hops_present_in_the_graph() {
 
 #[test]
 fn latency_ping_reports_no_total_when_a_hop_has_no_data() {
-    let (mut engine, _guard) = mock_engine();
+    let (engine, _guard) = mock_engine();
     let device_id = engine.runtime_graph().devices[0].id.clone();
 
     let path = vec![

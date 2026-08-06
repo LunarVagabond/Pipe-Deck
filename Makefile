@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check test test-unit test-e2e clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
+.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check lint-rust test test-unit test-e2e clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
 
 NPM ?= npm
 CARGO ?= cargo
@@ -76,10 +76,13 @@ build-frontend: ## Type-check and build the Vue frontend
 build-rust: build-daemon-dev build-cli ## Compile the Rust backend (debug)
 	$(CARGO) build --manifest-path $(TAURI_DIR)/Cargo.toml
 
-check: build-daemon-dev build-cli ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
+check: build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
 	$(NPM) run build
 	$(NPM) run test:unit
 	$(CARGO) check --manifest-path $(TAURI_DIR)/Cargo.toml
+
+lint-rust: ## Run cargo clippy across all Rust targets (lib, bins, tests) with warnings denied
+	$(CARGO) clippy --manifest-path $(TAURI_DIR)/Cargo.toml --all-targets -- -D warnings
 
 test: build-daemon-dev build-cli ## Run Rust tests
 	$(CARGO) test --manifest-path $(TAURI_DIR)/Cargo.toml

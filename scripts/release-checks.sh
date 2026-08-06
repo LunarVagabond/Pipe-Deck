@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Pre-release validation gate: type-check, frontend unit tests, cargo check, cargo test.
+# Pre-release validation gate: type-check, frontend unit tests, cargo check, cargo clippy, cargo test.
 #
 # Run before `make release` bumps version files/commits/tags, so a broken
 # build fails fast locally instead of surfacing after a tag is already
@@ -12,7 +12,7 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
 
-echo "release-checks: frontend type-check + unit tests + cargo check (make check)"
+echo "release-checks: frontend type-check + unit tests + cargo check + cargo clippy (make check)"
 make check
 
 echo "release-checks: cargo test (make test)"

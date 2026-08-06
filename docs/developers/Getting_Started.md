@@ -92,7 +92,7 @@ make dev-frontend
 ## Verify your setup
 
 ```bash
-make check     # frontend type-check + cargo check — fast correctness pass
+make check     # frontend type-check + cargo check + cargo clippy — fast correctness pass
 make test      # Rust unit tests + mock-backend integration suite
 ```
 

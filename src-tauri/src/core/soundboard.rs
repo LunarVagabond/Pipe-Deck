@@ -211,7 +211,7 @@ mod tests {
         bytes.extend_from_slice(&8u16.to_le_bytes()); // bits per sample
         bytes.extend_from_slice(b"data");
         bytes.extend_from_slice(&data_len.to_le_bytes());
-        bytes.extend(std::iter::repeat(128u8).take(data_len as usize));
+        bytes.extend(std::iter::repeat_n(128u8, data_len as usize));
         bytes
     }
 
