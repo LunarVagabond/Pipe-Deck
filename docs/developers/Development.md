@@ -57,7 +57,8 @@ Two guiding rules hold this structure together: the UI never talks to PipeWire d
 
 - `make dev` / `make start` — run the desktop app (Tauri + Vite)
 - `make dev-frontend` — Vite frontend only, no Tauri shell
-- `make check` — frontend type-check + `cargo check`
+- `make check` — frontend type-check + `cargo check` + `cargo clippy`
+- `make lint-rust` — `cargo clippy` across all Rust targets (lib, bins, tests) with warnings denied
 - `make test` — Rust unit tests, plus the mock-backend end-to-end suite (`src-tauri/tests/mock_backend_integration.rs`)
 - `make test-e2e` — Playwright component tests (`src/e2e/`)
 - `make smoke` — install and compile smoke checks

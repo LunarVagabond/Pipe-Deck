@@ -81,6 +81,48 @@ pub fn resolve_playback_target_device_id(
         .map(|device| device.id.clone())
 }
 
+pub fn stream_matches_pactl_source_output(stream: &Stream, output: &pactl::PactlSourceOutput) -> bool {
+    pactl::stream_matches_source_output(stream, output)
+}
+
+pub fn stream_matches_pactl_capture_identity(
+    stream: &Stream,
+    output: &pactl::PactlSourceOutput,
+) -> bool {
+    if let Some(object_id) = output.object_id {
+        return stream.id == format!("node-{object_id}");
+    }
+
+    if let Some(system_name) = &stream.system_name {
+        if output
+            .node_name
+            .as_deref()
+            .is_some_and(|node_name| node_name == system_name)
+        {
+            return true;
+        }
+    }
+
+    if stream.app_name != output.application_name
+        && stream
+            .executable
+            .as_deref()
+            .is_none_or(|executable| executable != output.application_name)
+    {
+        return false;
+    }
+
+    match (&stream.media_name, &output.media_name) {
+        (Some(left), Some(right)) => left == right,
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+pub fn stream_matches_pactl_input(stream: &Stream, input: &pactl::PactlSinkInput) -> bool {
+    pactl::stream_matches_sink_input(stream, input)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -123,46 +165,4 @@ mod tests {
         let target = resolve_playback_target_device_id(&graph, "alsa_output.some-unrelated-sink");
         assert_eq!(target, None);
     }
-}
-
-pub fn stream_matches_pactl_source_output(stream: &Stream, output: &pactl::PactlSourceOutput) -> bool {
-    pactl::stream_matches_source_output(stream, output)
-}
-
-pub fn stream_matches_pactl_capture_identity(
-    stream: &Stream,
-    output: &pactl::PactlSourceOutput,
-) -> bool {
-    if let Some(object_id) = output.object_id {
-        return stream.id == format!("node-{object_id}");
-    }
-
-    if let Some(system_name) = &stream.system_name {
-        if output
-            .node_name
-            .as_deref()
-            .is_some_and(|node_name| node_name == system_name)
-        {
-            return true;
-        }
-    }
-
-    if stream.app_name != output.application_name
-        && stream
-            .executable
-            .as_deref()
-            .is_none_or(|executable| executable != output.application_name)
-    {
-        return false;
-    }
-
-    match (&stream.media_name, &output.media_name) {
-        (Some(left), Some(right)) => left == right,
-        (None, None) => true,
-        _ => false,
-    }
-}
-
-pub fn stream_matches_pactl_input(stream: &Stream, input: &pactl::PactlSinkInput) -> bool {
-    pactl::stream_matches_sink_input(stream, input)
 }

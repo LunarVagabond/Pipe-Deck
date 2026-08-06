@@ -67,7 +67,7 @@ Build dependencies:
 ### Build Commands
 
 ```bash
-make check          # frontend type-check + Rust check
+make check          # frontend type-check + Rust check + clippy
 make test           # Rust unit tests
 make build          # production bundles (deb/rpm/AppImage/binary)
 ```

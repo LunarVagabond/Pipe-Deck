@@ -39,23 +39,6 @@ pub fn slugify(name: &str) -> String {
     }
 }
 
-#[cfg(test)]
-mod slugify_tests {
-    use super::slugify;
-
-    #[test]
-    fn slugifies_names_with_punctuation_and_case() {
-        assert_eq!(slugify("Game Mix"), "game-mix");
-        assert_eq!(slugify("My Mic!!!"), "my-mic");
-    }
-
-    #[test]
-    fn empty_or_all_punctuation_falls_back_to_device() {
-        assert_eq!(slugify(""), "device");
-        assert_eq!(slugify("!!!"), "device");
-    }
-}
-
 pub trait AudioBackend: Send + Sync {
     // Graph fetch/subscribe.
     fn fetch_graph(&self) -> Result<RuntimeGraph, BackendError>;
@@ -637,5 +620,22 @@ impl AudioBackend for EmptyAudioBackend {
         _to_is_virtual_source: bool,
     ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
+    }
+}
+
+#[cfg(test)]
+mod slugify_tests {
+    use super::slugify;
+
+    #[test]
+    fn slugifies_names_with_punctuation_and_case() {
+        assert_eq!(slugify("Game Mix"), "game-mix");
+        assert_eq!(slugify("My Mic!!!"), "my-mic");
+    }
+
+    #[test]
+    fn empty_or_all_punctuation_falls_back_to_device() {
+        assert_eq!(slugify(""), "device");
+        assert_eq!(slugify("!!!"), "device");
     }
 }

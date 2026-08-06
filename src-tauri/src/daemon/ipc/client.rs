@@ -572,7 +572,7 @@ mod live_tests {
         };
 
         let cycles = soak_cycle_count();
-        let warmup_cycles = cycles.min(WARMUP_CYCLES * 4).max(1);
+        let warmup_cycles = cycles.clamp(1, WARMUP_CYCLES * 4);
         let checkpoint_every = (cycles / 20).max(1);
 
         let rss_before = rss_kb_for(daemon_pid);
