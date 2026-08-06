@@ -30,7 +30,7 @@ Define the extension contract for Pipe Deck plugins: transport, capabilities, li
 |--------|-------------------|--------------|
 | `ui.panel.register` | `ui.panel.register` | Yes |
 | `routing.suggest` | `routing.suggest` | Yes — notification with `{stream_id, target_system_name, reason?}`; the host stores it (no apply) and audit-logs it |
-| `effects.apply` | `effects.manage` | Not yet — capability is declarable/grantable but the host has no handler for this method today |
+| `effects.apply` | `effects.manage` | Yes — notification with the request payload; the host queues it and applies it through `set_device_effects` on the next graph-refresh tick (PD-021) |
 
 ### Example handshake
 
