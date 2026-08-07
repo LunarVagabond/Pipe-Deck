@@ -1,5 +1,32 @@
 use serde::{Deserialize, Serialize};
 
+/// Whether `system_name` is a Pipe Deck-owned virtual device eligible for
+/// effects/processing — excludes the internal `pipe-deck-feed-`/
+/// `pipe-deck-split-` shadow devices, which are plumbing, not user-facing
+/// targets. Moved here (from `pipewire::filter_chain`, issue #74) since it's
+/// a pure naming-convention check with no PipeWire dependency — every
+/// caller, including `core::engine::effects_ops`, can use it without
+/// importing anything Linux-specific.
+pub fn is_pipe_deck_device(system_name: &str) -> bool {
+    system_name.starts_with("pipe-deck-")
+        && !system_name.starts_with("pipe-deck-feed-")
+        && !system_name.starts_with("pipe-deck-split-")
+}
+
+/// The playback-direction (virtual output) effects-hosted node name for
+/// `device_system_name`. Moved here alongside `is_pipe_deck_device` (issue
+/// #74) — pure string derivation, no PipeWire dependency.
+pub fn effect_output_name_for_device(device_system_name: &str) -> String {
+    format!("effect_output.{device_system_name}")
+}
+
+/// The capture-direction (virtual input/mic) effects-hosted node name for
+/// `device_system_name` (PD-024) — the counterpart to
+/// `effect_output_name_for_device`.
+pub fn effect_input_name_for_device(device_system_name: &str) -> String {
+    format!("effect_input.{device_system_name}")
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DeviceKind {
@@ -97,7 +124,7 @@ pub struct ProcessingNode {
     pub kind: ProcessingNodeKind,
     /// Stable PipeWire node name, `pipe-deck-proc-{kind}-{slug}` (PD-032) —
     /// deliberately a sibling prefix to `pipe-deck-feed-`/`pipe-deck-split-`,
-    /// never one of those two, so `filter_chain::is_pipe_deck_device`
+    /// never one of those two, so `is_pipe_deck_device` (this module)
     /// recognizes it with no code change, while `pactl::list_pipe_deck_modules`/
     /// `VirtualDeviceRegistry::discover_from_pactl` explicitly exclude it so
     /// it never gets merged into `RuntimeGraph.devices`.
@@ -1844,4 +1871,23 @@ pub struct LatencyPingResult {
     pub hops: Vec<LatencyHop>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_latency_ms: Option<f64>,
+}
+
+#[cfg(test)]
+mod naming_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_pipe_deck_virtual_devices() {
+        assert!(is_pipe_deck_device("pipe-deck-game-mix"));
+        assert!(!is_pipe_deck_device("pipe-deck-split-firefox"));
+        assert!(!is_pipe_deck_device("pipe-deck-feed-firefox"));
+        assert!(!is_pipe_deck_device("alsa_output.pci"));
+    }
+
+    #[test]
+    fn derives_effect_node_names() {
+        assert_eq!(effect_output_name_for_device("pipe-deck-game-mix"), "effect_output.pipe-deck-game-mix");
+        assert_eq!(effect_input_name_for_device("pipe-deck-mic"), "effect_input.pipe-deck-mic");
+    }
 }

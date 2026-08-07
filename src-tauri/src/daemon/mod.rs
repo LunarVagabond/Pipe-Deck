@@ -177,6 +177,7 @@ fn serve_native_effects() {
     // nothing configured yet skips both, so this can't be dropped in favor
     // of relying on them.
     crate::pipewire::native_host::warm_up();
+    crate::pipewire::native_dsp_host::warm_up();
     reconcile_live_effects_state();
     reconcile_live_processing_nodes();
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
@@ -221,12 +222,23 @@ fn reconcile_live_effects_state() {
         let Some(config) = chains.get(&info.device_id) else {
             continue;
         };
-        if !config.is_active() || crate::pipewire::native_host::is_loaded(&info.system_name) {
+        if !config.is_active()
+            || crate::pipewire::native_host::is_loaded(&info.system_name)
+            || crate::pipewire::native_dsp_host::is_loaded(&info.system_name)
+        {
             continue;
         }
 
         let is_input = info.direction == crate::core::models::DeviceDirection::Input;
-        let _ = crate::pipewire::native_host::load_chain(&info.system_name, is_input, config);
+        // Same dispatch as `backend::linux::live::LinuxPipeWireBackend::load_effect_chain`
+        // — a portable-DSP-capable chain must come back on the same
+        // transport after a crash/restart, not silently switch to the
+        // builtin-module path just because this is the recovery caller.
+        if is_input && crate::pipewire::native_dsp_host::supports(config) {
+            let _ = crate::pipewire::native_dsp_host::load_chain(&info.system_name, config);
+        } else {
+            let _ = crate::pipewire::native_host::load_chain(&info.system_name, is_input, config);
+        }
     }
 }
 

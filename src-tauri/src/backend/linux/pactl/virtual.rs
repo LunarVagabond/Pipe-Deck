@@ -674,7 +674,7 @@ mod tests {
 
     /// PD-032's naming-allowlist coverage assertion: a synthetic
     /// `pipe-deck-proc-*` name must be recognized as a Pipe Deck object by
-    /// the canonical predicate (`filter_chain::is_pipe_deck_device`) while
+    /// the canonical predicate (`core::models::is_pipe_deck_device`) while
     /// being explicitly excluded from the plain virtual-device registry
     /// (`belongs_in_virtual_device_registry`, used by `list_pipe_deck_modules`)
     /// — the same way `pipe-deck-feed-*` already is. A future call site that
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn naming_allowlist_coverage_excludes_processing_nodes_from_virtual_device_registry() {
         let proc_name = "pipe-deck-proc-mixer-test";
-        assert!(crate::pipewire::filter_chain::is_pipe_deck_device(proc_name));
+        assert!(crate::core::models::is_pipe_deck_device(proc_name));
         assert!(!belongs_in_virtual_device_registry(proc_name));
 
         // Sibling prefixes keep their existing behavior unchanged.

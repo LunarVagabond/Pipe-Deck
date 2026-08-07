@@ -87,6 +87,37 @@ impl NativeHostClient {
             _ => Err(IpcClientError::Protocol),
         }
     }
+
+    /// Portable-DSP equivalent of `load_chain` (issue #74) — routed to
+    /// `pipewire::native_dsp_host` daemon-side instead of `native_host`.
+    pub fn load_dsp_chain(device_system_name: &str, config: &EffectChainConfig) -> Result<String, IpcClientError> {
+        let op = IpcOp::LoadDspChain { device_system_name: device_system_name.to_string(), config: config.clone() };
+        match request_with_timeout(op, REQUEST_TIMEOUT)? {
+            IpcOkPayload::PlaybackName { name } => Ok(name),
+            _ => Err(IpcClientError::Protocol),
+        }
+    }
+
+    pub fn unload_dsp_chain(device_system_name: &str) -> Result<(), IpcClientError> {
+        let op = IpcOp::UnloadDspChain { device_system_name: device_system_name.to_string() };
+        match request_with_timeout(op, REQUEST_TIMEOUT)? {
+            IpcOkPayload::Unit => Ok(()),
+            _ => Err(IpcClientError::Protocol),
+        }
+    }
+
+    pub fn is_dsp_chain_loaded(device_system_name: &str) -> bool {
+        let op = IpcOp::IsDspChainLoaded { device_system_name: device_system_name.to_string() };
+        matches!(request_with_timeout(op, REQUEST_TIMEOUT), Ok(IpcOkPayload::Loaded { loaded: true }))
+    }
+
+    pub fn set_dsp_chain_live_params(device_system_name: &str, config: &EffectChainConfig) -> Result<(), IpcClientError> {
+        let op = IpcOp::SetDspChainLiveParams { device_system_name: device_system_name.to_string(), config: config.clone() };
+        match request_with_timeout(op, REQUEST_TIMEOUT)? {
+            IpcOkPayload::Unit => Ok(()),
+            _ => Err(IpcClientError::Protocol),
+        }
+    }
 }
 
 fn request_with_timeout(op: IpcOp, timeout: Duration) -> Result<IpcOkPayload, IpcClientError> {

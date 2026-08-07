@@ -64,8 +64,8 @@ const effectsBadgeTitle = computed(() =>
 );
 
 /** DSP-backed processing node kinds (Eq5Band/Delay/Limiter/Hpf) each expose a
- * `reset()` method (see their own `defineExpose`) — Reset and the DSP
- * warning both render once, here in the node's header (top-right, next to
+ * `reset()` method (see their own `defineExpose`) — Reset and the DSP info
+ * hint both render once, here in the node's header (top-right, next to
  * Delete), rather than duplicated per-kind in each child's own template. */
 const eq5bandRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const delayRef = ref<{ reset: () => void | Promise<void> } | null>(null);
@@ -75,7 +75,10 @@ const reverbRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const widenerRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const panRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
-const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
+/** Informational only — not an error/fault indicator. Rendered as a plain
+ * (i) hint, not a warning triangle, since none of these describe something
+ * currently wrong with the user's config. */
+const DSP_INFO_TEXT: Partial<Record<string, string>> = {
   eq5band:
     "Boosting bands can push the signal above full scale — any resulting clipping happens at the output (hardware/sink), not here, and sounds like harsh digital distortion. Real dynamics processing (to catch this smoothly) is tracked in issue #86.",
   delay:
@@ -86,7 +89,7 @@ const DSP_WARNING_TEXT: Partial<Record<string, string>> = {
   widener:
     "High Width settings can push the side signal loud enough to clip when summed back to mono (e.g. on a phone speaker or older Bluetooth receiver). Real dynamics processing (to catch this smoothly) is tracked in issue #86.",
 };
-const dspWarningText = computed(() => DSP_WARNING_TEXT[props.data.processingNodeKind?.kind ?? ""]);
+const dspInfoText = computed(() => DSP_INFO_TEXT[props.data.processingNodeKind?.kind ?? ""]);
 
 function onResetClick() {
   void (
@@ -326,10 +329,10 @@ function onToggleMute() {
             @delete="onDelete"
           >
             <template
-              v-if="dspWarningText || data.processingNodeKind?.kind === 'group'"
+              v-if="dspInfoText || data.processingNodeKind?.kind === 'group'"
               #toolbar-extra
             >
-              <template v-if="dspWarningText">
+              <template v-if="dspInfoText">
                 <button
                   type="button"
                   class="icon-btn routing-graph-node-header-reset"
@@ -340,11 +343,11 @@ function onToggleMute() {
                   ↺
                 </button>
                 <span
-                  class="routing-graph-node-dsp-warning"
-                  :title="dspWarningText"
-                  :aria-label="dspWarningText"
+                  class="icon-btn routing-graph-node-dsp-info"
+                  :title="dspInfoText"
+                  :aria-label="dspInfoText"
                 >
-                  ⚠
+                  ⓘ
                 </span>
               </template>
               <div v-if="data.processingNodeKind?.kind === 'group'" class="routing-graph-node-picker-anchor">

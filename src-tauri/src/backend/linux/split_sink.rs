@@ -1,13 +1,13 @@
 use crate::backend::BackendError;
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
-use crate::pipewire::filter_chain;
+use crate::core::models::effect_output_name_for_device;
 
 /// A virtual output currently hosting live effects (PD-020) has its
 /// identity pinned to the *capture* side — `system_name`'s own "monitor"
 /// port only ever carries the raw, pre-processing signal now, since the
 /// processed audio leaves via the separately-named `effect_output.*` node
-/// instead (see `pipewire::filter_chain`/`core::engine::effects_ops`).
+/// instead (see `core::models`/`core::engine::effects_ops`).
 /// Every caller that fans this device's audio out to a target must resolve
 /// through this first — linking straight to `system_name`'s monitor while
 /// effects are live bypasses the effect chain entirely (the target hears
@@ -17,7 +17,7 @@ use crate::pipewire::filter_chain;
 /// live port state (not persisted config) because that's the only source of
 /// truth for whether the swap has actually happened yet.
 pub fn effective_fan_out_source(system_name: &str) -> String {
-    let effect_output_name = filter_chain::effect_output_name_for_device(system_name);
+    let effect_output_name = effect_output_name_for_device(system_name);
     if pw_link::has_output_ports(&effect_output_name) {
         effect_output_name
     } else {
