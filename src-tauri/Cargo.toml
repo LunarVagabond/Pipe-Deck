@@ -79,3 +79,4 @@ lofty = "0.24.0"
 # unrelated). "blocking" gives a synchronous API without pulling in an async
 # runtime for what's at most a few calls per app session.
 zbus = { version = "5.18.0", features = ["blocking"] }
+ringbuf = "0.5"

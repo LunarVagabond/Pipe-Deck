@@ -543,12 +543,13 @@
     }
   }
 
-  // The DSP warning icon sits in the header row (next to Reset/Delete) for
-  // any DSP-backed processing node — see `_routing-graph.scss`'s other
-  // `.routing-graph-node-dsp-warning` rule for the shared color/opacity;
-  // this just fits it to the compact header row's line height.
-  .node-card-actions .routing-graph-node-dsp-warning {
-    margin-left: 0.1rem;
+  // The DSP info icon sits in the header row (next to Reset/Delete) for
+  // any DSP-backed processing node — same compact `icon-btn` sizing as
+  // Edit/Delete/Reset above (the `.node-card-actions .icon-btn` rule just
+  // above already covers width/height/border-radius/svg sizing; this only
+  // overrides the font-size for its plain-text glyph, same pattern as
+  // Reset's own override).
+  .node-card-actions .routing-graph-node-dsp-info {
     font-size: 0.7rem;
   }
 }
@@ -783,18 +784,23 @@
 /** Shared by any DSP-backed processing node whose builtin-only backing has
  * a known audible sharp edge (brick-wall clamp, boost-then-clip at the
  * output, ...) — a small hover tooltip explaining why, rather than silence
- * that reads as "this node is broken." See issue #86 (real dynamics
- * processing, tracked separately from the current builtin-only MVPs). */
-.routing-graph-node-dsp-warning {
+ * that reads as "this node is broken." Styled as a plain `icon-btn` (same
+ * bordered-square sizing as Edit/Delete/Reset next to it) in blue, a
+ * neutral informational color, not a warning triangle — none of these
+ * describe something currently wrong with the user's config, and an amber
+ * triangle read as an "almost error" even though it's purely informational.
+ * See issue #86 (real dynamics processing, tracked separately from the
+ * current builtin-only MVPs). */
+.routing-graph-node-dsp-info {
   margin-left: 0.2rem;
   font-size: 0.75rem;
   line-height: 1;
-  opacity: 0.75;
   cursor: help;
-  color: var(--accent-amber, #e0a030);
+  color: var(--accent-blue, #4d9fff);
 
   &:hover {
-    opacity: 1;
+    color: var(--accent-blue, #4d9fff);
+    border-color: rgba(77, 159, 255, 0.55);
   }
 }
 

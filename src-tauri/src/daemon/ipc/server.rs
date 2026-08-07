@@ -4,7 +4,7 @@
 //! instead of calling `native_host` in-process.
 
 use super::protocol::{socket_path, IpcOkPayload, IpcOp, IpcRequest, IpcResponse, IpcResult};
-use crate::pipewire::native_host;
+use crate::pipewire::{native_dsp_host, native_host};
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::Path;
@@ -76,6 +76,25 @@ fn dispatch(op: IpcOp) -> IpcResult {
         }
         IpcOp::SetParam { device_system_name, params } => {
             match native_host::set_param(&device_system_name, &params) {
+                Ok(()) => IpcResult::Ok { payload: IpcOkPayload::Unit },
+                Err(error) => IpcResult::Error { message: error.to_string() },
+            }
+        }
+        IpcOp::LoadDspChain { device_system_name, config } => {
+            match native_dsp_host::load_chain(&device_system_name, &config) {
+                Ok(name) => IpcResult::Ok { payload: IpcOkPayload::PlaybackName { name } },
+                Err(error) => IpcResult::Error { message: error.to_string() },
+            }
+        }
+        IpcOp::UnloadDspChain { device_system_name } => {
+            native_dsp_host::unload_chain(&device_system_name);
+            IpcResult::Ok { payload: IpcOkPayload::Unit }
+        }
+        IpcOp::IsDspChainLoaded { device_system_name } => {
+            IpcResult::Ok { payload: IpcOkPayload::Loaded { loaded: native_dsp_host::is_loaded(&device_system_name) } }
+        }
+        IpcOp::SetDspChainLiveParams { device_system_name, config } => {
+            match native_dsp_host::set_live_chain(&device_system_name, &config) {
                 Ok(()) => IpcResult::Ok { payload: IpcOkPayload::Unit },
                 Err(error) => IpcResult::Error { message: error.to_string() },
             }

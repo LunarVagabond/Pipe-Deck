@@ -4,12 +4,6 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-pub fn is_pipe_deck_device(system_name: &str) -> bool {
-    system_name.starts_with("pipe-deck-")
-        && !system_name.starts_with("pipe-deck-feed-")
-        && !system_name.starts_with("pipe-deck-split-")
-}
-
 /// One-time migration cleanup: removes any Pipe Deck-owned PipeWire drop-ins
 /// left over from before #149's cutover to native effects transport (both
 /// the pre-issue-#64 `pipewire.conf.d` location and the later
@@ -58,17 +52,6 @@ fn filter_chain_conf_dir() -> Option<PathBuf> {
     Some(PathBuf::from(home).join(".config/pipewire/filter-chain.conf.d"))
 }
 
-pub fn effect_output_name_for_device(device_system_name: &str) -> String {
-    format!("effect_output.{device_system_name}")
-}
-
-/// The raw-audio inlet name for a capture-direction (virtual input/mic)
-/// effect chain (PD-024) — the counterpart to `effect_output_name_for_device`
-/// for the reversed capture template, see `fx_validate::render_conf_capture`.
-pub fn effect_input_name_for_device(device_system_name: &str) -> String {
-    format!("effect_input.{device_system_name}")
-}
-
 /// Polls for a sink named `system_name` to (re)appear after
 /// `revert_to_plain_device` recreates it, so the caller can confirm the
 /// plain device is actually back before re-linking anything to it.
@@ -105,14 +88,3 @@ pub fn wait_for_source(system_name: &str, timeout: Duration) -> Result<(), Backe
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn accepts_pipe_deck_virtual_devices() {
-        assert!(is_pipe_deck_device("pipe-deck-game-mix"));
-        assert!(!is_pipe_deck_device("pipe-deck-split-firefox"));
-        assert!(!is_pipe_deck_device("alsa_output.pci"));
-    }
-}

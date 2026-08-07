@@ -1,9 +1,9 @@
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage};
-use crate::pipewire::filter_chain;
-use crate::pipewire::fx_capability::{self, FxCapabilities};
-use crate::pipewire::fx_validate::{self, PreflightResult};
-use crate::pipewire::pw_cli;
+use crate::core::models::{
+    effect_input_name_for_device, is_pipe_deck_device, ApplyResult, DeviceDirection, DeviceKind, EffectChainConfig, EffectStage,
+};
+use crate::pipewire::fx_capability::FxCapabilities;
+use crate::pipewire::fx_validate::PreflightResult;
 #[cfg(test)]
 use crate::backend::linux::{pactl, pw_link};
 use std::collections::HashMap;
@@ -24,7 +24,7 @@ impl CoreEngine {
     /// configure a stage that would silently fail (or worse, get force-fit
     /// through an unvalidated path) at apply time.
     pub fn get_effect_capabilities(&self) -> FxCapabilities {
-        fx_capability::probe_capabilities()
+        self.adapter.effect_capabilities()
     }
 
     /// Validates a candidate chain against the v1 safety contract without
@@ -32,8 +32,7 @@ impl CoreEngine {
     /// change so the UI can show blocking reasons before the user ever hits
     /// Apply.
     pub fn preflight_effect_chain(&self, config: &EffectChainConfig) -> PreflightResult {
-        let capabilities = fx_capability::probe_capabilities();
-        fx_validate::preflight(config, &capabilities)
+        self.adapter.preflight_effect_chain(config)
     }
 
     /// Whether a device currently has a live effects chain loaded (i.e. a
@@ -60,7 +59,7 @@ impl CoreEngine {
             .find(|device| device.id == device_id)
             .ok_or_else(|| EngineError::Adapter(format!("device not found: {device_id}")))?;
 
-        if !filter_chain::is_pipe_deck_device(&device.system_name) {
+        if !is_pipe_deck_device(&device.system_name) {
             return Err(EngineError::Adapter(
                 "effects may only be applied to pipe-deck virtual devices".into(),
             ));
@@ -183,7 +182,7 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {device_id}")))?;
 
-        if !filter_chain::is_pipe_deck_device(&device.system_name) {
+        if !is_pipe_deck_device(&device.system_name) {
             return Err(EngineError::InvalidInput(
                 "effects may only be applied to pipe-deck virtual devices".to_string(),
             ));
@@ -199,8 +198,7 @@ impl CoreEngine {
             ));
         }
 
-        let capabilities = fx_capability::probe_capabilities();
-        let preflight = fx_validate::preflight(config, &capabilities);
+        let preflight = self.adapter.preflight_effect_chain(config);
         if !preflight.ok {
             return Err(EngineError::InvalidInput(preflight.blocking_reasons.join("; ")));
         }
@@ -296,8 +294,7 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound(format!("device not found: {device_id}")))?;
 
-        let capabilities = fx_capability::probe_capabilities();
-        let preflight = fx_validate::preflight(config, &capabilities);
+        let preflight = self.adapter.preflight_effect_chain(config);
         if !preflight.ok {
             return Ok(ApplyResult {
                 success: false,
@@ -316,7 +313,8 @@ impl CoreEngine {
             });
         };
 
-        pw_cli::set_params(node_id, &fx_validate::live_params(config))
+        self.adapter
+            .push_effect_chain_live_params(&device.system_name, node_id, config)
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         // A node was already resolvable above, so this chain is already
@@ -365,7 +363,7 @@ impl CoreEngine {
         // before the swap" reasoning as `apply_effect_chain_structural`.
         let mic_feeders = if is_input {
             self.adapter
-                .list_mic_feeds(&filter_chain::effect_input_name_for_device(&device.system_name), false)
+                .list_mic_feeds(&effect_input_name_for_device(&device.system_name), false)
         } else {
             Vec::new()
         };
@@ -393,7 +391,7 @@ impl CoreEngine {
             self.adapter
                 .relink_mic_feeds(
                     &mic_feeders,
-                    &filter_chain::effect_input_name_for_device(&device.system_name),
+                    &effect_input_name_for_device(&device.system_name),
                     &device.system_name,
                     true,
                 )
@@ -634,7 +632,7 @@ impl CoreEngine {
                     .iter()
                     .find(|device| device.id == *device_id)
                     .map(|device| device.system_name.clone())?;
-                if !filter_chain::is_pipe_deck_device(&system_name) {
+                if !is_pipe_deck_device(&system_name) {
                     return None;
                 }
                 Some((system_name, config.clone()))
@@ -781,7 +779,7 @@ mod live_tests {
             panic!("effects source did not appear as Audio/Source/Virtual after structural apply");
         }
 
-        let feeders_after_apply = pw_link::list_capture_sources_for_sink(&filter_chain::effect_input_name_for_device(
+        let feeders_after_apply = pw_link::list_capture_sources_for_sink(&effect_input_name_for_device(
             &mic.system_name,
         ));
         if !feeders_after_apply.iter().any(|name| name == &mixer.system_name) {
@@ -801,6 +799,70 @@ mod live_tests {
             feeders_after_remove.iter().any(|name| name == &mixer.system_name),
             "mixer feed did not survive removal: {feeders_after_remove:?}"
         );
+    }
+
+    /// Isolates issue #74's portable-DSP dispatch (`backend::linux::live`'s
+    /// `native_dsp_host::supports(config)` branch, wired through
+    /// `daemon::ipc`) from the *pre-existing, unrelated* mic-feeder-relink
+    /// bug that `apply_effect_chain_structural_round_trips_on_a_virtual_input`
+    /// also hits (confirmed: it fails identically with the portable dispatch
+    /// forced off, i.e. on the original builtin-module path too — not
+    /// something this issue introduced, not fixed here, out of scope for
+    /// #74). No mixer/feeders are connected here, so
+    /// `apply_effect_chain_structural`'s `relink_mic_feeds` call has nothing
+    /// to relink and that bug never triggers — this test exercises
+    /// everything else end to end: real `CoreEngine` → `effects_ops` →
+    /// `AudioBackend::load_effect_chain` → real daemon IPC →
+    /// `native_dsp_host`, confirming the device still reports as
+    /// `Audio/Source/Virtual` after apply and reverts cleanly on remove.
+    #[test]
+    #[ignore]
+    fn portable_dsp_dispatch_round_trips_an_eq5band_chain_with_no_mic_feeders() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let mic = engine
+            .create_virtual_input("Pipe Deck Portable DSP Dispatch Test")
+            .expect("create disposable test mic");
+        let cleanup = |engine: &mut CoreEngine| {
+            let _ = engine.remove_virtual_device(&mic.system_name);
+        };
+
+        let device_id = mic.device_id.clone();
+        let config = EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_bass: 6,
+                eq_sub: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        };
+
+        let apply_result = engine.apply_effect_chain_structural(&device_id, &config);
+        if let Err(error) = &apply_result {
+            cleanup(&mut engine);
+            panic!("structural apply via the portable-DSP dispatch failed: {error}");
+        }
+
+        let source_live = pactl::source_exists(&mic.system_name).unwrap_or(false);
+        if !source_live {
+            cleanup(&mut engine);
+            panic!("effects source did not appear as Audio/Source/Virtual after structural apply");
+        }
+        if !engine.is_effect_chain_live(&device_id) {
+            cleanup(&mut engine);
+            panic!("device does not report as having a live effect chain after apply");
+        }
+
+        let remove_result = engine.remove_effect_chain_structural(&device_id);
+        cleanup(&mut engine);
+        remove_result.expect("remove_effect_chain_structural should revert cleanly");
     }
 
     #[test]
@@ -886,7 +948,7 @@ mod live_tests {
             panic!("live param update failed: {error}");
         }
 
-        let node_id = pw_cli::find_node_id_by_name(&created.system_name).ok().flatten();
+        let node_id = crate::pipewire::pw_cli::find_node_id_by_name(&created.system_name).ok().flatten();
         let live_value = node_id.and_then(|id| {
             let output = std::process::Command::new("pw-cli")
                 .args(["enum-params", &id.to_string(), "Props"])

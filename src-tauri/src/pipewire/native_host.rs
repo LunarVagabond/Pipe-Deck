@@ -50,8 +50,8 @@
 //! whatever chains were loaded are gone with it. `daemon::reconcile_live_effects_state`
 //! re-derives and reloads persisted chains after a restart.
 
-use crate::core::models::EffectChainConfig;
-use crate::pipewire::{filter_chain, fx_validate};
+use crate::core::models::{effect_output_name_for_device, EffectChainConfig};
+use crate::pipewire::fx_validate;
 use pipewire as pw;
 use pipewire::spa;
 use pipewire::spa::pod::serialize::{PodSerialize, PodSerializer, SerializeSuccess};
@@ -279,6 +279,18 @@ pub fn warm_up() {
     host();
 }
 
+/// Exposes this module's connection (`ThreadLoopRc`/`CoreRc`) for
+/// `pipewire::native_dsp_host` (issue #74) to build `pw::stream`s on,
+/// instead of that module opening a second, independent connection — this
+/// one is already proven robust in production (PD-027/PD-029's soak
+/// testing). Cheap `Rc` clones handed back to the caller; the caller must
+/// still take `thread_loop.lock()` before any `pw::*` call on the returned
+/// `core`, same contract as every other use of this connection in this file.
+pub fn shared_connection() -> (pw::thread_loop::ThreadLoopRc, pw::core::CoreRc) {
+    let guard = host().lock().expect("native host mutex poisoned");
+    (guard.thread_loop.clone(), guard._core.clone())
+}
+
 /// Loads `config`'s filter chain onto `device_system_name`, swapping out
 /// whatever chain (if any) is already loaded for it first (PD-020:
 /// swap-by-identity, same node name takes over). `is_input` picks which of
@@ -301,7 +313,7 @@ pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChain
     let playback_name = if is_input {
         device_system_name.to_string()
     } else {
-        filter_chain::effect_output_name_for_device(device_system_name)
+        effect_output_name_for_device(device_system_name)
     };
 
     let module_name_c = CString::new("libpipewire-module-filter-chain").expect("static string has no NUL");

@@ -54,6 +54,29 @@ pub enum IpcOp {
         /// `"eq_bass:Gain"`), pushed as a single `Props` param update.
         params: Vec<(String, f64)>,
     },
+    /// Portable-DSP equivalent of `LoadChain` (issue #74) — routed to
+    /// `pipewire::native_dsp_host` instead of `pipewire::native_host`.
+    /// Capture-direction (virtual input/mic) only; no `is_input` field
+    /// since that's the only template `native_dsp_host` implements.
+    LoadDspChain {
+        device_system_name: String,
+        config: EffectChainConfig,
+    },
+    UnloadDspChain {
+        device_system_name: String,
+    },
+    IsDspChainLoaded {
+        device_system_name: String,
+    },
+    /// Portable-DSP equivalent of `SetParam` — takes the whole
+    /// `EffectChainConfig` rather than flattened `(name, value)` pairs,
+    /// since `native_dsp_host::set_live_chain` rebuilds the chain's biquad
+    /// coefficients from it directly rather than pushing named PipeWire
+    /// filter-chain controls.
+    SetDspChainLiveParams {
+        device_system_name: String,
+        config: EffectChainConfig,
+    },
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -146,6 +169,41 @@ mod tests {
             device_system_name: "pipe-deck-proc-eq5band-test".to_string(),
             params: vec![("eq_bass:Gain".to_string(), 3.0)],
         });
+    }
+
+    fn eq5band_config() -> EffectChainConfig {
+        EffectChainConfig {
+            stages: vec![EffectStage::Eq5Band {
+                id: "eq".to_string(),
+                eq_sub: 0,
+                eq_bass: 3,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn load_dsp_chain_roundtrips() {
+        roundtrips(IpcOp::LoadDspChain { device_system_name: "pipe-deck-mic".to_string(), config: eq5band_config() });
+    }
+
+    #[test]
+    fn unload_dsp_chain_roundtrips() {
+        roundtrips(IpcOp::UnloadDspChain { device_system_name: "pipe-deck-mic".to_string() });
+    }
+
+    #[test]
+    fn is_dsp_chain_loaded_roundtrips() {
+        roundtrips(IpcOp::IsDspChainLoaded { device_system_name: "pipe-deck-mic".to_string() });
+    }
+
+    #[test]
+    fn set_dsp_chain_live_params_roundtrips() {
+        roundtrips(IpcOp::SetDspChainLiveParams { device_system_name: "pipe-deck-mic".to_string(), config: eq5band_config() });
     }
 
     fn response_roundtrips(result: IpcResult) {

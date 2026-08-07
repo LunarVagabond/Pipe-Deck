@@ -430,6 +430,7 @@ impl AudioBackend for LinuxPipeWireBackend {
         mic_feeders: &[String],
     ) -> Result<String, BackendError> {
         use crate::daemon::ipc::client::NativeHostClient;
+        use crate::pipewire::native_dsp_host;
 
         let is_input = device.direction == DeviceDirection::Input;
 
@@ -437,8 +438,17 @@ impl AudioBackend for LinuxPipeWireBackend {
             pactl::unload_module(&module_id)?;
         }
 
-        let playback_name = NativeHostClient::load_chain(&device.system_name, is_input, config)
-            .map_err(|error| BackendError::Message(error.to_string()))?;
+        // Portable-DSP host (issue #74) takes over whatever it can fully
+        // express (today: an EQ5Band-only capture-direction chain); anything
+        // else keeps going through the builtin-module path. No feature flag
+        // — this is dispatch on what the config actually needs, not a
+        // rollout gate.
+        let playback_name = if is_input && native_dsp_host::supports(config) {
+            NativeHostClient::load_dsp_chain(&device.system_name, config)
+        } else {
+            NativeHostClient::load_chain(&device.system_name, is_input, config)
+        }
+        .map_err(|error| BackendError::Message(error.to_string()))?;
 
         if is_input {
             virtual_mic_mix::relink_feeds_to(mic_feeders, &device.system_name, &playback_name, false).map_err(|error| {
@@ -474,12 +484,35 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn unload_effect_chain(&self, device_system_name: &str) -> Result<(), BackendError> {
-        crate::daemon::ipc::client::NativeHostClient::unload_chain(device_system_name)
-            .map_err(|error| BackendError::Message(error.to_string()))
+        use crate::daemon::ipc::client::NativeHostClient;
+        // Unconditionally unloads both transports — whichever one wasn't
+        // actually hosting `device_system_name` is already a documented
+        // no-op on both `native_host::unload_chain` and
+        // `native_dsp_host::unload_chain`, so this doesn't need to know in
+        // advance which one loaded it.
+        NativeHostClient::unload_dsp_chain(device_system_name).map_err(|error| BackendError::Message(error.to_string()))?;
+        NativeHostClient::unload_chain(device_system_name).map_err(|error| BackendError::Message(error.to_string()))
     }
 
     fn is_effect_chain_loaded(&self, device_system_name: &str) -> bool {
-        crate::daemon::ipc::client::NativeHostClient::is_loaded(device_system_name)
+        use crate::daemon::ipc::client::NativeHostClient;
+        NativeHostClient::is_dsp_chain_loaded(device_system_name) || NativeHostClient::is_loaded(device_system_name)
+    }
+
+    fn push_effect_chain_live_params(
+        &self,
+        device_system_name: &str,
+        node_id: u32,
+        config: &crate::core::models::EffectChainConfig,
+    ) -> Result<(), BackendError> {
+        use crate::daemon::ipc::client::NativeHostClient;
+        use crate::pipewire::native_dsp_host;
+
+        if native_dsp_host::supports(config) && NativeHostClient::is_dsp_chain_loaded(device_system_name) {
+            return NativeHostClient::set_dsp_chain_live_params(device_system_name, config)
+                .map_err(|error| BackendError::Message(error.to_string()));
+        }
+        crate::pipewire::pw_cli::set_params(node_id, &crate::pipewire::fx_validate::live_params(config))
     }
 
     // --- Processing nodes (PD-032). Fan-out, Mixer, and EQ5Band (issue #293

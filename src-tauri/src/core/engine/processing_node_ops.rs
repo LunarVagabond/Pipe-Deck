@@ -975,9 +975,22 @@ impl CoreEngine {
             )));
         }
 
-        self.adapter
-            .unload_processing_node(&node.system_name)
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        // Best-effort: the node is about to be removed from the model
+        // regardless, so a failed native-chain unload (e.g. a transient
+        // daemon-IPC hiccup for the Eq5Band/Delay/Limiter/Hpf/Reverb/Widener/
+        // Pan kinds, which route through `daemon::ipc` — see
+        // `backend::linux::live::LinuxPipeWireBackend::unload_processing_node`)
+        // must not block that, the same reasoning `remove_virtual_device`
+        // already applies to its own `discard_effect_chain_conf` cleanup.
+        // Previously this used `?` and returned early on any error, which
+        // left the node (and its edges) stuck in the UI with no way to
+        // remove it short of a full app reload — the backend's own model
+        // never actually dropped it, so no `graph-updated` push ever
+        // reflected a removal that hadn't happened. A failure here can
+        // orphan the underlying native chain (leaked, not cleanly torn
+        // down), which is a real but strictly better outcome than a node
+        // the user cannot delete at all.
+        let _ = self.adapter.unload_processing_node(&node.system_name);
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()

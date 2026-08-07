@@ -208,6 +208,44 @@ pub trait AudioBackend: Send + Sync {
 
     // --- Live effects (issue #148/#149: native, restart-free transport) ---
 
+    /// What the installed system can actually back for live effects — used
+    /// to grey out UI controls nothing can realize. Default body delegates
+    /// to `pipewire::fx_capability::probe_capabilities()`'s static
+    /// filesystem probe (the only implementation that exists today),
+    /// mirroring `find_live_node_id`'s own "default body reaches into
+    /// `pipewire::` directly, only a backend that needs different behavior
+    /// overrides it" convention — see issue #74: this exists so
+    /// `core::engine::effects_ops` calls `self.adapter.effect_capabilities()`
+    /// instead of importing `pipewire::fx_capability` itself.
+    fn effect_capabilities(&self) -> crate::pipewire::fx_capability::FxCapabilities {
+        crate::pipewire::fx_capability::probe_capabilities()
+    }
+
+    /// Validates `config` against this backend's own `effect_capabilities()`
+    /// without touching anything live — safe to call on every UI slider
+    /// change. Default body delegates to the pure
+    /// `pipewire::fx_validate::preflight` function, so every backend gets
+    /// identical validation logic unless a platform genuinely needs
+    /// different rules.
+    fn preflight_effect_chain(&self, config: &EffectChainConfig) -> crate::pipewire::fx_validate::PreflightResult {
+        crate::pipewire::fx_validate::preflight(config, &self.effect_capabilities())
+    }
+
+    /// Pushes `config`'s live params (EQ gain, output trim, ...) to an
+    /// already-resolved live node id — the second half of the Live Params
+    /// fast path, split from `find_live_node_id` so callers can distinguish
+    /// "not loaded yet" (their own message, based on `find_live_node_id`
+    /// returning `None`) from a real push failure here. `device_system_name`
+    /// is carried alongside `node_id` (not resolvable from it) so an
+    /// overriding backend can route a portable-DSP-hosted device
+    /// (`pipewire::native_dsp_host`) differently from a builtin-module-hosted
+    /// one — see `LinuxPipeWireBackend`'s override. Default body delegates
+    /// to `pipewire::pw_cli::set_params`, same convention as
+    /// `find_live_node_id`/`effect_capabilities` above.
+    fn push_effect_chain_live_params(&self, _device_system_name: &str, node_id: u32, config: &EffectChainConfig) -> Result<(), BackendError> {
+        crate::pipewire::pw_cli::set_params(node_id, &crate::pipewire::fx_validate::live_params(config))
+    }
+
     /// Reverts a device from an effects-hosted node back to its plain
     /// pactl null-sink/virtual-source. `wait_for_node` controls whether to
     /// wait for the recreated node to register before returning — apply's
