@@ -49,7 +49,7 @@ Product direction lives in [`docs/product/Roadmap.md`](../docs/product/Roadmap.m
 
 Before starting work, comment `/claim` on the issue — a bot assigns it to you automatically, which is what actually reserves it, so someone else doesn't start the same ticket in parallel. If an issue is already assigned, treat it as taken; comment to ask if it looks stalled instead of opening a competing PR. Epics don't work this way — find the specific sub-issue you want and `/claim` that instead.
 
-*If it's a longer-running ticket, you don't have to post progress updates, but it's nice to leave one now and then so we know it's still moving — a claimed issue that's been quiet for 14 days gets an automatic ping, and is unassigned automatically 3 days after that if there's still no activity, so someone else can pick it up.*
+*If it's a longer-running ticket, you don't have to post progress updates, but it's nice to leave one now and then so we know it's still moving — a claimed issue that's been quiet for 10 days gets an automatic ping, and is unassigned automatically 4 days after that if there's still no activity, so someone else can pick it up.*
 
 A CI check (`claim-check.yml`) enforces this: it reads the issue number(s) your PR closes (via a closing keyword like `Closes #123` in the PR body) and fails the check if you aren't assigned to every one of them — whether that's because nothing was referenced, the referenced issue was never claimed, or it references a different issue than the one you actually claimed. `[noissue]`/`[hotfix]` titles skip this check, but only for PR authors with write access to the repo (the maintainer/named-core-dev list this format is already restricted to) — everyone else needs a real issue reference regardless of title.
 
