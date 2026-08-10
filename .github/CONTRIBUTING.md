@@ -67,14 +67,16 @@ If you'd like to follow the convention anyway (it makes review easier, and CI le
 [#<issue>] - <short description>
 ```
 
-**`[noissue]` and `[hotfix]` are restricted.** Both exist only for the maintainer and a small, explicitly-named set of trusted core developers. If you are not on that short list, use your issue number when you do tag commits. The two tags mean different things:
+**`[noissue]`, `[hotfix]`, and `[security]` are restricted.** All three exist only for the maintainer, a small, explicitly-named set of trusted core developers, and (for `[security]`/`[noissue]`) Dependabot. If you are not on that short list, use your issue number when you do tag commits. The tags mean different things:
 
-- `[noissue]` — trivial, no ticket is warranted at all (typo, comment, one-line fix).
+- `[noissue]` — trivial, no ticket is warranted at all (typo, comment, one-line fix). Also what Dependabot's routine scheduled dependency bumps carry.
 - `[hotfix]` — must be fixed now and there's a clear path to the fix, but there wasn't time to write up a ticket first. Reaching for this signals "this was a real bug/issue," not "there was nothing to file."
+- `[security]` — a fix for a known vulnerability, most commonly Dependabot's security-triggered updates (automatically retitled from its default, unprefixed title into this — see `dependabot-security-title.yml`), occasionally a manual CVE/advisory fix.
 
 ```
 [noissue] - <short description>
 [hotfix] - <short description>
+[security] - <short description>
 ```
 
 Examples:
@@ -83,6 +85,7 @@ Examples:
 - `[#123] - Wire bass slider to channel gain`
 - `[noissue] - Fix typo in Contributing commit examples` (maintainer/core-only example)
 - `[hotfix] - Guard against null device id crashing the mixer` (maintainer/core-only example)
+- `[security] - Bump libwebkit2gtk to patch CVE-2026-XXXXX` (maintainer/core-only, or automated via Dependabot)
 
 A CI job flags non-matching commit messages as a hint in the check output, but it never fails the PR — only the [PR title](#pull-request-titles) check is a blocking gate.
 
@@ -94,9 +97,10 @@ A CI job flags non-matching commit messages as a hint in the check output, but i
 [#123] - Add bass slider to mixer panel
 [noissue] - Fix typo in README quick start
 [hotfix] - Guard against null device id crashing the mixer
+[security] - Bump libwebkit2gtk to patch CVE-2026-XXXXX
 ```
 
-`[noissue]` and `[hotfix]` follow the same restriction as commit messages above — maintainer and named core developers only. Everyone else opens an issue first and references it in the title. The PR body can go deeper on approach and testing.
+`[noissue]`, `[hotfix]`, and `[security]` follow the same restriction as commit messages above — maintainer, named core developers, and Dependabot only. Everyone else opens an issue first and references it in the title. The PR body can go deeper on approach and testing.
 
 A CI check enforces this title format — a malformed title fails the check rather than waiting on a reviewer to catch it by eye.
 

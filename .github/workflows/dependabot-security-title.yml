@@ -1,0 +1,45 @@
+name: Dependabot Security Title
+
+on:
+  pull_request_target:
+    types: [opened]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  retitle:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Retitle security-triggered PRs
+        uses: actions/github-script@v7
+        with:
+          script: |
+            // dependabot.yml's commit-message.prefix only applies to scheduled
+            // version updates — Dependabot security updates always ship with
+            // its raw default title (no prefix), so anything that doesn't
+            // already carry our "[noissue] - " prefix must be security-triggered.
+            const title = context.payload.pull_request.title;
+            if (title.startsWith('[noissue] - ')) {
+              console.log('Scheduled version update, leaving title as-is.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            await github.rest.pulls.update({
+              owner,
+              repo,
+              pull_number: issue_number,
+              title: `[security] - ${title}`,
+            });
+
+            await github.rest.issues.addLabels({
+              owner,
+              repo,
+              issue_number,
+              labels: ['security'],
+            });

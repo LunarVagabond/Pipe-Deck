@@ -20,10 +20,18 @@ jobs:
             const body = context.payload.pull_request.body || '';
             const author = context.payload.pull_request.user.login;
 
-            // [noissue]/[hotfix] are restricted to the maintainer and named core devs
-            // (CONTRIBUTING.md) — gate on actual repo write access rather than a label,
-            // since label mutation isn't a reliable enough signal for this check.
-            if (/^(\[noissue\]|\[hotfix\]) - .+/.test(title)) {
+            // Dependabot PRs aren't tied to a claimed issue and never will be —
+            // it's not a collaborator, so the write-access check below doesn't
+            // apply to it either.
+            if (author === 'dependabot[bot]') {
+              console.log('Exempt: automated dependency update PR.');
+              return;
+            }
+
+            // [noissue]/[hotfix]/[security] are restricted to the maintainer and named
+            // core devs (CONTRIBUTING.md) — gate on actual repo write access rather than
+            // a label, since label mutation isn't a reliable enough signal for this check.
+            if (/^(\[noissue\]|\[hotfix\]|\[security\]) - .+/.test(title)) {
               const { owner, repo } = context.repo;
               const { data: perm } = await github.rest.repos.getCollaboratorPermissionLevel({
                 owner,

@@ -13,16 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check PR title follows convention
+        if: github.event.pull_request.user.login != 'dependabot[bot]'
         env:
           TITLE: ${{ github.event.pull_request.title }}
         run: |
           set -euo pipefail
-          pattern='^(\[#[0-9]+\]|\[noissue\]|\[hotfix\]) - .+$'
+          pattern='^(\[#[0-9]+\]|\[noissue\]|\[hotfix\]|\[security\]) - .+$'
           if ! [[ "$TITLE" =~ $pattern ]]; then
             echo "PR title does not match the required format:"
             echo "  $TITLE"
             echo
-            echo "Expected: '[#<issue>] - <short description>', '[noissue] - <short description>', or '[hotfix] - <short description>'."
+            echo "Expected: '[#<issue>] - <short description>', '[noissue] - <short description>', '[hotfix] - <short description>', or '[security] - <short description>'."
             echo "See .github/CONTRIBUTING.md -> Pull Request Titles."
             exit 1
           fi
@@ -43,7 +44,7 @@ jobs:
           # only the PR title does. This is a courtesy hint, not a gate: it
           # never fails the check, just flags commits that don't match so a
           # contributor can tidy them up if they want to.
-          pattern='^(\[#[0-9]+\]|\[noissue\]|\[hotfix\]) - .+$'
+          pattern='^(\[#[0-9]+\]|\[noissue\]|\[hotfix\]|\[security\]) - .+$'
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
 
@@ -60,7 +61,7 @@ jobs:
 
           if [ "$found" -ne 0 ]; then
             echo
-            echo "Suggested format: '[#<issue>] - <short description>', '[noissue] - <short description>', or '[hotfix] - <short description>'."
+            echo "Suggested format: '[#<issue>] - <short description>', '[noissue] - <short description>', '[hotfix] - <short description>', or '[security] - <short description>'."
             echo "This is squashed on merge, so only the PR title matters for main's history — see .github/CONTRIBUTING.md -> Commit Messages."
           fi
           exit 0
