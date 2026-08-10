@@ -6,8 +6,10 @@ use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::CandidateRule;
 use regex::Regex;
 
+// Counterpart: `inferStreamCategory` in src/utils/ruleConditions.ts — keep the
+// two heuristics in sync when editing either one.
 pub fn default_category(stream: &Stream) -> Option<&'static str> {
-    let executable = stream.executable.as_deref().unwrap_or("");
+    let executable = stream.executable.as_deref().unwrap_or("").to_lowercase();
     let app_lower = stream.app_name.to_lowercase();
 
     if executable.contains("steam") || app_lower.contains("steam") {
@@ -421,6 +423,13 @@ mod tests {
         };
 
         assert!(stream_matches_authored_rule(&stream, &rule).is_some());
+    }
+
+    #[test]
+    fn default_category_matches_uppercase_executable() {
+        let stream = sample_stream("MyApp", Some("Steam.exe"), None);
+
+        assert_eq!(default_category(&stream), Some("Game"));
     }
 
     #[test]

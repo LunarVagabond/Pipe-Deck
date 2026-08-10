@@ -91,6 +91,12 @@ describe("inferStreamCategory", () => {
     ).toBe("Game");
   });
 
+  it("matches on executable regardless of casing", () => {
+    expect(
+      inferStreamCategory(makeStream({ app_name: "MyApp", executable: "Steam.exe" })),
+    ).toBe("Game");
+  });
+
   it("returns undefined when nothing matches", () => {
     expect(inferStreamCategory(makeStream({ app_name: "Unknown Thing" }))).toBeUndefined();
   });

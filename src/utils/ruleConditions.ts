@@ -125,6 +125,8 @@ export function streamFieldValue(stream: Stream, type: ConditionType): string | 
   }
 }
 
+// Counterpart: `default_category` in src-tauri/src/core/rules/matching.rs —
+// keep the two heuristics in sync when editing either one.
 export function inferStreamCategory(stream: Stream): string | undefined {
   const executable = stream.executable?.toLowerCase() ?? "";
   const appLower = stream.app_name.toLowerCase();
