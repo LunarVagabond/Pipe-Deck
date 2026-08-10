@@ -45,6 +45,10 @@ const emit = defineEmits<{
       <template v-if="condition.type === 'regex'">
         <label class="condition-field">
           <span class="field-label">Field</span>
+          <!-- `condition` is a direct reference into the parent's local draft array
+               (RuleFormModal.vue); in-place editing is the intended two-way binding
+               for that draft, not a store/props violation. -->
+          <!-- eslint-disable-next-line vue/no-mutating-props -->
           <select v-model="condition.field">
             <option v-for="option in REGEX_FIELD_OPTIONS" :key="option.value" :value="option.value">
               {{ option.label }}
@@ -53,6 +57,7 @@ const emit = defineEmits<{
         </label>
         <label class="condition-field condition-field-grow">
           <span class="field-label">Pattern</span>
+          <!-- eslint-disable-next-line vue/no-mutating-props -- see above -->
           <input v-model="condition.pattern" type="text" placeholder="e.g. Discord.*" />
         </label>
       </template>

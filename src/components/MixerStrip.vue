@@ -40,7 +40,7 @@ function toggleEffectsPanel(channel: MixerChannel) {
 const editingVolumeId = ref<string | null>(null);
 const volumeDraft = ref("");
 const volumeInputRef = ref<HTMLInputElement | null>(null);
-let debounceTimers: Record<string, number> = {};
+const debounceTimers: Record<string, number> = {};
 
 interface MixerChannel {
   id: string;
