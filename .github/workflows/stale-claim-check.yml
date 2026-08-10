@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping quiet claims, unassign after the grace period
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             const PING_DAYS = 10;
