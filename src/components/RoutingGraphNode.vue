@@ -320,7 +320,7 @@ function onToggleMute() {
           tabindex="0"
           role="button"
           :aria-label="handleAriaLabel(handle)"
-          @keydown="(event) => onHandleKeydown(event, handle)"
+          @keydown="(event: KeyboardEvent) => onHandleKeydown(event, handle)"
         />
       </div>
     </div>
@@ -596,7 +596,7 @@ function onToggleMute() {
           tabindex="0"
           role="button"
           :aria-label="handleAriaLabel(handle)"
-          @keydown="(event) => onHandleKeydown(event, handle)"
+          @keydown="(event: KeyboardEvent) => onHandleKeydown(event, handle)"
         />
       </div>
     </div>
