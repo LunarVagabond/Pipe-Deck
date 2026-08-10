@@ -291,7 +291,7 @@ pub(crate) fn collect_stream_candidates(
         }
     }
 
-    candidates.sort_by(|left, right| right.priority.cmp(&left.priority));
+    candidates.sort_by_key(|candidate| std::cmp::Reverse(candidate.priority));
     candidates
 }
 
