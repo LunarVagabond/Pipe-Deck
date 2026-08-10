@@ -1,4 +1,5 @@
 name: CI
+# test PR: validating the "ci" job reports as check name "ci" before making it required — will be closed, not merged
 
 on:
   pull_request:
