@@ -124,6 +124,7 @@ Follow the conventions in this file the same as any contributor would: `[#<issue
 - Apply the `Co-Authored-By: <Tool> <email>` trailer above to every commit and PR you create or materially author.
 - Don't add any other AI-attribution mention beyond that single trailer line (no extra notes in the commit body or PR description) unless explicitly asked to.
 - If you're unsure whether the trailer applies in a given situation, ask rather than guessing.
+- **Never reach for `eslint-disable`, `prettier-ignore`, `#[allow(clippy::...)]`, or `#[rustfmt::skip]` just to make a check pass.** See [Linting and Formatting](#linting-and-formatting) — a suppression without a genuine, specific justification comment is not an acceptable way to close out a lint/format failure; fix the underlying code instead, or ask if the rule itself seems wrong.
 
 ## Documentation-First Workflow
 
@@ -175,6 +176,12 @@ When introducing a new developer-facing command (for example lint, format, or pa
 ```bash
 WEBKIT_DISABLE_COMPOSITING_MODE=1 make start
 ```
+
+## Linting and Formatting
+
+`make check` runs `cargo clippy -D warnings`, `cargo fmt --check`, `npm run lint` (ESLint), and `npm run format:check` (Prettier) — all four are blocking in CI (`ci.yml`). None of `eslint-disable`, `prettier-ignore`, `#[allow(clippy::...)]`, or `#[rustfmt::skip]` are banned outright, but each one silences a check that exists for a reason, so **every suppression needs a comment on the line above (or immediately before the disabled block) explaining why the rule genuinely doesn't apply here** — not just that it was in the way. "this pattern is an intentional two-way binding into a parent's draft array" is a real justification; no comment, or a comment that just restates what the disable does, is not.
+
+Reviewers should treat an unexplained suppression as a request to fix the underlying code, not to approve the bypass — including when the suppression was added by an AI coding assistant. A tool reaching for a disable comment to make a check pass faster is exactly the failure mode this rule exists to catch.
 
 ## Frontend Styling
 
