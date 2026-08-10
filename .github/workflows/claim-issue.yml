@@ -17,7 +17,7 @@ jobs:
       contains(github.event.comment.body, '/claim')
     steps:
       - name: Assign commenter if the issue is claimable
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         with:
           script: |
             // `/claim` is case-sensitive, exact-match-after-trim by design —
