@@ -32,9 +32,17 @@ export function useDaemonStatus() {
     return "status-dot--error";
   });
 
-  const lastRunText = computed(() => formatLastRun(daemonStatus.value?.last_run));
+  const lastRunText = computed(() =>
+    formatLastRun(daemonStatus.value?.last_run),
+  );
 
-  return { daemonStatus, refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass, lastRunText };
+  return {
+    daemonStatus,
+    refreshDaemonStatus,
+    restoreAtLoginText,
+    restoreAtLoginClass,
+    lastRunText,
+  };
 }
 
 // last_run is an RFC3339 timestamp from the daemon status file; render it in

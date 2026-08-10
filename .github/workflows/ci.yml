@@ -49,6 +49,9 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci
 
+      - name: npm run format:check
+        run: npm run format:check
+
       - name: make check
         run: make check
 

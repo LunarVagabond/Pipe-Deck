@@ -3,7 +3,11 @@ import { detectNewlyAddedNodes } from "./fitViewTrigger";
 
 describe("detectNewlyAddedNodes", () => {
   it("reports no additions on the very first call and seeds known state", () => {
-    const result = detectNewlyAddedNodes([{ id: "a" }, { id: "b" }], null, null);
+    const result = detectNewlyAddedNodes(
+      [{ id: "a" }, { id: "b" }],
+      null,
+      null,
+    );
     expect(result.addedIds).toEqual([]);
     expect(result.nodeIds).toEqual(new Set(["a", "b"]));
   });
@@ -36,7 +40,11 @@ describe("detectNewlyAddedNodes", () => {
   });
 
   it("reports a node with no identity key (e.g. a device) purely by id", () => {
-    const result = detectNewlyAddedNodes([{ id: "a" }, { id: "device-1" }], new Set(["a"]), new Set());
+    const result = detectNewlyAddedNodes(
+      [{ id: "a" }, { id: "device-1" }],
+      new Set(["a"]),
+      new Set(),
+    );
     expect(result.addedIds).toEqual(["device-1"]);
   });
 

@@ -1,11 +1,17 @@
 import { invoke } from "@tauri-apps/api/core";
 import { fetch } from "@tauri-apps/plugin-http";
 import { check as checkUpdater } from "@tauri-apps/plugin-updater";
-import type { AppInfo, InstallKind, UpdateCheckResult, UpdateStatus } from "../types/app";
+import type {
+  AppInfo,
+  InstallKind,
+  UpdateCheckResult,
+  UpdateStatus,
+} from "../types/app";
 
 export const UPDATE_MANIFEST_URL =
   "https://github.com/LunarVagabond/Pipe-Deck/releases/latest/download/latest.json";
-export const RELEASES_PAGE = "https://github.com/LunarVagabond/Pipe-Deck/releases/latest";
+export const RELEASES_PAGE =
+  "https://github.com/LunarVagabond/Pipe-Deck/releases/latest";
 
 // The GitHub Releases list API — a different host from the static releases/latest/download
 // asset above, so its own allow-list entry is needed in src-tauri/capabilities/default.json.
@@ -34,7 +40,10 @@ function parseVersion(version: string): [number, number, number] {
   return [parts[0] ?? 0, parts[1] ?? 0, parts[2] ?? 0];
 }
 
-export function compareUpdateStatus(current: string, latest: string): UpdateStatus {
+export function compareUpdateStatus(
+  current: string,
+  latest: string,
+): UpdateStatus {
   const [currentMajor, currentMinor, currentPatch] = parseVersion(current);
   const [latestMajor, latestMinor, latestPatch] = parseVersion(latest);
 
@@ -56,7 +65,9 @@ export function compareUpdateStatus(current: string, latest: string): UpdateStat
   return "outdated";
 }
 
-export function platformKeyForInstallKind(installKind: InstallKind): string | null {
+export function platformKeyForInstallKind(
+  installKind: InstallKind,
+): string | null {
   switch (installKind) {
     case "app_image":
       return "linux-x86_64-appimage";
@@ -219,7 +230,11 @@ export async function installUpdate(
           break;
         case "Progress":
           downloaded += event.data.chunkLength;
-          onProgress?.(contentLength ? Math.min(99, Math.round((downloaded / contentLength) * 100)) : null);
+          onProgress?.(
+            contentLength
+              ? Math.min(99, Math.round((downloaded / contentLength) * 100))
+              : null,
+          );
           break;
         case "Finished":
           onProgress?.(100);
@@ -231,7 +246,9 @@ export async function installUpdate(
 
   const url = result.downloadUrl ?? result.releaseUrl;
   if (!url) {
-    throw new Error(result.error ?? "No download URL available for this install type");
+    throw new Error(
+      result.error ?? "No download URL available for this install type",
+    );
   }
 
   await invoke("open_url", { url });

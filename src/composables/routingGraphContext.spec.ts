@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { defineComponent, h, inject, provide } from "vue";
 import { mount } from "@vue/test-utils";
-import { routingGraphActionsKey, type RoutingGraphActions } from "./routingGraphContext";
+import {
+  routingGraphActionsKey,
+  type RoutingGraphActions,
+} from "./routingGraphContext";
 
 describe("routingGraphActionsKey", () => {
   it("is a stable symbol across imports", async () => {

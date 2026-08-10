@@ -1,4 +1,8 @@
-import type { ActionStatus, RouteExplanation, RouteSource } from "../types/graph";
+import type {
+  ActionStatus,
+  RouteExplanation,
+  RouteSource,
+} from "../types/graph";
 
 export function formatRuleLabel(
   ruleKey: string,

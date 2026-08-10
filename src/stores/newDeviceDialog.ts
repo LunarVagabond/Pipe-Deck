@@ -20,5 +20,9 @@ export function useNewDeviceDialog() {
     state.value = { ...state.value, open: false };
   }
 
-  return { newDeviceDialogState: state, openNewDeviceDialog, closeNewDeviceDialog };
+  return {
+    newDeviceDialogState: state,
+    openNewDeviceDialog,
+    closeNewDeviceDialog,
+  };
 }

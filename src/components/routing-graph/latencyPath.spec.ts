@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { findNodePath } from "./latencyPath";
 import type { BuiltRoutingGraph } from "./buildGraph";
 
-function edge(source: string, target: string): BuiltRoutingGraph["edges"][number] {
+function edge(
+  source: string,
+  target: string,
+): BuiltRoutingGraph["edges"][number] {
   return { id: `${source}->${target}`, source, target };
 }
 
@@ -15,21 +18,25 @@ describe("findNodePath", () => {
     ];
 
     const path = findNodePath("stream:source", "device:output", edges);
-    expect(path).toEqual(["stream:source", "processingNode:eq", "device:output"]);
+    expect(path).toEqual([
+      "stream:source",
+      "processingNode:eq",
+      "device:output",
+    ]);
   });
 
   it("only follows edges in their drawn direction", () => {
     const edges = [edge("device:a", "device:b")];
 
-    expect(findNodePath("device:a", "device:b", edges)).toEqual(["device:a", "device:b"]);
+    expect(findNodePath("device:a", "device:b", edges)).toEqual([
+      "device:a",
+      "device:b",
+    ]);
     expect(findNodePath("device:b", "device:a", edges)).toBeNull();
   });
 
   it("returns null when the target is unreachable", () => {
-    const edges = [
-      edge("device:a", "device:b"),
-      edge("device:c", "device:d"),
-    ];
+    const edges = [edge("device:a", "device:b"), edge("device:c", "device:d")];
 
     expect(findNodePath("device:a", "device:d", edges)).toBeNull();
   });
@@ -47,6 +54,10 @@ describe("findNodePath", () => {
       edge("device:e", "device:d"),
     ];
 
-    expect(findNodePath("device:a", "device:d", edges)).toEqual(["device:a", "device:b", "device:d"]);
+    expect(findNodePath("device:a", "device:d", edges)).toEqual([
+      "device:a",
+      "device:b",
+      "device:d",
+    ]);
   });
 });

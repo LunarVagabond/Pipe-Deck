@@ -13,7 +13,11 @@
   max-width: 100%;
   padding: 1rem 1.1rem 1.1rem;
   border-radius: 0.9rem;
-  background: linear-gradient(180deg, vars.translucent(--surface-2, 95) 0%, vars.translucent(--surface-1, 98) 100%);
+  background: linear-gradient(
+    180deg,
+    vars.translucent(--surface-2, 95) 0%,
+    vars.translucent(--surface-1, 98) 100%
+  );
   border: 1px solid rgba(255, 255, 255, 0.06);
   box-shadow: 0 14px 30px rgba(0, 0, 0, 0.22);
 }
@@ -71,7 +75,10 @@
   font-size: 0.82rem;
   line-height: 1.2;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .rules-header-actions button.primary {
@@ -102,7 +109,10 @@
   color: var(--text-primary);
   padding: 0.5rem 0.8rem;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.15s ease;
 }
 
 .rules-new-btn {
@@ -217,14 +227,18 @@
   background-position:
     calc(100% - 18px) calc(50% - 3px),
     calc(100% - 12px) calc(50% - 3px);
-  background-size: 6px 6px, 6px 6px;
+  background-size:
+    6px 6px,
+    6px 6px;
   background-repeat: no-repeat;
   padding-right: 2.25rem;
 }
 
 .condition-row {
   display: grid;
-  grid-template-columns: minmax(150px, 0.9fr) minmax(120px, 0.7fr) minmax(0, 1.2fr) auto;
+  grid-template-columns:
+    minmax(150px, 0.9fr) minmax(120px, 0.7fr) minmax(0, 1.2fr)
+    auto;
   gap: 0.65rem;
   margin-bottom: 0;
   align-items: end;
@@ -478,7 +492,11 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 14px;
-  background: linear-gradient(180deg, vars.translucent(--surface-2, 98) 0%, vars.translucent(--surface-1, 99) 100%);
+  background: linear-gradient(
+    180deg,
+    vars.translucent(--surface-2, 98) 0%,
+    vars.translucent(--surface-1, 99) 100%
+  );
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
   overflow: hidden;
 }
@@ -833,7 +851,10 @@
   font-size: 0.88rem;
   font-weight: 600;
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .target-kind-option:hover {
@@ -1016,7 +1037,9 @@
   padding: 0.4rem 0.7rem;
   font-size: 0.8rem;
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .conflict-actions button:hover,

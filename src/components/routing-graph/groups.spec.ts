@@ -13,9 +13,14 @@ import {
 
 describe("boundsForMembers", () => {
   it("fits a padded box around a single member", () => {
-    const bounds = boundsForMembers([{ id: "a", position: { x: 100, y: 100 }, width: 200, height: 80 }]);
+    const bounds = boundsForMembers([
+      { id: "a", position: { x: 100, y: 100 }, width: 200, height: 80 },
+    ]);
     expect(bounds.position).toEqual({ x: 68, y: 68 - GROUP_HEADER_HEIGHT });
-    expect(bounds.size).toEqual({ width: 264, height: 144 + GROUP_HEADER_HEIGHT });
+    expect(bounds.size).toEqual({
+      width: 264,
+      height: 144 + GROUP_HEADER_HEIGHT,
+    });
   });
 
   it("expands to cover multiple members", () => {
@@ -24,13 +29,18 @@ describe("boundsForMembers", () => {
       { id: "b", position: { x: 200, y: 100 }, width: 100, height: 50 },
     ]);
     expect(bounds.position).toEqual({ x: -32, y: -32 - GROUP_HEADER_HEIGHT });
-    expect(bounds.size).toEqual({ width: 364, height: 214 + GROUP_HEADER_HEIGHT });
+    expect(bounds.size).toEqual({
+      width: 364,
+      height: 214 + GROUP_HEADER_HEIGHT,
+    });
   });
 });
 
 describe("createGroup", () => {
   it("builds a group with a unique id and bounds fitting its members", () => {
-    const members = [{ id: "a", position: { x: 0, y: 0 }, width: 100, height: 50 }];
+    const members = [
+      { id: "a", position: { x: 0, y: 0 }, width: 100, height: 50 },
+    ];
     const group = createGroup("My Group", members);
 
     expect(group.label).toBe("My Group");
@@ -86,7 +96,10 @@ describe("reflowMembers", () => {
   it("returns empty positions and zero bounds for no members", () => {
     const { positions, bounds } = reflowMembers("row", []);
     expect(positions).toEqual({});
-    expect(bounds).toEqual({ position: { x: 0, y: 0 }, size: { width: 0, height: 0 } });
+    expect(bounds).toEqual({
+      position: { x: 0, y: 0 },
+      size: { width: 0, height: 0 },
+    });
   });
 });
 

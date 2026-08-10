@@ -30,10 +30,12 @@ const swapConfirmId = ref<string | null>(null);
 
 const activeName = computed(() => {
   const active = activeProfileId.value;
-  return profiles.value.find((profile) => profile.id === active)?.name ?? active ?? "None";
+  return (
+    profiles.value.find((profile) => profile.id === active)?.name ??
+    active ??
+    "None"
+  );
 });
-
-
 
 async function loadDetails(profileId: string) {
   selectedProfile.value = await getProfile(profileId);
@@ -56,9 +58,12 @@ async function onSaveAs() {
 }
 
 async function onApply(profileId: string) {
-  const result = await invoke<{ success: boolean; message?: string }>("apply_profile_routes", {
-    profileId,
-  });
+  const result = await invoke<{ success: boolean; message?: string }>(
+    "apply_profile_routes",
+    {
+      profileId,
+    },
+  );
   handleApplyResult(result, "Profile routes applied to PipeWire");
 }
 
@@ -112,16 +117,22 @@ async function onExport(profileId: string) {
         >
           Apply
         </button>
-        <button type="button" @click="showSaveAs = !showSaveAs">Save as…</button>
+        <button type="button" @click="showSaveAs = !showSaveAs">
+          Save as…
+        </button>
         <button type="button" @click="refresh">Refresh</button>
       </div>
     </header>
 
-    <p class="profiles-active">Active profile: <strong>{{ activeName }}</strong></p>
+    <p class="profiles-active">
+      Active profile: <strong>{{ activeName }}</strong>
+    </p>
     <p class="profiles-help">
-      <strong>Save</strong> writes the dashboard’s live routing into the profile file — it does not change PipeWire.
-      <strong>Apply</strong> pushes the profile’s saved routes to PipeWire — it does not change the profile file.
-      Edit routing on the dashboard first, then Save; or edit a profile’s wants below, then Apply.
+      <strong>Save</strong> writes the dashboard’s live routing into the profile
+      file — it does not change PipeWire. <strong>Apply</strong> pushes the
+      profile’s saved routes to PipeWire — it does not change the profile file.
+      Edit routing on the dashboard first, then Save; or edit a profile’s wants
+      below, then Apply.
     </p>
 
     <div v-if="showSaveAs" class="profiles-form">
@@ -130,7 +141,11 @@ async function onExport(profileId: string) {
     </div>
 
     <div class="profiles-form">
-      <input v-model="importPath" type="text" placeholder="Import profile YAML path" />
+      <input
+        v-model="importPath"
+        type="text"
+        placeholder="Import profile YAML path"
+      />
       <button type="button" @click="onImport">Import</button>
     </div>
 
@@ -146,7 +161,9 @@ async function onExport(profileId: string) {
       >
         <div class="profile-card-header">
           <h2>{{ profile.name }}</h2>
-          <span v-if="profile.id === activeProfileId" class="profile-badge">Active</span>
+          <span v-if="profile.id === activeProfileId" class="profile-badge"
+            >Active</span
+          >
         </div>
         <p class="profile-meta">{{ profile.file }}</p>
         <div class="profile-card-actions">
@@ -172,14 +189,20 @@ async function onExport(profileId: string) {
             title="Apply plus recreate virtual devices and restore volumes"
             @click="onApplyAll(profile.id)"
           >
-            {{ swapConfirmId === profile.id ? "Confirm apply all" : "Apply all" }}
+            {{
+              swapConfirmId === profile.id ? "Confirm apply all" : "Apply all"
+            }}
           </button>
         </div>
         <p v-if="swapConfirmId === profile.id" class="profile-meta">
           Apply all also restores virtual devices and volumes.
         </p>
         <div class="profiles-form compact">
-          <input v-model="exportPath" type="text" placeholder="Export .tar.gz path" />
+          <input
+            v-model="exportPath"
+            type="text"
+            placeholder="Export .tar.gz path"
+          />
           <button type="button" @click="onExport(profile.id)">Export</button>
         </div>
       </article>
@@ -188,11 +211,16 @@ async function onExport(profileId: string) {
     <section v-if="selectedProfile" class="profile-details">
       <h3>{{ selectedProfile.name }} wants</h3>
       <p class="profile-meta">
-        Updated {{ selectedProfile.updated }} · {{ selectedProfile.routing_intents.length }} routes
+        Updated {{ selectedProfile.updated }} ·
+        {{ selectedProfile.routing_intents.length }} routes
       </p>
       <ul>
-        <li v-for="intent in selectedProfile.routing_intents" :key="intent.stream_id">
-          {{ intent.stream_id }} → {{ intent.target_device_id ?? intent.target_device_ids?.[0] ?? "—" }}
+        <li
+          v-for="intent in selectedProfile.routing_intents"
+          :key="intent.stream_id"
+        >
+          {{ intent.stream_id }} →
+          {{ intent.target_device_id ?? intent.target_device_ids?.[0] ?? "—" }}
         </li>
       </ul>
     </section>

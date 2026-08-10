@@ -21,7 +21,10 @@ function onChange(event: Event) {
 </script>
 
 <template>
-  <div class="toggle-switch-row" :class="{ 'toggle-switch-row--compact': !showStateLabels }">
+  <div
+    class="toggle-switch-row"
+    :class="{ 'toggle-switch-row--compact': !showStateLabels }"
+  >
     <span
       v-if="showStateLabels"
       class="toggle-state-label"

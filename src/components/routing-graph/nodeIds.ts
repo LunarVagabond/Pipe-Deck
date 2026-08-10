@@ -14,7 +14,10 @@ export function parseGraphNodeId(
   nodeId: string,
 ): { kind: "stream" | "device" | "processingNode"; id: string } | null {
   const [kind, ...rest] = nodeId.split(":");
-  if ((kind !== "stream" && kind !== "device" && kind !== "processingNode") || rest.length === 0) {
+  if (
+    (kind !== "stream" && kind !== "device" && kind !== "processingNode") ||
+    rest.length === 0
+  ) {
     return null;
   }
   return { kind, id: rest.join(":") };

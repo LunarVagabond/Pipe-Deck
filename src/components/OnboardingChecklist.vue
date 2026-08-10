@@ -32,8 +32,12 @@ watch(
   { immediate: true },
 );
 
-const pipewireDetected = computed(() => !error.value && graph.value.devices.length > 0);
-const defaultOutputSet = computed(() => Boolean(graph.value.default_output_system_name));
+const pipewireDetected = computed(
+  () => !error.value && graph.value.devices.length > 0,
+);
+const defaultOutputSet = computed(() =>
+  Boolean(graph.value.default_output_system_name),
+);
 const profileCreated = computed(() => profiles.value.length > 0);
 
 async function openPipewireDocs() {
@@ -41,7 +45,11 @@ async function openPipewireDocs() {
     await invoke("open_url", { url: PIPEWIRE_DOCS_URL });
   } catch (openError) {
     handleApplyResult(
-      { success: false, message: openError instanceof Error ? openError.message : String(openError) },
+      {
+        success: false,
+        message:
+          openError instanceof Error ? openError.message : String(openError),
+      },
       "",
     );
   }
@@ -87,7 +95,9 @@ const items = computed<ChecklistItem[]>(() => [
   },
 ]);
 
-const visible = computed(() => Boolean(config.value) && !dismissed.value && !loading.value);
+const visible = computed(
+  () => Boolean(config.value) && !dismissed.value && !loading.value,
+);
 
 async function dismiss() {
   const previous = dismissed.value;
@@ -108,7 +118,10 @@ async function dismiss() {
     handleApplyResult(
       {
         success: false,
-        message: dismissError instanceof Error ? dismissError.message : String(dismissError),
+        message:
+          dismissError instanceof Error
+            ? dismissError.message
+            : String(dismissError),
       },
       "",
     );
@@ -117,7 +130,12 @@ async function dismiss() {
 </script>
 
 <template>
-  <div v-if="visible" class="onboarding-checklist" role="complementary" aria-label="Getting started checklist">
+  <div
+    v-if="visible"
+    class="onboarding-checklist"
+    role="complementary"
+    aria-label="Getting started checklist"
+  >
     <div class="onboarding-checklist-header">
       <h2>Getting started</h2>
       <button

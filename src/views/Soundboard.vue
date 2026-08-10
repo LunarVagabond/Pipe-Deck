@@ -105,10 +105,15 @@ function formatTime(seconds: number): string {
   return `${minutes}:${secs.toString().padStart(2, "0")}`;
 }
 
-const activeBoard = computed(() => boards.value.find((board) => board.id === activeBoardId.value) ?? null);
+const activeBoard = computed(
+  () => boards.value.find((board) => board.id === activeBoardId.value) ?? null,
+);
 
-const hasBoardDestination = computed(
-  () => Boolean(activeBoard.value?.target_system_name || activeBoard.value?.monitor_system_name),
+const hasBoardDestination = computed(() =>
+  Boolean(
+    activeBoard.value?.target_system_name ||
+    activeBoard.value?.monitor_system_name,
+  ),
 );
 
 // "Target" is what other people/apps hear — a virtual mic or a hardware
@@ -118,10 +123,14 @@ const hasBoardDestination = computed(
 // These apply to every clip in the active tab — not per-clip (kept simple
 // deliberately; per-tab granularity is as far as this goes for now).
 const targetDeviceOptions = computed(() =>
-  graph.value.devices.filter((device) => device.direction === "input" || device.direction === "duplex"),
+  graph.value.devices.filter(
+    (device) => device.direction === "input" || device.direction === "duplex",
+  ),
 );
 const monitorDeviceOptions = computed(() =>
-  graph.value.devices.filter((device) => device.direction === "output" || device.direction === "duplex"),
+  graph.value.devices.filter(
+    (device) => device.direction === "output" || device.direction === "duplex",
+  ),
 );
 
 async function loadBoards() {
@@ -139,7 +148,9 @@ async function loadClips() {
   if (!activeBoardId.value) return;
   loadingClips.value = true;
   try {
-    clips.value = await invoke<SoundboardClip[]>("list_soundboard_sounds", { boardId: activeBoardId.value });
+    clips.value = await invoke<SoundboardClip[]>("list_soundboard_sounds", {
+      boardId: activeBoardId.value,
+    });
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err);
   } finally {
@@ -163,11 +174,17 @@ async function playClip(clip: SoundboardClip) {
   }, PROGRESS_TICK_MS);
 
   try {
-    await invoke("play_soundboard_clip", { boardId: activeBoardId.value, clipId: clip.id });
+    await invoke("play_soundboard_clip", {
+      boardId: activeBoardId.value,
+      clipId: clip.id,
+    });
   } catch (err) {
     resetPlaybackState();
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -179,7 +196,10 @@ async function stopClip() {
     await invoke("stop_soundboard_clip");
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   } finally {
@@ -212,13 +232,17 @@ const tabOptions = computed(() => [
 async function addBoard() {
   const name = await prompt({
     title: "New soundboard tab",
-    message: "Name this tab (e.g. \"SFX\", \"Music\")",
+    message: 'Name this tab (e.g. "SFX", "Music")',
     placeholder: "SFX",
     confirmLabel: "Next: choose folder",
   });
   if (!name) return;
 
-  const folder = await open({ directory: true, multiple: false, title: `Folder for "${name}"` });
+  const folder = await open({
+    directory: true,
+    multiple: false,
+    title: `Folder for "${name}"`,
+  });
   if (!folder || Array.isArray(folder)) return;
 
   const board: SoundboardBoard = {
@@ -237,7 +261,10 @@ async function addBoard() {
     selectBoard(board.id);
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -259,7 +286,10 @@ async function renameActiveBoard() {
     await loadBoards();
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -268,7 +298,11 @@ async function renameActiveBoard() {
 async function changeActiveBoardFolder() {
   const board = activeBoard.value;
   if (!board) return;
-  const folder = await open({ directory: true, multiple: false, title: `Folder for "${board.name}"` });
+  const folder = await open({
+    directory: true,
+    multiple: false,
+    title: `Folder for "${board.name}"`,
+  });
   if (!folder || Array.isArray(folder)) return;
 
   try {
@@ -278,7 +312,10 @@ async function changeActiveBoardFolder() {
     await loadClips();
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -287,11 +324,14 @@ async function changeActiveBoardFolder() {
 async function deleteActiveBoard() {
   const board = activeBoard.value;
   if (!board) return;
-  const confirmed = await confirm(`Delete the "${board.name}" tab? Sound files on disk are not affected.`, {
-    title: "Delete tab",
-    confirmLabel: "Delete",
-    cancelLabel: "Cancel",
-  });
+  const confirmed = await confirm(
+    `Delete the "${board.name}" tab? Sound files on disk are not affected.`,
+    {
+      title: "Delete tab",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+    },
+  );
   if (!confirmed) return;
 
   try {
@@ -302,7 +342,10 @@ async function deleteActiveBoard() {
     await loadClips();
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -345,7 +388,10 @@ async function saveDestinations() {
     await loadBoards();
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -385,10 +431,16 @@ onMounted(async () => {
       />
 
       <div v-if="activeBoard" class="soundboard-board-toolbar">
-        <span class="soundboard-board-folder" :title="activeBoard.folder">{{ activeBoard.folder }}</span>
+        <span class="soundboard-board-folder" :title="activeBoard.folder">{{
+          activeBoard.folder
+        }}</span>
         <div class="view-actions">
-          <button type="button" :disabled="loadingClips" @click="loadClips">Refresh</button>
-          <button type="button" @click="changeActiveBoardFolder">Change folder</button>
+          <button type="button" :disabled="loadingClips" @click="loadClips">
+            Refresh
+          </button>
+          <button type="button" @click="changeActiveBoardFolder">
+            Change folder
+          </button>
           <button type="button" @click="renameActiveBoard">Rename</button>
           <button type="button" @click="deleteActiveBoard">Delete tab</button>
         </div>
@@ -396,12 +448,23 @@ onMounted(async () => {
 
       <div v-if="activeBoard" class="soundboard-destinations">
         <div class="soundboard-destination">
-          <label class="soundboard-destination-label" for="soundboard-target-device">
+          <label
+            class="soundboard-destination-label"
+            for="soundboard-target-device"
+          >
             Target (others hear this)
           </label>
-          <select id="soundboard-target-device" v-model="targetSystemName" @change="saveDestinations">
+          <select
+            id="soundboard-target-device"
+            v-model="targetSystemName"
+            @change="saveDestinations"
+          >
             <option :value="null">None</option>
-            <option v-for="device in targetDeviceOptions" :key="device.id" :value="device.system_name">
+            <option
+              v-for="device in targetDeviceOptions"
+              :key="device.id"
+              :value="device.system_name"
+            >
               {{ device.label }}
             </option>
           </select>
@@ -414,17 +477,30 @@ onMounted(async () => {
               :disabled="!targetSystemName"
               @change="saveDestinations"
             />
-            <span class="soundboard-destination-volume-value">{{ targetVolume }}%</span>
+            <span class="soundboard-destination-volume-value"
+              >{{ targetVolume }}%</span
+            >
           </div>
         </div>
 
         <div class="soundboard-destination">
-          <label class="soundboard-destination-label" for="soundboard-monitor-device">
+          <label
+            class="soundboard-destination-label"
+            for="soundboard-monitor-device"
+          >
             Monitor (you hear this)
           </label>
-          <select id="soundboard-monitor-device" v-model="monitorSystemName" @change="saveDestinations">
+          <select
+            id="soundboard-monitor-device"
+            v-model="monitorSystemName"
+            @change="saveDestinations"
+          >
             <option :value="null">None</option>
-            <option v-for="device in monitorDeviceOptions" :key="device.id" :value="device.system_name">
+            <option
+              v-for="device in monitorDeviceOptions"
+              :key="device.id"
+              :value="device.system_name"
+            >
               {{ device.label }}
             </option>
           </select>
@@ -437,19 +513,28 @@ onMounted(async () => {
               :disabled="!monitorSystemName"
               @change="saveDestinations"
             />
-            <span class="soundboard-destination-volume-value">{{ monitorVolume }}%</span>
+            <span class="soundboard-destination-volume-value"
+              >{{ monitorVolume }}%</span
+            >
           </div>
         </div>
       </div>
 
-      <div v-if="activeBoard && clips.length > 0" class="soundboard-layout-toolbar">
+      <div
+        v-if="activeBoard && clips.length > 0"
+        class="soundboard-layout-toolbar"
+      >
         <SegmentedControl
           :model-value="cardSize"
           :options="cardSizeOptions"
           :disabled="clipLayout !== 'cards'"
           @update:model-value="selectCardSize"
         />
-        <SegmentedControl :model-value="clipLayout" :options="layoutOptions" @update:model-value="selectClipLayout" />
+        <SegmentedControl
+          :model-value="clipLayout"
+          :options="layoutOptions"
+          @update:model-value="selectClipLayout"
+        />
       </div>
 
       <p v-if="loadingClips" class="status">Loading clips…</p>
@@ -457,13 +542,21 @@ onMounted(async () => {
 
       <div v-else-if="clips.length === 0" class="soundboard-empty-state">
         <strong>No supported sound files found.</strong>
-        <p v-if="activeBoard">Add wav, flac, ogg, mp3, aiff, m4a, or opus files to "{{ activeBoard.folder }}".</p>
+        <p v-if="activeBoard">
+          Add wav, flac, ogg, mp3, aiff, m4a, or opus files to "{{
+            activeBoard.folder
+          }}".
+        </p>
       </div>
 
       <div
         v-else
         class="soundboard-clips"
-        :class="clipLayout === 'list' ? 'soundboard-list' : `soundboard-grid soundboard-grid--${cardSize}`"
+        :class="
+          clipLayout === 'list'
+            ? 'soundboard-list'
+            : `soundboard-grid soundboard-grid--${cardSize}`
+        "
       >
         <button
           v-for="clip in clips"
@@ -485,15 +578,25 @@ onMounted(async () => {
           "
           @click="handleTileClick(clip)"
         >
-          <span class="soundboard-tile-icon">{{ playingClipId === clip.id ? "⏹" : "🔊" }}</span>
+          <span class="soundboard-tile-icon">{{
+            playingClipId === clip.id ? "⏹" : "🔊"
+          }}</span>
           <span class="soundboard-tile-label">{{ clip.label }}</span>
-          <div v-if="playingClipId === clip.id" class="soundboard-tile-progress">
+          <div
+            v-if="playingClipId === clip.id"
+            class="soundboard-tile-progress"
+          >
             <div class="soundboard-tile-progress-bar">
-              <div class="soundboard-tile-progress-fill" :style="{ width: `${playingProgressPercent}%` }" />
+              <div
+                class="soundboard-tile-progress-fill"
+                :style="{ width: `${playingProgressPercent}%` }"
+              />
             </div>
             <div class="soundboard-tile-progress-times">
               <span>{{ formatTime(playingElapsedSeconds) }}</span>
-              <span v-if="playingDurationSeconds !== null">{{ formatTime(playingDurationSeconds) }}</span>
+              <span v-if="playingDurationSeconds !== null">{{
+                formatTime(playingDurationSeconds)
+              }}</span>
             </div>
           </div>
         </button>

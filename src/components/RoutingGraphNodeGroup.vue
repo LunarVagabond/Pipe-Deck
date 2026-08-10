@@ -14,7 +14,11 @@ const actions = inject(routingGraphActionsKey, null);
 
 async function onVolumeChange(event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
-  await invoke("update_processing_node_volume", { nodeId: props.nodeId, volumePercent: value, muted: props.muted });
+  await invoke("update_processing_node_volume", {
+    nodeId: props.nodeId,
+    volumePercent: value,
+    muted: props.muted,
+  });
 }
 
 async function onToggleMute() {
@@ -31,13 +35,19 @@ async function onToggleMute() {
 // is a disconnect on this node's own growable output side, the same
 // primitive drag-disconnecting a Fan-out's output already uses.
 async function onRemoveMember(portIndex: number) {
-  await invoke("disconnect_processing_node_port", { nodeId: props.nodeId, direction: "output", portIndex });
+  await invoke("disconnect_processing_node_port", {
+    nodeId: props.nodeId,
+    direction: "output",
+    portIndex,
+  });
 }
 </script>
 
 <template>
   <div class="routing-graph-node-effects nodrag">
-    <div class="routing-graph-node-effect-row routing-graph-node-effect-row--pinned">
+    <div
+      class="routing-graph-node-effect-row routing-graph-node-effect-row--pinned"
+    >
       <button
         type="button"
         class="routing-graph-node-mute"
@@ -59,7 +69,10 @@ async function onRemoveMember(portIndex: number) {
       <span class="routing-graph-node-volume-label">{{ volumePercent }}%</span>
     </div>
 
-    <ul v-if="actions?.isGroupExpanded(nodeId)" class="routing-graph-group-members">
+    <ul
+      v-if="actions?.isGroupExpanded(nodeId)"
+      class="routing-graph-group-members"
+    >
       <li
         v-for="member in members"
         :key="member.id"
@@ -78,7 +91,10 @@ async function onRemoveMember(portIndex: number) {
           ✕
         </button>
       </li>
-      <li v-if="members.length === 0" class="routing-graph-group-member routing-graph-group-member--empty">
+      <li
+        v-if="members.length === 0"
+        class="routing-graph-group-member routing-graph-group-member--empty"
+      >
         No members
       </li>
     </ul>

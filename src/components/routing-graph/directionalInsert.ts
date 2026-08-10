@@ -27,7 +27,13 @@ export function planDirectionalInsert(
     width: node.dimensions.width || 200,
     height: node.dimensions.height || 80,
   };
-  const slotPosition = computeSlotPosition(existingMembers, groupPosition, axis, edge, nodeRect);
+  const slotPosition = computeSlotPosition(
+    existingMembers,
+    groupPosition,
+    axis,
+    edge,
+    nodeRect,
+  );
   const newMember: GroupMemberInput = {
     id: node.id,
     position: slotPosition,
@@ -35,7 +41,9 @@ export function planDirectionalInsert(
     height: nodeRect.height,
   };
   const prepend = edge === "left" || edge === "top";
-  const orderedMembers = prepend ? [newMember, ...existingMembers] : [...existingMembers, newMember];
+  const orderedMembers = prepend
+    ? [newMember, ...existingMembers]
+    : [...existingMembers, newMember];
 
   const { positions, bounds } = reflowMembers(axis, orderedMembers);
   return { orderedMembers, positions, bounds };

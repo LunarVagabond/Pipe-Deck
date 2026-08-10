@@ -77,10 +77,16 @@ export function useMixerControls() {
       } else {
         await setDeviceMute(id, !muted);
       }
-      handleApplyResult({ success: true }, successMessage ?? (muted ? "Unmuted" : "Muted"));
+      handleApplyResult(
+        { success: true },
+        successMessage ?? (muted ? "Unmuted" : "Muted"),
+      );
     } catch (error) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }

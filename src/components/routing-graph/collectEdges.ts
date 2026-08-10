@@ -1,8 +1,5 @@
 import type { RuntimeGraph } from "../../types/graph";
-import {
-  columnRank,
-  deviceColumn,
-} from "../../utils/routingLayout";
+import { columnRank, deviceColumn } from "../../utils/routingLayout";
 import { graphEntityExists, handlesForLink } from "./nodePorts";
 import { edgeClassForPort, edgeColorForPorts } from "./portTypes";
 import { deviceNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
@@ -46,19 +43,33 @@ function makeEdge(
   isMonitor: boolean,
 ): BuiltGraphEdge | null {
   const processingNodes = graph.processing_nodes ?? [];
-  if (!graphEntityExists(graph.streams, graph.devices, sourceId, processingNodes)) {
+  if (
+    !graphEntityExists(graph.streams, graph.devices, sourceId, processingNodes)
+  ) {
     return null;
   }
-  if (!graphEntityExists(graph.streams, graph.devices, targetId, processingNodes)) {
+  if (
+    !graphEntityExists(graph.streams, graph.devices, targetId, processingNodes)
+  ) {
     return null;
   }
 
   const sourceIsStream = graph.streams.some((stream) => stream.id === sourceId);
   const targetIsStream = graph.streams.some((stream) => stream.id === targetId);
-  const sourceIsProcessingNode = !sourceIsStream && processingNodes.some((node) => node.id === sourceId);
-  const targetIsProcessingNode = !targetIsStream && processingNodes.some((node) => node.id === targetId);
-  const source = sourceIsStream ? streamNodeId(sourceId) : sourceIsProcessingNode ? processingNodeNodeId(sourceId) : deviceNodeId(sourceId);
-  const target = targetIsStream ? streamNodeId(targetId) : targetIsProcessingNode ? processingNodeNodeId(targetId) : deviceNodeId(targetId);
+  const sourceIsProcessingNode =
+    !sourceIsStream && processingNodes.some((node) => node.id === sourceId);
+  const targetIsProcessingNode =
+    !targetIsStream && processingNodes.some((node) => node.id === targetId);
+  const source = sourceIsStream
+    ? streamNodeId(sourceId)
+    : sourceIsProcessingNode
+      ? processingNodeNodeId(sourceId)
+      : deviceNodeId(sourceId);
+  const target = targetIsStream
+    ? streamNodeId(targetId)
+    : targetIsProcessingNode
+      ? processingNodeNodeId(targetId)
+      : deviceNodeId(targetId);
   const { sourceHandle, targetHandle } = handlesForLink(
     sourceIsStream,
     targetIsStream,
@@ -73,7 +84,8 @@ function makeEdge(
   // bezier edge handles that by bowing out vertically, which can read as an
   // edge leaving the bottom of one node and entering the top of another.
   // Route those backward connections as an orthogonal smoothstep instead.
-  const isBackward = entityColumnRank(graph, sourceId) > entityColumnRank(graph, targetId);
+  const isBackward =
+    entityColumnRank(graph, sourceId) > entityColumnRank(graph, targetId);
 
   return {
     id: linkId,
@@ -113,7 +125,12 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   const streamSourceSeen = new Set<string>();
   const captureStreamSeen = new Set<string>();
 
-  function addEdge(linkId: string, sourceId: string, targetId: string, isMonitor = false) {
+  function addEdge(
+    linkId: string,
+    sourceId: string,
+    targetId: string,
+    isMonitor = false,
+  ) {
     const streamSource = graph.streams.find(
       (stream) =>
         stream.id === sourceId &&
@@ -167,7 +184,11 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
   for (const node of graph.processing_nodes ?? []) {
     for (const port of node.inputs ?? []) {
       if (port.connected_id) {
-        addEdge(`proc-in-${port.connected_id}-${node.id}`, port.connected_id, node.id);
+        addEdge(
+          `proc-in-${port.connected_id}-${node.id}`,
+          port.connected_id,
+          node.id,
+        );
       }
     }
     if (node.kind.kind === "group") {
@@ -175,7 +196,11 @@ export function collectRoutingEdges(graph: RuntimeGraph): BuiltGraphEdge[] {
     }
     for (const port of node.outputs ?? []) {
       if (port.connected_id) {
-        addEdge(`proc-out-${node.id}-${port.connected_id}`, node.id, port.connected_id);
+        addEdge(
+          `proc-out-${node.id}-${port.connected_id}`,
+          node.id,
+          port.connected_id,
+        );
       }
     }
   }

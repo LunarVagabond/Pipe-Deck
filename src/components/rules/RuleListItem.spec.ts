@@ -16,7 +16,10 @@ function makeRule(overrides: Partial<Rule> = {}): Rule {
   };
 }
 
-function mountItem(overrides: Partial<Rule> = {}, propsOverrides: Record<string, unknown> = {}) {
+function mountItem(
+  overrides: Partial<Rule> = {},
+  propsOverrides: Record<string, unknown> = {},
+) {
   return mount(RuleListItem, {
     props: {
       rule: makeRule(overrides),
@@ -34,7 +37,9 @@ describe("RuleListItem", () => {
   it("renders rule name, priority, target, and formatted conditions", () => {
     const wrapper = mountItem();
 
-    expect(wrapper.find(".rule-name-meta strong").text()).toBe("Discord to headset");
+    expect(wrapper.find(".rule-name-meta strong").text()).toBe(
+      "Discord to headset",
+    );
     expect(wrapper.find(".rule-meta").text()).toContain("10");
     expect(wrapper.find(".rule-target-kind").text()).toBe("Output");
     expect(wrapper.find(".rule-target-name").text()).toBe("Headset");
@@ -77,12 +82,16 @@ describe("RuleListItem", () => {
   it("emits edit, delete, and toggle-enabled", async () => {
     const wrapper = mountItem();
 
-    await wrapper.find(".rule-card-actions button:not(.danger)").trigger("click");
+    await wrapper
+      .find(".rule-card-actions button:not(.danger)")
+      .trigger("click");
     await wrapper.find(".rule-card-actions button.danger").trigger("click");
     expect(wrapper.emitted("edit")).toHaveLength(1);
     expect(wrapper.emitted("delete")).toHaveLength(1);
 
-    await wrapper.findComponent({ name: "ToggleSwitch" }).vm.$emit("update:modelValue", false);
+    await wrapper
+      .findComponent({ name: "ToggleSwitch" })
+      .vm.$emit("update:modelValue", false);
     expect(wrapper.emitted("toggle-enabled")?.[0]).toEqual([false]);
   });
 });

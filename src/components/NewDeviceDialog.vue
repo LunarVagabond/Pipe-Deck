@@ -46,14 +46,18 @@ watch(open, async (value) => {
 async function createVirtual() {
   const trimmed = name.value.trim();
   if (!trimmed) return;
-  const command = type.value === "input" ? "create_virtual_input" : "create_virtual_output";
+  const command =
+    type.value === "input" ? "create_virtual_input" : "create_virtual_output";
   try {
     await invoke(command, { name: trimmed });
     handleApplyResult({ success: true }, `${trimmed} created`);
     close();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -62,7 +66,12 @@ async function createVirtual() {
 
 <template>
   <div v-if="open" class="new-device-modal" @click.self="close">
-    <div class="new-device-dialog" role="dialog" aria-modal="true" aria-labelledby="new-device-title">
+    <div
+      class="new-device-dialog"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="new-device-title"
+    >
       <h2 id="new-device-title">Create virtual device</h2>
 
       <div class="new-device-field">
@@ -91,7 +100,11 @@ async function createVirtual() {
           >
             <NodeTypeIcon kind="virtual-output" />
             <span class="new-device-type-card-title">Output (virtual)</span>
-            <span class="new-device-type-card-sub">Apps play into it, but it's a destination — no forward routing. To mix multiple sources or fan out to several destinations, use a Mixer or Fan-Out node instead</span>
+            <span class="new-device-type-card-sub"
+              >Apps play into it, but it's a destination — no forward routing.
+              To mix multiple sources or fan out to several destinations, use a
+              Mixer or Fan-Out node instead</span
+            >
           </button>
           <button
             type="button"
@@ -101,14 +114,21 @@ async function createVirtual() {
           >
             <NodeTypeIcon kind="virtual-input" />
             <span class="new-device-type-card-title">Input</span>
-            <span class="new-device-type-card-sub">Mixes microphones into one virtual mic</span>
+            <span class="new-device-type-card-sub"
+              >Mixes microphones into one virtual mic</span
+            >
           </button>
         </div>
       </div>
 
       <div class="dialog-actions">
         <button type="button" @click="close">Cancel</button>
-        <button type="button" class="primary" :disabled="!canCreate" @click="createVirtual">
+        <button
+          type="button"
+          class="primary"
+          :disabled="!canCreate"
+          @click="createVirtual"
+        >
           Create
         </button>
       </div>

@@ -110,7 +110,9 @@ describe("fetchUpdateManifest", () => {
       json: () => Promise.resolve({ version: "1.4.0-preview", platforms: {} }),
     });
 
-    const manifest = await fetchUpdateManifest("https://example.test/latest.json");
+    const manifest = await fetchUpdateManifest(
+      "https://example.test/latest.json",
+    );
 
     expect(fetchMock).toHaveBeenCalledWith("https://example.test/latest.json", {
       headers: { Accept: "application/json" },
@@ -139,8 +141,16 @@ describe("fetchNewestReleaseTag", () => {
       ok: true,
       json: () =>
         Promise.resolve([
-          { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/v1.4.0-preview" },
-          { tag_name: "v1.3.0", draft: false, html_url: "https://example.test/v1.3.0" },
+          {
+            tag_name: "v1.4.0-preview",
+            draft: false,
+            html_url: "https://example.test/v1.4.0-preview",
+          },
+          {
+            tag_name: "v1.3.0",
+            draft: false,
+            html_url: "https://example.test/v1.3.0",
+          },
         ]),
     });
 
@@ -157,8 +167,16 @@ describe("fetchNewestReleaseTag", () => {
       ok: true,
       json: () =>
         Promise.resolve([
-          { tag_name: "v1.5.0-draft", draft: true, html_url: "https://example.test/v1.5.0-draft" },
-          { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/v1.4.0-preview" },
+          {
+            tag_name: "v1.5.0-draft",
+            draft: true,
+            html_url: "https://example.test/v1.5.0-draft",
+          },
+          {
+            tag_name: "v1.4.0-preview",
+            draft: false,
+            html_url: "https://example.test/v1.4.0-preview",
+          },
         ]),
     });
 
@@ -170,7 +188,9 @@ describe("fetchNewestReleaseTag", () => {
   it("throws when no non-draft releases exist", async () => {
     fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve([]) });
 
-    await expect(fetchNewestReleaseTag()).rejects.toThrow("No published releases found");
+    await expect(fetchNewestReleaseTag()).rejects.toThrow(
+      "No published releases found",
+    );
   });
 
   it("throws with the response status when the releases lookup is not ok", async () => {
@@ -187,7 +207,9 @@ describe("checkForUpdates", () => {
       json: () => Promise.resolve({ version: "1.3.0", platforms: {} }),
     });
 
-    const result = await checkForUpdates(appInfo({ releaseVersion: undefined }));
+    const result = await checkForUpdates(
+      appInfo({ releaseVersion: undefined }),
+    );
 
     expect(result).toEqual({
       status: "dev_build",
@@ -201,7 +223,9 @@ describe("checkForUpdates", () => {
   it("reports an error with the build revision when the manifest fetch fails and there is no tagged release version", async () => {
     fetchMock.mockResolvedValue({ ok: false, status: 500 });
 
-    const result = await checkForUpdates(appInfo({ releaseVersion: undefined }));
+    const result = await checkForUpdates(
+      appInfo({ releaseVersion: undefined }),
+    );
 
     expect(result.status).toBe("error");
     expect(result.currentVersion).toBe("abc123");
@@ -214,7 +238,12 @@ describe("checkForUpdates", () => {
       json: () =>
         Promise.resolve({
           version: "1.3.0",
-          platforms: { "linux-x86_64-appimage": { url: "https://example.test/app.AppImage", signature: "sig" } },
+          platforms: {
+            "linux-x86_64-appimage": {
+              url: "https://example.test/app.AppImage",
+              signature: "sig",
+            },
+          },
         }),
     });
 
@@ -235,7 +264,12 @@ describe("checkForUpdates", () => {
       json: () =>
         Promise.resolve({
           version: "1.3.0",
-          platforms: { "linux-x86_64-deb": { url: "https://example.test/app.deb", signature: "sig" } },
+          platforms: {
+            "linux-x86_64-deb": {
+              url: "https://example.test/app.deb",
+              signature: "sig",
+            },
+          },
         }),
     });
 
@@ -251,7 +285,11 @@ describe("checkForUpdates", () => {
       json: () =>
         Promise.resolve({
           version: "1.3.0",
-          platforms: { "linux-x86_64-appimage": { url: "https://example.test/app.AppImage" } },
+          platforms: {
+            "linux-x86_64-appimage": {
+              url: "https://example.test/app.AppImage",
+            },
+          },
         }),
     });
 
@@ -261,7 +299,10 @@ describe("checkForUpdates", () => {
   });
 
   it("errors when the manifest has no version", async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ version: "", platforms: {} }) });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: "", platforms: {} }),
+    });
 
     const result = await checkForUpdates(appInfo());
 
@@ -270,18 +311,28 @@ describe("checkForUpdates", () => {
   });
 
   it("errors when the platform key resolves but the manifest has no matching platform entry", async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ version: "1.3.0", platforms: {} }) });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: "1.3.0", platforms: {} }),
+    });
 
     const result = await checkForUpdates(appInfo());
 
     expect(result.downloadUrl).toBeUndefined();
-    expect(result.error).toBe("No packaged download for this install type yet — use the releases page instead.");
+    expect(result.error).toBe(
+      "No packaged download for this install type yet — use the releases page instead.",
+    );
   });
 
   it("does not raise a missing-platform error for an unrecognized install kind", async () => {
-    fetchMock.mockResolvedValue({ ok: true, json: () => Promise.resolve({ version: "1.3.0", platforms: {} }) });
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ version: "1.3.0", platforms: {} }),
+    });
 
-    const result = await checkForUpdates(appInfo({ installKind: "unknown" as InstallKind }));
+    const result = await checkForUpdates(
+      appInfo({ installKind: "unknown" as InstallKind }),
+    );
 
     expect(result.downloadUrl).toBeUndefined();
     expect(result.error).toBeUndefined();
@@ -305,7 +356,11 @@ describe("checkForUpdates with the prerelease channel", () => {
         ok: true,
         json: () =>
           Promise.resolve([
-            { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/releases/v1.4.0-preview" },
+            {
+              tag_name: "v1.4.0-preview",
+              draft: false,
+              html_url: "https://example.test/releases/v1.4.0-preview",
+            },
           ]),
       })
       .mockResolvedValueOnce({
@@ -314,7 +369,10 @@ describe("checkForUpdates with the prerelease channel", () => {
           Promise.resolve({
             version: "1.4.0-preview",
             platforms: {
-              "linux-x86_64-appimage": { url: "https://example.test/app.AppImage", signature: "sig" },
+              "linux-x86_64-appimage": {
+                url: "https://example.test/app.AppImage",
+                signature: "sig",
+              },
             },
           }),
       });
@@ -331,7 +389,9 @@ describe("checkForUpdates with the prerelease channel", () => {
     );
     expect(result.status).toBe("severely_outdated");
     expect(result.latestVersion).toBe("1.4.0-preview");
-    expect(result.releaseUrl).toBe("https://example.test/releases/v1.4.0-preview");
+    expect(result.releaseUrl).toBe(
+      "https://example.test/releases/v1.4.0-preview",
+    );
   });
 
   it("never allows auto-install, even for an app_image install with a signed platform entry", async () => {
@@ -340,7 +400,11 @@ describe("checkForUpdates with the prerelease channel", () => {
         ok: true,
         json: () =>
           Promise.resolve([
-            { tag_name: "v1.4.0-preview", draft: false, html_url: "https://example.test/releases/v1.4.0-preview" },
+            {
+              tag_name: "v1.4.0-preview",
+              draft: false,
+              html_url: "https://example.test/releases/v1.4.0-preview",
+            },
           ]),
       })
       .mockResolvedValueOnce({
@@ -349,7 +413,10 @@ describe("checkForUpdates with the prerelease channel", () => {
           Promise.resolve({
             version: "1.4.0-preview",
             platforms: {
-              "linux-x86_64-appimage": { url: "https://example.test/app.AppImage", signature: "sig" },
+              "linux-x86_64-appimage": {
+                url: "https://example.test/app.AppImage",
+                signature: "sig",
+              },
             },
           }),
       });
@@ -393,7 +460,11 @@ describe("installUpdate", () => {
     const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
     checkUpdaterMock.mockResolvedValue({ downloadAndInstall });
 
-    await installUpdate({ status: "outdated", currentVersion: "1.2.0", canAutoInstall: true });
+    await installUpdate({
+      status: "outdated",
+      currentVersion: "1.2.0",
+      canAutoInstall: true,
+    });
 
     expect(checkUpdaterMock).toHaveBeenCalled();
     expect(downloadAndInstall).toHaveBeenCalled();
@@ -415,7 +486,9 @@ describe("installUpdate", () => {
       onProgress,
     );
 
-    expect(onProgress.mock.calls.map((call) => call[0])).toEqual([0, 50, 99, 100]);
+    expect(onProgress.mock.calls.map((call) => call[0])).toEqual([
+      0, 50, 99, 100,
+    ]);
   });
 
   it("reports null progress when the download has no known content length", async () => {
@@ -438,7 +511,11 @@ describe("installUpdate", () => {
     checkUpdaterMock.mockResolvedValue(undefined);
 
     await expect(
-      installUpdate({ status: "outdated", currentVersion: "1.2.0", canAutoInstall: true }),
+      installUpdate({
+        status: "outdated",
+        currentVersion: "1.2.0",
+        canAutoInstall: true,
+      }),
     ).rejects.toThrow("No update available from the updater plugin");
   });
 
@@ -453,7 +530,9 @@ describe("installUpdate", () => {
 
     await installUpdate(result);
 
-    expect(invokeMock).toHaveBeenCalledWith("open_url", { url: "https://example.test/app.deb" });
+    expect(invokeMock).toHaveBeenCalledWith("open_url", {
+      url: "https://example.test/app.deb",
+    });
   });
 
   it("falls back to the release URL when there is no download URL", async () => {
@@ -471,7 +550,12 @@ describe("installUpdate", () => {
 
   it("throws when neither a download URL nor a release URL is available", async () => {
     await expect(
-      installUpdate({ status: "error", currentVersion: "1.2.0", canAutoInstall: false, error: "no build" }),
+      installUpdate({
+        status: "error",
+        currentVersion: "1.2.0",
+        canAutoInstall: false,
+        error: "no build",
+      }),
     ).rejects.toThrow("no build");
   });
 });

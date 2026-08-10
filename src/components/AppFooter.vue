@@ -8,7 +8,8 @@ const buildRevision = ref("…");
 
 const GITHUB_PROFILE = "https://github.com/LunarVagabond";
 const MIT_LICENSE_URL = "https://opensource.org/licenses/MIT";
-const GITHUB_ISSUES_URL = "https://github.com/LunarVagabond/Pipe-Deck/issues/new?template=bug_report.yml";
+const GITHUB_ISSUES_URL =
+  "https://github.com/LunarVagabond/Pipe-Deck/issues/new?template=bug_report.yml";
 const GITHUB_REPO = "https://github.com/LunarVagabond/Pipe-Deck";
 
 // `buildRevision` is either the exact git tag a release was built from (e.g.
@@ -70,7 +71,9 @@ onMounted(async () => {
       >
         Pipe Deck {{ buildRevision }}
       </a>
-      <span v-else class="app-footer-revision">Pipe Deck {{ buildRevision }}</span>
+      <span v-else class="app-footer-revision"
+        >Pipe Deck {{ buildRevision }}</span
+      >
       <span class="app-footer-sep">-</span>
       <a
         class="app-footer-link app-footer-bug-link"

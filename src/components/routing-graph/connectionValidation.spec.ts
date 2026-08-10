@@ -3,7 +3,9 @@ import { resolveConnectionValidity } from "./connectionValidation";
 import type { PendingEdgeUpdate } from "./connectionValidation";
 import type { Connection } from "@vue-flow/core";
 
-function makeConnection(overrides: Partial<Connection> & { id?: string } = {}): Connection {
+function makeConnection(
+  overrides: Partial<Connection> & { id?: string } = {},
+): Connection {
   return {
     source: "a",
     target: "b",
@@ -25,7 +27,10 @@ describe("resolveConnectionValidity", () => {
   });
 
   it("does not require an empty slot when re-validating an already-persisted edge (carries an id)", () => {
-    const connection = makeConnection({ id: "edge-1", targetHandle: "audio-in:occupied-id" });
+    const connection = makeConnection({
+      id: "edge-1",
+      targetHandle: "audio-in:occupied-id",
+    });
     expect(resolveConnectionValidity(connection, null)).toBe(true);
   });
 
@@ -43,12 +48,17 @@ describe("resolveConnectionValidity", () => {
       sourceHandle: "audio-out",
       targetHandle: "audio-in:some-other-occupied-id",
     } as PendingEdgeUpdate;
-    const connection = makeConnection({ targetHandle: "audio-in:different-occupied-id" });
+    const connection = makeConnection({
+      targetHandle: "audio-in:different-occupied-id",
+    });
     expect(resolveConnectionValidity(connection, pendingEdge)).toBe(false);
   });
 
   it("rejects mismatched port types regardless of edge state", () => {
-    const connection = makeConnection({ sourceHandle: "audio-in", targetHandle: "audio-in:empty" });
+    const connection = makeConnection({
+      sourceHandle: "audio-in",
+      targetHandle: "audio-in:empty",
+    });
     expect(resolveConnectionValidity(connection, null)).toBe(false);
   });
 });

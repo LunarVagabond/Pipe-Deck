@@ -39,7 +39,9 @@ const captureStreams = computed(() =>
 );
 
 const playbackStreams = computed(() =>
-  displayGraph.value.streams.filter((stream) => stream.direction === "playback"),
+  displayGraph.value.streams.filter(
+    (stream) => stream.direction === "playback",
+  ),
 );
 
 const inputDevices = computed(() =>
@@ -103,7 +105,10 @@ async function saveRename(device: Device, alias: string) {
     handleApplyResult({ success: true }, "Device renamed");
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -122,7 +127,10 @@ async function removeVirtual(device: Device) {
     handleApplyResult({ success: true }, "Virtual device removed");
   } catch (err) {
     handleApplyResult(
-      { success: false, message: err instanceof Error ? err.message : String(err) },
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
       "",
     );
   }
@@ -156,17 +164,32 @@ async function removeVirtual(device: Device) {
     </p>
 
     <div
-      v-if="!loading && !error && playbackStreams.length > 0 && captureStreams.length === 0"
+      v-if="
+        !loading &&
+        !error &&
+        playbackStreams.length > 0 &&
+        captureStreams.length === 0
+      "
       class="sources-playback-hint notice-banner"
     >
       <p>
-        <strong>{{ playbackStreams.length }} playback app{{ playbackStreams.length === 1 ? "" : "s" }}</strong>
+        <strong
+          >{{ playbackStreams.length }} playback app{{
+            playbackStreams.length === 1 ? "" : "s"
+          }}</strong
+        >
         active (e.g. music players). Playback is routed on
-        <button v-if="navigate" type="button" class="inline-link" @click="navigate('dashboard')">
+        <button
+          v-if="navigate"
+          type="button"
+          class="inline-link"
+          @click="navigate('dashboard')"
+        >
           Dashboard
         </button>
         <template v-else>Dashboard</template>
-        or Routing. Capture streams appear here when an app is recording from your microphone.
+        or Routing. Capture streams appear here when an app is recording from
+        your microphone.
       </p>
     </div>
 
@@ -180,13 +203,13 @@ async function removeVirtual(device: Device) {
       <section class="sources-section">
         <h2>Capture streams</h2>
         <p v-if="captureStreams.length === 0 && hasInputs" class="empty">
-          No apps are recording right now. Inputs are available below — open an app and select a
-          microphone to route it here.
+          No apps are recording right now. Inputs are available below — open an
+          app and select a microphone to route it here.
         </p>
         <p v-else-if="captureStreams.length === 0" class="empty">
-          No apps are recording from a microphone right now. Music and media players are playback
-          streams — use Dashboard or Routing to route them. Try enabling “Show system streams” if
-          you expect a mic capture app.
+          No apps are recording from a microphone right now. Music and media
+          players are playback streams — use Dashboard or Routing to route them.
+          Try enabling “Show system streams” if you expect a mic capture app.
         </p>
         <div v-else class="sources-card-list">
           <StreamTargetPicker
@@ -197,15 +220,26 @@ async function removeVirtual(device: Device) {
           />
         </div>
 
-        <div v-if="captureStreams.length === 0 && recentCaptureIdentities.length > 0" class="sources-recent">
+        <div
+          v-if="
+            captureStreams.length === 0 && recentCaptureIdentities.length > 0
+          "
+          class="sources-recent"
+        >
           <h3>Recently seen</h3>
           <p class="section-help">
-            These apps used a microphone recently. Start capture in the app to route live.
+            These apps used a microphone recently. Start capture in the app to
+            route live.
           </p>
           <ul class="sources-recent-list">
-            <li v-for="(entry, index) in recentCaptureIdentities" :key="`${entry.app_name}-${index}`">
+            <li
+              v-for="(entry, index) in recentCaptureIdentities"
+              :key="`${entry.app_name}-${index}`"
+            >
               <strong>{{ recentLabel(entry) }}</strong>
-              <span v-if="entry.executable" class="node-sub">{{ entry.executable }}</span>
+              <span v-if="entry.executable" class="node-sub">{{
+                entry.executable
+              }}</span>
             </li>
           </ul>
         </div>
@@ -213,7 +247,9 @@ async function removeVirtual(device: Device) {
 
       <section class="sources-section">
         <h2>Input devices</h2>
-        <p v-if="inputDevices.length === 0" class="empty">No input devices detected.</p>
+        <p v-if="inputDevices.length === 0" class="empty">
+          No input devices detected.
+        </p>
         <div v-else class="sources-device-grid">
           <article
             v-for="device in inputDevices"
@@ -226,7 +262,8 @@ async function removeVirtual(device: Device) {
                 :label="device.label"
                 editable
                 :deletable="
-                  device.kind === 'virtual' && device.system_name.startsWith('pipe-deck-')
+                  device.kind === 'virtual' &&
+                  device.system_name.startsWith('pipe-deck-')
                 "
                 @save="(name) => saveRename(device, name)"
                 @delete="removeVirtual(device)"

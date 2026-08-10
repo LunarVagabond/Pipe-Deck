@@ -15,11 +15,18 @@ import { useApplyResult } from "../stores/notices";
  */
 const ISOLATABLE_KINDS = new Set(["eq5band", "delay", "limiter", "stub"]);
 
-async function setBypassed(nodeId: string, bypassed: boolean, handleApplyResult: ReturnType<typeof useApplyResult>["handleApplyResult"]) {
-  const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {
-    nodeId,
-    bypassed,
-  });
+async function setBypassed(
+  nodeId: string,
+  bypassed: boolean,
+  handleApplyResult: ReturnType<typeof useApplyResult>["handleApplyResult"],
+) {
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "set_processing_node_bypassed",
+    {
+      nodeId,
+      bypassed,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -42,15 +49,22 @@ export function useEffectIsolation() {
     isolatedNodeId.value = null;
   }
 
-  async function activateIsolation(nodeId: string, graph: RuntimeGraph, edges: BuiltRoutingGraph["edges"]) {
+  async function activateIsolation(
+    nodeId: string,
+    graph: RuntimeGraph,
+    edges: BuiltRoutingGraph["edges"],
+  ) {
     const connected = computeConnectedComponent(nodeId, edges);
     const targets: string[] = [];
     for (const graphId of connected) {
       if (graphId === nodeId) continue;
       const parsed = parseGraphNodeId(graphId);
       if (!parsed || parsed.kind !== "processingNode") continue;
-      const node = (graph.processing_nodes ?? []).find((entry) => entry.id === parsed.id);
-      if (!node || !ISOLATABLE_KINDS.has(node.kind.kind) || node.bypassed) continue;
+      const node = (graph.processing_nodes ?? []).find(
+        (entry) => entry.id === parsed.id,
+      );
+      if (!node || !ISOLATABLE_KINDS.has(node.kind.kind) || node.bypassed)
+        continue;
       targets.push(node.id);
     }
     for (const id of targets) {
@@ -60,7 +74,11 @@ export function useEffectIsolation() {
     isolatedNodeId.value = nodeId;
   }
 
-  async function toggleIsolation(nodeId: string, graph: RuntimeGraph, edges: BuiltRoutingGraph["edges"]) {
+  async function toggleIsolation(
+    nodeId: string,
+    graph: RuntimeGraph,
+    edges: BuiltRoutingGraph["edges"],
+  ) {
     const wasIsolatingThisNode = isolatedNodeId.value === nodeId;
     if (isolatedNodeId.value) {
       await clearIsolation();

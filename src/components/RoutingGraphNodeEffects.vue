@@ -17,14 +17,23 @@ const props = defineProps<{
   deviceId?: string;
 }>();
 
-const { pendingVolumes, clampVolume, scheduleChannelVolume, toggleChannelMute } = useMixerControls();
+const {
+  pendingVolumes,
+  clampVolume,
+  scheduleChannelVolume,
+  toggleChannelMute,
+} = useMixerControls();
 const { chainFor, setBypassed } = useEffectChain();
 
 /** Nothing to bypass without at least one stage — omit the control entirely
  * rather than show it disabled (Effects.vue disables it instead, but this
  * compact node view has no room to explain why a button doesn't do anything). */
-const hasStagesToBypass = computed(() => Boolean(props.deviceId) && chainFor(props.deviceId!).stages.length > 0);
-const isBypassed = computed(() => Boolean(props.deviceId) && chainFor(props.deviceId!).bypassed);
+const hasStagesToBypass = computed(
+  () => Boolean(props.deviceId) && chainFor(props.deviceId!).stages.length > 0,
+);
+const isBypassed = computed(
+  () => Boolean(props.deviceId) && chainFor(props.deviceId!).bypassed,
+);
 
 function onToggleBypass() {
   if (!props.deviceId) return;
@@ -43,21 +52,33 @@ function onToggleBypass() {
  * effect stages (PD-025, `EffectStageList` below) render underneath it and
  * are the things that reorder/remove, never Volume itself.
  */
-const displayVolume = computed(() => pendingVolumes.value[props.entityId] ?? props.volumePercent ?? 0);
+const displayVolume = computed(
+  () => pendingVolumes.value[props.entityId] ?? props.volumePercent ?? 0,
+);
 
 function onVolumeInput(event: Event) {
   const percent = Number((event.target as HTMLInputElement).value);
-  scheduleChannelVolume(props.channelType, props.entityId, clampVolume(percent));
+  scheduleChannelVolume(
+    props.channelType,
+    props.entityId,
+    clampVolume(percent),
+  );
 }
 
 function onToggleMute() {
-  void toggleChannelMute(props.channelType, props.entityId, Boolean(props.muted));
+  void toggleChannelMute(
+    props.channelType,
+    props.entityId,
+    Boolean(props.muted),
+  );
 }
 </script>
 
 <template>
   <div class="routing-graph-node-effects nodrag">
-    <div class="routing-graph-node-effect-row routing-graph-node-effect-row--pinned">
+    <div
+      class="routing-graph-node-effect-row routing-graph-node-effect-row--pinned"
+    >
       <button
         type="button"
         class="routing-graph-node-mute"
@@ -82,7 +103,9 @@ function onToggleMute() {
         type="button"
         class="routing-graph-node-bypass"
         :class="{ bypassed: isBypassed }"
-        :aria-label="isBypassed ? 'Resume effects processing' : 'Bypass effects'"
+        :aria-label="
+          isBypassed ? 'Resume effects processing' : 'Bypass effects'
+        "
         title="Keeps your effect chain configured but stops it from affecting audio — nothing is removed."
         @click="onToggleBypass"
       >

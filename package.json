@@ -12,7 +12,9 @@
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
     "typecheck:e2e": "tsc -p src/e2e/tsconfig.json --noEmit",
-    "screenshots": "node scripts/screenshot-app.mjs"
+    "screenshots": "node scripts/screenshot-app.mjs",
+    "format": "prettier --write src scripts *.json *.md",
+    "format:check": "prettier --check src scripts *.json *.md"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
@@ -32,6 +34,7 @@
     "@vitejs/plugin-vue": "^5.2.1",
     "@vue/test-utils": "^2.4.11",
     "jsdom": "^30.0.1",
+    "prettier": "^3.9.6",
     "sass": "^1.102.0",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",

@@ -30,8 +30,12 @@ describe("formatMismatch", () => {
   });
 
   it("does not flag a mismatch when either side's value is unknown", () => {
-    expect(formatMismatch({ channels: 2 }, { channels: 2 }).mismatch).toBe(false);
+    expect(formatMismatch({ channels: 2 }, { channels: 2 }).mismatch).toBe(
+      false,
+    );
     expect(formatMismatch({ sample_rate: 44100 }, {}).mismatch).toBe(false);
-    expect(formatMismatch({}, { sample_rate: 48000, channels: 2 }).mismatch).toBe(false);
+    expect(
+      formatMismatch({}, { sample_rate: 48000, channels: 2 }).mismatch,
+    ).toBe(false);
   });
 });

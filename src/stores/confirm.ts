@@ -25,7 +25,10 @@ const confirmState = ref<ConfirmState>({
 let resolver: ((value: boolean) => void) | null = null;
 
 export function useConfirm() {
-  function confirm(message: string, options: ConfirmOptions = {}): Promise<boolean> {
+  function confirm(
+    message: string,
+    options: ConfirmOptions = {},
+  ): Promise<boolean> {
     return new Promise((resolve) => {
       resolver = resolve;
       confirmState.value = {

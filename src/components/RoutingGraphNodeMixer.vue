@@ -38,25 +38,40 @@ async function onGainChange(index: number, event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
   pendingGains.value[index] = value;
   try {
-    const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_input_gain", {
-      nodeId: props.nodeId,
-      portIndex: index,
-      gainPercent: value,
-      muted: false,
-    });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "update_processing_node_input_gain",
+      {
+        nodeId: props.nodeId,
+        portIndex: index,
+        gainPercent: value,
+        muted: false,
+      },
+    );
     if (!response.success) {
       handleApplyResult(response, "");
     }
   } catch (error) {
-    handleApplyResult({ success: false, message: error instanceof Error ? error.message : String(error) }, "");
+    handleApplyResult(
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
+      "",
+    );
   }
 }
 </script>
 
 <template>
   <div class="routing-graph-node-mixer-inputs nodrag">
-    <p v-if="inputs.length === 0" class="routing-graph-node-mixer-inputs-empty">Drag a source in to mix it</p>
-    <div v-for="input in inputs" :key="input.index" class="routing-graph-node-mixer-input-row">
+    <p v-if="inputs.length === 0" class="routing-graph-node-mixer-inputs-empty">
+      Drag a source in to mix it
+    </p>
+    <div
+      v-for="input in inputs"
+      :key="input.index"
+      class="routing-graph-node-mixer-input-row"
+    >
       <span class="routing-graph-node-mixer-input-label">
         {{ input.connectedId ? labelFor(input.connectedId) : "…" }}
       </span>
@@ -69,7 +84,9 @@ async function onGainChange(index: number, event: Event) {
         :aria-label="`${input.connectedId ? labelFor(input.connectedId) : 'input'} gain`"
         @change="onGainChange(input.index, $event)"
       />
-      <span class="routing-graph-node-mixer-input-gain-label">{{ gainFor(input.index) }}%</span>
+      <span class="routing-graph-node-mixer-input-gain-label"
+        >{{ gainFor(input.index) }}%</span
+      >
     </div>
   </div>
 </template>

@@ -33,10 +33,17 @@ const emit = defineEmits<{
         <select
           :value="condition.type"
           @change="
-            setConditionType(condition, ($event.target as HTMLSelectElement).value as ConditionType)
+            setConditionType(
+              condition,
+              ($event.target as HTMLSelectElement).value as ConditionType,
+            )
           "
         >
-          <option v-for="option in CONDITION_TYPE_OPTIONS" :key="option.type" :value="option.type">
+          <option
+            v-for="option in CONDITION_TYPE_OPTIONS"
+            :key="option.type"
+            :value="option.type"
+          >
             {{ option.label }}
           </option>
         </select>
@@ -46,14 +53,22 @@ const emit = defineEmits<{
         <label class="condition-field">
           <span class="field-label">Field</span>
           <select v-model="condition.field">
-            <option v-for="option in REGEX_FIELD_OPTIONS" :key="option.value" :value="option.value">
+            <option
+              v-for="option in REGEX_FIELD_OPTIONS"
+              :key="option.value"
+              :value="option.value"
+            >
               {{ option.label }}
             </option>
           </select>
         </label>
         <label class="condition-field condition-field-grow">
           <span class="field-label">Pattern</span>
-          <input v-model="condition.pattern" type="text" placeholder="e.g. Discord.*" />
+          <input
+            v-model="condition.pattern"
+            type="text"
+            placeholder="e.g. Discord.*"
+          />
         </label>
       </template>
 
@@ -62,10 +77,19 @@ const emit = defineEmits<{
           <span class="field-label">Value</span>
           <select
             :value="conditionValue(condition)"
-            @change="setConditionValue(condition, ($event.target as HTMLSelectElement).value)"
+            @change="
+              setConditionValue(
+                condition,
+                ($event.target as HTMLSelectElement).value,
+              )
+            "
           >
             <option value="" disabled>Select direction</option>
-            <option v-for="option in DIRECTION_OPTIONS" :key="option.value" :value="option.value">
+            <option
+              v-for="option in DIRECTION_OPTIONS"
+              :key="option.value"
+              :value="option.value"
+            >
               {{ option.label }}
             </option>
           </select>
@@ -77,10 +101,19 @@ const emit = defineEmits<{
           <span class="field-label">Value</span>
           <select
             :value="conditionValue(condition)"
-            @change="setConditionValue(condition, ($event.target as HTMLSelectElement).value)"
+            @change="
+              setConditionValue(
+                condition,
+                ($event.target as HTMLSelectElement).value,
+              )
+            "
           >
             <option value="" disabled>Select category</option>
-            <option v-for="category in CATEGORY_OPTIONS" :key="category" :value="category">
+            <option
+              v-for="category in CATEGORY_OPTIONS"
+              :key="category"
+              :value="category"
+            >
               {{ category }}
             </option>
           </select>
@@ -94,7 +127,12 @@ const emit = defineEmits<{
             :value="conditionValue(condition)"
             type="text"
             :placeholder="conditionTypeMeta(condition.type).placeholder"
-            @input="setConditionValue(condition, ($event.target as HTMLInputElement).value)"
+            @input="
+              setConditionValue(
+                condition,
+                ($event.target as HTMLInputElement).value,
+              )
+            "
           />
         </label>
       </template>
@@ -111,7 +149,9 @@ const emit = defineEmits<{
 
     <p class="condition-help">
       {{ conditionTypeMeta(condition.type).description }}
-      <span class="condition-example">Example: {{ conditionTypeMeta(condition.type).example }}</span>
+      <span class="condition-example"
+        >Example: {{ conditionTypeMeta(condition.type).example }}</span
+      >
     </p>
 
     <div v-if="suggestions.length" class="condition-suggestions">

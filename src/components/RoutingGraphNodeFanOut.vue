@@ -9,7 +9,11 @@ const props = defineProps<{
 
 async function onVolumeChange(event: Event) {
   const value = Number((event.target as HTMLInputElement).value);
-  await invoke("update_processing_node_volume", { nodeId: props.nodeId, volumePercent: value, muted: props.muted });
+  await invoke("update_processing_node_volume", {
+    nodeId: props.nodeId,
+    volumePercent: value,
+    muted: props.muted,
+  });
 }
 
 async function onToggleMute() {
@@ -23,7 +27,9 @@ async function onToggleMute() {
 
 <template>
   <div class="routing-graph-node-effects nodrag">
-    <div class="routing-graph-node-effect-row routing-graph-node-effect-row--pinned">
+    <div
+      class="routing-graph-node-effect-row routing-graph-node-effect-row--pinned"
+    >
       <button
         type="button"
         class="routing-graph-node-mute"

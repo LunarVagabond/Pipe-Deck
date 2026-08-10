@@ -1,4 +1,10 @@
-import type { Device, Link, ProcessingNode, RuntimeGraph, Stream } from "../types/graph";
+import type {
+  Device,
+  Link,
+  ProcessingNode,
+  RuntimeGraph,
+  Stream,
+} from "../types/graph";
 
 export function makeDevice(overrides: Partial<Device> = {}): Device {
   return {
@@ -24,7 +30,9 @@ export function makeStream(overrides: Partial<Stream> = {}): Stream {
   };
 }
 
-export function makeProcessingNode(overrides: Partial<ProcessingNode> = {}): ProcessingNode {
+export function makeProcessingNode(
+  overrides: Partial<ProcessingNode> = {},
+): ProcessingNode {
   return {
     id: "proc-1",
     label: "Fan-out",
@@ -41,7 +49,9 @@ export function makeProcessingNode(overrides: Partial<ProcessingNode> = {}): Pro
 export function makeGraph(
   devices: Device[] = [],
   streams: Stream[] = [],
-  links: Array<Partial<Link> & Pick<Link, "id" | "source_id" | "target_id">> = [],
+  links: Array<
+    Partial<Link> & Pick<Link, "id" | "source_id" | "target_id">
+  > = [],
   processingNodes: ProcessingNode[] = [],
 ): RuntimeGraph {
   return {

@@ -1,5 +1,14 @@
 <script setup lang="ts">
-import { computed, markRaw, nextTick, onMounted, onUnmounted, provide, ref, watch } from "vue";
+import {
+  computed,
+  markRaw,
+  nextTick,
+  onMounted,
+  onUnmounted,
+  provide,
+  ref,
+  watch,
+} from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import {
   VueFlow,
@@ -23,10 +32,20 @@ import {
   applyRoutingConnection,
 } from "./routing-graph/applyConnection";
 import { nodeIdsForLink } from "./routing-graph/connectionRules";
-import { buildRoutingGraph, parseGraphNodeId, saveNodePosition } from "./routing-graph/buildGraph";
-import type { RoutingGraphHandle, RoutingGraphNodeData } from "./routing-graph/buildGraph";
+import {
+  buildRoutingGraph,
+  parseGraphNodeId,
+  saveNodePosition,
+} from "./routing-graph/buildGraph";
+import type {
+  RoutingGraphHandle,
+  RoutingGraphNodeData,
+} from "./routing-graph/buildGraph";
 import { resolveConnectionValidity } from "./routing-graph/connectionValidation";
-import { computeSlotPosition, findDropTarget } from "./routing-graph/dropTarget";
+import {
+  computeSlotPosition,
+  findDropTarget,
+} from "./routing-graph/dropTarget";
 import { planDirectionalInsert } from "./routing-graph/directionalInsert";
 import { detectNewlyAddedNodes } from "./routing-graph/fitViewTrigger";
 import {
@@ -50,7 +69,10 @@ import {
   routingGraphActionsKey,
   type RoutingGraphMenuTarget,
 } from "../composables/routingGraphContext";
-import { loadExpandedGroupNodeIds, saveExpandedGroupNodeIds } from "../composables/groupExpansion";
+import {
+  loadExpandedGroupNodeIds,
+  saveExpandedGroupNodeIds,
+} from "../composables/groupExpansion";
 import { useApplyResult } from "../stores/notices";
 import { useEffectChain } from "../composables/useEffectChain";
 import { useEffectIsolation } from "../composables/useEffectIsolation";
@@ -78,19 +100,25 @@ const props = defineProps<{
 const isIdle = computed(
   () =>
     props.graph.links.length === 0 &&
-    !(props.graph.processing_nodes ?? []).some((node) => node.inputs?.some((port) => port.connected_id)),
+    !(props.graph.processing_nodes ?? []).some((node) =>
+      node.inputs?.some((port) => port.connected_id),
+    ),
 );
 
 const { handleApplyResult } = useApplyResult();
 const { addEq5BandStage } = useEffectChain();
-const { isolatedNodeId, toggleIsolation, clearIsolation } = useEffectIsolation();
+const { isolatedNodeId, toggleIsolation, clearIsolation } =
+  useEffectIsolation();
 const { confirm } = useConfirm();
 const { prompt } = usePrompt();
 const { openNewDeviceDialog } = useNewDeviceDialog();
 const { openShortcutsModal } = useShortcutsModal();
 const vueFlow = useVueFlow();
 const isInteractive = computed(
-  () => vueFlow.nodesDraggable.value || vueFlow.nodesConnectable.value || vueFlow.elementsSelectable.value,
+  () =>
+    vueFlow.nodesDraggable.value ||
+    vueFlow.nodesConnectable.value ||
+    vueFlow.elementsSelectable.value,
 );
 
 const exportingImage = ref(false);
@@ -190,7 +218,11 @@ const graphActions = {
       for (const memberId of group.memberIds) {
         const memberNode = vueFlow.findNode(memberId);
         if (memberNode) {
-          saveNodePosition(memberId, memberNode.computedPosition.x, memberNode.computedPosition.y);
+          saveNodePosition(
+            memberId,
+            memberNode.computedPosition.x,
+            memberNode.computedPosition.y,
+          );
         }
       }
     }
@@ -216,7 +248,11 @@ const graphActions = {
         ? { source: parsed.id, target: handle.connectedId }
         : { source: handle.connectedId, target: parsed.id };
     const ids = nodeIdsForLink(props.graph, source, target);
-    await applyEdgeDisconnect(props.graph, { source: ids.source, target: ids.target }, handleApplyResult);
+    await applyEdgeDisconnect(
+      props.graph,
+      { source: ids.source, target: ids.target },
+      handleApplyResult,
+    );
   },
   async addEffectStage(deviceId: string) {
     contextMenu.value = null;
@@ -257,7 +293,10 @@ async function saveDeviceAlias(systemName: string, alias: string) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     handleApplyResult(
-      { success: false, message: `Couldn't rename "${systemName}": ${message}` },
+      {
+        success: false,
+        message: `Couldn't rename "${systemName}": ${message}`,
+      },
       "",
     );
   }
@@ -274,7 +313,10 @@ async function removeProcessingNode(nodeId: string, label: string) {
   }
 
   try {
-    const response = await invoke<{ success: boolean; message?: string }>("remove_processing_node", { id: nodeId });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "remove_processing_node",
+      { id: nodeId },
+    );
     handleApplyResult(response, "Processing node removed");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -338,7 +380,10 @@ async function onCopyIdAction() {
     handleApplyResult({ success: true }, "ID copied to clipboard.");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    handleApplyResult({ success: false, message: `Couldn't copy ID: ${message}` }, "");
+    handleApplyResult(
+      { success: false, message: `Couldn't copy ID: ${message}` },
+      "",
+    );
   }
 }
 
@@ -348,7 +393,18 @@ function onPaneContextMenu(event: MouseEvent) {
 }
 
 async function onAddNodeAction(
-  type: "output" | "input" | "fan_out" | "mixer" | "eq5band" | "delay" | "limiter" | "hpf" | "reverb" | "widener" | "pan",
+  type:
+    | "output"
+    | "input"
+    | "fan_out"
+    | "mixer"
+    | "eq5band"
+    | "delay"
+    | "limiter"
+    | "hpf"
+    | "reverb"
+    | "widener"
+    | "pan",
 ) {
   contextMenu.value = null;
   if (isProcessingNodeType(type)) {
@@ -363,11 +419,20 @@ async function onAddNodeAction(
     });
     if (!label?.trim()) return;
     try {
-      await invoke("create_processing_node", { label: label.trim(), kind: { kind: type } });
+      await invoke("create_processing_node", {
+        label: label.trim(),
+        kind: { kind: type },
+      });
       handleApplyResult({ success: true }, `${label.trim()} node added`);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      handleApplyResult({ success: false, message: `Couldn't add ${defaultLabel.toLowerCase()} node: ${message}` }, "");
+      handleApplyResult(
+        {
+          success: false,
+          message: `Couldn't add ${defaultLabel.toLowerCase()} node: ${message}`,
+        },
+        "",
+      );
     }
     return;
   }
@@ -388,11 +453,17 @@ async function onGroupOutputsAction() {
   if (!trimmed) return;
 
   try {
-    await invoke("create_output_group", { label: trimmed, memberDeviceIds: target.memberDeviceIds });
+    await invoke("create_output_group", {
+      label: trimmed,
+      memberDeviceIds: target.memberDeviceIds,
+    });
     handleApplyResult({ success: true }, `${trimmed} group created`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    handleApplyResult({ success: false, message: `Couldn't create group: ${message}` }, "");
+    handleApplyResult(
+      { success: false, message: `Couldn't create group: ${message}` },
+      "",
+    );
   }
 }
 
@@ -407,11 +478,17 @@ async function onAddStubNodeAction(stubKind: string, defaultLabel: string) {
   });
   if (!label?.trim()) return;
   try {
-    await invoke("create_processing_node", { label: label.trim(), kind: { kind: "stub", stub_kind: stubKind } });
+    await invoke("create_processing_node", {
+      label: label.trim(),
+      kind: { kind: "stub", stub_kind: stubKind },
+    });
     handleApplyResult({ success: true }, "Effect node added");
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    handleApplyResult({ success: false, message: `Couldn't add effect node: ${message}` }, "");
+    handleApplyResult(
+      { success: false, message: `Couldn't add effect node: ${message}` },
+      "",
+    );
   }
 }
 
@@ -537,16 +614,17 @@ const pickableNodes = computed(() =>
     .map((node) => ({ id: node.id, label: node.data.label })),
 );
 
-const edges = computed<Edge[]>(() =>
-  built.value.edges.map((edge) => ({
-    ...edge,
-    markerEnd: {
-      type: MarkerType.ArrowClosed,
-      color: edge.style?.stroke ?? "#7c5cff",
-      width: 18,
-      height: 18,
-    },
-  })) as Edge[],
+const edges = computed<Edge[]>(
+  () =>
+    built.value.edges.map((edge) => ({
+      ...edge,
+      markerEnd: {
+        type: MarkerType.ArrowClosed,
+        color: edge.style?.stroke ?? "#7c5cff",
+        width: 18,
+        height: 18,
+      },
+    })) as Edge[],
 );
 
 watch(
@@ -560,7 +638,9 @@ watch(
       const parsed = parseGraphNodeId(isolatedNodeId.value);
       const stillExists =
         parsed?.kind === "processingNode" &&
-        (props.graph.processing_nodes ?? []).some((node) => node.id === parsed.id);
+        (props.graph.processing_nodes ?? []).some(
+          (node) => node.id === parsed.id,
+        );
       if (!stillExists) {
         void clearIsolation();
       }
@@ -647,7 +727,10 @@ function onPaneClick() {
 
 function onDocumentPointerDown(event: PointerEvent) {
   const target = event.target;
-  if (target instanceof Element && target.closest(".routing-graph-context-menu")) {
+  if (
+    target instanceof Element &&
+    target.closest(".routing-graph-context-menu")
+  ) {
     return;
   }
   contextMenu.value = null;
@@ -663,7 +746,10 @@ function groupMemberInputs(group: GraphGroup): GroupMemberInput[] {
       if (!memberNode) return null;
       return {
         id,
-        position: { x: memberNode.computedPosition.x, y: memberNode.computedPosition.y },
+        position: {
+          x: memberNode.computedPosition.x,
+          y: memberNode.computedPosition.y,
+        },
         width: memberNode.dimensions.width || 200,
         height: memberNode.dimensions.height || 80,
       };
@@ -703,7 +789,13 @@ function commitDirectionalInsert(
   edge: GroupEdge,
   node: { id: string; dimensions: { width: number; height: number } },
 ) {
-  const plan = planDirectionalInsert(groupMemberInputs(group), group.position, axis, edge, node);
+  const plan = planDirectionalInsert(
+    groupMemberInputs(group),
+    group.position,
+    axis,
+    edge,
+    node,
+  );
   for (const member of plan.orderedMembers) {
     const position = plan.positions[member.id];
     saveNodePosition(member.id, position.x, position.y);
@@ -735,7 +827,11 @@ function onNodeDrag(event: NodeDragEvent) {
   // (onNodeDragStop) already owns the "member being pulled out" case, and a
   // parented member's `position` is parent-relative, not absolute, so it
   // can't be fed through the same absolute-rect math below.
-  if (node.type === "groupNode" || node.type === "dropSlotNode" || node.parentNode) {
+  if (
+    node.type === "groupNode" ||
+    node.type === "dropSlotNode" ||
+    node.parentNode
+  ) {
     dropSlotPreview.value = null;
     return;
   }
@@ -756,7 +852,13 @@ function onNodeDrag(event: NodeDragEvent) {
     return;
   }
 
-  const slotPosition = computeSlotPosition(groupMemberInputs(target.group), target.group.position, target.axis, target.edge, nodeRect);
+  const slotPosition = computeSlotPosition(
+    groupMemberInputs(target.group),
+    target.group.position,
+    target.axis,
+    target.edge,
+    nodeRect,
+  );
   dropSlotPreview.value = {
     groupId: target.group.id,
     axis: target.axis,
@@ -769,7 +871,9 @@ function onNodeDrag(event: NodeDragEvent) {
 
 function onNodeDragStop(event: NodeDragEvent) {
   const node = event.node;
-  const idsToClear = event.nodes?.length ? event.nodes.map((n) => n.id) : [node.id];
+  const idsToClear = event.nodes?.length
+    ? event.nodes.map((n) => n.id)
+    : [node.id];
   const next = new Set(draggingNodeIds.value);
   for (const id of idsToClear) {
     next.delete(id);
@@ -780,7 +884,10 @@ function onNodeDragStop(event: NodeDragEvent) {
   if (node.type === "groupNode") {
     const group = groups.value.find((entry) => entry.id === node.id);
     if (group) {
-      group.position = { x: node.computedPosition.x, y: node.computedPosition.y };
+      group.position = {
+        x: node.computedPosition.x,
+        y: node.computedPosition.y,
+      };
       // Vue Flow already moved member nodes along with the group during the drag (they
       // track it live via parentNode). Persist each member's up-to-date absolute position
       // now, otherwise the next rebuild recomputes their offset from stale saved
@@ -788,7 +895,11 @@ function onNodeDragStop(event: NodeDragEvent) {
       for (const memberId of group.memberIds) {
         const memberNode = vueFlow.findNode(memberId);
         if (memberNode) {
-          saveNodePosition(memberId, memberNode.computedPosition.x, memberNode.computedPosition.y);
+          saveNodePosition(
+            memberId,
+            memberNode.computedPosition.x,
+            memberNode.computedPosition.y,
+          );
         }
       }
       layoutVersion.value += 1;
@@ -801,7 +912,11 @@ function onNodeDragStop(event: NodeDragEvent) {
   // during this drag (multi-select); fall back to just node for a single drag.
   const draggedNodes = event.nodes?.length ? event.nodes : [node];
   for (const draggedNode of draggedNodes) {
-    saveNodePosition(draggedNode.id, draggedNode.computedPosition.x, draggedNode.computedPosition.y);
+    saveNodePosition(
+      draggedNode.id,
+      draggedNode.computedPosition.x,
+      draggedNode.computedPosition.y,
+    );
   }
   layoutVersion.value += 1;
 
@@ -816,7 +931,9 @@ function onNodeDragStop(event: NodeDragEvent) {
     height: node.dimensions.height,
   };
 
-  const currentGroup = groups.value.find((entry) => entry.memberIds.includes(node.id));
+  const currentGroup = groups.value.find((entry) =>
+    entry.memberIds.includes(node.id),
+  );
   if (currentGroup) {
     const groupRect = {
       x: currentGroup.position.x,
@@ -825,9 +942,13 @@ function onNodeDragStop(event: NodeDragEvent) {
       height: currentGroup.size.height,
     };
     if (containmentRatio(nodeRect, groupRect) < DETACH_THRESHOLD) {
-      currentGroup.memberIds = currentGroup.memberIds.filter((id) => id !== node.id);
+      currentGroup.memberIds = currentGroup.memberIds.filter(
+        (id) => id !== node.id,
+      );
       if (currentGroup.memberIds.length === 0) {
-        groups.value = groups.value.filter((entry) => entry.id !== currentGroup.id);
+        groups.value = groups.value.filter(
+          (entry) => entry.id !== currentGroup.id,
+        );
       } else {
         reflowAndSaveGroup(currentGroup);
       }
@@ -849,7 +970,10 @@ function onNodeDragStop(event: NodeDragEvent) {
 const MIN_GROUP_SELECTION = 2;
 
 function isTypingTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(target.tagName);
+  return (
+    target instanceof HTMLElement &&
+    ["INPUT", "TEXTAREA"].includes(target.tagName)
+  );
 }
 
 async function onWindowKeydown(event: KeyboardEvent) {
@@ -859,7 +983,12 @@ async function onWindowKeydown(event: KeyboardEvent) {
     return;
   }
 
-  if (event.key.toLowerCase() !== "g" || event.metaKey || event.ctrlKey || event.altKey) {
+  if (
+    event.key.toLowerCase() !== "g" ||
+    event.metaKey ||
+    event.ctrlKey ||
+    event.altKey
+  ) {
     return;
   }
   if (isTypingTarget(event.target)) return;
@@ -906,24 +1035,30 @@ const knownStreamIdentityKeys = ref<Set<string> | null>(null);
 // handle's rendered position and only recomputes it on an explicit nudge, so
 // without this, edges/arrows draw at stale coordinates until something else
 // (e.g. a window resize) forces a recalculation.
-watch(
-  nodes,
-  async (current) => {
-    await nextTick();
-    vueFlow.updateNodeInternals(current.map((node) => node.id));
+watch(nodes, async (current) => {
+  await nextTick();
+  vueFlow.updateNodeInternals(current.map((node) => node.id));
 
-    const trackedNodes = current.map((node) => ({
-      id: node.id,
-      identityKey: (node.data as RoutingGraphNodeData)?.streamIdentityKey,
-    }));
-    const result = detectNewlyAddedNodes(trackedNodes, knownNodeIds.value, knownStreamIdentityKeys.value);
-    knownNodeIds.value = result.nodeIds;
-    knownStreamIdentityKeys.value = result.identityKeys;
-    if (result.addedIds.length === 0) return;
+  const trackedNodes = current.map((node) => ({
+    id: node.id,
+    identityKey: (node.data as RoutingGraphNodeData)?.streamIdentityKey,
+  }));
+  const result = detectNewlyAddedNodes(
+    trackedNodes,
+    knownNodeIds.value,
+    knownStreamIdentityKeys.value,
+  );
+  knownNodeIds.value = result.nodeIds;
+  knownStreamIdentityKeys.value = result.identityKeys;
+  if (result.addedIds.length === 0) return;
 
-    await vueFlow.fitView({ nodes: result.addedIds, padding: 0.35, duration: 400, maxZoom: 1 });
-  },
-);
+  await vueFlow.fitView({
+    nodes: result.addedIds,
+    padding: 0.35,
+    duration: 400,
+    maxZoom: 1,
+  });
+});
 
 onMounted(() => {
   localStorage.removeItem("pipe-deck-routing-reroutes");
@@ -939,7 +1074,9 @@ onUnmounted(() => {
 
 <template>
   <div class="routing-graph-shell">
-    <div class="routing-graph-live-region" aria-live="polite">{{ keyboardConnectMessage }}</div>
+    <div class="routing-graph-live-region" aria-live="polite">
+      {{ keyboardConnectMessage }}
+    </div>
     <RoutingGraphContextMenu
       :target="contextMenu"
       :nodes="pickableNodes"
@@ -953,7 +1090,10 @@ onUnmounted(() => {
       @group-outputs="onGroupOutputsAction"
       @close="contextMenu = null"
     />
-    <div class="routing-graph-canvas" :class="{ 'routing-graph-canvas--idle': isIdle }">
+    <div
+      class="routing-graph-canvas"
+      :class="{ 'routing-graph-canvas--idle': isIdle }"
+    >
       <button
         type="button"
         class="routing-graph-help-btn"
@@ -984,24 +1124,42 @@ onUnmounted(() => {
         @pane-click="onPaneClick"
         @pane-context-menu="onPaneContextMenu"
       >
-        <Background pattern-color="rgba(255,255,255,0.15)" :gap="20" :size="1.5" />
+        <Background
+          pattern-color="rgba(255,255,255,0.15)"
+          :gap="20"
+          :size="1.5"
+        />
         <Controls>
           <template #control-zoom-in>
-            <ControlButton aria-label="Zoom in" title="Zoom in" @click="vueFlow.zoomIn()">
+            <ControlButton
+              aria-label="Zoom in"
+              title="Zoom in"
+              @click="vueFlow.zoomIn()"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-                <path d="M32 18.133H18.133V32h-4.266V18.133H0v-4.266h13.867V0h4.266v13.867H32z" />
+                <path
+                  d="M32 18.133H18.133V32h-4.266V18.133H0v-4.266h13.867V0h4.266v13.867H32z"
+                />
               </svg>
             </ControlButton>
           </template>
           <template #control-zoom-out>
-            <ControlButton aria-label="Zoom out" title="Zoom out" @click="vueFlow.zoomOut()">
+            <ControlButton
+              aria-label="Zoom out"
+              title="Zoom out"
+              @click="vueFlow.zoomOut()"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 5">
                 <path d="M0 0h32v4.2H0z" />
               </svg>
             </ControlButton>
           </template>
           <template #control-fit-view>
-            <ControlButton aria-label="Fit view" title="Fit view to all nodes" @click="vueFlow.fitView()">
+            <ControlButton
+              aria-label="Fit view"
+              title="Fit view to all nodes"
+              @click="vueFlow.fitView()"
+            >
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 30">
                 <path
                   d="M3.692 4.63c0-.53.4-.938.939-.938h5.215V0H4.708C2.13 0 0 2.054 0 4.63v5.216h3.692V4.631zM27.354 0h-5.2v3.692h5.17c.53 0 .984.4.984.939v5.215H32V4.631A4.624 4.624 0 0 0 27.354 0zm.954 24.83c0 .532-.4.94-.939.94h-5.215v3.768h5.215c2.577 0 4.631-2.13 4.631-4.707v-5.139h-3.692v5.139zm-23.677.94a.919.919 0 0 1-.939-.94v-5.138H0v5.139c0 2.577 2.13 4.707 4.708 4.707h5.138V25.77H4.631z"
@@ -1011,16 +1169,28 @@ onUnmounted(() => {
           </template>
           <template #control-interactive>
             <ControlButton
-              :aria-label="isInteractive ? 'Lock canvas (disable drag and select)' : 'Unlock canvas (enable drag and select)'"
+              :aria-label="
+                isInteractive
+                  ? 'Lock canvas (disable drag and select)'
+                  : 'Unlock canvas (enable drag and select)'
+              "
               :title="isInteractive ? 'Lock canvas' : 'Unlock canvas'"
               @click="vueFlow.setInteractive(!isInteractive)"
             >
-              <svg v-if="isInteractive" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 32">
+              <svg
+                v-if="isInteractive"
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 25 32"
+              >
                 <path
                   d="M21.333 10.667H19.81V7.619C19.81 3.429 16.38 0 12.19 0c-4.114 1.828-1.37 2.133.305 2.438 1.676.305 4.42 2.59 4.42 5.181v3.048H3.047A3.056 3.056 0 0 0 0 13.714v15.238A3.056 3.056 0 0 0 3.048 32h18.285a3.056 3.056 0 0 0 3.048-3.048V13.714a3.056 3.056 0 0 0-3.048-3.047zM12.19 24.533a3.056 3.056 0 0 1-3.047-3.047 3.056 3.056 0 0 1 3.047-3.048 3.056 3.056 0 0 1 3.048 3.048 3.056 3.056 0 0 1-3.048 3.047z"
                 />
               </svg>
-              <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25 32">
+              <svg
+                v-else
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 25 32"
+              >
                 <path
                   d="M21.333 10.667H19.81V7.619C19.81 3.429 16.38 0 12.19 0 8 0 4.571 3.429 4.571 7.619v3.048H3.048A3.056 3.056 0 0 0 0 13.714v15.238A3.056 3.056 0 0 0 3.048 32h18.285a3.056 3.056 0 0 0 3.048-3.048V13.714a3.056 3.056 0 0 0-3.048-3.047zM12.19 24.533a3.056 3.056 0 0 1-3.047-3.047 3.056 3.056 0 0 1 3.047-3.048 3.056 3.056 0 0 1 3.048 3.048 3.056 3.056 0 0 1-3.048 3.047zm4.724-13.866H7.467V7.619c0-2.59 2.133-4.724 4.723-4.724 2.591 0 4.724 2.133 4.724 4.724v3.048z"
                 />
@@ -1029,7 +1199,9 @@ onUnmounted(() => {
           </template>
           <ControlButton
             aria-label="Export routing graph as PNG"
-            :title="exportingImage ? 'Exporting…' : 'Export routing graph as PNG'"
+            :title="
+              exportingImage ? 'Exporting…' : 'Export routing graph as PNG'
+            "
             :disabled="exportingImage"
             @click="onExportImage"
           >
@@ -1041,7 +1213,11 @@ onUnmounted(() => {
           </ControlButton>
         </Controls>
       </VueFlow>
-      <div v-if="dropSlotOverlayStyle" class="routing-graph-drop-slot-overlay" :style="dropSlotOverlayStyle" />
+      <div
+        v-if="dropSlotOverlayStyle"
+        class="routing-graph-drop-slot-overlay"
+        :style="dropSlotOverlayStyle"
+      />
       <LatencyPingPanel :graph="props.graph" :edges="built.edges" />
     </div>
   </div>

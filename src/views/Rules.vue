@@ -7,7 +7,13 @@ import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
 import { useRuleDraft } from "../stores/ruleDraft";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
-import type { Device, RecentStreamIdentity, Rule, SimulationResult, Stream } from "../types/graph";
+import type {
+  Device,
+  RecentStreamIdentity,
+  Rule,
+  SimulationResult,
+  Stream,
+} from "../types/graph";
 import { formatConditionSummary } from "../utils/ruleConditions";
 import {
   devicesForTargetKind,
@@ -16,7 +22,11 @@ import {
   targetLabel,
   type RuleTargetKind,
 } from "../utils/routingLayout";
-import { filterRecentlySeen, recentEntryAgo, recentEntryLabel } from "../utils/recentStreams";
+import {
+  filterRecentlySeen,
+  recentEntryAgo,
+  recentEntryLabel,
+} from "../utils/recentStreams";
 
 const rules = ref<Rule[]>([]);
 const simulation = ref<SimulationResult[]>([]);
@@ -48,7 +58,9 @@ function emptyRule(): Rule {
 }
 
 function deviceBySystemName(systemName?: string): Device | undefined {
-  return graph.value.devices.find((device) => device.system_name === systemName);
+  return graph.value.devices.find(
+    (device) => device.system_name === systemName,
+  );
 }
 
 async function loadRules() {
@@ -61,14 +73,19 @@ async function refreshSimulation(reportErrors = false) {
   } catch (error) {
     if (reportErrors) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }
   }
 }
 
-const sortedRules = computed(() => [...rules.value].sort((a, b) => b.priority - a.priority));
+const sortedRules = computed(() =>
+  [...rules.value].sort((a, b) => b.priority - a.priority),
+);
 
 const filteredRules = computed(() => {
   const query = searchQuery.value.trim().toLowerCase();
@@ -79,7 +96,11 @@ const filteredRules = computed(() => {
     if (rule.name.toLowerCase().includes(query)) {
       return true;
     }
-    if (targetDisplay(rule.action.target_system_name)?.toLowerCase().includes(query)) {
+    if (
+      targetDisplay(rule.action.target_system_name)
+        ?.toLowerCase()
+        .includes(query)
+    ) {
       return true;
     }
     return rule.conditions.some((condition) =>
@@ -89,7 +110,9 @@ const filteredRules = computed(() => {
 });
 
 function liveMatchCount(rule: Rule): number {
-  return simulation.value.filter((result) => result.explanation.matched_rule_key === rule.name).length;
+  return simulation.value.filter(
+    (result) => result.explanation.matched_rule_key === rule.name,
+  ).length;
 }
 
 interface ConflictLoser {
@@ -169,7 +192,9 @@ function isPreviewed(ruleId?: string): boolean {
 }
 
 function previewedRuleResolved(streamId: string, ruleId: string): boolean {
-  const result = previewSimulation.value?.find((entry) => entry.stream_id === streamId);
+  const result = previewSimulation.value?.find(
+    (entry) => entry.stream_id === streamId,
+  );
   return result?.explanation.matched_rule_id === ruleId;
 }
 
@@ -179,19 +204,28 @@ async function refreshPreview() {
     return;
   }
   try {
-    previewSimulation.value = await invoke<SimulationResult[]>("simulate_rules", {
-      priorityOverrides: priorityPreview.value,
-    });
+    previewSimulation.value = await invoke<SimulationResult[]>(
+      "simulate_rules",
+      {
+        priorityOverrides: priorityPreview.value,
+      },
+    );
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
 }
 
 async function previewPromote(loserRuleId: string, newPriority: number) {
-  priorityPreview.value = { ...priorityPreview.value, [loserRuleId]: newPriority };
+  priorityPreview.value = {
+    ...priorityPreview.value,
+    [loserRuleId]: newPriority,
+  };
   await refreshPreview();
 }
 
@@ -217,7 +251,10 @@ async function applyPriorityChange(rule: Rule, newPriority: number) {
     await applyRules();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -232,7 +269,8 @@ function openCreateModal() {
 function openCreateModalForIdentity(entry: RecentStreamIdentity) {
   editingRuleId.value = null;
   draft.value = emptyRule();
-  const targetKind: RuleTargetKind = entry.direction === "capture" ? "input" : "output";
+  const targetKind: RuleTargetKind =
+    entry.direction === "capture" ? "input" : "output";
   const targets = devicesForTargetKind(graph.value.devices, targetKind);
   draft.value.action.target_system_name = targets[0]?.system_name ?? "";
   draft.value.name = `${recentEntryLabel(entry)} rule`;
@@ -266,7 +304,8 @@ function openEditModal(rule: Rule) {
     handleApplyResult(
       {
         success: false,
-        message: error instanceof Error ? error.message : "Failed to open rule editor",
+        message:
+          error instanceof Error ? error.message : "Failed to open rule editor",
       },
       "",
     );
@@ -287,11 +326,17 @@ async function saveDraft() {
     ),
   };
   if (!cleaned.action.target_system_name) {
-    handleApplyResult({ success: false, message: "Select a target device" }, "");
+    handleApplyResult(
+      { success: false, message: "Select a target device" },
+      "",
+    );
     return;
   }
   if (cleaned.conditions.length === 0) {
-    handleApplyResult({ success: false, message: "Add at least one condition" }, "");
+    handleApplyResult(
+      { success: false, message: "Add at least one condition" },
+      "",
+    );
     return;
   }
   try {
@@ -306,7 +351,10 @@ async function saveDraft() {
     await refreshSimulation();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -329,7 +377,10 @@ async function removeRule(rule: Rule) {
     await refreshSimulation();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -342,7 +393,10 @@ async function toggleRuleEnabled(rule: Rule, enabled: boolean) {
     await refreshSimulation();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -363,7 +417,10 @@ async function moveRule(rule: Rule, direction: "up" | "down") {
     await refreshSimulation();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -371,12 +428,17 @@ async function moveRule(rule: Rule, direction: "up" | "down") {
 
 async function applyRules() {
   try {
-    const result = await invoke<{ success: boolean; message?: string }>("apply_rules");
+    const result = await invoke<{ success: boolean; message?: string }>(
+      "apply_rules",
+    );
     handleApplyResult(result, "Rules applied to PipeWire");
     await refreshSimulation();
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -420,7 +482,10 @@ const recentIdentityIds = computed(
 );
 
 function streamLabel(streamId: string) {
-  return graph.value.streams.find((stream) => stream.id === streamId)?.app_name ?? streamId;
+  return (
+    graph.value.streams.find((stream) => stream.id === streamId)?.app_name ??
+    streamId
+  );
 }
 
 function simulationLabel(result: SimulationResult) {
@@ -433,7 +498,9 @@ function targetDisplay(systemName?: string) {
 }
 
 function targetKindForSystemName(systemName?: string) {
-  return ruleTargetKindLabel(inferRuleTargetKind(deviceBySystemName(systemName)));
+  return ruleTargetKindLabel(
+    inferRuleTargetKind(deviceBySystemName(systemName)),
+  );
 }
 
 onMounted(async () => {
@@ -453,34 +520,49 @@ onMounted(async () => {
         <span class="rules-eyebrow">Advanced Routing</span>
         <h2>Auto-routing rules</h2>
         <p>
-          Author deterministic rules and simulate outcomes. New apps are auto-routed when a rule
-          matches (disable in Settings). Manual routing in Dashboard or Routing overrides rules for
-          that session until you click Apply rules.
+          Author deterministic rules and simulate outcomes. New apps are
+          auto-routed when a rule matches (disable in Settings). Manual routing
+          in Dashboard or Routing overrides rules for that session until you
+          click Apply rules.
         </p>
       </div>
       <div class="rules-header-actions">
-        <button type="button" class="primary" @click="applyRules">Apply rules</button>
-        <button type="button" class="rules-new-btn" @click="openCreateModal">+ New Rule</button>
-        <button type="button" class="rules-simulate-btn" @click="runSimulation">Simulate</button>
+        <button type="button" class="primary" @click="applyRules">
+          Apply rules
+        </button>
+        <button type="button" class="rules-new-btn" @click="openCreateModal">
+          + New Rule
+        </button>
+        <button type="button" class="rules-simulate-btn" @click="runSimulation">
+          Simulate
+        </button>
       </div>
     </header>
 
-    <section v-if="recentlySeenEntries.length > 0" class="rules-panel rules-panel-recent">
+    <section
+      v-if="recentlySeenEntries.length > 0"
+      class="rules-panel rules-panel-recent"
+    >
       <div class="rules-panel-header">
         <div>
           <h3>Recently seen</h3>
           <p>
-            Apps that briefly appeared in the last hour but aren't active right now — create a rule
-            so they're routed correctly next time, even if they only last a second.
+            Apps that briefly appeared in the last hour but aren't active right
+            now — create a rule so they're routed correctly next time, even if
+            they only last a second.
           </p>
         </div>
       </div>
       <ul class="recently-seen-list">
-        <li v-for="(entry, index) in recentlySeenEntries" :key="`${entry.app_name}-${index}`">
+        <li
+          v-for="(entry, index) in recentlySeenEntries"
+          :key="`${entry.app_name}-${index}`"
+        >
           <div class="recently-seen-info">
             <strong>{{ recentEntryLabel(entry) }}</strong>
             <span class="recently-seen-meta">
-              {{ entry.direction === "capture" ? "Capture" : "Playback" }} · {{ recentEntryAgo(entry) }}
+              {{ entry.direction === "capture" ? "Capture" : "Playback" }} ·
+              {{ recentEntryAgo(entry) }}
             </span>
           </div>
           <button
@@ -498,7 +580,10 @@ onMounted(async () => {
       <div class="rules-panel-header">
         <div>
           <h3>Configured Rules</h3>
-          <p>Priority order is evaluated from highest to lowest. Use the arrows to reorder.</p>
+          <p>
+            Priority order is evaluated from highest to lowest. Use the arrows
+            to reorder.
+          </p>
         </div>
         <input
           v-if="rules.length > 0"
@@ -513,7 +598,10 @@ onMounted(async () => {
 
       <div v-if="rules.length === 0" class="rules-empty-state">
         <strong>No authored rules yet.</strong>
-        <p>Click <strong>+ New Rule</strong> above to create your first routing policy.</p>
+        <p>
+          Click <strong>+ New Rule</strong> above to create your first routing
+          policy.
+        </p>
       </div>
 
       <div v-else-if="filteredRules.length === 0" class="rules-empty-state">
@@ -546,7 +634,9 @@ onMounted(async () => {
               v-for="(rule, index) in filteredRules"
               :key="rule.id"
               :rule="rule"
-              :target-kind-label="targetKindForSystemName(rule.action.target_system_name)"
+              :target-kind-label="
+                targetKindForSystemName(rule.action.target_system_name)
+              "
               :target-name="targetDisplay(rule.action.target_system_name)"
               :live-match-count="liveMatchCount(rule)"
               :has-conflict="ruleHasConflict(rule)"
@@ -568,8 +658,9 @@ onMounted(async () => {
         <div>
           <h3>Conflicts</h3>
           <p>
-            These streams matched more than one rule. The higher-priority rule wins; promote a
-            lower rule to preview the resolution before applying it.
+            These streams matched more than one rule. The higher-priority rule
+            wins; promote a lower rule to preview the resolution before applying
+            it.
           </p>
         </div>
         <button
@@ -582,8 +673,14 @@ onMounted(async () => {
         </button>
       </div>
 
-      <article v-for="conflict in conflicts" :key="conflict.streamId" class="conflict-card">
-        <strong class="conflict-stream-label">{{ conflict.streamLabel }}</strong>
+      <article
+        v-for="conflict in conflicts"
+        :key="conflict.streamId"
+        class="conflict-card"
+      >
+        <strong class="conflict-stream-label">{{
+          conflict.streamLabel
+        }}</strong>
 
         <div class="conflict-rules">
           <div class="conflict-rule conflict-rule-winner">
@@ -593,7 +690,10 @@ onMounted(async () => {
               Priority {{ conflict.winnerRule.priority }}
             </span>
             <ul v-if="conflict.winnerRule" class="rule-condition-lines">
-              <li v-for="(condition, index) in conflict.winnerRule.conditions" :key="index">
+              <li
+                v-for="(condition, index) in conflict.winnerRule.conditions"
+                :key="index"
+              >
                 {{ formatConditionSummary(condition) }}
               </li>
             </ul>
@@ -606,9 +706,14 @@ onMounted(async () => {
           >
             <span class="conflict-rule-role">Skipped</span>
             <strong>{{ loser.ruleKey }}</strong>
-            <span v-if="loser.rule" class="rule-meta">Priority {{ loser.rule.priority }}</span>
+            <span v-if="loser.rule" class="rule-meta"
+              >Priority {{ loser.rule.priority }}</span
+            >
             <ul v-if="loser.rule" class="rule-condition-lines">
-              <li v-for="(condition, index) in loser.rule.conditions" :key="index">
+              <li
+                v-for="(condition, index) in loser.rule.conditions"
+                :key="index"
+              >
                 {{ formatConditionSummary(condition) }}
               </li>
             </ul>
@@ -619,7 +724,10 @@ onMounted(async () => {
                 <span
                   class="conflict-preview-status"
                   :class="{
-                    'conflict-resolved': previewedRuleResolved(conflict.streamId, loser.ruleId),
+                    'conflict-resolved': previewedRuleResolved(
+                      conflict.streamId,
+                      loser.ruleId,
+                    ),
                   }"
                 >
                   {{
@@ -632,18 +740,28 @@ onMounted(async () => {
                   v-if="previewedRuleResolved(conflict.streamId, loser.ruleId)"
                   type="button"
                   class="primary"
-                  @click="applyPriorityChange(loser.rule, priorityPreview[loser.ruleId])"
+                  @click="
+                    applyPriorityChange(
+                      loser.rule,
+                      priorityPreview[loser.ruleId],
+                    )
+                  "
                 >
                   Apply
                 </button>
-                <button type="button" @click="clearPreview(loser.ruleId)">Cancel</button>
+                <button type="button" @click="clearPreview(loser.ruleId)">
+                  Cancel
+                </button>
               </div>
               <button
                 v-else
                 type="button"
                 class="conflict-promote-btn"
                 @click="
-                  previewPromote(loser.ruleId, (conflict.winnerRule?.priority ?? 0) + 1)
+                  previewPromote(
+                    loser.ruleId,
+                    (conflict.winnerRule?.priority ?? 0) + 1,
+                  )
                 "
               >
                 Promote above "{{ conflict.winnerRuleKey }}"
@@ -670,16 +788,22 @@ onMounted(async () => {
         <div>
           <h3>Simulation preview</h3>
           <p class="rules-simulation-help">
-            Includes live streams and recently seen apps from the last hour. Internal clients like
+            Includes live streams and recently seen apps from the last hour.
+            Internal clients like
             <code>pw-play</code> are excluded.
           </p>
         </div>
-        <button type="button" class="rules-simulation-close" @click="showSimulation = false">
+        <button
+          type="button"
+          class="rules-simulation-close"
+          @click="showSimulation = false"
+        >
           Close
         </button>
       </div>
       <p v-if="simulation.length === 0" class="identity-reference-empty">
-        No matching streams in memory. Play audio in your app, wait a few seconds, then simulate again.
+        No matching streams in memory. Play audio in your app, wait a few
+        seconds, then simulate again.
       </p>
       <article
         v-for="result in simulation"
@@ -688,12 +812,16 @@ onMounted(async () => {
       >
         <strong>
           {{ simulationLabel(result) }}
-          <span v-if="result.is_recent" class="identity-recent-badge">recent</span>
+          <span v-if="result.is_recent" class="identity-recent-badge"
+            >recent</span
+          >
         </strong>
         <p>{{ result.explanation.match_reasons.join(", ") || "No match" }}</p>
         <p>
           Would route to
-          {{ targetDisplay(result.explanation.target_system_name) ?? "unchanged" }}
+          {{
+            targetDisplay(result.explanation.target_system_name) ?? "unchanged"
+          }}
         </p>
       </article>
     </section>

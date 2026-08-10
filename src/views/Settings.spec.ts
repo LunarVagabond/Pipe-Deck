@@ -24,7 +24,10 @@ const noticeDurationMs = ref(5000);
 const setNoticeDurationMock = vi.hoisted(() => vi.fn());
 vi.mock("../stores/notices", () => ({
   useApplyResult: () => ({
-    handleApplyResult: (result: { success: boolean; message?: string }, successMessage: string) => {
+    handleApplyResult: (
+      result: { success: boolean; message?: string },
+      successMessage: string,
+    ) => {
       if (result.success) {
         pushNoticeMock("success", successMessage);
         return true;
@@ -33,7 +36,10 @@ vi.mock("../stores/notices", () => ({
       return false;
     },
   }),
-  useNoticeSettings: () => ({ noticeDurationMs, setNoticeDuration: setNoticeDurationMock }),
+  useNoticeSettings: () => ({
+    noticeDurationMs,
+    setNoticeDuration: setNoticeDurationMock,
+  }),
 }));
 
 const daemonStatus = ref<DaemonStatus | null>(null);
@@ -66,7 +72,11 @@ vi.mock("../stores/updateStatus", () => ({
     installingUpdate,
     installProgress,
     installComplete,
-    updateStatus: computed(() => (checkingUpdates.value ? "checking" : (updateResult.value?.status ?? "unknown"))),
+    updateStatus: computed(() =>
+      checkingUpdates.value
+        ? "checking"
+        : (updateResult.value?.status ?? "unknown"),
+    ),
     updateStatusText: computed(() => updateResult.value?.status ?? "unknown"),
     updateChannel,
     ensureAppInfo: ensureAppInfoMock,
@@ -153,7 +163,10 @@ beforeEach(() => {
   installingUpdate.value = false;
   installProgress.value = null;
   installComplete.value = false;
-  schemes.value = [makeResolvedScheme(), makeResolvedScheme({ id: "paper-deck", name: "Paper Deck", kind: "light" })];
+  schemes.value = [
+    makeResolvedScheme(),
+    makeResolvedScheme({ id: "paper-deck", name: "Paper Deck", kind: "light" }),
+  ];
   themeMode.value = "dark";
   darkSchemeId.value = "midnight-deck";
   lightSchemeId.value = "paper-deck";
@@ -166,7 +179,9 @@ describe("Settings view", () => {
   describe("initial load", () => {
     it("loads config, plugins, and paths on mount", async () => {
       mockInvokeDefaults({
-        get_config: { preferences: { restore_on_startup: false, auto_apply_rules: false } },
+        get_config: {
+          preferences: { restore_on_startup: false, auto_apply_rules: false },
+        },
         list_plugins: [makePluginStatus({ name: "My Plugin" })],
       });
 
@@ -202,7 +217,9 @@ describe("Settings view", () => {
       await flushPromises();
       await wrapper.findAll(".settings-tab")[2].trigger("click");
 
-      expect(wrapper.find(".settings-hint").text()).toContain("No plugins discovered.");
+      expect(wrapper.find(".settings-hint").text()).toContain(
+        "No plugins discovered.",
+      );
     });
   });
 
@@ -216,18 +233,26 @@ describe("Settings view", () => {
       await flushPromises();
 
       expect((toggle.element as HTMLInputElement).checked).toBe(false);
-      expect(invokeMock).toHaveBeenCalledWith("set_restore_on_startup", { enabled: false });
-      expect(pushNoticeMock).toHaveBeenCalledWith("success", "Startup restore preference saved");
+      expect(invokeMock).toHaveBeenCalledWith("set_restore_on_startup", {
+        enabled: false,
+      });
+      expect(pushNoticeMock).toHaveBeenCalledWith(
+        "success",
+        "Startup restore preference saved",
+      );
     });
 
     it("rolls back on invoke failure", async () => {
       invokeMock.mockImplementation((cmd: string) => {
-        if (cmd === "set_restore_on_startup") return Promise.reject(new Error("denied"));
+        if (cmd === "set_restore_on_startup")
+          return Promise.reject(new Error("denied"));
         if (cmd === "get_config") return Promise.resolve({ preferences: {} });
         if (cmd === "list_plugins") return Promise.resolve([]);
-        if (cmd === "list_plugin_capability_metadata") return Promise.resolve([]);
+        if (cmd === "list_plugin_capability_metadata")
+          return Promise.resolve([]);
         if (cmd === "list_plugin_discovery_errors") return Promise.resolve([]);
-        if (cmd === "get_config_paths") return Promise.resolve(makeConfigPaths());
+        if (cmd === "get_config_paths")
+          return Promise.resolve(makeConfigPaths());
         return Promise.resolve(undefined);
       });
 
@@ -249,23 +274,34 @@ describe("Settings view", () => {
       await flushPromises();
       await wrapper.findAll(".settings-tab")[1].trigger("click");
 
-      const toggle = wrapper.get('[aria-labelledby="settings-tab-background"] .toggle-input');
+      const toggle = wrapper.get(
+        '[aria-labelledby="settings-tab-background"] .toggle-input',
+      );
       await toggle.setValue(true);
       await flushPromises();
 
       expect(invokeMock).toHaveBeenCalledWith("enable_background_restore");
-      expect(pushNoticeMock).toHaveBeenCalledWith("success", "Background restore enabled");
+      expect(pushNoticeMock).toHaveBeenCalledWith(
+        "success",
+        "Background restore enabled",
+      );
     });
 
     it("rolls back when disabling fails", async () => {
-      mockInvokeDefaults({ get_config: { preferences: { background_restore: true } } });
+      mockInvokeDefaults({
+        get_config: { preferences: { background_restore: true } },
+      });
       invokeMock.mockImplementation((cmd: string) => {
-        if (cmd === "disable_background_restore") return Promise.reject(new Error("no permission"));
-        if (cmd === "get_config") return Promise.resolve({ preferences: { background_restore: true } });
+        if (cmd === "disable_background_restore")
+          return Promise.reject(new Error("no permission"));
+        if (cmd === "get_config")
+          return Promise.resolve({ preferences: { background_restore: true } });
         if (cmd === "list_plugins") return Promise.resolve([]);
-        if (cmd === "list_plugin_capability_metadata") return Promise.resolve([]);
+        if (cmd === "list_plugin_capability_metadata")
+          return Promise.resolve([]);
         if (cmd === "list_plugin_discovery_errors") return Promise.resolve([]);
-        if (cmd === "get_config_paths") return Promise.resolve(makeConfigPaths());
+        if (cmd === "get_config_paths")
+          return Promise.resolve(makeConfigPaths());
         return Promise.resolve(undefined);
       });
 
@@ -273,7 +309,9 @@ describe("Settings view", () => {
       await flushPromises();
       await wrapper.findAll(".settings-tab")[1].trigger("click");
 
-      const toggle = wrapper.get('[aria-labelledby="settings-tab-background"] .toggle-input');
+      const toggle = wrapper.get(
+        '[aria-labelledby="settings-tab-background"] .toggle-input',
+      );
       expect((toggle.element as HTMLInputElement).checked).toBe(true);
       await toggle.setValue(false);
       await flushPromises();
@@ -285,7 +323,11 @@ describe("Settings view", () => {
 
   describe("plugin enable/disable", () => {
     it("toggles a plugin's enabled state", async () => {
-      mockInvokeDefaults({ list_plugins: [makePluginStatus({ id: "p1", name: "P1", enabled: true })] });
+      mockInvokeDefaults({
+        list_plugins: [
+          makePluginStatus({ id: "p1", name: "P1", enabled: true }),
+        ],
+      });
 
       const wrapper = mountSettings();
       await flushPromises();
@@ -295,19 +337,32 @@ describe("Settings view", () => {
       await rowToggle.setValue(false);
       await flushPromises();
 
-      expect(invokeMock).toHaveBeenCalledWith("set_plugin_enabled", { pluginId: "p1", enabled: false });
+      expect(invokeMock).toHaveBeenCalledWith("set_plugin_enabled", {
+        pluginId: "p1",
+        enabled: false,
+      });
       expect(pushNoticeMock).toHaveBeenCalledWith("success", "P1 disabled");
     });
 
     it("rolls back when toggling a plugin fails", async () => {
-      mockInvokeDefaults({ list_plugins: [makePluginStatus({ id: "p1", name: "P1", enabled: true })] });
+      mockInvokeDefaults({
+        list_plugins: [
+          makePluginStatus({ id: "p1", name: "P1", enabled: true }),
+        ],
+      });
       invokeMock.mockImplementation((cmd: string) => {
-        if (cmd === "set_plugin_enabled") return Promise.reject(new Error("crash-looped"));
+        if (cmd === "set_plugin_enabled")
+          return Promise.reject(new Error("crash-looped"));
         if (cmd === "get_config") return Promise.resolve({ preferences: {} });
-        if (cmd === "list_plugins") return Promise.resolve([makePluginStatus({ id: "p1", name: "P1", enabled: true })]);
-        if (cmd === "list_plugin_capability_metadata") return Promise.resolve([]);
+        if (cmd === "list_plugins")
+          return Promise.resolve([
+            makePluginStatus({ id: "p1", name: "P1", enabled: true }),
+          ]);
+        if (cmd === "list_plugin_capability_metadata")
+          return Promise.resolve([]);
         if (cmd === "list_plugin_discovery_errors") return Promise.resolve([]);
-        if (cmd === "get_config_paths") return Promise.resolve(makeConfigPaths());
+        if (cmd === "get_config_paths")
+          return Promise.resolve(makeConfigPaths());
         return Promise.resolve(undefined);
       });
 
@@ -329,8 +384,16 @@ describe("Settings view", () => {
   describe("capability grants", () => {
     it("grants a capability via the plugin detail modal", async () => {
       mockInvokeDefaults({
-        list_plugins: [makePluginStatus({ id: "p1", name: "P1", requested_capabilities: ["network"] })],
-        list_plugin_capability_metadata: [makeCapabilityInfo({ id: "network" })],
+        list_plugins: [
+          makePluginStatus({
+            id: "p1",
+            name: "P1",
+            requested_capabilities: ["network"],
+          }),
+        ],
+        list_plugin_capability_metadata: [
+          makeCapabilityInfo({ id: "network" }),
+        ],
       });
 
       const wrapper = mountSettings();
@@ -341,7 +404,9 @@ describe("Settings view", () => {
 
       expect(wrapper.find(".plugin-modal").exists()).toBe(true);
 
-      const capabilityToggle = wrapper.find(".plugin-capability-row .toggle-input");
+      const capabilityToggle = wrapper.find(
+        ".plugin-capability-row .toggle-input",
+      );
       await capabilityToggle.setValue(true);
       await flushPromises();
 
@@ -366,7 +431,9 @@ describe("Settings view", () => {
       await wrapper.findAll(".settings-tab")[2].trigger("click");
 
       const nameHeader = wrapper.findAll(".plugins-sortable-th")[0];
-      let names = wrapper.findAll(".plugins-table-row strong").map((n) => n.text());
+      let names = wrapper
+        .findAll(".plugins-table-row strong")
+        .map((n) => n.text());
       expect(names).toEqual(["Alpha", "Beta"]);
 
       await nameHeader.trigger("click");
@@ -392,7 +459,9 @@ describe("Settings view", () => {
       const wrapper = mountSettings();
       await flushPromises();
 
-      const resetButton = wrapper.findAll("button").find((b) => b.text() === "Reset to default");
+      const resetButton = wrapper
+        .findAll("button")
+        .find((b) => b.text() === "Reset to default");
       expect(resetButton?.attributes("disabled")).toBeDefined();
     });
   });
@@ -404,7 +473,9 @@ describe("Settings view", () => {
       await flushPromises();
       await wrapper.findAll(".settings-tab")[3].trigger("click");
 
-      expect(wrapper.find(".settings-update-copy").text()).toContain("Checking GitHub releases…");
+      expect(wrapper.find(".settings-update-copy").text()).toContain(
+        "Checking GitHub releases…",
+      );
     });
 
     it("shows an outdated result with an install button", async () => {
@@ -426,7 +497,10 @@ describe("Settings view", () => {
     });
 
     it("shows install-complete state and hides the install button", async () => {
-      updateResult.value = makeUpdateResult({ status: "outdated", latestVersion: "9.9.9" });
+      updateResult.value = makeUpdateResult({
+        status: "outdated",
+        latestVersion: "9.9.9",
+      });
       installComplete.value = true;
 
       const wrapper = mountSettings();
@@ -436,7 +510,9 @@ describe("Settings view", () => {
       expect(wrapper.find(".settings-update-copy").text()).toContain(
         "Update installed — relaunch Pipe Deck to finish.",
       );
-      expect(wrapper.findAll("button").find((b) => b.text() === "Install update")).toBeFalsy();
+      expect(
+        wrapper.findAll("button").find((b) => b.text() === "Install update"),
+      ).toBeFalsy();
     });
 
     it("calls checkForUpdatesNow when Check now is clicked", async () => {
@@ -444,7 +520,9 @@ describe("Settings view", () => {
       await flushPromises();
       await wrapper.findAll(".settings-tab")[3].trigger("click");
 
-      const checkButton = wrapper.findAll("button").find((b) => b.text() === "Check now");
+      const checkButton = wrapper
+        .findAll("button")
+        .find((b) => b.text() === "Check now");
       await checkButton?.trigger("click");
 
       expect(checkForUpdatesNowMock).toHaveBeenCalled();
@@ -453,7 +531,9 @@ describe("Settings view", () => {
 
   describe("PluginDetailModal", () => {
     it("opens on row click and closes on the close action", async () => {
-      mockInvokeDefaults({ list_plugins: [makePluginStatus({ id: "p1", name: "P1" })] });
+      mockInvokeDefaults({
+        list_plugins: [makePluginStatus({ id: "p1", name: "P1" })],
+      });
 
       const wrapper = mountSettings();
       await flushPromises();
@@ -486,13 +566,20 @@ describe("Settings view", () => {
       await wrapper.findAll(".settings-tab")[3].trigger("click");
 
       const aboutPanel = wrapper.get('[aria-labelledby="settings-tab-about"]');
-      const copyButton = aboutPanel.findAll("button").find((b) => b.text() === "Copy");
+      const copyButton = aboutPanel
+        .findAll("button")
+        .find((b) => b.text() === "Copy");
       await copyButton?.trigger("click");
       await flushPromises();
 
       expect(invokeMock).toHaveBeenCalledWith("get_diagnostics_bundle");
-      expect(navigator.clipboard.writeText).toHaveBeenCalledWith("diagnostics-text");
-      expect(pushNoticeMock).toHaveBeenCalledWith("success", "Diagnostics copied to clipboard.");
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith(
+        "diagnostics-text",
+      );
+      expect(pushNoticeMock).toHaveBeenCalledWith(
+        "success",
+        "Diagnostics copied to clipboard.",
+      );
     });
 
     it("rescans plugin directories", async () => {
@@ -504,7 +591,10 @@ describe("Settings view", () => {
       await flushPromises();
 
       expect(invokeMock).toHaveBeenCalledWith("rescan_plugins");
-      expect(pushNoticeMock).toHaveBeenCalledWith("success", "Plugin directories rescanned");
+      expect(pushNoticeMock).toHaveBeenCalledWith(
+        "success",
+        "Plugin directories rescanned",
+      );
     });
   });
 });

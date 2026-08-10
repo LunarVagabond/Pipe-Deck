@@ -8,13 +8,13 @@ Linux audio is powerful, but managing it today means juggling `pavucontrol`, `qp
 
 PipeWire itself is genuinely capable — it's the plumbing, not the problem. The gap is on top of it: routing an app, saving a known-good setup, spinning up a virtual sink, or automating "when Discord opens, send it to my headset" each pull in a different tool, and none of them share state.
 
-| Task | Typical tools today | With Pipe Deck |
-|------|---------------------|-----------------|
-| Per-app output routing | `pavucontrol`, `qpwgraph` | Routing matrix + live dashboard |
-| Volume and mute | `pavucontrol`, desktop applets | Unified mixer panel |
-| Saved setups | Manual scripts, dotfiles | YAML profiles — save, swap, export |
-| Virtual sinks/sources | `pw-cli`, `module-null-sink` | Guided virtual device workflows |
-| Automation | Custom shell hooks | Rule engine with simulation |
+| Task                   | Typical tools today            | With Pipe Deck                     |
+| ---------------------- | ------------------------------ | ---------------------------------- |
+| Per-app output routing | `pavucontrol`, `qpwgraph`      | Routing matrix + live dashboard    |
+| Volume and mute        | `pavucontrol`, desktop applets | Unified mixer panel                |
+| Saved setups           | Manual scripts, dotfiles       | YAML profiles — save, swap, export |
+| Virtual sinks/sources  | `pw-cli`, `module-null-sink`   | Guided virtual device workflows    |
+| Automation             | Custom shell hooks             | Rule engine with simulation        |
 
 Nothing here goes away — WirePlumber still manages the session, PipeWire still owns the graph. Pipe Deck is the layer that makes routing, mixing, virtual devices, and automation feel like one app instead of five. Curious about the backstory? Read [why this project exists](docs/product/About.md).
 
@@ -24,19 +24,19 @@ Nothing here goes away — WirePlumber still manages the session, PipeWire still
 
 ## Screenshots
 
-| Dashboard | Mixer |
-|-----------|-------|
+| Dashboard                                                  | Mixer                                                     |
+| ---------------------------------------------------------- | --------------------------------------------------------- |
 | ![Dashboard — live audio graph](docs/images/dashboard.png) | ![Mixer — per-app levels and mute](docs/images/mixer.png) |
 
-| Routing | Sources |
-|---------|---------|
+| Routing                                                     | Sources                                                          |
+| ----------------------------------------------------------- | ---------------------------------------------------------------- |
 | ![Routing — application to output](docs/images/routing.png) | ![Sources — inputs and virtual devices](docs/images/sources.png) |
 
 ## Get started
 
 **Users** — grab a prebuilt binary from the [latest release](https://github.com/LunarVagabond/Pipe-Deck/releases/latest): AppImage (any distro, no install step), `.deb` (Debian/Ubuntu/Pop!_OS/Mint), or `.rpm` (Fedora and friends). You'll need PipeWire already running (standard on any modern PipeWire desktop) — Pipe Deck talks to it through `pactl`, `pw-link`, and `pw-dump`.
 
-Once it's open: the dashboard shows your live routing graph, and dragging a connection between an app and an output *is* routing — no separate graph editor. Full walkthrough: [Getting Started for Users](docs/product/Getting_Started_Users.md).
+Once it's open: the dashboard shows your live routing graph, and dragging a connection between an app and an output _is_ routing — no separate graph editor. Full walkthrough: [Getting Started for Users](docs/product/Getting_Started_Users.md).
 
 **Developers** — you'll need Rust (via [rustup](https://rustup.rs/)), Node.js 20+, PipeWire dev tooling, and Tauri's Linux dependencies ([prerequisites guide](https://tauri.app/start/prerequisites/)):
 
@@ -61,12 +61,12 @@ No PipeWire environment handy? `PIPE_DECK_USE_MOCK=1 make start` runs against a 
 
 Full docs live in [`docs/`](docs/README.md), split by audience:
 
-| User docs | Developer docs |
-|-----------|-----------------|
-| [Getting Started](docs/product/Getting_Started_Users.md) | [Getting Started (dev)](docs/developers/Getting_Started.md) + [Development](docs/developers/Development.md) |
+| User docs                                                                                         | Developer docs                                                                                                            |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| [Getting Started](docs/product/Getting_Started_Users.md)                                          | [Getting Started (dev)](docs/developers/Getting_Started.md) + [Development](docs/developers/Development.md)               |
 | [Product Requirements](docs/product/Product_Requirements.md) & [Roadmap](docs/product/Roadmap.md) | [System Architecture](docs/architecture/System_Architecture.md) & [PipeWire Design](docs/architecture/PipeWire_Design.md) |
-| [About / project story](docs/product/About.md) | [Specifications](docs/specs/UI_Spec.md) — UI, config, plugins, rule engine |
-| — | [Plugins](docs/developers/Plugins.md) & [Plugin API](docs/specs/Plugin_API.md), [Releasing](docs/developers/Release.md) |
+| [About / project story](docs/product/About.md)                                                    | [Specifications](docs/specs/UI_Spec.md) — UI, config, plugins, rule engine                                                |
+| —                                                                                                 | [Plugins](docs/developers/Plugins.md) & [Plugin API](docs/specs/Plugin_API.md), [Releasing](docs/developers/Release.md)   |
 
 A few things worth knowing up front, in brief:
 

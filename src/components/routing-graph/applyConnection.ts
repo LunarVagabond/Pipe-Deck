@@ -19,40 +19,58 @@ export type ApplyRoutingResultHandler = (
  * `processing_node_retarget`'s "then" step so both go through identical
  * invoke/report logic. */
 async function invokeSingleAction(
-  action: Exclude<RoutingConnectionAction, { type: "processing_node_retarget" }>,
+  action: Exclude<
+    RoutingConnectionAction,
+    { type: "processing_node_retarget" }
+  >,
   onResult: ApplyRoutingResultHandler,
 ): Promise<void> {
   if (action.type === "stream_target") {
-    const response = await invoke<{ success: boolean; message?: string }>("set_stream_target", {
-      streamId: action.streamId,
-      targetDeviceId: action.targetDeviceId,
-    });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "set_stream_target",
+      {
+        streamId: action.streamId,
+        targetDeviceId: action.targetDeviceId,
+      },
+    );
     onResult(response, "Routing updated");
   } else if (action.type === "clear_stream_target") {
-    const response = await invoke<{ success: boolean; message?: string }>("clear_stream_target", {
-      streamId: action.streamId,
-      previousTargetDeviceId: action.previousTargetDeviceId,
-    });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "clear_stream_target",
+      {
+        streamId: action.streamId,
+        previousTargetDeviceId: action.previousTargetDeviceId,
+      },
+    );
     onResult(response, "Routing cleared");
   } else if (action.type === "stream_mic_passthrough_add") {
-    const response = await invoke<{ success: boolean; message?: string }>("enable_stream_mic_passthrough", {
-      streamId: action.streamId,
-      micDeviceId: action.micDeviceId,
-    });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "enable_stream_mic_passthrough",
+      {
+        streamId: action.streamId,
+        micDeviceId: action.micDeviceId,
+      },
+    );
     onResult(response, "Also sending this app's audio to your microphone");
   } else if (action.type === "processing_node_connect") {
-    const response = await invoke<{ success: boolean; message?: string }>("connect_processing_node_port", {
-      nodeId: action.nodeId,
-      direction: action.direction,
-      peerId: action.peerId,
-    });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "connect_processing_node_port",
+      {
+        nodeId: action.nodeId,
+        direction: action.direction,
+        peerId: action.peerId,
+      },
+    );
     onResult(response, "Routing updated");
   } else {
-    const response = await invoke<{ success: boolean; message?: string }>("disconnect_processing_node_port", {
-      nodeId: action.nodeId,
-      direction: action.direction,
-      portIndex: action.portIndex,
-    });
+    const response = await invoke<{ success: boolean; message?: string }>(
+      "disconnect_processing_node_port",
+      {
+        nodeId: action.nodeId,
+        direction: action.direction,
+        portIndex: action.portIndex,
+      },
+    );
     onResult(response, "Routing cleared");
   }
 }
@@ -71,14 +89,14 @@ export async function applyRoutingConnection(
 
   try {
     if (result.action.type === "processing_node_retarget") {
-      const disconnectResponse = await invoke<{ success: boolean; message?: string }>(
-        "disconnect_processing_node_port",
-        {
-          nodeId: result.action.disconnect.nodeId,
-          direction: result.action.disconnect.direction,
-          portIndex: result.action.disconnect.portIndex,
-        },
-      );
+      const disconnectResponse = await invoke<{
+        success: boolean;
+        message?: string;
+      }>("disconnect_processing_node_port", {
+        nodeId: result.action.disconnect.nodeId,
+        direction: result.action.disconnect.direction,
+        portIndex: result.action.disconnect.portIndex,
+      });
       if (!disconnectResponse.success) {
         onResult(disconnectResponse, "");
         return false;
@@ -90,7 +108,10 @@ export async function applyRoutingConnection(
     return true;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    onResult({ success: false, message: `Couldn't update routing: ${message}` }, "");
+    onResult(
+      { success: false, message: `Couldn't update routing: ${message}` },
+      "",
+    );
     return false;
   }
 }
