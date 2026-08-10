@@ -666,7 +666,7 @@ impl ConfigStore {
         } else {
             config.rules.push(rule);
         }
-        config.rules.sort_by(|left, right| right.priority.cmp(&left.priority));
+        config.rules.sort_by_key(|rule| std::cmp::Reverse(rule.priority));
         self.save_config(&config)
     }
 
