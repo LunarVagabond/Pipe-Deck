@@ -528,6 +528,10 @@ const defaultEdgeOptions = {
 // layout, but nothing here depends on it, so the computed cache is stale).
 const layoutVersion = ref(0);
 const built = computed(() => {
+  // Deliberate reactive-dependency read with no other use — registers
+  // layoutVersion as a computed dependency so a drag-persisted layout
+  // change recomputes immediately (see comment above).
+  // eslint-disable-next-line @typescript-eslint/no-unused-expressions
   layoutVersion.value;
   return buildRoutingGraph(props.graph, groups.value);
 });

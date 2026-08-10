@@ -52,6 +52,9 @@ jobs:
       - name: npm run format:check
         run: npm run format:check
 
+      - name: npm run lint
+        run: npm run lint
+
       - name: make check
         run: make check
 
