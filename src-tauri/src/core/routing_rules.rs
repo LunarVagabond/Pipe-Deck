@@ -1,10 +1,8 @@
-use crate::config::store::ConfigStore;
-use crate::core::models::{
-    Device, RuntimeGraph, Stream, StreamRouteRule,
-};
-use crate::core::stream_identity::{rule_identity_key, stream_identity_key};
-use crate::backend::BackendError;
 use crate::backend::linux::split_sink;
+use crate::backend::BackendError;
+use crate::config::store::ConfigStore;
+use crate::core::models::{Device, RuntimeGraph, Stream, StreamRouteRule};
+use crate::core::stream_identity::{rule_identity_key, stream_identity_key};
 
 pub fn apply_persisted_routing_rules(
     graph: &mut RuntimeGraph,
@@ -27,7 +25,9 @@ pub fn clear_stream_route_rule(stream: &Stream) -> Result<(), BackendError> {
 pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), BackendError> {
     let mut rules = ConfigStore::new().routing_rules();
     let identity = stream_identity_key(stream);
-    rules.stream_rules.retain(|rule| rule_identity_key(rule) != identity);
+    rules
+        .stream_rules
+        .retain(|rule| rule_identity_key(rule) != identity);
     rules.stream_rules.push(StreamRouteRule {
         app_name: Some(stream.app_name.clone()),
         executable: stream.executable.clone(),

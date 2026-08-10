@@ -43,7 +43,10 @@ pub(super) fn apply_mock_snapshot(
     Ok(())
 }
 
-pub(super) fn apply_mock_profile(graph: &mut RuntimeGraph, profile: &Profile) -> Result<(), EngineError> {
+pub(super) fn apply_mock_profile(
+    graph: &mut RuntimeGraph,
+    profile: &Profile,
+) -> Result<(), EngineError> {
     for stream in &mut graph.streams {
         stream.current_target = None;
     }
@@ -55,7 +58,11 @@ pub(super) fn apply_mock_profile(graph: &mut RuntimeGraph, profile: &Profile) ->
 
 pub(super) fn apply_mock_profile_volumes(graph: &mut RuntimeGraph, profile: &Profile) {
     for (device_id, state) in &profile.volume_state {
-        if let Some(device) = graph.devices.iter_mut().find(|device| device.id == *device_id) {
+        if let Some(device) = graph
+            .devices
+            .iter_mut()
+            .find(|device| device.id == *device_id)
+        {
             device.volume_percent = Some(state.volume_percent);
             device.muted = Some(state.muted);
         }

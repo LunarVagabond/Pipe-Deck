@@ -102,7 +102,10 @@ pub fn load_scenario_file(path: &Path) -> Result<RuntimeGraph, String> {
 /// derives rather than requires the author to write.
 pub fn expand_scenario(scenario: ScenarioFile) -> Result<RuntimeGraph, String> {
     if scenario.version != 1 {
-        return Err(format!("unsupported scenario version: {}", scenario.version));
+        return Err(format!(
+            "unsupported scenario version: {}",
+            scenario.version
+        ));
     }
 
     let mut known_ids: HashSet<&str> = HashSet::new();
@@ -117,7 +120,11 @@ pub fn expand_scenario(scenario: ScenarioFile) -> Result<RuntimeGraph, String> {
         }
     }
 
-    let device_ids: HashSet<&str> = scenario.devices.iter().map(|device| device.id.as_str()).collect();
+    let device_ids: HashSet<&str> = scenario
+        .devices
+        .iter()
+        .map(|device| device.id.as_str())
+        .collect();
     for device in &scenario.devices {
         for mix_source in &device.mix_sources {
             if !device_ids.contains(mix_source.device_id.as_str()) {
@@ -144,20 +151,28 @@ pub fn expand_scenario(scenario: ScenarioFile) -> Result<RuntimeGraph, String> {
     let virtual_output_ids: HashSet<&str> = scenario
         .devices
         .iter()
-        .filter(|device| device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output)
+        .filter(|device| {
+            device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Output
+        })
         .map(|device| device.id.as_str())
         .collect();
 
     let mut targets_by_id: HashMap<&str, Vec<String>> = HashMap::new();
     for route in &scenario.routes {
-        targets_by_id.entry(route.from.as_str()).or_default().push(route.to.clone());
+        targets_by_id
+            .entry(route.from.as_str())
+            .or_default()
+            .push(route.to.clone());
     }
 
     let devices = scenario
         .devices
         .iter()
         .map(|device| {
-            let targets = targets_by_id.get(device.id.as_str()).cloned().unwrap_or_default();
+            let targets = targets_by_id
+                .get(device.id.as_str())
+                .cloned()
+                .unwrap_or_default();
             Device {
                 id: device.id.clone(),
                 system_name: device.id.clone(),
@@ -194,7 +209,9 @@ pub fn expand_scenario(scenario: ScenarioFile) -> Result<RuntimeGraph, String> {
             window_class: stream.window_class.clone(),
             system_name: Some(stream.id.clone()),
             direction: stream.direction.clone(),
-            current_target: targets_by_id.get(stream.id.as_str()).and_then(|targets| targets.first().cloned()),
+            current_target: targets_by_id
+                .get(stream.id.as_str())
+                .and_then(|targets| targets.first().cloned()),
             media_name: stream.media_name.clone(),
             is_system: false,
             volume_percent: Some(stream.volume_percent),
@@ -274,8 +291,14 @@ mod tests {
                 muted: false,
             }],
             routes: vec![
-                ScenarioRoute { from: "stream-a".into(), to: "sink-a".into() },
-                ScenarioRoute { from: "sink-a".into(), to: "sink-b".into() },
+                ScenarioRoute {
+                    from: "stream-a".into(),
+                    to: "sink-a".into(),
+                },
+                ScenarioRoute {
+                    from: "sink-a".into(),
+                    to: "sink-b".into(),
+                },
             ],
             processing_nodes: Vec::new(),
         }
@@ -288,11 +311,19 @@ mod tests {
         assert_eq!(graph.links.len(), 2);
         assert_eq!(graph.data_source, "mock");
 
-        let sink_a = graph.devices.iter().find(|device| device.id == "sink-a").unwrap();
+        let sink_a = graph
+            .devices
+            .iter()
+            .find(|device| device.id == "sink-a")
+            .unwrap();
         assert_eq!(sink_a.current_target.as_deref(), Some("sink-b"));
         assert_eq!(sink_a.current_targets, vec!["sink-b".to_string()]);
 
-        let stream_a = graph.streams.iter().find(|stream| stream.id == "stream-a").unwrap();
+        let stream_a = graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == "stream-a")
+            .unwrap();
         assert_eq!(stream_a.current_target.as_deref(), Some("sink-a"));
     }
 
@@ -300,11 +331,25 @@ mod tests {
     fn marks_virtual_output_fan_out_links_as_monitor() {
         let graph = expand_scenario(base_scenario()).unwrap();
 
-        let stream_to_sink = graph.links.iter().find(|link| link.source_id == "stream-a").unwrap();
-        assert!(!stream_to_sink.is_monitor, "a stream's direct route is never a monitor fan-out");
+        let stream_to_sink = graph
+            .links
+            .iter()
+            .find(|link| link.source_id == "stream-a")
+            .unwrap();
+        assert!(
+            !stream_to_sink.is_monitor,
+            "a stream's direct route is never a monitor fan-out"
+        );
 
-        let sink_to_output = graph.links.iter().find(|link| link.source_id == "sink-a").unwrap();
-        assert!(sink_to_output.is_monitor, "a virtual output device's fan-out is a monitor link");
+        let sink_to_output = graph
+            .links
+            .iter()
+            .find(|link| link.source_id == "sink-a")
+            .unwrap();
+        assert!(
+            sink_to_output.is_monitor,
+            "a virtual output device's fan-out is a monitor link"
+        );
     }
 
     #[test]
@@ -326,7 +371,10 @@ mod tests {
     #[test]
     fn rejects_dangling_route_reference() {
         let mut scenario = base_scenario();
-        scenario.routes.push(ScenarioRoute { from: "sink-b".into(), to: "does-not-exist".into() });
+        scenario.routes.push(ScenarioRoute {
+            from: "sink-b".into(),
+            to: "does-not-exist".into(),
+        });
         let error = expand_scenario(scenario).unwrap_err();
         assert!(error.contains("unknown id"));
     }
@@ -345,7 +393,8 @@ mod tests {
 
     #[test]
     fn load_scenario_file_reports_missing_file() {
-        let error = load_scenario_file(Path::new("/nonexistent/pipe-deck-scenario.yaml")).unwrap_err();
+        let error =
+            load_scenario_file(Path::new("/nonexistent/pipe-deck-scenario.yaml")).unwrap_err();
         assert!(error.contains("failed to read scenario file"));
     }
 }

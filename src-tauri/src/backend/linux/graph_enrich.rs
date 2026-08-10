@@ -1,13 +1,15 @@
-use crate::config::ConfigStore;
-use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection};
 use crate::backend::linux::pactl;
 use crate::backend::linux::stream_match::{
     is_system_stream_name, resolve_capture_target_device_id, resolve_playback_target_device_id,
     stream_matches_pactl_capture_identity, stream_matches_pactl_input,
     stream_matches_pactl_source_output,
 };
-use std::collections::HashMap;
+use crate::config::ConfigStore;
+use crate::core::models::{
+    Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection,
+};
 use crate::sysproc;
+use std::collections::HashMap;
 
 pub fn finalize_graph(graph: &mut RuntimeGraph) {
     apply_device_aliases(&mut graph.devices);
@@ -103,7 +105,9 @@ fn apply_pactl_levels(devices: &mut [Device]) {
 
     for device in devices {
         let levels = match device.direction {
-            DeviceDirection::Output | DeviceDirection::Duplex => sink_levels.get(&device.system_name),
+            DeviceDirection::Output | DeviceDirection::Duplex => {
+                sink_levels.get(&device.system_name)
+            }
             DeviceDirection::Input => source_levels.get(&device.system_name),
         };
 

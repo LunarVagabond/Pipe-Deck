@@ -98,7 +98,10 @@ fn handle_cleanup(args: &[String]) -> Result<(), String> {
     }))?;
 
     if !errors.is_empty() {
-        return Err(format!("{} cleanup step(s) failed — see errors above", errors.len()));
+        return Err(format!(
+            "{} cleanup step(s) failed — see errors above",
+            errors.len()
+        ));
     }
     Ok(())
 }
@@ -118,7 +121,12 @@ fn handle_route(engine: &mut CoreEngine, args: &[String]) -> Result<(), String> 
             }
             "--targets" | "--target" => {
                 let value = args.get(index + 1).cloned().ok_or("missing targets")?;
-                targets = value.split(',').map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect();
+                targets = value
+                    .split(',')
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string)
+                    .collect();
                 index += 2;
             }
             _ => index += 1,

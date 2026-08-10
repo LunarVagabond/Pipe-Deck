@@ -97,7 +97,8 @@ impl RecentStreamCache {
             .collect();
         ranked.sort_by_key(|(_, seen)| std::cmp::Reverse(*seen));
         ranked.truncate(MAX_ENTRIES);
-        let keep: std::collections::HashSet<String> = ranked.into_iter().map(|(key, _)| key).collect();
+        let keep: std::collections::HashSet<String> =
+            ranked.into_iter().map(|(key, _)| key).collect();
         self.entries.retain(|key, _| keep.contains(key));
     }
 }

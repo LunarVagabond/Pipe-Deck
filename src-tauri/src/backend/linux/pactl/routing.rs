@@ -1,15 +1,15 @@
-use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirection};
-use crate::backend::BackendError;
 use crate::backend::linux::pactl::parse::{find_sink_input_index, find_source_output_index};
-use crate::backend::linux::pactl::run_pactl;
 use crate::backend::linux::pactl::r#virtual::{
     create_null_sink, create_virtual_source, ensure_feed_sink_for_virtual_input,
     feed_sink_name_for_virtual_input, sink_exists,
 };
+use crate::backend::linux::pactl::run_pactl;
 use crate::backend::linux::pw_link;
 use crate::backend::linux::pw_metadata_native as native;
-use std::collections::HashSet;
+use crate::backend::BackendError;
+use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirection};
 use crate::sysproc;
+use std::collections::HashSet;
 
 pub fn move_stream_to_target(
     graph: &RuntimeGraph,
@@ -20,7 +20,9 @@ pub fn move_stream_to_target(
         .devices
         .iter()
         .find(|device| device.id == target_device_id)
-        .ok_or_else(|| BackendError::Message(format!("target device not found: {target_device_id}")))?;
+        .ok_or_else(|| {
+            BackendError::Message(format!("target device not found: {target_device_id}"))
+        })?;
 
     move_stream_to_resolved_target(graph, stream_id, target)
 }
@@ -328,7 +330,10 @@ fn move_stream_to_resolved_target(
     match stream.direction {
         StreamDirection::Playback => {
             let sink_name = resolve_playback_sink_name(target)?;
-            if !matches!(target.direction, DeviceDirection::Output | DeviceDirection::Duplex | DeviceDirection::Input) {
+            if !matches!(
+                target.direction,
+                DeviceDirection::Output | DeviceDirection::Duplex | DeviceDirection::Input
+            ) {
                 return Err(BackendError::Message(
                     "playback streams must target an output or virtual input".into(),
                 ));
@@ -340,7 +345,10 @@ fn move_stream_to_resolved_target(
             run_pactl(&["move-sink-input", &input_index.to_string(), &sink_name])?;
         }
         StreamDirection::Capture => {
-            if !matches!(target.direction, DeviceDirection::Input | DeviceDirection::Duplex) {
+            if !matches!(
+                target.direction,
+                DeviceDirection::Input | DeviceDirection::Duplex
+            ) {
                 return Err(BackendError::Message(
                     "capture streams must target an input device".into(),
                 ));
@@ -360,14 +368,21 @@ fn move_stream_to_resolved_target(
     Ok(())
 }
 
-fn resolve_playback_sink_name(target: &crate::core::models::Device) -> Result<String, BackendError> {
-    if target.direction == DeviceDirection::Input && target.kind == crate::core::models::DeviceKind::Virtual {
+fn resolve_playback_sink_name(
+    target: &crate::core::models::Device,
+) -> Result<String, BackendError> {
+    if target.direction == DeviceDirection::Input
+        && target.kind == crate::core::models::DeviceKind::Virtual
+    {
         let feed_sink = ensure_feed_sink_for_virtual_input(&target.system_name, &target.label)?;
         pw_link::link_sink_monitor_to_target(&feed_sink, &target.system_name, true)?;
         return Ok(feed_sink);
     }
 
-    if !matches!(target.direction, DeviceDirection::Output | DeviceDirection::Duplex) {
+    if !matches!(
+        target.direction,
+        DeviceDirection::Output | DeviceDirection::Duplex
+    ) {
         return Err(BackendError::Message(
             "playback streams must target an output device".into(),
         ));

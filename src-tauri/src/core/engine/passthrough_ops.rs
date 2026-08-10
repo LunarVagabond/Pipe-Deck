@@ -1,6 +1,8 @@
 use crate::backend::slugify;
 use crate::config::ConfigStore;
-use crate::core::models::{ApplyResult, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNodeSpecKind};
+use crate::core::models::{
+    ApplyResult, DeviceDirection, DeviceKind, MixSourceSpec, PortDirection, ProcessingNodeSpecKind,
+};
 
 use super::{CoreEngine, EngineError};
 
@@ -81,7 +83,12 @@ impl CoreEngine {
         }
 
         let original_target_id = device.id.clone();
-        self.enable_stream_mic_passthrough_via_fan_out(&stream.id, &stream.app_name, mic_device_id, &original_target_id)
+        self.enable_stream_mic_passthrough_via_fan_out(
+            &stream.id,
+            &stream.app_name,
+            mic_device_id,
+            &original_target_id,
+        )
     }
 
     /// Fan-Out-backed fallback for `enable_stream_mic_passthrough` when the
@@ -108,7 +115,11 @@ impl CoreEngine {
                 .processing_nodes
                 .iter()
                 .find(|node| node.id == fan_out_id)
-                .is_some_and(|node| node.outputs.iter().any(|port| port.connected_id.as_deref() == Some(target_id)))
+                .is_some_and(|node| {
+                    node.outputs
+                        .iter()
+                        .any(|port| port.connected_id.as_deref() == Some(target_id))
+                })
         };
 
         if node_output_connected_to(self, mic_device_id) {
@@ -118,8 +129,19 @@ impl CoreEngine {
             });
         }
 
-        if !self.graph.processing_nodes.iter().any(|node| node.id == fan_out_id) {
-            self.create_processing_node(&label, ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })?;
+        if !self
+            .graph
+            .processing_nodes
+            .iter()
+            .any(|node| node.id == fan_out_id)
+        {
+            self.create_processing_node(
+                &label,
+                ProcessingNodeSpecKind::FanOut {
+                    volume_percent: 100,
+                    muted: false,
+                },
+            )?;
         }
 
         // Wire both outputs before the input: connecting the input is what
@@ -128,7 +150,11 @@ impl CoreEngine {
         // last keeps the window where the stream isn't audible anywhere as
         // short as possible.
         if !node_output_connected_to(self, original_target_id) {
-            self.connect_processing_node_port(&fan_out_id, PortDirection::Output, original_target_id)?;
+            self.connect_processing_node_port(
+                &fan_out_id,
+                PortDirection::Output,
+                original_target_id,
+            )?;
         }
         self.connect_processing_node_port(&fan_out_id, PortDirection::Output, mic_device_id)?;
 
@@ -137,12 +163,19 @@ impl CoreEngine {
             .processing_nodes
             .iter()
             .find(|node| node.id == fan_out_id)
-            .is_some_and(|node| node.inputs.iter().any(|port| port.connected_id.as_deref() == Some(stream_id)));
+            .is_some_and(|node| {
+                node.inputs
+                    .iter()
+                    .any(|port| port.connected_id.as_deref() == Some(stream_id))
+            });
         if !input_already_wired {
             self.connect_processing_node_port(&fan_out_id, PortDirection::Input, stream_id)?;
         }
 
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     // Removing a passthrough leg needs no dedicated op: once added, it's a
@@ -156,7 +189,11 @@ impl CoreEngine {
     /// `enable_stream_mic_passthrough` above is its only caller. Computes
     /// the resulting full mix from this engine's own graph (not a
     /// frontend-supplied list) so two calls fired close together can't race.
-    fn add_mic_mix_source(&mut self, virtual_mic_device_id: &str, source_device_id: &str) -> Result<ApplyResult, EngineError> {
+    fn add_mic_mix_source(
+        &mut self,
+        virtual_mic_device_id: &str,
+        source_device_id: &str,
+    ) -> Result<ApplyResult, EngineError> {
         let virtual_mic = self
             .graph
             .devices
@@ -165,7 +202,11 @@ impl CoreEngine {
             .cloned()
             .ok_or_else(|| EngineError::NotFound("virtual mic not found".to_string()))?;
 
-        if virtual_mic.mix_sources.iter().any(|source| source.device_id == source_device_id) {
+        if virtual_mic
+            .mix_sources
+            .iter()
+            .any(|source| source.device_id == source_device_id)
+        {
             return Ok(ApplyResult {
                 success: false,
                 message: Some("This device is already mixed into this device.".to_string()),
@@ -177,7 +218,9 @@ impl CoreEngine {
             .devices
             .iter()
             .find(|device| device.id == source_device_id)
-            .ok_or_else(|| EngineError::NotFound(format!("device not found: {source_device_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("device not found: {source_device_id}"))
+            })?;
 
         let mut mix_source_specs: Vec<MixSourceSpec> = virtual_mic
             .mix_sources
@@ -189,7 +232,11 @@ impl CoreEngine {
                     .iter()
                     .find(|device| device.id == existing.device_id)
                     .map(|device| device.system_name.clone())?;
-                Some(MixSourceSpec { system_name, volume_percent: existing.volume_percent, muted: existing.muted })
+                Some(MixSourceSpec {
+                    system_name,
+                    volume_percent: existing.volume_percent,
+                    muted: existing.muted,
+                })
             })
             .collect();
         mix_source_specs.push(MixSourceSpec {
@@ -209,6 +256,9 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 }

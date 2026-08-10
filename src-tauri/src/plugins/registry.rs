@@ -18,7 +18,9 @@ const MAX_BACKOFF: Duration = Duration::from_secs(5);
 
 fn backoff_for(consecutive_failures: u32) -> Duration {
     let exponent = consecutive_failures.saturating_sub(1).min(16);
-    BASE_BACKOFF.saturating_mul(1u32 << exponent).min(MAX_BACKOFF)
+    BASE_BACKOFF
+        .saturating_mul(1u32 << exponent)
+        .min(MAX_BACKOFF)
 }
 
 /// Tracks a plugin's recent crash history so `start_plugin` can back off instead of
@@ -81,8 +83,11 @@ impl PluginManager {
         self.discover();
         self.ensure_bundled_defaults();
 
-        let discovered_ids: HashSet<String> =
-            self.discovered.iter().map(|plugin| plugin.manifest.id.clone()).collect();
+        let discovered_ids: HashSet<String> = self
+            .discovered
+            .iter()
+            .map(|plugin| plugin.manifest.id.clone())
+            .collect();
         let orphaned: Vec<String> = self
             .running
             .keys()
@@ -98,20 +103,25 @@ impl PluginManager {
 
     pub fn ensure_bundled_defaults(&self) {
         let store = ConfigStore::new();
-        let mut config = store.load_config().unwrap_or_else(|_| ConfigStore::default_config());
+        let mut config = store
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
         let mut changed = false;
         for plugin in &self.discovered {
             if !plugin.manifest.bundled {
                 continue;
             }
-            let entry = config.plugins.entry(plugin.manifest.id.clone()).or_insert_with(|| {
-                changed = true;
-                PluginEntry {
-                    enabled: true,
-                    granted_capabilities: plugin.manifest.capabilities.clone(),
-                    config: serde_json::json!({}),
-                }
-            });
+            let entry = config
+                .plugins
+                .entry(plugin.manifest.id.clone())
+                .or_insert_with(|| {
+                    changed = true;
+                    PluginEntry {
+                        enabled: true,
+                        granted_capabilities: plugin.manifest.capabilities.clone(),
+                        config: serde_json::json!({}),
+                    }
+                });
             if entry.granted_capabilities.is_empty() && !plugin.manifest.capabilities.is_empty() {
                 entry.granted_capabilities = plugin.manifest.capabilities.clone();
                 changed = true;
@@ -124,7 +134,9 @@ impl PluginManager {
 
     pub fn start_enabled(&mut self) -> Result<(), String> {
         let store = ConfigStore::new();
-        let config = store.load_config().unwrap_or_else(|_| ConfigStore::default_config());
+        let config = store
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
         for plugin in self.discovered.clone() {
             let Some(entry) = config.plugins.get(&plugin.manifest.id) else {
                 continue;
@@ -165,25 +177,13 @@ impl PluginManager {
 
         let store = ConfigStore::new();
         let config = store.load_config().map_err(|error| error.to_string())?;
-        let entry = config
-            .plugins
-            .get(plugin_id)
-            .cloned()
-            .unwrap_or_default();
+        let entry = config.plugins.get(plugin_id).cloned().unwrap_or_default();
         let granted = entry.granted_capabilities;
 
-        let mut process = PluginProcess::spawn(
-            &discovered.entry_path,
-            plugin_id,
-            &discovered.root,
-        )
-        .map_err(|error| error.to_string())?;
+        let mut process = PluginProcess::spawn(&discovered.entry_path, plugin_id, &discovered.root)
+            .map_err(|error| error.to_string())?;
 
-        if let Err(error) = process.initialize(
-            plugin_id,
-            &granted,
-            store.config_dir(),
-        ) {
+        if let Err(error) = process.initialize(plugin_id, &granted, store.config_dir()) {
             // The stderr reader thread runs independently of the RPC round-trip; give it
             // a brief grace period to catch up before reading the tail, since a plugin
             // typically writes to stderr just before/around the failure we just observed.
@@ -192,7 +192,8 @@ impl PluginManager {
             if let Some(stderr_tail) = process.stderr_tail() {
                 message = format!("{message}\nstderr: {stderr_tail}");
             }
-            self.last_errors.insert(plugin_id.to_string(), message.clone());
+            self.last_errors
+                .insert(plugin_id.to_string(), message.clone());
             audit::log(plugin_id, "initialize", "error", Some(&message));
             let _ = process.child.kill();
 
@@ -231,7 +232,9 @@ impl PluginManager {
             .entry(plugin_id.to_string())
             .or_insert_with(PluginEntry::default);
         entry.enabled = enabled;
-        store.save_config(&config).map_err(|error| error.to_string())?;
+        store
+            .save_config(&config)
+            .map_err(|error| error.to_string())?;
 
         if enabled {
             // A user explicitly re-enabling a plugin is a deliberate retry — give it an
@@ -259,7 +262,9 @@ impl PluginManager {
             entry.granted_capabilities = capabilities;
             entry.enabled
         };
-        store.save_config(&config).map_err(|error| error.to_string())?;
+        store
+            .save_config(&config)
+            .map_err(|error| error.to_string())?;
 
         if enabled {
             self.stop_plugin(plugin_id);
@@ -270,7 +275,9 @@ impl PluginManager {
 
     pub fn push_graph(&mut self, graph: &RuntimeGraph) {
         let store = ConfigStore::new();
-        let config = store.load_config().unwrap_or_else(|_| ConfigStore::default_config());
+        let config = store
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
         let ids: Vec<String> = self.running.keys().cloned().collect();
         for plugin_id in ids {
             let granted = config
@@ -279,8 +286,10 @@ impl PluginManager {
                 .map(|entry| entry.granted_capabilities.clone())
                 .unwrap_or_default();
             if let Some(process) = self.running.get_mut(&plugin_id) {
-                if crate::plugins::capabilities::is_granted(&granted, crate::plugins::capabilities::GRAPH_READ)
-                    && process.notify_graph_updated(graph).is_err()
+                if crate::plugins::capabilities::is_granted(
+                    &granted,
+                    crate::plugins::capabilities::GRAPH_READ,
+                ) && process.notify_graph_updated(graph).is_err()
                 {
                     let mut message = "graph notification failed".to_string();
                     if let Some(stderr_tail) = process.stderr_tail() {
@@ -301,7 +310,9 @@ impl PluginManager {
     /// `profile.read` (see #124), mirroring `push_graph`'s shape/gating.
     pub fn push_profile(&mut self, profile_id: &str, profile_name: &str, updated: &str) {
         let store = ConfigStore::new();
-        let config = store.load_config().unwrap_or_else(|_| ConfigStore::default_config());
+        let config = store
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
         let ids: Vec<String> = self.running.keys().cloned().collect();
         for plugin_id in ids {
             let granted = config
@@ -309,11 +320,17 @@ impl PluginManager {
                 .get(&plugin_id)
                 .map(|entry| entry.granted_capabilities.clone())
                 .unwrap_or_default();
-            if !crate::plugins::capabilities::is_granted(&granted, crate::plugins::capabilities::PROFILE_READ) {
+            if !crate::plugins::capabilities::is_granted(
+                &granted,
+                crate::plugins::capabilities::PROFILE_READ,
+            ) {
                 continue;
             }
             if let Some(process) = self.running.get_mut(&plugin_id) {
-                if process.notify_profile_updated(profile_id, profile_name, updated).is_err() {
+                if process
+                    .notify_profile_updated(profile_id, profile_name, updated)
+                    .is_err()
+                {
                     let mut message = "profile notification failed".to_string();
                     if let Some(stderr_tail) = process.stderr_tail() {
                         message = format!("{message}\nstderr: {stderr_tail}");
@@ -326,7 +343,9 @@ impl PluginManager {
 
     pub fn list_status(&self) -> Vec<PluginStatus> {
         let store = ConfigStore::new();
-        let config = store.load_config().unwrap_or_else(|_| ConfigStore::default_config());
+        let config = store
+            .load_config()
+            .unwrap_or_else(|_| ConfigStore::default_config());
         self.discovered
             .iter()
             .map(|discovered| {
@@ -383,7 +402,9 @@ impl PluginManager {
     /// only ever moves requests out of `PluginProcess`-local storage — it does not apply
     /// them. Applying happens in `CoreEngine::apply_queued_plugin_effect_requests`, the
     /// only thing in this codebase with a `set_device_effects`/`AudioBackend` reference.
-    pub fn drain_effects_requests(&mut self) -> Vec<(String, crate::core::models::EffectsApplyRequest)> {
+    pub fn drain_effects_requests(
+        &mut self,
+    ) -> Vec<(String, crate::core::models::EffectsApplyRequest)> {
         let mut drained = Vec::new();
         for (plugin_id, process) in self.running.iter_mut() {
             while let Some(request) = process.effects_requests.pop_front() {

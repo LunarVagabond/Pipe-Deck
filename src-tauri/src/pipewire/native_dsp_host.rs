@@ -179,7 +179,9 @@ const AUDIO_RING_FRAMES: usize = 8192;
 type ChannelChains = Vec<DspChain>;
 
 fn build_channel_chains(sample_rate_hz: f64, config: &EffectChainConfig) -> ChannelChains {
-    (0..HOST_CHANNELS).map(|_| DspChain::from_config(sample_rate_hz, config)).collect()
+    (0..HOST_CHANNELS)
+        .map(|_| DspChain::from_config(sample_rate_hz, config))
+        .collect()
 }
 
 struct CaptureState {
@@ -244,7 +246,10 @@ impl Drop for PlaybackFilter {
 /// the shared ring buffer frame-major/channel-minor — matching
 /// `CaptureState`'s own push order exactly, so channel identity survives
 /// the ring round trip.
-unsafe extern "C" fn playback_filter_process(data: *mut c_void, position: *mut spa_sys::spa_io_position) {
+unsafe extern "C" fn playback_filter_process(
+    data: *mut c_void,
+    position: *mut spa_sys::spa_io_position,
+) {
     if data.is_null() || position.is_null() {
         return;
     }
@@ -262,7 +267,8 @@ unsafe extern "C" fn playback_filter_process(data: *mut c_void, position: *mut s
         // SAFETY: `port_data` came from a successful `pw_filter_add_port`
         // for this same filter, still valid (the port outlives the filter,
         // which outlives this callback).
-        buffers[channel] = unsafe { pw_sys::pw_filter_get_dsp_buffer(port_data, n_samples as u32) as *mut f32 };
+        buffers[channel] =
+            unsafe { pw_sys::pw_filter_get_dsp_buffer(port_data, n_samples as u32) as *mut f32 };
     }
 
     for frame in 0..n_samples {
@@ -339,10 +345,13 @@ fn create_playback_filter(
     // module's shared connection); `name_c`/`filter_props.into_raw()` are
     // freshly built, valid for this call. `pw_filter_new` takes ownership
     // of the properties pointer per its own doc ("ownership is taken").
-    let filter =
-        unsafe { pw_sys::pw_filter_new(core.as_raw_ptr(), name_c.as_ptr(), filter_props.into_raw()) };
+    let filter = unsafe {
+        pw_sys::pw_filter_new(core.as_raw_ptr(), name_c.as_ptr(), filter_props.into_raw())
+    };
     if filter.is_null() {
-        return Err(NativeDspHostError::PlaybackFilterFailed(device_system_name.to_string()));
+        return Err(NativeDspHostError::PlaybackFilterFailed(
+            device_system_name.to_string(),
+        ));
     }
 
     // One mono DSP port per channel — the `pw_filter_get_dsp_buffer`
@@ -375,7 +384,9 @@ fn create_playback_filter(
             // function up to this point; destroying it also tears down any
             // ports already added.
             unsafe { pw_sys::pw_filter_destroy(filter) };
-            return Err(NativeDspHostError::PlaybackPortFailed(device_system_name.to_string()));
+            return Err(NativeDspHostError::PlaybackPortFailed(
+                device_system_name.to_string(),
+            ));
         }
         ports[channel] = port_data;
     }
@@ -385,7 +396,8 @@ fn create_playback_filter(
     // itself moving (e.g. into the `PlaybackFilter` this function returns)
     // — safe to hand this raw pointer to PipeWire now and move `user_data`
     // into the returned struct afterward.
-    let user_data_ptr: *mut c_void = user_data.as_mut() as *mut PlaybackFilterUserData as *mut c_void;
+    let user_data_ptr: *mut c_void =
+        user_data.as_mut() as *mut PlaybackFilterUserData as *mut c_void;
 
     let mut hook: Box<spa_sys::spa_hook> = Box::new(unsafe { std::mem::zeroed() });
     // SAFETY: `filter`/`hook` valid. `PLAYBACK_FILTER_EVENTS` must be
@@ -396,7 +408,12 @@ fn create_playback_filter(
     // pointer PipeWire retained for every future `process` call outlived
     // this function's stack frame the moment it returned.
     unsafe {
-        pw_sys::pw_filter_add_listener(filter, hook.as_mut() as *mut spa_sys::spa_hook, &PLAYBACK_FILTER_EVENTS, user_data_ptr);
+        pw_sys::pw_filter_add_listener(
+            filter,
+            hook.as_mut() as *mut spa_sys::spa_hook,
+            &PLAYBACK_FILTER_EVENTS,
+            user_data_ptr,
+        );
     }
 
     // No format/latency params — a `pw_filter`'s DSP ports negotiate format
@@ -404,16 +421,28 @@ fn create_playback_filter(
     // `spa_pod` array the way `pw::stream` needs.
     // SAFETY: `filter` valid, `hook`/`user_data` already registered as this
     // filter's listener.
-    let connect_result =
-        unsafe { pw_sys::pw_filter_connect(filter, pw_sys::pw_filter_flags_PW_FILTER_FLAG_RT_PROCESS, std::ptr::null_mut(), 0) };
+    let connect_result = unsafe {
+        pw_sys::pw_filter_connect(
+            filter,
+            pw_sys::pw_filter_flags_PW_FILTER_FLAG_RT_PROCESS,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
     if connect_result < 0 {
         // SAFETY: destroys everything this function allocated; nothing else
         // references `filter` yet since it was never returned to a caller.
         unsafe { pw_sys::pw_filter_destroy(filter) };
-        return Err(NativeDspHostError::PlaybackConnectFailed(device_system_name.to_string()));
+        return Err(NativeDspHostError::PlaybackConnectFailed(
+            device_system_name.to_string(),
+        ));
     }
 
-    Ok(PlaybackFilter { filter, _hook: hook, _user_data: user_data })
+    Ok(PlaybackFilter {
+        filter,
+        _hook: hook,
+        _user_data: user_data,
+    })
 }
 
 /// Everything kept alive for one loaded chain. Dropping this (via
@@ -454,7 +483,11 @@ static HOST: OnceLock<Mutex<DspHost>> = OnceLock::new();
 fn host() -> &'static Mutex<DspHost> {
     HOST.get_or_init(|| {
         let (thread_loop, core) = crate::pipewire::native_host::shared_connection();
-        Mutex::new(DspHost { thread_loop, core, loaded: HashMap::new() })
+        Mutex::new(DspHost {
+            thread_loop,
+            core,
+            loaded: HashMap::new(),
+        })
     })
 }
 
@@ -500,7 +533,10 @@ fn audio_info_pod(rate_hz: Option<u32>) -> Result<Vec<u8>, NativeDspHostError> {
 /// chain through this module or through `native_host`'s builtin-module path.
 pub fn supports(config: &EffectChainConfig) -> bool {
     !config.stages.is_empty()
-        && config.stages.iter().all(|stage| matches!(stage, crate::core::models::EffectStage::Eq5Band { .. }))
+        && config
+            .stages
+            .iter()
+            .all(|stage| matches!(stage, crate::core::models::EffectStage::Eq5Band { .. }))
 }
 
 /// Loads (or replaces) a real-time DSP chain for `device_system_name` — the
@@ -514,7 +550,10 @@ pub fn supports(config: &EffectChainConfig) -> bool {
 /// unlike the builtin-module path, this does not attempt to follow a graph
 /// rate change after the fact; a rate change would need a full
 /// disconnect/reconnect, not attempted in this pass.
-pub fn load_chain(device_system_name: &str, config: &EffectChainConfig) -> Result<String, NativeDspHostError> {
+pub fn load_chain(
+    device_system_name: &str,
+    config: &EffectChainConfig,
+) -> Result<String, NativeDspHostError> {
     const SAMPLE_RATE_HZ: f64 = 48000.0;
 
     unload_chain(device_system_name);
@@ -540,96 +579,113 @@ pub fn load_chain(device_system_name: &str, config: &EffectChainConfig) -> Resul
     // `.connect()` for both streams, matching every other `pw::*` call in
     // this codebase's contract.
     let build_result: Result<LoadedChain, NativeDspHostError> = (|| {
-    // Pure Rust setup — no PipeWire calls, doesn't need the lock at all.
-    // `chain_tx`/`chain_drop_rx` are kept in this outer scope for the final
-    // `LoadedChain`; their other halves move into `CaptureState` below.
-    let audio_ring = HeapRb::<f32>::new(AUDIO_RING_FRAMES * HOST_CHANNELS);
-    let (audio_tx, audio_rx) = audio_ring.split();
-    // Capacity 2 is enough — the capture callback only ever has at most one
-    // *unconsumed* pending swap between polls (it drains on every callback),
-    // a second slot just avoids a spurious `try_push` failure racing a swap
-    // against a callback that hasn't run yet.
-    let chain_ring = HeapRb::<Box<ChannelChains>>::new(2);
-    let (chain_tx, chain_rx) = chain_ring.split();
-    let drop_ring = HeapRb::<Box<ChannelChains>>::new(2);
-    let (chain_drop_tx, chain_drop_rx) = drop_ring.split();
-    let initial_chains = Box::new(build_channel_chains(SAMPLE_RATE_HZ, config));
+        // Pure Rust setup — no PipeWire calls, doesn't need the lock at all.
+        // `chain_tx`/`chain_drop_rx` are kept in this outer scope for the final
+        // `LoadedChain`; their other halves move into `CaptureState` below.
+        let audio_ring = HeapRb::<f32>::new(AUDIO_RING_FRAMES * HOST_CHANNELS);
+        let (audio_tx, audio_rx) = audio_ring.split();
+        // Capacity 2 is enough — the capture callback only ever has at most one
+        // *unconsumed* pending swap between polls (it drains on every callback),
+        // a second slot just avoids a spurious `try_push` failure racing a swap
+        // against a callback that hasn't run yet.
+        let chain_ring = HeapRb::<Box<ChannelChains>>::new(2);
+        let (chain_tx, chain_rx) = chain_ring.split();
+        let drop_ring = HeapRb::<Box<ChannelChains>>::new(2);
+        let (chain_drop_tx, chain_drop_rx) = drop_ring.split();
+        let initial_chains = Box::new(build_channel_chains(SAMPLE_RATE_HZ, config));
 
-    let _lock = guard.thread_loop.lock();
+        let _lock = guard.thread_loop.lock();
 
-    // `media.class = Audio/Sink` matters, not just cosmetic: without it this
-    // registers as a plain input *stream* (category "Stream/Input/Audio"),
-    // which the session manager's default policy does not treat as a valid
-    // link target for other apps' `target.object`-based autoconnect —
-    // confirmed live (pw-cat's own autoconnect silently formed zero links
-    // until this was added). Matches `fx_validate`'s builtin-module capture
-    // template exactly (`capture.props { media.class = Audio/Sink }`),
-    // which is how the pre-existing path already gets this right.
-    let capture_props = properties! {
-        *pw::keys::MEDIA_TYPE => "Audio",
-        *pw::keys::MEDIA_CATEGORY => "Capture",
-        *pw::keys::MEDIA_CLASS => "Audio/Sink",
-        *pw::keys::NODE_NAME => capture_name.as_str(),
-        *pw::keys::NODE_DESCRIPTION => format!("Pipe Deck Effects (in) - {device_system_name}").as_str(),
-    };
-    let capture = pw::stream::StreamRc::new(guard.core.clone(), &capture_name, capture_props)
-        .map_err(|_| NativeDspHostError::CaptureStreamFailed(device_system_name.to_string()))?;
+        // `media.class = Audio/Sink` matters, not just cosmetic: without it this
+        // registers as a plain input *stream* (category "Stream/Input/Audio"),
+        // which the session manager's default policy does not treat as a valid
+        // link target for other apps' `target.object`-based autoconnect —
+        // confirmed live (pw-cat's own autoconnect silently formed zero links
+        // until this was added). Matches `fx_validate`'s builtin-module capture
+        // template exactly (`capture.props { media.class = Audio/Sink }`),
+        // which is how the pre-existing path already gets this right.
+        let capture_props = properties! {
+            *pw::keys::MEDIA_TYPE => "Audio",
+            *pw::keys::MEDIA_CATEGORY => "Capture",
+            *pw::keys::MEDIA_CLASS => "Audio/Sink",
+            *pw::keys::NODE_NAME => capture_name.as_str(),
+            *pw::keys::NODE_DESCRIPTION => format!("Pipe Deck Effects (in) - {device_system_name}").as_str(),
+        };
+        let capture = pw::stream::StreamRc::new(guard.core.clone(), &capture_name, capture_props)
+            .map_err(|_| {
+            NativeDspHostError::CaptureStreamFailed(device_system_name.to_string())
+        })?;
 
-    let capture_state = CaptureState { chains: initial_chains, chain_rx, chain_drop_tx, audio_tx };
-    let capture_listener = capture
-        .add_local_listener_with_user_data(capture_state)
-        .process(|stream, state: &mut CaptureState| {
-            if let Some(new_chains) = state.chain_rx.try_pop() {
-                let old = std::mem::replace(&mut state.chains, new_chains);
-                // Best-effort: if the drop ring is somehow still full (a
-                // second swap landed before the control thread drained the
-                // first), this drops `old` right here rather than blocking
-                // — a `Vec`/`Box` deallocation slipping onto the RT thread
-                // in that rare race is judged better than ever blocking the
-                // audio callback.
-                let _ = state.chain_drop_tx.try_push(old);
-            }
-
-            let Some(mut buffer) = stream.dequeue_buffer() else { return };
-            let datas = buffer.datas_mut();
-            let Some(data) = datas.first_mut() else { return };
-            let stride = HOST_CHANNELS * std::mem::size_of::<f32>();
-            let n_frames = data.chunk().size() as usize / stride;
-            let Some(bytes) = data.data() else { return };
-
-            for frame in 0..n_frames {
-                for (channel, chain) in state.chains.iter_mut().enumerate() {
-                    let start = frame * stride + channel * std::mem::size_of::<f32>();
-                    let Some(sample_bytes) = bytes.get(start..start + 4) else { break };
-                    let sample = f32::from_le_bytes(sample_bytes.try_into().unwrap_or_default());
-                    let processed = chain.process(sample);
-                    // Ring full means playback has fallen behind (an
-                    // xrun-adjacent condition already) — dropping this
-                    // sample rather than blocking keeps the callback
-                    // real-time safe; a persistently-full ring is a tuning
-                    // problem for `AUDIO_RING_FRAMES`, not something this
-                    // callback can fix by waiting.
-                    let _ = state.audio_tx.try_push(processed);
+        let capture_state = CaptureState {
+            chains: initial_chains,
+            chain_rx,
+            chain_drop_tx,
+            audio_tx,
+        };
+        let capture_listener = capture
+            .add_local_listener_with_user_data(capture_state)
+            .process(|stream, state: &mut CaptureState| {
+                if let Some(new_chains) = state.chain_rx.try_pop() {
+                    let old = std::mem::replace(&mut state.chains, new_chains);
+                    // Best-effort: if the drop ring is somehow still full (a
+                    // second swap landed before the control thread drained the
+                    // first), this drops `old` right here rather than blocking
+                    // — a `Vec`/`Box` deallocation slipping onto the RT thread
+                    // in that rare race is judged better than ever blocking the
+                    // audio callback.
+                    let _ = state.chain_drop_tx.try_push(old);
                 }
-            }
-        })
-        .register()
-        .map_err(|_| NativeDspHostError::CaptureStreamFailed(device_system_name.to_string()))?;
 
-    let playback = create_playback_filter(&guard.core, device_system_name, audio_rx)?;
+                let Some(mut buffer) = stream.dequeue_buffer() else {
+                    return;
+                };
+                let datas = buffer.datas_mut();
+                let Some(data) = datas.first_mut() else {
+                    return;
+                };
+                let stride = HOST_CHANNELS * std::mem::size_of::<f32>();
+                let n_frames = data.chunk().size() as usize / stride;
+                let Some(bytes) = data.data() else { return };
 
-    let format_bytes = audio_info_pod(Some(SAMPLE_RATE_HZ as u32))?;
-    let format_pod = Pod::from_bytes(&format_bytes)
-        .ok_or_else(|| NativeDspHostError::PodBuildFailed("serialized format pod bytes were malformed".into()))?;
-    let mut capture_params = [format_pod];
-    capture
-        .connect(
-            spa::utils::Direction::Input,
-            None,
-            pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::RT_PROCESS,
-            &mut capture_params,
-        )
-        .map_err(|error| NativeDspHostError::ConnectFailed(capture_name.clone(), error.to_string()))?;
+                for frame in 0..n_frames {
+                    for (channel, chain) in state.chains.iter_mut().enumerate() {
+                        let start = frame * stride + channel * std::mem::size_of::<f32>();
+                        let Some(sample_bytes) = bytes.get(start..start + 4) else {
+                            break;
+                        };
+                        let sample =
+                            f32::from_le_bytes(sample_bytes.try_into().unwrap_or_default());
+                        let processed = chain.process(sample);
+                        // Ring full means playback has fallen behind (an
+                        // xrun-adjacent condition already) — dropping this
+                        // sample rather than blocking keeps the callback
+                        // real-time safe; a persistently-full ring is a tuning
+                        // problem for `AUDIO_RING_FRAMES`, not something this
+                        // callback can fix by waiting.
+                        let _ = state.audio_tx.try_push(processed);
+                    }
+                }
+            })
+            .register()
+            .map_err(|_| NativeDspHostError::CaptureStreamFailed(device_system_name.to_string()))?;
+
+        let playback = create_playback_filter(&guard.core, device_system_name, audio_rx)?;
+
+        let format_bytes = audio_info_pod(Some(SAMPLE_RATE_HZ as u32))?;
+        let format_pod = Pod::from_bytes(&format_bytes).ok_or_else(|| {
+            NativeDspHostError::PodBuildFailed("serialized format pod bytes were malformed".into())
+        })?;
+        let mut capture_params = [format_pod];
+        capture
+            .connect(
+                spa::utils::Direction::Input,
+                None,
+                pw::stream::StreamFlags::MAP_BUFFERS | pw::stream::StreamFlags::RT_PROCESS,
+                &mut capture_params,
+            )
+            .map_err(|error| {
+                NativeDspHostError::ConnectFailed(capture_name.clone(), error.to_string())
+            })?;
 
         Ok(LoadedChain {
             _capture: capture,
@@ -641,7 +697,9 @@ pub fn load_chain(device_system_name: &str, config: &EffectChainConfig) -> Resul
         })
     })();
 
-    guard.loaded.insert(device_system_name.to_string(), build_result?);
+    guard
+        .loaded
+        .insert(device_system_name.to_string(), build_result?);
 
     Ok(playback_name)
 }
@@ -650,7 +708,9 @@ pub fn load_chain(device_system_name: &str, config: &EffectChainConfig) -> Resul
 /// streams. A no-op if nothing is loaded for `device_system_name`.
 pub fn unload_chain(device_system_name: &str) {
     let mut guard = host().lock().expect("native dsp host mutex poisoned");
-    let Some(loaded) = guard.loaded.remove(device_system_name) else { return };
+    let Some(loaded) = guard.loaded.remove(device_system_name) else {
+        return;
+    };
     // Streams must be disconnected/destroyed with the thread loop locked,
     // same contract as every other `pw::*` teardown in this codebase — drop
     // them explicitly inside the lock rather than relying on `loaded`'s own
@@ -661,7 +721,11 @@ pub fn unload_chain(device_system_name: &str) {
 
 /// Whether a portable-DSP chain is currently loaded for `device_system_name`.
 pub fn is_loaded(device_system_name: &str) -> bool {
-    host().lock().expect("native dsp host mutex poisoned").loaded.contains_key(device_system_name)
+    host()
+        .lock()
+        .expect("native dsp host mutex poisoned")
+        .loaded
+        .contains_key(device_system_name)
 }
 
 /// Pushes an updated chain (rebuilt off the audio thread from new params) to
@@ -669,7 +733,10 @@ pub fn is_loaded(device_system_name: &str) -> bool {
 /// load and every subsequent live param push, see module doc. Also drains
 /// whatever chain(s) a *previous* swap displaced, since that's real-time-unsafe
 /// to drop on the audio thread itself (see `CaptureState`'s swap handling).
-pub fn set_live_chain(device_system_name: &str, config: &EffectChainConfig) -> Result<(), NativeDspHostError> {
+pub fn set_live_chain(
+    device_system_name: &str,
+    config: &EffectChainConfig,
+) -> Result<(), NativeDspHostError> {
     let mut guard = host().lock().expect("native dsp host mutex poisoned");
     let Some(loaded) = guard.loaded.get_mut(device_system_name) else {
         return Ok(());
@@ -758,8 +825,12 @@ mod tests {
         std::thread::sleep(std::time::Duration::from_millis(500));
 
         let capture_name = format!("effect_input.{device_system_name}");
-        let capture_id = crate::pipewire::pw_cli::find_node_id_by_name(&capture_name).ok().flatten();
-        let playback_id = crate::pipewire::pw_cli::find_node_id_by_name(&playback_name).ok().flatten();
+        let capture_id = crate::pipewire::pw_cli::find_node_id_by_name(&capture_name)
+            .ok()
+            .flatten();
+        let playback_id = crate::pipewire::pw_cli::find_node_id_by_name(&playback_name)
+            .ok()
+            .flatten();
 
         if capture_id.is_none() || playback_id.is_none() {
             cleanup();

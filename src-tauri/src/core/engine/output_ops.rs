@@ -17,7 +17,10 @@ impl CoreEngine {
         let system_name = self.adapter.default_output_device_name()?;
         self.graph.devices.iter().find(|device| {
             device.system_name == system_name
-                && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+                && matches!(
+                    device.direction,
+                    DeviceDirection::Output | DeviceDirection::Duplex
+                )
         })
     }
 
@@ -30,7 +33,12 @@ impl CoreEngine {
         self.graph
             .devices
             .iter()
-            .filter(|device| matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex))
+            .filter(|device| {
+                matches!(
+                    device.direction,
+                    DeviceDirection::Output | DeviceDirection::Duplex
+                )
+            })
             .collect()
     }
 
@@ -54,7 +62,8 @@ impl CoreEngine {
     /// Whether the current default output is muted, if one can be
     /// determined — the tray mute toggle's checked state.
     pub fn default_output_muted(&self) -> Option<bool> {
-        self.default_output_device().map(|device| device.muted.unwrap_or(false))
+        self.default_output_device()
+            .map(|device| device.muted.unwrap_or(false))
     }
 
     /// Toggles mute on the current default output device — the tray's

@@ -9,7 +9,10 @@ pub fn compare_profile_to_graph(profile: &Profile, graph: &RuntimeGraph) -> Rout
             .clone()
             .or_else(|| intent.target_device_ids.first().cloned());
 
-        let stream = graph.streams.iter().find(|stream| stream.id == intent.stream_id);
+        let stream = graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == intent.stream_id);
         let live_target_id = stream.and_then(|stream| stream.current_target.clone());
 
         if live_target_id == desired_target_id {
@@ -54,8 +57,7 @@ fn device_label(graph: &RuntimeGraph, device_id: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::core::models::{
-        Device, DeviceDirection, DeviceKind, RoutingIntent, RuntimeGraph, Stream,
-        StreamDirection,
+        Device, DeviceDirection, DeviceKind, RoutingIntent, RuntimeGraph, Stream, StreamDirection,
     };
 
     #[test]
@@ -134,7 +136,13 @@ mod tests {
         let drift = compare_profile_to_graph(&profile, &graph);
         assert!(drift.has_drift);
         assert_eq!(drift.items.len(), 1);
-        assert_eq!(drift.items[0].live_target_label.as_deref(), Some("Headphones"));
-        assert_eq!(drift.items[0].desired_target_label.as_deref(), Some("Speakers"));
+        assert_eq!(
+            drift.items[0].live_target_label.as_deref(),
+            Some("Headphones")
+        );
+        assert_eq!(
+            drift.items[0].desired_target_label.as_deref(),
+            Some("Speakers")
+        );
     }
 }

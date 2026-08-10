@@ -38,25 +38,45 @@ impl AudioBackend for StubBackend {
         ))
     }
 
-    fn set_device_volume(&self, _graph: &RuntimeGraph, _device_id: &str, _percent: u8) -> Result<(), BackendError> {
+    fn set_device_volume(
+        &self,
+        _graph: &RuntimeGraph,
+        _device_id: &str,
+        _percent: u8,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn set_device_mute(&self, _graph: &RuntimeGraph, _device_id: &str, _muted: bool) -> Result<(), BackendError> {
+    fn set_device_mute(
+        &self,
+        _graph: &RuntimeGraph,
+        _device_id: &str,
+        _muted: bool,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn set_stream_volume(&self, _graph: &RuntimeGraph, _stream_id: &str, _percent: u8) -> Result<(), BackendError> {
+    fn set_stream_volume(
+        &self,
+        _graph: &RuntimeGraph,
+        _stream_id: &str,
+        _percent: u8,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn set_stream_mute(&self, _graph: &RuntimeGraph, _stream_id: &str, _muted: bool) -> Result<(), BackendError> {
+    fn set_stream_mute(
+        &self,
+        _graph: &RuntimeGraph,
+        _stream_id: &str,
+        _muted: bool,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
@@ -73,7 +93,12 @@ impl AudioBackend for StubBackend {
         ))
     }
 
-    fn route_stream(&self, _graph: &RuntimeGraph, _stream_id: &str, _target_device_id: &str) -> Result<(), BackendError> {
+    fn route_stream(
+        &self,
+        _graph: &RuntimeGraph,
+        _stream_id: &str,
+        _target_device_id: &str,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
@@ -91,25 +116,42 @@ impl AudioBackend for StubBackend {
 
     fn apply_graph_routing(&self, _graph: &mut RuntimeGraph, _ctx: &ApplyRulesContext<'_>) {}
 
-    fn apply_virtual_mic_mix(&self, _virtual_input: &Device, _mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+    fn apply_virtual_mic_mix(
+        &self,
+        _virtual_input: &Device,
+        _mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn set_mix_source_volume(&self, _virtual_input_system_name: &str, _source_system_name: &str, _percent: u8) -> Result<(), BackendError> {
+    fn set_mix_source_volume(
+        &self,
+        _virtual_input_system_name: &str,
+        _source_system_name: &str,
+        _percent: u8,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn set_mix_source_mute(&self, _virtual_input_system_name: &str, _source_system_name: &str, _muted: bool) -> Result<(), BackendError> {
+    fn set_mix_source_mute(
+        &self,
+        _virtual_input_system_name: &str,
+        _source_system_name: &str,
+        _muted: bool,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn disconnect_all_virtual_mic_mixes(&self, _virtual_input_system_name: &str) -> Result<(), BackendError> {
+    fn disconnect_all_virtual_mic_mixes(
+        &self,
+        _virtual_input_system_name: &str,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
@@ -156,37 +198,61 @@ impl AudioBackend for StubBackend {
         Vec::new()
     }
 
-    fn set_virtual_device_alias(&self, _system_name: &str, _alias: &str) -> Result<(), BackendError> {
+    fn set_virtual_device_alias(
+        &self,
+        _system_name: &str,
+        _alias: &str,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn play_sound(&self, _path: &std::path::Path, _target_system_name: &str, _volume_percent: u8) -> Result<(), BackendError> {
+    fn play_sound(
+        &self,
+        _path: &std::path::Path,
+        _target_system_name: &str,
+        _volume_percent: u8,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
+    fn revert_to_plain_device(
+        &self,
+        _device: &Device,
+        _wait_for_node: bool,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<String>, BackendError> {
+    fn hold_sink_inputs_for_swap(
+        &self,
+        _device_system_name: &str,
+    ) -> Result<Vec<String>, BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn release_held_sink_inputs(&self, _held_streams: &[String], _target_system_name: &str) -> Result<(), BackendError> {
+    fn release_held_sink_inputs(
+        &self,
+        _held_streams: &[String],
+        _target_system_name: &str,
+    ) -> Result<(), BackendError> {
         Err(BackendError::Message(
             "no audio backend implemented for this platform yet".into(),
         ))
     }
 
-    fn list_mic_feeds(&self, _target_system_name: &str, _target_is_virtual_source: bool) -> Vec<String> {
+    fn list_mic_feeds(
+        &self,
+        _target_system_name: &str,
+        _target_is_virtual_source: bool,
+    ) -> Vec<String> {
         Vec::new()
     }
 

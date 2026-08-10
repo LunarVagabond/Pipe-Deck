@@ -103,8 +103,7 @@ pub fn run() -> i32 {
     for attempt in 0..5 {
         match restore::restore_session(backend.as_ref()) {
             Ok(result) => {
-                devices_restored =
-                    (result.created.len() + result.adopted.len()) as u32;
+                devices_restored = (result.created.len() + result.adopted.len()) as u32;
                 if result.errors.is_empty() {
                     if let Err(error) = restore::apply_persisted_routes(backend.as_ref()) {
                         last_error = Some(error.to_string());
@@ -126,12 +125,7 @@ pub fn run() -> i32 {
         }
     }
 
-    write_status(
-        pid,
-        &started,
-        last_error.as_deref(),
-        devices_restored,
-    );
+    write_status(pid, &started, last_error.as_deref(), devices_restored);
 
     // Native-effects hosting (issue #148): the daemon should come up for
     // effects hosting regardless of whether restore succeeded — restore
@@ -277,7 +271,14 @@ fn reconcile_live_processing_nodes() {
         // node silently stops working after every daemon restart — nothing
         // else in this codebase reloads it.
         let (system_name, config) = match &spec.kind {
-            crate::core::models::ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => (
+            crate::core::models::ProcessingNodeSpecKind::Eq5Band {
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            } => (
                 format!("pipe-deck-proc-eq5band-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Eq5Band {
@@ -293,7 +294,11 @@ fn reconcile_live_processing_nodes() {
                     ..Default::default()
                 },
             ),
-            crate::core::models::ProcessingNodeSpecKind::Delay { delay_ms, feedback_percent, feedforward_percent } => (
+            crate::core::models::ProcessingNodeSpecKind::Delay {
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+            } => (
                 format!("pipe-deck-proc-delay-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Delay {
@@ -306,7 +311,11 @@ fn reconcile_live_processing_nodes() {
                     ..Default::default()
                 },
             ),
-            crate::core::models::ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric } => (
+            crate::core::models::ProcessingNodeSpecKind::Limiter {
+                ceiling_db,
+                floor_db,
+                symmetric,
+            } => (
                 format!("pipe-deck-proc-limiter-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Limiter {
@@ -319,7 +328,10 @@ fn reconcile_live_processing_nodes() {
                     ..Default::default()
                 },
             ),
-            crate::core::models::ProcessingNodeSpecKind::Hpf { freq_hz, resonance_x10 } => (
+            crate::core::models::ProcessingNodeSpecKind::Hpf {
+                freq_hz,
+                resonance_x10,
+            } => (
                 format!("pipe-deck-proc-hpf-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Hpf {
@@ -334,7 +346,10 @@ fn reconcile_live_processing_nodes() {
             crate::core::models::ProcessingNodeSpecKind::Reverb { mix_percent } => (
                 format!("pipe-deck-proc-reverb-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Reverb { id: "reverb".into(), mix_percent: *mix_percent }],
+                    stages: vec![crate::core::models::EffectStage::Reverb {
+                        id: "reverb".into(),
+                        mix_percent: *mix_percent,
+                    }],
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
@@ -342,7 +357,10 @@ fn reconcile_live_processing_nodes() {
             crate::core::models::ProcessingNodeSpecKind::Widener { width_percent } => (
                 format!("pipe-deck-proc-widener-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Widener { id: "widener".into(), width_percent: *width_percent }],
+                    stages: vec![crate::core::models::EffectStage::Widener {
+                        id: "widener".into(),
+                        width_percent: *width_percent,
+                    }],
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
@@ -350,7 +368,10 @@ fn reconcile_live_processing_nodes() {
             crate::core::models::ProcessingNodeSpecKind::Pan { balance_percent } => (
                 format!("pipe-deck-proc-pan-{}", spec.slug),
                 crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Pan { id: "pan".into(), balance_percent: *balance_percent }],
+                    stages: vec![crate::core::models::EffectStage::Pan {
+                        id: "pan".into(),
+                        balance_percent: *balance_percent,
+                    }],
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
@@ -450,9 +471,7 @@ pub fn daemon_binary_path() -> Option<PathBuf> {
     }
 
     if let Ok(current) = std::env::current_exe() {
-        let sibling = current
-            .parent()
-            .map(|dir| dir.join("pipe-deck-daemon"));
+        let sibling = current.parent().map(|dir| dir.join("pipe-deck-daemon"));
         if let Some(path) = sibling {
             if path.exists() {
                 return Some(path);
@@ -499,8 +518,8 @@ fn installed_unit_version(contents: &str) -> Option<u32> {
 }
 
 pub fn install_user_service_unit() -> Result<(), String> {
-    let daemon_path = daemon_binary_path()
-        .ok_or_else(|| "pipe-deck-daemon binary not found".to_string())?;
+    let daemon_path =
+        daemon_binary_path().ok_or_else(|| "pipe-deck-daemon binary not found".to_string())?;
     let unit_dir = user_systemd_dir();
     fs::create_dir_all(&unit_dir).map_err(|error| error.to_string())?;
 
@@ -510,7 +529,8 @@ pub fn install_user_service_unit() -> Result<(), String> {
     // that's already active under the old type — stop the old unit first so
     // the new one starts clean under its new `Type=`.
     if let Ok(existing) = fs::read_to_string(&unit_path) {
-        let needs_reinstall = installed_unit_version(&existing).is_none_or(|version| version < CURRENT_UNIT_VERSION);
+        let needs_reinstall =
+            installed_unit_version(&existing).is_none_or(|version| version < CURRENT_UNIT_VERSION);
         if needs_reinstall {
             let _ = systemd::disable_and_stop(SERVICE_NAME);
         }
@@ -690,7 +710,8 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-recovery-test-{}", std::process::id()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("pipe-deck-recovery-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -739,8 +760,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&created.system_name).unwrap_or(false);
         cleanup(&mut engine);
 
-        assert!(loaded, "reconcile_live_effects_state did not reload the persisted chain");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the chain");
+        assert!(
+            loaded,
+            "reconcile_live_effects_state did not reload the persisted chain"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the chain"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s counterpart for an `Eq5Band`
@@ -756,7 +783,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -811,8 +841,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Eq5Band node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted Eq5Band node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s Delay counterpart (issue #313) —
@@ -825,7 +861,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-delay-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-delay-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -867,8 +906,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Delay node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted Delay node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s Limiter counterpart (issue #311)
@@ -879,7 +924,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-limiter-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-limiter-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -890,7 +938,11 @@ mod live_tests {
             slug: "recovery-test-limiter".to_string(),
             label: "Recovery Test Limiter".to_string(),
             created_at: Utc::now().to_rfc3339(),
-            kind: crate::core::models::ProcessingNodeSpecKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true },
+            kind: crate::core::models::ProcessingNodeSpecKind::Limiter {
+                ceiling_db: -6,
+                floor_db: -6,
+                symmetric: true,
+            },
             input_sources: Vec::new(),
             output_targets: Vec::new(),
             bypassed: false,
@@ -917,8 +969,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Limiter node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted Limiter node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s HPF counterpart (issue #312) —
@@ -929,7 +987,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-hpf-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-hpf-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -940,7 +1001,10 @@ mod live_tests {
             slug: "recovery-test-hpf".to_string(),
             label: "Recovery Test HPF".to_string(),
             created_at: Utc::now().to_rfc3339(),
-            kind: crate::core::models::ProcessingNodeSpecKind::Hpf { freq_hz: 150, resonance_x10: 7 },
+            kind: crate::core::models::ProcessingNodeSpecKind::Hpf {
+                freq_hz: 150,
+                resonance_x10: 7,
+            },
             input_sources: Vec::new(),
             output_targets: Vec::new(),
             bypassed: false,
@@ -967,8 +1031,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted HPF node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted HPF node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s Reverb counterpart (issue #327) —
@@ -979,7 +1049,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-reverb-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-reverb-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -1017,8 +1090,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Reverb node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted Reverb node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s Widener counterpart (issue #314)
@@ -1029,7 +1108,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-widener-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-widener-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -1067,8 +1149,14 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Widener node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted Widener node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 
     /// `reconcile_live_processing_nodes`'s Pan counterpart (issue #16) —
@@ -1079,7 +1167,10 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let _guard = lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!("pipe-deck-proc-node-pan-recovery-test-{}", std::process::id()));
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-proc-node-pan-recovery-test-{}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -1090,7 +1181,9 @@ mod live_tests {
             slug: "recovery-test-pan".to_string(),
             label: "Recovery Test Pan".to_string(),
             created_at: Utc::now().to_rfc3339(),
-            kind: crate::core::models::ProcessingNodeSpecKind::Pan { balance_percent: 40 },
+            kind: crate::core::models::ProcessingNodeSpecKind::Pan {
+                balance_percent: 40,
+            },
             input_sources: Vec::new(),
             output_targets: Vec::new(),
             bypassed: false,
@@ -1117,7 +1210,13 @@ mod live_tests {
         let sink_live = pactl::sink_exists(&system_name).unwrap_or(false);
         cleanup();
 
-        assert!(loaded, "reconcile_live_processing_nodes did not reload the persisted Pan node");
-        assert!(sink_live, "effects sink did not appear after reconciliation reloaded the node");
+        assert!(
+            loaded,
+            "reconcile_live_processing_nodes did not reload the persisted Pan node"
+        );
+        assert!(
+            sink_live,
+            "effects sink did not appear after reconciliation reloaded the node"
+        );
     }
 }

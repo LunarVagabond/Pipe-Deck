@@ -1,7 +1,7 @@
-use crate::core::models::{StreamDirection};
 use crate::backend::BackendError;
-use std::collections::HashMap;
+use crate::core::models::StreamDirection;
 use crate::sysproc;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct PactlSinkInput {
@@ -51,7 +51,10 @@ pub fn load_source_index_names() -> HashMap<u32, String> {
 }
 
 fn load_short_index_names(kind: &str) -> HashMap<u32, String> {
-    let output = match sysproc::command("pactl").args(["list", kind, "short"]).output() {
+    let output = match sysproc::command("pactl")
+        .args(["list", kind, "short"])
+        .output()
+    {
         Ok(output) if output.status.success() => output,
         _ => return HashMap::new(),
     };
@@ -70,7 +73,10 @@ fn load_short_index_names(kind: &str) -> HashMap<u32, String> {
     names
 }
 
-pub fn stream_matches_sink_input(stream: &crate::core::models::Stream, input: &PactlSinkInput) -> bool {
+pub fn stream_matches_sink_input(
+    stream: &crate::core::models::Stream,
+    input: &PactlSinkInput,
+) -> bool {
     if let Some(object_id) = input.object_id {
         return stream.id == format!("node-{object_id}");
     }
@@ -151,7 +157,10 @@ pub fn stream_matches_source_output(
     }
 }
 
-pub(crate) fn find_sink_input_index(_graph: &crate::core::models::RuntimeGraph, stream: &crate::core::models::Stream) -> Result<u32, BackendError> {
+pub(crate) fn find_sink_input_index(
+    _graph: &crate::core::models::RuntimeGraph,
+    stream: &crate::core::models::Stream,
+) -> Result<u32, BackendError> {
     for input in list_sink_inputs() {
         if stream_matches_sink_input(stream, &input) {
             return Ok(input.index);
@@ -181,7 +190,10 @@ pub(crate) fn find_source_output_index(
 }
 
 fn parse_sink_inputs() -> Vec<PactlSinkInput> {
-    let output = match sysproc::command("pactl").args(["list", "sink-inputs"]).output() {
+    let output = match sysproc::command("pactl")
+        .args(["list", "sink-inputs"])
+        .output()
+    {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
@@ -279,7 +291,10 @@ fn parse_sink_inputs_from_text(text: &str) -> Vec<PactlSinkInput> {
 }
 
 fn parse_source_outputs() -> Vec<PactlSourceOutput> {
-    let output = match sysproc::command("pactl").args(["list", "source-outputs"]).output() {
+    let output = match sysproc::command("pactl")
+        .args(["list", "source-outputs"])
+        .output()
+    {
         Ok(output) if output.status.success() => output,
         _ => return Vec::new(),
     };
@@ -519,7 +534,8 @@ Sink Input #52712
     /// `src-tauri/tests/fixtures/` (see `pw_link::tests` for the matching
     /// `pw-link -l` fixture) so they can be extended with further real-world
     /// samples without bloating this file.
-    const PACTL_SINK_INPUTS_FIXTURE: &str = include_str!("../../../../tests/fixtures/pactl_list_sink_inputs.txt");
+    const PACTL_SINK_INPUTS_FIXTURE: &str =
+        include_str!("../../../../tests/fixtures/pactl_list_sink_inputs.txt");
 
     #[test]
     fn parses_sink_inputs_fixture_including_volume_and_mute() {
@@ -565,8 +581,14 @@ Sink Input #52712
         // No '/'-separated percent field at all.
         assert_eq!(extract_volume_percent("Volume: 100%"), None);
         // Percent field present but missing the '%' suffix.
-        assert_eq!(extract_volume_percent("Volume: front-left: 65536 / 100 /   0.00 dB"), None);
+        assert_eq!(
+            extract_volume_percent("Volume: front-left: 65536 / 100 /   0.00 dB"),
+            None
+        );
         // Non-numeric percent field.
-        assert_eq!(extract_volume_percent("Volume: front-left: 65536 / N/A% /   0.00 dB"), None);
+        assert_eq!(
+            extract_volume_percent("Volume: front-left: 65536 / N/A% /   0.00 dB"),
+            None
+        );
     }
 }

@@ -1,7 +1,7 @@
-use crate::core::models::{Device, DeviceDirection, DeviceKind, MixSourceSpec};
-use crate::backend::BackendError;
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
+use crate::backend::BackendError;
+use crate::core::models::{Device, DeviceDirection, DeviceKind, MixSourceSpec};
 use std::collections::HashSet;
 
 /// Applies a virtual mic's mix sources, each through its own per-pair feed
@@ -11,7 +11,9 @@ pub fn apply_virtual_mic_mix(
     virtual_input: &Device,
     mix_sources: &[MixSourceSpec],
 ) -> Result<(), BackendError> {
-    if virtual_input.kind != DeviceKind::Virtual || virtual_input.direction == DeviceDirection::Duplex {
+    if virtual_input.kind != DeviceKind::Virtual
+        || virtual_input.direction == DeviceDirection::Duplex
+    {
         return Err(BackendError::Message(
             "mix sources can only be attached to a virtual input or virtual output".into(),
         ));
@@ -52,7 +54,8 @@ pub(super) fn set_mix_source_volume(
     source_system_name: &str,
     volume_percent: u8,
 ) -> Result<(), BackendError> {
-    let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
+    let feed_name =
+        pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
     pactl::set_sink_volume_by_name(&feed_name, volume_percent)
 }
 
@@ -64,11 +67,14 @@ pub(super) fn set_mix_source_mute(
     source_system_name: &str,
     muted: bool,
 ) -> Result<(), BackendError> {
-    let feed_name = pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
+    let feed_name =
+        pactl::feed_sink_name_for_mix_pair(virtual_input_system_name, source_system_name);
     pactl::set_sink_mute_by_name(&feed_name, muted)
 }
 
-pub fn disconnect_all_virtual_mic_mixes(virtual_input_system_name: &str) -> Result<(), BackendError> {
+pub fn disconnect_all_virtual_mic_mixes(
+    virtual_input_system_name: &str,
+) -> Result<(), BackendError> {
     pactl::gc_feed_sinks_for_mix_pairs(virtual_input_system_name, &HashSet::new())
 }
 
@@ -147,7 +153,8 @@ mod tests {
             volume_percent: 100,
             muted: false,
         }];
-        let error = apply_virtual_mic_mix(&mic, &sources).expect_err("self-loop should be rejected");
+        let error =
+            apply_virtual_mic_mix(&mic, &sources).expect_err("self-loop should be rejected");
         assert!(error.to_string().contains("own playback feed"));
     }
 
@@ -155,6 +162,8 @@ mod tests {
     fn rejects_duplex_target() {
         let mic = sample_mic(DeviceDirection::Duplex);
         let error = apply_virtual_mic_mix(&mic, &[]).expect_err("duplex should be rejected");
-        assert!(error.to_string().contains("virtual input or virtual output"));
+        assert!(error
+            .to_string()
+            .contains("virtual input or virtual output"));
     }
 }

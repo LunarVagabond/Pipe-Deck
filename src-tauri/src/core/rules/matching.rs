@@ -1,6 +1,6 @@
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, FallbackPolicy, RouteSource, Rule,
-    RuleCondition, RuntimeGraph, Stream, StreamDirection, StreamRouteRule,
+    Device, DeviceDirection, DeviceKind, FallbackPolicy, RouteSource, Rule, RuleCondition,
+    RuntimeGraph, Stream, StreamDirection, StreamRouteRule,
 };
 use crate::core::routing_rules::find_device_by_system_name;
 use crate::core::rules::CandidateRule;
@@ -36,7 +36,10 @@ pub fn default_category(stream: &Stream) -> Option<&'static str> {
     None
 }
 
-pub fn stream_matches_persisted_rule(stream: &Stream, rule: &StreamRouteRule) -> Option<Vec<String>> {
+pub fn stream_matches_persisted_rule(
+    stream: &Stream,
+    rule: &StreamRouteRule,
+) -> Option<Vec<String>> {
     if rule.app_name.is_none() && rule.executable.is_none() && rule.media_name.is_none() {
         return None;
     }
@@ -295,7 +298,10 @@ pub(crate) fn collect_stream_candidates(
     candidates
 }
 
-pub(crate) fn find_safe_default_device(graph: &RuntimeGraph, direction: StreamDirection) -> Option<Device> {
+pub(crate) fn find_safe_default_device(
+    graph: &RuntimeGraph,
+    direction: StreamDirection,
+) -> Option<Device> {
     let device_direction = match direction {
         StreamDirection::Playback => DeviceDirection::Output,
         StreamDirection::Capture => DeviceDirection::Input,
@@ -328,15 +334,16 @@ pub(crate) fn resolve_target_device(
 
     match winner.fallback_policy {
         FallbackPolicy::KeepCurrent => None,
-        FallbackPolicy::SafeDefault => find_safe_default_device(graph, stream.direction.clone()).map(|device| {
-            (
-                device.clone(),
-                Some(format!(
-                    "Target unavailable; fell back to safe default ({})",
-                    device.label
-                )),
-            )
-        }),
+        FallbackPolicy::SafeDefault => find_safe_default_device(graph, stream.direction.clone())
+            .map(|device| {
+                (
+                    device.clone(),
+                    Some(format!(
+                        "Target unavailable; fell back to safe default ({})",
+                        device.label
+                    )),
+                )
+            }),
     }
 }
 

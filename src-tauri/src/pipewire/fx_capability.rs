@@ -76,9 +76,14 @@ fn filter_chain_module_present() -> bool {
 }
 
 fn find_ladspa_plugin(candidates: &[&str]) -> Option<String> {
-    let mut search_dirs: Vec<String> = LADSPA_SEARCH_DIRS.iter().map(|dir| dir.to_string()).collect();
+    let mut search_dirs: Vec<String> = LADSPA_SEARCH_DIRS
+        .iter()
+        .map(|dir| dir.to_string())
+        .collect();
     if let Ok(path_var) = std::env::var("LADSPA_PATH") {
-        search_dirs.extend(std::env::split_paths(&path_var).map(|path| path.to_string_lossy().to_string()));
+        search_dirs.extend(
+            std::env::split_paths(&path_var).map(|path| path.to_string_lossy().to_string()),
+        );
     }
 
     for dir in &search_dirs {
@@ -117,7 +122,8 @@ mod tests {
     #[test]
     fn find_ladspa_plugin_honors_ladspa_path_env_override() {
         let _guard = env_lock().lock().unwrap();
-        let dir = std::env::temp_dir().join(format!("pipe-deck-ladspa-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("pipe-deck-ladspa-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let plugin_path = dir.join("fake_gate.so");
         std::fs::write(&plugin_path, b"not a real plugin").unwrap();

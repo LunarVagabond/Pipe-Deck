@@ -1,5 +1,5 @@
-use crate::backend::BackendError;
 use crate::backend::linux::pactl;
+use crate::backend::BackendError;
 use std::fs;
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
@@ -17,7 +17,10 @@ pub fn cleanup_effects_conf_files() -> Result<(), BackendError> {
         return Ok(());
     }
 
-    for dir in [effects_conf_dir(), filter_chain_conf_dir()].into_iter().flatten() {
+    for dir in [effects_conf_dir(), filter_chain_conf_dir()]
+        .into_iter()
+        .flatten()
+    {
         if !dir.is_dir() {
             continue;
         }
@@ -87,4 +90,3 @@ pub fn wait_for_source(system_name: &str, timeout: Duration) -> Result<(), Backe
         std::thread::sleep(Duration::from_millis(150));
     }
 }
-

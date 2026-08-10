@@ -5,7 +5,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
-const SUPPORTED_EXTENSIONS: &[&str] = &["wav", "flac", "ogg", "oga", "mp3", "aiff", "aif", "m4a", "opus"];
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    "wav", "flac", "ogg", "oga", "mp3", "aiff", "aif", "m4a", "opus",
+];
 
 /// A user-named tab, each backing its own folder of clips — Soundux-style
 /// (e.g. "Music", "SFX"), rather than one global folder for the whole
@@ -90,7 +92,8 @@ pub fn list_sounds(folder: &Path) -> Result<Vec<SoundboardClip>, SoundboardError
         return Err(SoundboardError::NotADirectory(folder.display().to_string()));
     }
 
-    let entries = std::fs::read_dir(folder).map_err(|_| SoundboardError::FolderMissing(folder.display().to_string()))?;
+    let entries = std::fs::read_dir(folder)
+        .map_err(|_| SoundboardError::FolderMissing(folder.display().to_string()))?;
 
     let mut clips: Vec<SoundboardClip> = entries
         .flatten()
@@ -135,7 +138,10 @@ mod tests {
     use super::*;
 
     fn temp_dir(name: &str) -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!("pipe-deck-soundboard-test-{name}-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pipe-deck-soundboard-test-{name}-{}",
+            std::process::id()
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
@@ -223,7 +229,12 @@ mod tests {
         let clips = list_sounds(&dir).unwrap();
         let _ = std::fs::remove_dir_all(&dir);
 
-        let duration = clips[0].duration_seconds.expect("a real WAV should yield a probed duration");
-        assert!((duration - 2.0).abs() < 0.05, "expected ~2s, got {duration}");
+        let duration = clips[0]
+            .duration_seconds
+            .expect("a real WAV should yield a probed duration");
+        assert!(
+            (duration - 2.0).abs() < 0.05,
+            "expected ~2s, got {duration}"
+        );
     }
 }

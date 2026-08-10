@@ -15,7 +15,11 @@ use crate::sysproc;
 use std::path::Path;
 use std::process::{Child, Stdio};
 
-pub fn play_sound(path: &Path, target_system_name: &str, volume_percent: u8) -> Result<Child, BackendError> {
+pub fn play_sound(
+    path: &Path,
+    target_system_name: &str,
+    volume_percent: u8,
+) -> Result<Child, BackendError> {
     if !path.is_file() {
         return Err(BackendError::Message(format!(
             "sound file not found: {}",
@@ -26,7 +30,13 @@ pub fn play_sound(path: &Path, target_system_name: &str, volume_percent: u8) -> 
     let volume = format!("{:.2}", f32::from(volume_percent.min(100)) / 100.0);
 
     sysproc::command("pw-cat")
-        .args(["--playback", "--target", target_system_name, "--volume", &volume])
+        .args([
+            "--playback",
+            "--target",
+            target_system_name,
+            "--volume",
+            &volume,
+        ])
         .arg(path)
         .stdin(Stdio::null())
         .stdout(Stdio::null())

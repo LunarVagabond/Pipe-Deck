@@ -8,7 +8,9 @@ pub async fn get_profile(
     state: State<'_, AppState>,
 ) -> Result<Profile, String> {
     let engine = state.engine.read().await;
-    engine.get_profile(&profile_id).map_err(|error| error.to_string())
+    engine
+        .get_profile(&profile_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]

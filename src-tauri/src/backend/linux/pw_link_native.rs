@@ -72,10 +72,24 @@ struct PortRecord {
 }
 
 enum RegistryEvent {
-    Node { id: u32, name: String },
-    Port { id: u32, node_id: u32, name: String, direction: PortDirection },
-    Link { id: u32, output_port: u32, input_port: u32 },
-    Removed { id: u32 },
+    Node {
+        id: u32,
+        name: String,
+    },
+    Port {
+        id: u32,
+        node_id: u32,
+        name: String,
+        direction: PortDirection,
+    },
+    Link {
+        id: u32,
+        output_port: u32,
+        input_port: u32,
+    },
+    Removed {
+        id: u32,
+    },
 }
 
 struct Index {
@@ -88,7 +102,12 @@ struct Index {
 
 impl Index {
     fn new() -> Self {
-        Self { node_ids: HashMap::new(), node_names: HashMap::new(), ports: HashMap::new(), links: HashMap::new() }
+        Self {
+            node_ids: HashMap::new(),
+            node_names: HashMap::new(),
+            ports: HashMap::new(),
+            links: HashMap::new(),
+        }
     }
 
     fn apply(&mut self, event: RegistryEvent) {
@@ -97,10 +116,26 @@ impl Index {
                 self.node_ids.insert(name.clone(), id);
                 self.node_names.insert(id, name);
             }
-            RegistryEvent::Port { id, node_id, name, direction } => {
-                self.ports.insert(id, PortRecord { node_id, name, direction });
+            RegistryEvent::Port {
+                id,
+                node_id,
+                name,
+                direction,
+            } => {
+                self.ports.insert(
+                    id,
+                    PortRecord {
+                        node_id,
+                        name,
+                        direction,
+                    },
+                );
             }
-            RegistryEvent::Link { id, output_port, input_port } => {
+            RegistryEvent::Link {
+                id,
+                output_port,
+                input_port,
+            } => {
                 self.links.insert(id, (output_port, input_port));
             }
             RegistryEvent::Removed { id } => {
@@ -200,15 +235,28 @@ impl Connection {
     }
 
     fn node_id(&self, name: &str) -> Option<u32> {
-        self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).node_ids.get(name).copied()
+        self.index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .node_ids
+            .get(name)
+            .copied()
     }
 
     fn node_id_for_port(&self, port_id: u32) -> Option<u32> {
-        self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).ports.get(&port_id).map(|port| port.node_id)
+        self.index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .ports
+            .get(&port_id)
+            .map(|port| port.node_id)
     }
 
     fn node_name_for_port(&self, port_id: u32) -> Option<String> {
-        let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let index = self
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         let node_id = index.ports.get(&port_id)?.node_id;
         index.node_names.get(&node_id).cloned()
     }
@@ -233,8 +281,16 @@ impl Connection {
     /// output port belongs to one of `output_port_ids` — the native
     /// equivalent of `pw_link.rs::links_from_source`.
     fn links_from_output_ports(&self, output_port_ids: &[u32]) -> Vec<(u32, u32)> {
-        let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        index.links.values().filter(|(output, _)| output_port_ids.contains(output)).copied().collect()
+        let index = self
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        index
+            .links
+            .values()
+            .filter(|(output, _)| output_port_ids.contains(output))
+            .copied()
+            .collect()
     }
 
     /// The input-side counterpart to [`Self::links_from_output_ports`] — every
@@ -246,15 +302,26 @@ impl Connection {
     /// query in this module (all of which start from a known *output* side —
     /// a device's monitor/capture ports fanning out to one or more targets).
     fn links_into_input_ports(&self, input_port_ids: &[u32]) -> Vec<(u32, u32)> {
-        let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        index.links.values().filter(|(_, input)| input_port_ids.contains(input)).copied().collect()
+        let index = self
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        index
+            .links
+            .values()
+            .filter(|(_, input)| input_port_ids.contains(input))
+            .copied()
+            .collect()
     }
 
     /// Finds the link global id (if any) currently connecting `output_port_id`
     /// to `input_port_id`, needed since destruction goes through
     /// `registry.destroy_global(link_id)`, not the port pair itself.
     fn find_link_id(&self, output_port_id: u32, input_port_id: u32) -> Option<u32> {
-        let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let index = self
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         index
             .links
             .iter()
@@ -292,7 +359,9 @@ impl Connection {
                 },
             )
             .map(|_link: pw::link::Link| ())
-            .map_err(|error| BackendError::Message(format!("failed to create native link: {error}")))
+            .map_err(|error| {
+                BackendError::Message(format!("failed to create native link: {error}"))
+            })
     }
 
     fn destroy_link(&self, link_id: u32) -> Result<(), BackendError> {
@@ -306,7 +375,9 @@ impl Connection {
             .destroy_global(link_id)
             .into_result()
             .map(|_| ())
-            .map_err(|error| BackendError::Message(format!("failed to destroy native link {link_id}: {error}")))
+            .map_err(|error| {
+                BackendError::Message(format!("failed to destroy native link {link_id}: {error}"))
+            })
     }
 }
 
@@ -321,7 +392,10 @@ fn translate_global(global: &pw::registry::GlobalObject<&DictRef>) -> Option<Reg
     match global.type_ {
         ObjectType::Node => {
             let name = props.get("node.name")?.to_string();
-            Some(RegistryEvent::Node { id: global.id, name })
+            Some(RegistryEvent::Node {
+                id: global.id,
+                name,
+            })
         }
         ObjectType::Port => {
             let name = props.get("port.name")?.to_string();
@@ -331,12 +405,21 @@ fn translate_global(global: &pw::registry::GlobalObject<&DictRef>) -> Option<Reg
                 "out" => PortDirection::Output,
                 _ => return None,
             };
-            Some(RegistryEvent::Port { id: global.id, node_id, name, direction })
+            Some(RegistryEvent::Port {
+                id: global.id,
+                node_id,
+                name,
+                direction,
+            })
         }
         ObjectType::Link => {
             let output_port: u32 = props.get("link.output.port")?.parse().ok()?;
             let input_port: u32 = props.get("link.input.port")?.parse().ok()?;
-            Some(RegistryEvent::Link { id: global.id, output_port, input_port })
+            Some(RegistryEvent::Link {
+                id: global.id,
+                output_port,
+                input_port,
+            })
         }
         _ => None,
     }
@@ -349,12 +432,19 @@ fn translate_global(global: &pw::registry::GlobalObject<&DictRef>) -> Option<Reg
 /// entry is cheap enough that batching would only add latency for no benefit,
 /// and callers want the smallest possible miss window (same reasoning
 /// #411's `name_index` update already used).
-fn run_assembler(rx: mpsc::Receiver<RegistryEvent>, index: Arc<Mutex<Index>>, ready_tx: mpsc::Sender<()>) {
+fn run_assembler(
+    rx: mpsc::Receiver<RegistryEvent>,
+    index: Arc<Mutex<Index>>,
+    ready_tx: mpsc::Sender<()>,
+) {
     let mut ready_tx = Some(ready_tx);
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(event) => {
-                index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).apply(event);
+                index
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .apply(event);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
@@ -398,7 +488,11 @@ fn apply_link_diff(
     existing: &[(u32, u32)],
     desired: &[(u32, u32)],
 ) -> Result<(), BackendError> {
-    let to_remove: Vec<(u32, u32)> = existing.iter().filter(|pair| !desired.contains(pair)).copied().collect();
+    let to_remove: Vec<(u32, u32)> = existing
+        .iter()
+        .filter(|pair| !desired.contains(pair))
+        .copied()
+        .collect();
     destroy_pairs(conn, &to_remove)?;
 
     for &(output_port, input_port) in desired {
@@ -468,14 +562,21 @@ fn link_target_ports(
         return Some(Ok(()));
     }
 
-    let target_port_ids: std::collections::HashSet<u32> = target_ports.iter().map(|(id, _)| *id).collect();
+    let target_port_ids: std::collections::HashSet<u32> =
+        target_ports.iter().map(|(id, _)| *id).collect();
     let existing: Vec<(u32, u32)> = conn
         .links_from_output_ports(&source_port_ids)
         .into_iter()
         .filter(|(_, input)| target_port_ids.contains(input))
         .collect();
 
-    Some(apply_link_diff(conn, output_node_id, input_node_id, &existing, &desired))
+    Some(apply_link_diff(
+        conn,
+        output_node_id,
+        input_node_id,
+        &existing,
+        &desired,
+    ))
 }
 
 /// Native equivalent of
@@ -492,8 +593,11 @@ fn disconnect_target_ports(
     let output_node_id = conn.node_id(source_system_name)?;
     let input_node_id = conn.node_id(target_system_name)?;
 
-    let source_port_ids: Vec<u32> =
-        conn.ports_for_node(output_node_id, PortDirection::Output).into_iter().map(|(id, _)| id).collect();
+    let source_port_ids: Vec<u32> = conn
+        .ports_for_node(output_node_id, PortDirection::Output)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
     let target_port_ids: std::collections::HashSet<u32> = conn
         .ports_for_node(input_node_id, PortDirection::Input)
         .into_iter()
@@ -514,14 +618,22 @@ pub fn link_capture_source_to_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Option<Result<(), BackendError>> {
-    link_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
+    link_target_ports(
+        capture_source_system_name,
+        virtual_input_system_name,
+        "input_",
+    )
 }
 
 pub fn disconnect_capture_source_from_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Option<Result<(), BackendError>> {
-    disconnect_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
+    disconnect_target_ports(
+        capture_source_system_name,
+        virtual_input_system_name,
+        "input_",
+    )
 }
 
 pub fn link_capture_source_to_sink(
@@ -543,7 +655,11 @@ pub fn link_sink_monitor_to_target(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> Option<Result<(), BackendError>> {
-    let prefix = if target_is_virtual_source { "input_" } else { "playback_" };
+    let prefix = if target_is_virtual_source {
+        "input_"
+    } else {
+        "playback_"
+    };
     link_target_ports(source_system_name, target_system_name, prefix)
 }
 
@@ -552,14 +668,21 @@ pub fn is_sink_monitor_routed_to(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> Option<bool> {
-    let prefix = if target_is_virtual_source { "input_" } else { "playback_" };
+    let prefix = if target_is_virtual_source {
+        "input_"
+    } else {
+        "playback_"
+    };
     let conn = connection()?;
     let output_node_id = conn.node_id(source_system_name)?;
     let input_node_id = conn.node_id(target_system_name)?;
 
     let source_ports = conn.ports_for_node(output_node_id, PortDirection::Output);
-    let target_ports: Vec<(u32, String)> =
-        conn.ports_for_node(input_node_id, PortDirection::Input).into_iter().filter(|(_, name)| name.starts_with(prefix)).collect();
+    let target_ports: Vec<(u32, String)> = conn
+        .ports_for_node(input_node_id, PortDirection::Input)
+        .into_iter()
+        .filter(|(_, name)| name.starts_with(prefix))
+        .collect();
     if source_ports.is_empty() || target_ports.is_empty() {
         return None;
     }
@@ -572,8 +695,11 @@ pub fn is_sink_monitor_routed_to(
 pub fn list_all_monitor_routes_for_source(source_system_name: &str) -> Option<Vec<String>> {
     let conn = connection()?;
     let source_node_id = conn.node_id(source_system_name)?;
-    let source_port_ids: Vec<u32> =
-        conn.ports_for_node(source_node_id, PortDirection::Output).into_iter().map(|(id, _)| id).collect();
+    let source_port_ids: Vec<u32> = conn
+        .ports_for_node(source_node_id, PortDirection::Output)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
 
     let mut targets = Vec::new();
     for (_, input_port_id) in conn.links_from_output_ports(&source_port_ids) {
@@ -596,8 +722,11 @@ pub fn disconnect_sink_monitor_route(
 pub fn disconnect_sink_monitor(source_system_name: &str) -> Option<Result<(), BackendError>> {
     let conn = connection()?;
     let source_node_id = conn.node_id(source_system_name)?;
-    let source_port_ids: Vec<u32> =
-        conn.ports_for_node(source_node_id, PortDirection::Output).into_iter().map(|(id, _)| id).collect();
+    let source_port_ids: Vec<u32> = conn
+        .ports_for_node(source_node_id, PortDirection::Output)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
     let existing = conn.links_from_output_ports(&source_port_ids);
     Some(destroy_pairs(conn, &existing))
 }
@@ -611,8 +740,11 @@ pub fn disconnect_sink_monitor(source_system_name: &str) -> Option<Result<(), Ba
 pub fn disconnect_all_inputs(target_system_name: &str) -> Option<Result<(), BackendError>> {
     let conn = connection()?;
     let target_node_id = conn.node_id(target_system_name)?;
-    let target_port_ids: Vec<u32> =
-        conn.ports_for_node(target_node_id, PortDirection::Input).into_iter().map(|(id, _)| id).collect();
+    let target_port_ids: Vec<u32> = conn
+        .ports_for_node(target_node_id, PortDirection::Input)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
     let existing = conn.links_into_input_ports(&target_port_ids);
     Some(destroy_pairs(conn, &existing))
 }
@@ -629,7 +761,10 @@ pub fn disconnect_all_inputs(target_system_name: &str) -> Option<Result<(), Back
 /// The stream's own ports are never prefix-filtered (same as every other
 /// "source" side in this module) since an arbitrary app's port names follow
 /// no Pipe Deck naming convention.
-pub fn route_playback_stream(stream_system_name: &str, target_system_name: &str) -> Option<Result<(), BackendError>> {
+pub fn route_playback_stream(
+    stream_system_name: &str,
+    target_system_name: &str,
+) -> Option<Result<(), BackendError>> {
     if let Some(Err(error)) = disconnect_sink_monitor(stream_system_name) {
         return Some(Err(error));
     }
@@ -643,7 +778,10 @@ pub fn route_playback_stream(stream_system_name: &str, target_system_name: &str)
 /// ports are matched with an empty prefix (any input port), for the same
 /// arbitrary-naming reason `route_playback_stream` never prefix-filters the
 /// stream side either.
-pub fn route_capture_stream(source_system_name: &str, stream_system_name: &str) -> Option<Result<(), BackendError>> {
+pub fn route_capture_stream(
+    source_system_name: &str,
+    stream_system_name: &str,
+) -> Option<Result<(), BackendError>> {
     if let Some(Err(error)) = disconnect_all_inputs(stream_system_name) {
         return Some(Err(error));
     }
@@ -653,16 +791,26 @@ pub fn route_capture_stream(source_system_name: &str, stream_system_name: &str) 
 pub fn has_output_ports(system_name: &str) -> Option<bool> {
     let conn = connection()?;
     let node_id = conn.node_id(system_name)?;
-    Some(!conn.ports_for_node(node_id, PortDirection::Output).is_empty())
+    Some(
+        !conn
+            .ports_for_node(node_id, PortDirection::Output)
+            .is_empty(),
+    )
 }
 
 pub fn has_input_ports(system_name: &str) -> Option<bool> {
     let conn = connection()?;
     let node_id = conn.node_id(system_name)?;
-    Some(!conn.ports_for_node(node_id, PortDirection::Input).is_empty())
+    Some(
+        !conn
+            .ports_for_node(node_id, PortDirection::Input)
+            .is_empty(),
+    )
 }
 
-pub fn list_capture_sources_for_virtual_input(virtual_input_system_name: &str) -> Option<Vec<String>> {
+pub fn list_capture_sources_for_virtual_input(
+    virtual_input_system_name: &str,
+) -> Option<Vec<String>> {
     list_capture_sources_for_target_ports(virtual_input_system_name, "input_")
 }
 
@@ -678,7 +826,10 @@ pub fn list_capture_sources_for_stream(stream_system_name: &str) -> Option<Vec<S
     list_capture_sources_for_target_ports(stream_system_name, "")
 }
 
-fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_prefix: &str) -> Option<Vec<String>> {
+fn list_capture_sources_for_target_ports(
+    target_system_name: &str,
+    target_port_prefix: &str,
+) -> Option<Vec<String>> {
     let conn = connection()?;
     let target_node_id = conn.node_id(target_system_name)?;
     let target_port_ids: std::collections::HashSet<u32> = conn
@@ -691,7 +842,10 @@ fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_p
         return None;
     }
 
-    let index = conn.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let index = conn
+        .index
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut sources = Vec::new();
     for (output_port_id, input_port_id) in index.links.values() {
         if !target_port_ids.contains(input_port_id) {
@@ -719,8 +873,11 @@ pub fn disconnect_stale_output_links(
     let conn = connection()?;
     let source_node_id = conn.node_id(source_system_name)?;
     let keep_node_id = conn.node_id(keep_target_system_name)?;
-    let source_port_ids: Vec<u32> =
-        conn.ports_for_node(source_node_id, PortDirection::Output).into_iter().map(|(id, _)| id).collect();
+    let source_port_ids: Vec<u32> = conn
+        .ports_for_node(source_node_id, PortDirection::Output)
+        .into_iter()
+        .map(|(id, _)| id)
+        .collect();
 
     let stale: Vec<(u32, u32)> = conn
         .links_from_output_ports(&source_port_ids)
@@ -742,8 +899,8 @@ mod live_tests {
     //! link topology against `pw-link -l` directly, independent of this
     //! module's own `Index`.
     use super::*;
-    use crate::backend::AudioBackend;
     use crate::backend::linux::live::LinuxPipeWireBackend;
+    use crate::backend::AudioBackend;
     use std::thread;
     use std::time::Duration;
 
@@ -753,7 +910,8 @@ mod live_tests {
     /// `NativeGraphWatcher`) assembler thread before any of the functions
     /// under test can do anything but fall back to the CLI.
     fn wait_until_indexed(names: &[&str]) {
-        let conn = connection().expect("native port-linking connection should start against a real session");
+        let conn = connection()
+            .expect("native port-linking connection should start against a real session");
         for _ in 0..50 {
             if names.iter().all(|name| conn.node_id(name).is_some()) {
                 return;
@@ -768,25 +926,40 @@ mod live_tests {
     fn links_two_virtual_devices_natively_and_disconnects_again() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let source =
-            backend.create_virtual_output("Pipe Deck Native Link Source Test", false).expect("create disposable source");
-        let target = backend.create_virtual_input("Pipe Deck Native Link Target Test").expect("create disposable target");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let source = backend
+            .create_virtual_output("Pipe Deck Native Link Source Test", false)
+            .expect("create disposable source");
+        let target = backend
+            .create_virtual_input("Pipe Deck Native Link Target Test")
+            .expect("create disposable target");
 
         wait_until_indexed(&[&source.system_name, &target.system_name]);
 
-        let link_result = link_sink_monitor_to_target(&source.system_name, &target.system_name, true);
-        assert!(link_result.is_some(), "expected the native path to run, not fall back to the CLI");
-        link_result.unwrap().expect("native link creation should succeed");
+        let link_result =
+            link_sink_monitor_to_target(&source.system_name, &target.system_name, true);
+        assert!(
+            link_result.is_some(),
+            "expected the native path to run, not fall back to the CLI"
+        );
+        link_result
+            .unwrap()
+            .expect("native link creation should succeed");
 
-        assert!(pw_link_l_shows_a_link_between(&source.system_name, &target.system_name), "expected `pw-link -l` to show the new link");
+        assert!(
+            pw_link_l_shows_a_link_between(&source.system_name, &target.system_name),
+            "expected `pw-link -l` to show the new link"
+        );
 
         let routed = is_sink_monitor_routed_to(&source.system_name, &target.system_name, true);
         assert_eq!(routed, Some(true));
 
         let disconnect_result = disconnect_sink_monitor(&source.system_name);
         assert!(disconnect_result.is_some());
-        disconnect_result.unwrap().expect("native disconnect should succeed");
+        disconnect_result
+            .unwrap()
+            .expect("native disconnect should succeed");
 
         let disconnected = (0..20).any(|_| {
             if !pw_link_l_shows_a_link_between(&source.system_name, &target.system_name) {
@@ -795,14 +968,20 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(disconnected, "expected `pw-link -l` to no longer show the link after disconnect");
+        assert!(
+            disconnected,
+            "expected `pw-link -l` to no longer show the link after disconnect"
+        );
 
         let _ = backend.remove_virtual_device(&source.system_name);
         let _ = backend.remove_virtual_device(&target.system_name);
     }
 
     fn pw_link_l_shows_a_link_between(source_system_name: &str, target_system_name: &str) -> bool {
-        let output = crate::sysproc::command("pw-link").arg("-l").output().expect("failed to run pw-link -l");
+        let output = crate::sysproc::command("pw-link")
+            .arg("-l")
+            .output()
+            .expect("failed to run pw-link -l");
         let text = String::from_utf8_lossy(&output.stdout);
         let source_prefix = format!("{source_system_name}:");
         let target_prefix = format!("{target_system_name}:");
@@ -810,7 +989,8 @@ mod live_tests {
         for line in text.lines() {
             if let Some(port) = line.strip_prefix("  |<- ") {
                 if let Some(target) = &current_target {
-                    if target.starts_with(&target_prefix) && port.trim().starts_with(&source_prefix) {
+                    if target.starts_with(&target_prefix) && port.trim().starts_with(&source_prefix)
+                    {
                         return true;
                     }
                 }
@@ -835,7 +1015,10 @@ mod live_tests {
     impl LoopedPlaybackStream {
         fn spawn(target_system_name: &str) -> Self {
             let clip = "/usr/share/sounds/speech-dispatcher/test.wav";
-            assert!(std::path::Path::new(clip).is_file(), "expected a system test wav to exist at {clip}");
+            assert!(
+                std::path::Path::new(clip).is_file(),
+                "expected a system test wav to exist at {clip}"
+            );
             let child = crate::sysproc::command("sh")
                 .args(["-c", &format!("while true; do pw-cat --playback --target '{target_system_name}' '{clip}'; done")])
                 .stdout(std::process::Stdio::null())
@@ -852,7 +1035,9 @@ mod live_tests {
             // pid is what we hold, but the actual `pw-cat` doing the playing
             // is a grandchild `sh` spawns fresh on every loop iteration;
             // killing just the wrapper leaves a `pw-cat` orphaned mid-clip.
-            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = crate::sysproc::command("pkill")
+                .args(["-P", &self.child.id().to_string()])
+                .status();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
@@ -863,9 +1048,14 @@ mod live_tests {
     fn routes_a_playback_stream_between_targets_exclusively() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let target_a = backend.create_virtual_output("Pipe Deck Stream Route Target A", false).expect("create target A");
-        let target_b = backend.create_virtual_output("Pipe Deck Stream Route Target B", false).expect("create target B");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let target_a = backend
+            .create_virtual_output("Pipe Deck Stream Route Target A", false)
+            .expect("create target A");
+        let target_b = backend
+            .create_virtual_output("Pipe Deck Stream Route Target B", false)
+            .expect("create target B");
 
         wait_until_indexed(&[&target_a.system_name, &target_b.system_name]);
         let _stream = LoopedPlaybackStream::spawn(&target_a.system_name);
@@ -879,11 +1069,19 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(indexed, "expected the looped pw-cat stream to register as a live node");
+        assert!(
+            indexed,
+            "expected the looped pw-cat stream to register as a live node"
+        );
 
         let route_result = route_playback_stream("pw-cat", &target_b.system_name);
-        assert!(route_result.is_some(), "expected the native path to run, not fall back to the CLI");
-        route_result.unwrap().expect("native stream route should succeed");
+        assert!(
+            route_result.is_some(),
+            "expected the native path to run, not fall back to the CLI"
+        );
+        route_result
+            .unwrap()
+            .expect("native stream route should succeed");
 
         let routed_to_b = (0..20).any(|_| {
             if pw_link_l_shows_a_link_between("pw-cat", &target_b.system_name) {
@@ -892,7 +1090,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(routed_to_b, "expected pw-cat to be linked into target B after routing");
+        assert!(
+            routed_to_b,
+            "expected pw-cat to be linked into target B after routing"
+        );
         assert!(
             !pw_link_l_shows_a_link_between("pw-cat", &target_a.system_name),
             "expected the exclusive route to have disconnected pw-cat from target A"
@@ -923,7 +1124,9 @@ mod live_tests {
 
     impl Drop for LoopedRecordStream {
         fn drop(&mut self) {
-            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = crate::sysproc::command("pkill")
+                .args(["-P", &self.child.id().to_string()])
+                .status();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
@@ -934,9 +1137,14 @@ mod live_tests {
     fn routes_a_capture_stream_between_sources_exclusively() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let source_a = backend.create_virtual_output("Pipe Deck Capture Route Source A", false).expect("create source A");
-        let source_b = backend.create_virtual_output("Pipe Deck Capture Route Source B", false).expect("create source B");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let source_a = backend
+            .create_virtual_output("Pipe Deck Capture Route Source A", false)
+            .expect("create source A");
+        let source_b = backend
+            .create_virtual_output("Pipe Deck Capture Route Source B", false)
+            .expect("create source B");
 
         wait_until_indexed(&[&source_a.system_name, &source_b.system_name]);
         let _stream = LoopedRecordStream::spawn();
@@ -948,11 +1156,19 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(indexed, "expected the looped pw-cat --record stream to register as a live node");
+        assert!(
+            indexed,
+            "expected the looped pw-cat --record stream to register as a live node"
+        );
 
         let route_a = route_capture_stream(&source_a.system_name, "pw-cat");
-        assert!(route_a.is_some(), "expected the native path to run, not fall back to the CLI");
-        route_a.unwrap().expect("native capture route to source A should succeed");
+        assert!(
+            route_a.is_some(),
+            "expected the native path to run, not fall back to the CLI"
+        );
+        route_a
+            .unwrap()
+            .expect("native capture route to source A should succeed");
 
         let routed_to_a = (0..20).any(|_| {
             if pw_link_l_shows_a_link_between(&source_a.system_name, "pw-cat") {
@@ -961,11 +1177,16 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(routed_to_a, "expected pw-cat to be fed by source A after routing");
+        assert!(
+            routed_to_a,
+            "expected pw-cat to be fed by source A after routing"
+        );
 
         let route_b = route_capture_stream(&source_b.system_name, "pw-cat");
         assert!(route_b.is_some());
-        route_b.unwrap().expect("native capture route to source B should succeed");
+        route_b
+            .unwrap()
+            .expect("native capture route to source B should succeed");
 
         let routed_to_b = (0..20).any(|_| {
             if pw_link_l_shows_a_link_between(&source_b.system_name, "pw-cat") {
@@ -974,7 +1195,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(routed_to_b, "expected pw-cat to be fed by source B after re-routing");
+        assert!(
+            routed_to_b,
+            "expected pw-cat to be fed by source B after re-routing"
+        );
         assert!(
             !pw_link_l_shows_a_link_between(&source_a.system_name, "pw-cat"),
             "expected the exclusive route to have disconnected pw-cat from source A"

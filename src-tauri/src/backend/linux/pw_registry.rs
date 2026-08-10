@@ -76,8 +76,14 @@ const POLL_INTERVAL: Duration = Duration::from_secs(1);
 const INITIAL_GRAPH_TIMEOUT: Duration = Duration::from_secs(2);
 
 enum RegistryEvent {
-    Global { id: u32, object_type: String, props: serde_json::Map<String, serde_json::Value> },
-    Removed { id: u32 },
+    Global {
+        id: u32,
+        object_type: String,
+        props: serde_json::Map<String, serde_json::Value>,
+    },
+    Removed {
+        id: u32,
+    },
 }
 
 /// Owns the live PipeWire connection for as long as it's alive. Every field
@@ -148,21 +154,24 @@ impl NativeGraphWatcher {
         // SAFETY: `pw::init()` has just been called above (exactly once,
         // process-wide, via `PW_INIT`).
         let thread_loop = unsafe { ThreadLoopRc::new(Some("pipe-deck-graph-watcher"), None) }
-            .map_err(|error| BackendError::Message(format!("failed to create PipeWire thread loop: {error}")))?;
+            .map_err(|error| {
+                BackendError::Message(format!("failed to create PipeWire thread loop: {error}"))
+            })?;
         thread_loop.start();
 
         let (tx, rx) = mpsc::channel::<RegistryEvent>();
 
         let (context, core, registry, global_listener) = {
             let _lock = thread_loop.lock();
-            let context = ContextRc::new(&thread_loop, None)
-                .map_err(|error| BackendError::Message(format!("failed to create PipeWire context: {error}")))?;
-            let core = context
-                .connect_rc(None)
-                .map_err(|error| BackendError::Message(format!("failed to connect to PipeWire: {error}")))?;
-            let registry = core
-                .get_registry_rc()
-                .map_err(|error| BackendError::Message(format!("failed to get PipeWire registry: {error}")))?;
+            let context = ContextRc::new(&thread_loop, None).map_err(|error| {
+                BackendError::Message(format!("failed to create PipeWire context: {error}"))
+            })?;
+            let core = context.connect_rc(None).map_err(|error| {
+                BackendError::Message(format!("failed to connect to PipeWire: {error}"))
+            })?;
+            let registry = core.get_registry_rc().map_err(|error| {
+                BackendError::Message(format!("failed to get PipeWire registry: {error}"))
+            })?;
 
             let tx_global = tx.clone();
             let tx_remove = tx;
@@ -172,7 +181,11 @@ impl NativeGraphWatcher {
                     let Some((object_type, props)) = translate_global(global) else {
                         return;
                     };
-                    let _ = tx_global.send(RegistryEvent::Global { id: global.id, object_type, props });
+                    let _ = tx_global.send(RegistryEvent::Global {
+                        id: global.id,
+                        object_type,
+                        props,
+                    });
                 })
                 .global_remove(move |id| {
                     let _ = tx_remove.send(RegistryEvent::Removed { id });
@@ -189,7 +202,15 @@ impl NativeGraphWatcher {
         let (ready_tx, ready_rx) = mpsc::channel::<()>();
         let name_index: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
         let assembler_name_index = name_index.clone();
-        thread::spawn(move || run_assembler(rx, cached_graph, listener_slot, assembler_name_index, ready_tx));
+        thread::spawn(move || {
+            run_assembler(
+                rx,
+                cached_graph,
+                listener_slot,
+                assembler_name_index,
+                ready_tx,
+            )
+        });
 
         let _ = ready_rx.recv_timeout(INITIAL_GRAPH_TIMEOUT);
 
@@ -225,8 +246,14 @@ impl NativeGraphWatcher {
     /// (missing names are simply absent from the result, same "fall back to
     /// the shellout for what's missing" contract as the single-name form).
     pub fn find_node_ids(&self, names: &[String]) -> HashMap<String, u32> {
-        let index = self.name_index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-        names.iter().filter_map(|name| index.get(name).map(|id| (name.clone(), *id))).collect()
+        let index = self
+            .name_index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        names
+            .iter()
+            .filter_map(|name| index.get(name).map(|id| (name.clone(), *id)))
+            .collect()
     }
 }
 
@@ -245,7 +272,10 @@ fn translate_global(
     let mut props = serde_json::Map::new();
     if let Some(dict) = global.props {
         for (key, value) in dict.iter() {
-            props.insert(key.to_string(), serde_json::Value::String(value.to_string()));
+            props.insert(
+                key.to_string(),
+                serde_json::Value::String(value.to_string()),
+            );
         }
     }
 
@@ -306,9 +336,17 @@ fn run_assembler(
     }
 }
 
-fn apply_event(live: &mut LiveObjects, name_index: &Mutex<HashMap<String, u32>>, event: RegistryEvent) {
+fn apply_event(
+    live: &mut LiveObjects,
+    name_index: &Mutex<HashMap<String, u32>>,
+    event: RegistryEvent,
+) {
     match event {
-        RegistryEvent::Global { id, object_type, props } => {
+        RegistryEvent::Global {
+            id,
+            object_type,
+            props,
+        } => {
             if object_type == "PipeWire:Interface:Node" {
                 if let Some(name) = props.get("node.name").and_then(|value| value.as_str()) {
                     name_index
@@ -323,7 +361,9 @@ fn apply_event(live: &mut LiveObjects, name_index: &Mutex<HashMap<String, u32>>,
             if let Some((object_type, props)) = live.remove(&id) {
                 if object_type == "PipeWire:Interface:Node" {
                     if let Some(name) = props.get("node.name").and_then(|value| value.as_str()) {
-                        let mut index = name_index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                        let mut index = name_index
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
                         // Only remove if this id is still the one on record
                         // for that name — guards against a rare
                         // remove-then-immediately-recreate-with-a-new-id
@@ -377,7 +417,11 @@ fn rebuild_and_notify(
     }
 
     if changed {
-        if let Some(callback) = listener_slot.lock().expect("listener lock poisoned").as_ref() {
+        if let Some(callback) = listener_slot
+            .lock()
+            .expect("listener lock poisoned")
+            .as_ref()
+        {
             callback(next_graph);
         }
     }
@@ -389,8 +433,8 @@ mod live_tests {
     //! other `live_tests` module in this codebase (e.g.
     //! `core/engine/soundboard_ops.rs`).
     use super::*;
-    use crate::backend::AudioBackend;
     use crate::backend::linux::live::LinuxPipeWireBackend;
+    use crate::backend::AudioBackend;
     use std::path::Path;
     use std::sync::mpsc::RecvTimeoutError as ChanTimeout;
 
@@ -399,7 +443,8 @@ mod live_tests {
     fn fetch_graph_reflects_the_real_session_via_the_native_watcher() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
         let graph = backend.fetch_graph().expect("fetch_graph should succeed");
 
         assert_eq!(graph.data_source, "pipewire");
@@ -420,9 +465,14 @@ mod live_tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let clip = Path::new("/usr/share/sounds/speech-dispatcher/test.wav");
-        assert!(clip.is_file(), "expected a system test wav to exist at {}", clip.display());
+        assert!(
+            clip.is_file(),
+            "expected a system test wav to exist at {}",
+            clip.display()
+        );
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
 
         let (tx, rx) = mpsc::channel::<RuntimeGraph>();
         backend
@@ -442,7 +492,10 @@ mod live_tests {
             .expect("failed to spawn pw-cat");
 
         let saw_creation = (0..20).any(|_| match rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(graph) => graph.streams.iter().any(|stream| stream.app_name.contains("pw-cat")),
+            Ok(graph) => graph
+                .streams
+                .iter()
+                .any(|stream| stream.app_name.contains("pw-cat")),
             Err(ChanTimeout::Timeout) => false,
             Err(ChanTimeout::Disconnected) => false,
         });
@@ -451,13 +504,22 @@ mod live_tests {
         let _ = child.wait();
 
         let saw_removal = (0..20).any(|_| match rx.recv_timeout(Duration::from_millis(500)) {
-            Ok(graph) => !graph.streams.iter().any(|stream| stream.app_name.contains("pw-cat")),
+            Ok(graph) => !graph
+                .streams
+                .iter()
+                .any(|stream| stream.app_name.contains("pw-cat")),
             Err(ChanTimeout::Timeout) => false,
             Err(ChanTimeout::Disconnected) => false,
         });
 
-        assert!(saw_creation, "expected a live graph push reflecting the new pw-cat stream");
-        assert!(saw_removal, "expected a live graph push reflecting the stream's removal");
+        assert!(
+            saw_creation,
+            "expected a live graph push reflecting the new pw-cat stream"
+        );
+        assert!(
+            saw_removal,
+            "expected a live graph push reflecting the stream's removal"
+        );
     }
 
     #[test]
@@ -470,7 +532,8 @@ mod live_tests {
         // graph watcher.
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
 
         let created = backend
             .create_virtual_input("Pipe Deck Node Lookup Test")
@@ -481,7 +544,10 @@ mod live_tests {
         // asynchronous relative to `create_virtual_input` returning, so poll
         // briefly rather than asserting on the very first attempt.
         let found = (0..20).find_map(|_| {
-            let id = backend.find_live_node_id(&created.system_name).ok().flatten();
+            let id = backend
+                .find_live_node_id(&created.system_name)
+                .ok()
+                .flatten();
             if id.is_some() {
                 return id;
             }
@@ -491,6 +557,9 @@ mod live_tests {
 
         let _ = backend.remove_virtual_device(&created.system_name);
 
-        assert!(found.is_some(), "expected find_live_node_id to resolve the disposable virtual device");
+        assert!(
+            found.is_some(),
+            "expected find_live_node_id to resolve the disposable virtual device"
+        );
     }
 }

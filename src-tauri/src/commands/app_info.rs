@@ -91,7 +91,10 @@ fn release_version_from_revision(revision: &str) -> Option<String> {
         return None;
     }
 
-    if parts.iter().all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit())) {
+    if parts
+        .iter()
+        .all(|part| !part.is_empty() && part.chars().all(|ch| ch.is_ascii_digit()))
+    {
         Some(version.to_string())
     } else {
         None
@@ -122,12 +125,16 @@ fn detect_os_name() -> String {
 /// Desktop environment / compositor, e.g. "COSMIC", "GNOME", "KDE" — read
 /// from `XDG_CURRENT_DESKTOP`, which desktop session managers set on login.
 fn detect_desktop_environment() -> Option<String> {
-    std::env::var("XDG_CURRENT_DESKTOP").ok().filter(|value| !value.is_empty())
+    std::env::var("XDG_CURRENT_DESKTOP")
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 /// Display server session type ("wayland" or "x11") from `XDG_SESSION_TYPE`.
 fn detect_session_type() -> Option<String> {
-    std::env::var("XDG_SESSION_TYPE").ok().filter(|value| !value.is_empty())
+    std::env::var("XDG_SESSION_TYPE")
+        .ok()
+        .filter(|value| !value.is_empty())
 }
 
 fn build_revision_for_display() -> String {
@@ -176,9 +183,15 @@ fn format_diagnostics_bundle(
 ) -> String {
     let mut bundle = String::new();
     bundle.push_str("## Pipe Deck diagnostics\n\n");
-    bundle.push_str(&format!("- **Version:** {}\n", release_version.unwrap_or(build_revision)));
+    bundle.push_str(&format!(
+        "- **Version:** {}\n",
+        release_version.unwrap_or(build_revision)
+    ));
     bundle.push_str(&format!("- **Build:** {build_revision}\n"));
-    bundle.push_str(&format!("- **Install type:** {}\n", install_label(install_kind)));
+    bundle.push_str(&format!(
+        "- **Install type:** {}\n",
+        install_label(install_kind)
+    ));
     bundle.push_str(&format!(
         "- **PipeWire version:** {}\n",
         pipewire_version.unwrap_or("unknown")
@@ -212,14 +225,21 @@ fn resolve_label<'a>(label_by_id: &HashMap<&'a str, &'a str>, id: &'a str) -> &'
 }
 
 fn format_graph_summary(graph: &RuntimeGraph) -> String {
-    let label_by_id: HashMap<&str, &str> =
-        graph.devices.iter().map(|device| (device.id.as_str(), device.label.as_str())).collect();
+    let label_by_id: HashMap<&str, &str> = graph
+        .devices
+        .iter()
+        .map(|device| (device.id.as_str(), device.label.as_str()))
+        .collect();
 
     let mut out = String::new();
     out.push_str(&format!("Devices ({}):\n", graph.devices.len()));
     for device in &graph.devices {
         let targets: Vec<&str> = if !device.current_targets.is_empty() {
-            device.current_targets.iter().map(|id| resolve_label(&label_by_id, id)).collect()
+            device
+                .current_targets
+                .iter()
+                .map(|id| resolve_label(&label_by_id, id))
+                .collect()
         } else {
             device
                 .current_target
@@ -228,7 +248,11 @@ fn format_graph_summary(graph: &RuntimeGraph) -> String {
                 .into_iter()
                 .collect()
         };
-        let routed_to = if targets.is_empty() { String::new() } else { format!(" -> {}", targets.join(", ")) };
+        let routed_to = if targets.is_empty() {
+            String::new()
+        } else {
+            format!(" -> {}", targets.join(", "))
+        };
         out.push_str(&format!(
             "  {} ({:?}, {:?}){routed_to}\n",
             device.label, device.kind, device.direction
@@ -242,7 +266,11 @@ fn format_graph_summary(graph: &RuntimeGraph) -> String {
             .as_deref()
             .map(|id| format!(" -> {}", resolve_label(&label_by_id, id)))
             .unwrap_or_default();
-        let warning = match stream.route_explanation.as_ref().map(|explanation| &explanation.action_status) {
+        let warning = match stream
+            .route_explanation
+            .as_ref()
+            .map(|explanation| &explanation.action_status)
+        {
             Some(status) if !matches!(status, ActionStatus::Applied) => format!("  [{status:?}]"),
             _ => String::new(),
         };
@@ -256,7 +284,9 @@ fn format_graph_summary(graph: &RuntimeGraph) -> String {
 }
 
 #[tauri::command]
-pub async fn get_diagnostics_bundle(state: tauri::State<'_, crate::AppState>) -> Result<String, String> {
+pub async fn get_diagnostics_bundle(
+    state: tauri::State<'_, crate::AppState>,
+) -> Result<String, String> {
     let install_kind = detect_install_kind();
     let build_revision = build_revision_for_display();
     let release_version = release_version_from_revision(&build_revision);
@@ -294,10 +324,12 @@ pub fn open_url(url: String) -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{format_diagnostics_bundle, format_graph_summary, release_version_from_revision, InstallKind};
+    use super::{
+        format_diagnostics_bundle, format_graph_summary, release_version_from_revision, InstallKind,
+    };
     use crate::core::models::{
-        ActionStatus, Device, DeviceDirection, DeviceKind, RouteExplanation, RouteSource, RuntimeGraph, Stream,
-        StreamDirection,
+        ActionStatus, Device, DeviceDirection, DeviceKind, RouteExplanation, RouteSource,
+        RuntimeGraph, Stream, StreamDirection,
     };
 
     fn sample_device(id: &str, label: &str, current_target: Option<&str>) -> Device {
@@ -318,7 +350,11 @@ mod tests {
         }
     }
 
-    fn sample_stream(app_name: &str, current_target: Option<&str>, action_status: Option<ActionStatus>) -> Stream {
+    fn sample_stream(
+        app_name: &str,
+        current_target: Option<&str>,
+        action_status: Option<ActionStatus>,
+    ) -> Stream {
         Stream {
             id: format!("stream-{app_name}"),
             app_name: app_name.to_string(),
@@ -359,7 +395,10 @@ mod tests {
             release_version_from_revision("v0.1.0"),
             Some("0.1.0".to_string())
         );
-        assert_eq!(release_version_from_revision("1.2.3"), Some("1.2.3".to_string()));
+        assert_eq!(
+            release_version_from_revision("1.2.3"),
+            Some("1.2.3".to_string())
+        );
     }
 
     #[test]
@@ -423,7 +462,16 @@ mod tests {
             processing_nodes: Vec::new(),
             default_output_system_name: None,
         };
-        let bundle = format_diagnostics_bundle(&InstallKind::Dev, "unknown", None, None, "unknown", None, None, &graph);
+        let bundle = format_diagnostics_bundle(
+            &InstallKind::Dev,
+            "unknown",
+            None,
+            None,
+            "unknown",
+            None,
+            None,
+            &graph,
+        );
 
         assert!(bundle.contains("**Version:** unknown"));
         assert!(bundle.contains("**PipeWire version:** unknown"));

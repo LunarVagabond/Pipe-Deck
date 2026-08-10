@@ -1,6 +1,8 @@
 use crate::core::models::{EffectsApplyRequest, RoutingSuggestion, RuntimeGraph};
 use crate::plugins::audit;
-use crate::plugins::capabilities::{is_granted, EFFECTS_MANAGE, ROUTING_SUGGEST, UI_PANEL_REGISTER};
+use crate::plugins::capabilities::{
+    is_granted, EFFECTS_MANAGE, ROUTING_SUGGEST, UI_PANEL_REGISTER,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::VecDeque;
@@ -178,8 +180,8 @@ impl PluginProcess {
     }
 
     pub fn notify_graph_updated(&mut self, graph: &RuntimeGraph) -> Result<(), HostError> {
-        let params = serde_json::to_value(graph)
-            .map_err(|error| HostError::Rpc(error.to_string()))?;
+        let params =
+            serde_json::to_value(graph).map_err(|error| HostError::Rpc(error.to_string()))?;
         self.notify("graph.updated", params)
     }
 
@@ -232,7 +234,12 @@ impl PluginProcess {
                         self.routing_suggestions.pop_front();
                     }
                     self.routing_suggestions.push_back(suggestion);
-                    audit::log(plugin_id, "routing.suggest", "ok", Some(&incoming.stream_id));
+                    audit::log(
+                        plugin_id,
+                        "routing.suggest",
+                        "ok",
+                        Some(&incoming.stream_id),
+                    );
                 }
             }
         }
@@ -260,8 +267,7 @@ impl PluginProcess {
             params,
         };
         let payload = serde_json::to_string(&request).map_err(|e| HostError::Rpc(e.to_string()))?;
-        writeln!(self.stdin, "{payload}")
-            .map_err(|error| HostError::Rpc(error.to_string()))?;
+        writeln!(self.stdin, "{payload}").map_err(|error| HostError::Rpc(error.to_string()))?;
         self.stdin
             .flush()
             .map_err(|error| HostError::Rpc(error.to_string()))?;
@@ -269,7 +275,10 @@ impl PluginProcess {
         let deadline = Instant::now() + REQUEST_TIMEOUT;
         while Instant::now() < deadline {
             let remaining = deadline.saturating_duration_since(Instant::now());
-            match self.rx.recv_timeout(remaining.min(Duration::from_millis(100))) {
+            match self
+                .rx
+                .recv_timeout(remaining.min(Duration::from_millis(100)))
+            {
                 Ok(line) => {
                     if let Ok(response) = serde_json::from_str::<RpcResponse>(&line) {
                         if response.id == Some(id) {
@@ -297,7 +306,9 @@ impl PluginProcess {
         });
         let text = serde_json::to_string(&payload).map_err(|e| HostError::Rpc(e.to_string()))?;
         writeln!(self.stdin, "{text}").map_err(|e| HostError::Rpc(e.to_string()))?;
-        self.stdin.flush().map_err(|e| HostError::Rpc(e.to_string()))?;
+        self.stdin
+            .flush()
+            .map_err(|e| HostError::Rpc(e.to_string()))?;
         Ok(())
     }
 }
