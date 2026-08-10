@@ -32,8 +32,9 @@ pub fn find_node_id_by_name(node_name: &str) -> Result<Option<u32>, BackendError
         ));
     }
 
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| BackendError::Message(format!("failed to parse pw-dump output: {error}")))?;
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        BackendError::Message(format!("failed to parse pw-dump output: {error}"))
+    })?;
 
     let Some(objects) = parsed.as_array() else {
         return Ok(None);
@@ -47,7 +48,10 @@ pub fn find_node_id_by_name(node_name: &str) -> Result<Option<u32>, BackendError
             .pointer("/info/props/node.name")
             .and_then(|v| v.as_str());
         if name == Some(node_name) {
-            return Ok(object.get("id").and_then(|v| v.as_u64()).map(|id| id as u32));
+            return Ok(object
+                .get("id")
+                .and_then(|v| v.as_u64())
+                .map(|id| id as u32));
         }
     }
 
@@ -70,8 +74,9 @@ pub fn find_node_ids_by_names(
         ));
     }
 
-    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|error| BackendError::Message(format!("failed to parse pw-dump output: {error}")))?;
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|error| {
+        BackendError::Message(format!("failed to parse pw-dump output: {error}"))
+    })?;
 
     let Some(objects) = parsed.as_array() else {
         return Ok(std::collections::HashMap::new());
@@ -85,7 +90,10 @@ pub fn find_node_ids_by_names(
         if object.get("type").and_then(|v| v.as_str()) != Some("PipeWire:Interface:Node") {
             continue;
         }
-        let Some(name) = object.pointer("/info/props/node.name").and_then(|v| v.as_str()) else {
+        let Some(name) = object
+            .pointer("/info/props/node.name")
+            .and_then(|v| v.as_str())
+        else {
             continue;
         };
         if !names.iter().any(|candidate| candidate == name) {
@@ -130,11 +138,19 @@ pub fn set_params(node_id: u32, params: &[(String, f64)]) -> Result<(), BackendE
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|error| BackendError::Message(format!("failed to run pw-cli set-param: {error}")))?;
+        .map_err(|error| {
+            BackendError::Message(format!("failed to run pw-cli set-param: {error}"))
+        })?;
 
     let start = Instant::now();
     loop {
-        if child.try_wait().map_err(|error| BackendError::Message(format!("failed to poll pw-cli set-param: {error}")))?.is_some() {
+        if child
+            .try_wait()
+            .map_err(|error| {
+                BackendError::Message(format!("failed to poll pw-cli set-param: {error}"))
+            })?
+            .is_some()
+        {
             break;
         }
         if start.elapsed() > SET_PARAM_TIMEOUT {
@@ -158,7 +174,10 @@ pub fn set_params(node_id: u32, params: &[(String, f64)]) -> Result<(), BackendE
     // starting with that marker rather than a bare `contains("Error")`: the
     // broad substring check would misclassify any incidental warning text
     // that happens to mention the word as a hard failure.
-    if stderr.lines().any(|line| line.trim_start().starts_with("Error:")) {
+    if stderr
+        .lines()
+        .any(|line| line.trim_start().starts_with("Error:"))
+    {
         return Err(BackendError::Message(format!(
             "pw-cli set-param failed: {}",
             stderr.trim()

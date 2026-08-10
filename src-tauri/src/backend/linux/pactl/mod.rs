@@ -5,8 +5,8 @@ mod r#virtual;
 
 pub use mixer::*;
 pub use parse::*;
-pub use routing::*;
 pub use r#virtual::*;
+pub use routing::*;
 
 use crate::backend::BackendError;
 use crate::sysproc;

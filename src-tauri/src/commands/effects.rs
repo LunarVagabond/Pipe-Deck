@@ -44,7 +44,10 @@ pub async fn preflight_effect_chain(
 }
 
 #[tauri::command]
-pub async fn is_effect_chain_live(device_id: String, state: State<'_, AppState>) -> Result<bool, String> {
+pub async fn is_effect_chain_live(
+    device_id: String,
+    state: State<'_, AppState>,
+) -> Result<bool, String> {
     let engine = state.engine.read().await;
     Ok(engine.is_effect_chain_live(&device_id))
 }

@@ -1,6 +1,6 @@
+use crate::backend::linux::pactl;
 use crate::core::models::Stream;
 use crate::core::stream_identity::is_internal_audio_client;
-use crate::backend::linux::pactl;
 
 pub fn is_system_stream_name(application_name: &str, node_name: &Option<String>) -> bool {
     let node_name = node_name.as_deref().unwrap_or_default();
@@ -45,7 +45,11 @@ pub fn resolve_playback_target_device_id(
     // sink), while the processing node's own port bookkeeping still
     // correctly shows it connected — "already connected" on a re-drag, but
     // visually pointing at the wrong node entirely.
-    if let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == sink_system_name) {
+    if let Some(node) = graph
+        .processing_nodes
+        .iter()
+        .find(|node| node.system_name == sink_system_name)
+    {
         return Some(node.id.clone());
     }
 
@@ -62,11 +66,15 @@ pub fn resolve_playback_target_device_id(
     // rule keeps reasserting the stream's old target and silently moves it
     // right back out of the Mixer's gain-controlled feed sink.
     if let Some(node) = graph.processing_nodes.iter().find(|node| {
-        matches!(node.kind, crate::core::models::ProcessingNodeKind::Mixer { .. })
-            && slug.starts_with(&format!(
-                "{}-",
-                node.system_name.strip_prefix("pipe-deck-").unwrap_or(&node.system_name)
-            ))
+        matches!(
+            node.kind,
+            crate::core::models::ProcessingNodeKind::Mixer { .. }
+        ) && slug.starts_with(&format!(
+            "{}-",
+            node.system_name
+                .strip_prefix("pipe-deck-")
+                .unwrap_or(&node.system_name)
+        ))
     }) {
         return Some(node.id.clone());
     }
@@ -81,7 +89,10 @@ pub fn resolve_playback_target_device_id(
         .map(|device| device.id.clone())
 }
 
-pub fn stream_matches_pactl_source_output(stream: &Stream, output: &pactl::PactlSourceOutput) -> bool {
+pub fn stream_matches_pactl_source_output(
+    stream: &Stream,
+    output: &pactl::PactlSourceOutput,
+) -> bool {
     pactl::stream_matches_source_output(stream, output)
 }
 
@@ -132,7 +143,10 @@ mod tests {
         ProcessingNode {
             id: "processing-group-test-group".into(),
             label: "Test Group".into(),
-            kind: ProcessingNodeKind::Group { volume_percent: 100, muted: false },
+            kind: ProcessingNodeKind::Group {
+                volume_percent: 100,
+                muted: false,
+            },
             system_name: "pipe-deck-proc-group-test-group".into(),
             bypassed: false,
             live: true,
@@ -143,7 +157,10 @@ mod tests {
 
     #[test]
     fn resolves_a_stream_moved_directly_onto_a_groups_own_sink() {
-        let graph = RuntimeGraph { processing_nodes: vec![group_node()], ..Default::default() };
+        let graph = RuntimeGraph {
+            processing_nodes: vec![group_node()],
+            ..Default::default()
+        };
         let target = resolve_playback_target_device_id(&graph, "pipe-deck-proc-group-test-group");
         assert_eq!(target.as_deref(), Some("processing-group-test-group"));
     }
@@ -152,16 +169,26 @@ mod tests {
     fn resolves_a_stream_moved_directly_onto_a_fan_outs_own_sink() {
         let mut node = group_node();
         node.id = "processing-fan_out-stream-fan-out".into();
-        node.kind = ProcessingNodeKind::FanOut { volume_percent: 100, muted: false };
+        node.kind = ProcessingNodeKind::FanOut {
+            volume_percent: 100,
+            muted: false,
+        };
         node.system_name = "pipe-deck-proc-fan_out-stream-fan-out".into();
-        let graph = RuntimeGraph { processing_nodes: vec![node], ..Default::default() };
-        let target = resolve_playback_target_device_id(&graph, "pipe-deck-proc-fan_out-stream-fan-out");
+        let graph = RuntimeGraph {
+            processing_nodes: vec![node],
+            ..Default::default()
+        };
+        let target =
+            resolve_playback_target_device_id(&graph, "pipe-deck-proc-fan_out-stream-fan-out");
         assert_eq!(target.as_deref(), Some("processing-fan_out-stream-fan-out"));
     }
 
     #[test]
     fn returns_none_for_a_sink_name_matching_no_device_or_processing_node() {
-        let graph = RuntimeGraph { processing_nodes: vec![group_node()], ..Default::default() };
+        let graph = RuntimeGraph {
+            processing_nodes: vec![group_node()],
+            ..Default::default()
+        };
         let target = resolve_playback_target_device_id(&graph, "alsa_output.some-unrelated-sink");
         assert_eq!(target, None);
     }

@@ -1,10 +1,3 @@
-use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, LatencyHop, LatencyPathNode, LatencyPingResult, MixSourceSpec,
-    PortDirection, ProcessingNode, ProcessingNodeKind, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
-};
-use crate::core::rules::ApplyRulesContext;
-use crate::core::stream_identity::StreamIdentityKey;
-use crate::backend::{BackendError, GraphListener, AudioBackend};
 use crate::backend::linux::graph_enrich;
 use crate::backend::linux::graph_routing;
 use crate::backend::linux::pactl;
@@ -15,10 +8,18 @@ use crate::backend::linux::split_sink;
 use crate::backend::linux::virtual_devices::{VirtualDeviceEntry, VirtualDeviceRegistry};
 use crate::backend::linux::virtual_mic_mix;
 use crate::backend::slugify;
+use crate::backend::{AudioBackend, BackendError, GraphListener};
+use crate::core::models::{
+    Device, DeviceDirection, DeviceKind, LatencyHop, LatencyPathNode, LatencyPingResult,
+    MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind, RuntimeGraph,
+    VirtualDeviceInfo, VirtualDeviceResult,
+};
+use crate::core::rules::ApplyRulesContext;
+use crate::core::stream_identity::StreamIdentityKey;
 use crate::pipewire::filter_chain;
+use crate::sysproc;
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader};
-use crate::sysproc;
 use std::process::Stdio;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
@@ -65,13 +66,16 @@ impl LinuxPipeWireBackend {
         let listener = Arc::new(Mutex::new(None));
         let registry = VirtualDeviceRegistry::new();
 
-        let native_graph = match pw_registry::NativeGraphWatcher::start(cached_graph.clone(), listener.clone()) {
-            Ok(watcher) => Some(watcher),
-            Err(error) => {
-                eprintln!("native PipeWire graph watcher unavailable, falling back to pw-dump: {error}");
-                None
-            }
-        };
+        let native_graph =
+            match pw_registry::NativeGraphWatcher::start(cached_graph.clone(), listener.clone()) {
+                Ok(watcher) => Some(watcher),
+                Err(error) => {
+                    eprintln!(
+                    "native PipeWire graph watcher unavailable, falling back to pw-dump: {error}"
+                );
+                    None
+                }
+            };
 
         Ok(Self {
             cached_graph,
@@ -91,7 +95,11 @@ impl LinuxPipeWireBackend {
         self.registry.create_output_for(system_name, label, multi)
     }
 
-    fn create_input_internal(&self, system_name: &str, label: &str) -> Result<VirtualDeviceEntry, BackendError> {
+    fn create_input_internal(
+        &self,
+        system_name: &str,
+        label: &str,
+    ) -> Result<VirtualDeviceEntry, BackendError> {
         self.registry.create_input_for(system_name, label)
     }
 }
@@ -141,8 +149,7 @@ impl AudioBackend for LinuxPipeWireBackend {
         *self
             .listener
             .lock()
-            .map_err(|_| BackendError::Message("listener lock poisoned".into()))? =
-            Some(listener);
+            .map_err(|_| BackendError::Message("listener lock poisoned".into()))? = Some(listener);
 
         // The native watcher's assembler thread already reads from this
         // same `listener` slot on every rebuild (started back in `new()`,
@@ -162,19 +169,39 @@ impl AudioBackend for LinuxPipeWireBackend {
         Ok(())
     }
 
-    fn set_device_volume(&self, graph: &RuntimeGraph, device_id: &str, percent: u8) -> Result<(), BackendError> {
+    fn set_device_volume(
+        &self,
+        graph: &RuntimeGraph,
+        device_id: &str,
+        percent: u8,
+    ) -> Result<(), BackendError> {
         crate::backend::linux::pactl::set_device_volume(device_id, graph, percent)
     }
 
-    fn set_device_mute(&self, graph: &RuntimeGraph, device_id: &str, muted: bool) -> Result<(), BackendError> {
+    fn set_device_mute(
+        &self,
+        graph: &RuntimeGraph,
+        device_id: &str,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         crate::backend::linux::pactl::set_device_mute(device_id, graph, muted)
     }
 
-    fn set_stream_volume(&self, graph: &RuntimeGraph, stream_id: &str, percent: u8) -> Result<(), BackendError> {
+    fn set_stream_volume(
+        &self,
+        graph: &RuntimeGraph,
+        stream_id: &str,
+        percent: u8,
+    ) -> Result<(), BackendError> {
         crate::backend::linux::pactl::set_stream_volume(graph, stream_id, percent)
     }
 
-    fn set_stream_mute(&self, graph: &RuntimeGraph, stream_id: &str, muted: bool) -> Result<(), BackendError> {
+    fn set_stream_mute(
+        &self,
+        graph: &RuntimeGraph,
+        stream_id: &str,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         crate::backend::linux::pactl::set_stream_mute(graph, stream_id, muted)
     }
 
@@ -192,10 +219,19 @@ impl AudioBackend for LinuxPipeWireBackend {
         stream_id: &str,
         previous_target_device_id: Option<&str>,
     ) -> Result<(), BackendError> {
-        crate::backend::linux::pactl::clear_stream_target(graph, stream_id, previous_target_device_id)
+        crate::backend::linux::pactl::clear_stream_target(
+            graph,
+            stream_id,
+            previous_target_device_id,
+        )
     }
 
-    fn route_stream(&self, graph: &RuntimeGraph, stream_id: &str, target_device_id: &str) -> Result<(), BackendError> {
+    fn route_stream(
+        &self,
+        graph: &RuntimeGraph,
+        stream_id: &str,
+        target_device_id: &str,
+    ) -> Result<(), BackendError> {
         let intent = crate::core::models::RoutingIntent {
             stream_id: stream_id.to_string(),
             target_device_id: Some(target_device_id.to_string()),
@@ -223,19 +259,40 @@ impl AudioBackend for LinuxPipeWireBackend {
         graph_routing::apply_graph_routing(graph, ctx);
     }
 
-    fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+    fn apply_virtual_mic_mix(
+        &self,
+        virtual_input: &Device,
+        mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
         virtual_mic_mix::apply_virtual_mic_mix(virtual_input, mix_sources)
     }
 
-    fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError> {
-        virtual_mic_mix::set_mix_source_volume(virtual_input_system_name, source_system_name, percent)
+    fn set_mix_source_volume(
+        &self,
+        virtual_input_system_name: &str,
+        source_system_name: &str,
+        percent: u8,
+    ) -> Result<(), BackendError> {
+        virtual_mic_mix::set_mix_source_volume(
+            virtual_input_system_name,
+            source_system_name,
+            percent,
+        )
     }
 
-    fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError> {
+    fn set_mix_source_mute(
+        &self,
+        virtual_input_system_name: &str,
+        source_system_name: &str,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         virtual_mic_mix::set_mix_source_mute(virtual_input_system_name, source_system_name, muted)
     }
 
-    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError> {
+    fn disconnect_all_virtual_mic_mixes(
+        &self,
+        virtual_input_system_name: &str,
+    ) -> Result<(), BackendError> {
         virtual_mic_mix::disconnect_all_virtual_mic_mixes(virtual_input_system_name)
     }
 
@@ -248,8 +305,17 @@ impl AudioBackend for LinuxPipeWireBackend {
         crate::backend::linux::pw_link::list_all_monitor_routes_for_source(source_system_name)
     }
 
-    fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, target_is_input: bool) -> bool {
-        crate::backend::linux::pw_link::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_input)
+    fn is_routed_to(
+        &self,
+        source_system_name: &str,
+        target_system_name: &str,
+        target_is_input: bool,
+    ) -> bool {
+        crate::backend::linux::pw_link::is_sink_monitor_routed_to(
+            source_system_name,
+            target_system_name,
+            target_is_input,
+        )
     }
 
     fn device_is_live(&self, system_name: &str, direction: DeviceDirection) -> bool {
@@ -269,7 +335,9 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn create_virtual_input(&self, label: &str) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(label));
-        Ok(self.create_input_internal(&system_name, label)?.into_result())
+        Ok(self
+            .create_input_internal(&system_name, label)?
+            .into_result())
     }
 
     fn restore_virtual_device(
@@ -300,12 +368,28 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn list_virtual_devices(&self) -> Vec<VirtualDeviceInfo> {
         let _ = self.registry.discover_from_pactl();
-        self.registry.list_devices().iter().map(|entry| entry.to_info()).collect()
+        self.registry
+            .list_devices()
+            .iter()
+            .map(|entry| entry.to_info())
+            .collect()
     }
 
-    fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError> {
-        let child = crate::backend::linux::play_sound::play_sound(path, target_system_name, volume_percent)?;
-        let mut playback = self.soundboard_playback.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    fn play_sound(
+        &self,
+        path: &std::path::Path,
+        target_system_name: &str,
+        volume_percent: u8,
+    ) -> Result<(), BackendError> {
+        let child = crate::backend::linux::play_sound::play_sound(
+            path,
+            target_system_name,
+            volume_percent,
+        )?;
+        let mut playback = self
+            .soundboard_playback
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         // Drop anything that's already finished on its own before adding the
         // new leg, so this doesn't grow unbounded across many clip triggers.
         playback.retain_mut(|existing| !matches!(existing.try_wait(), Ok(Some(_))));
@@ -314,7 +398,10 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn stop_sound(&self) -> Result<(), BackendError> {
-        let mut playback = self.soundboard_playback.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut playback = self
+            .soundboard_playback
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         for mut child in playback.drain(..) {
             let _ = child.kill();
             let _ = child.wait();
@@ -335,12 +422,14 @@ impl AudioBackend for LinuxPipeWireBackend {
         let _ = crate::backend::linux::pactl::sync_feed_sink_for_virtual_input(system_name, alias);
         let _ = self.registry.set_label(system_name, alias);
         if let Some(entry) = self.registry.get(system_name) {
-            if let Ok(Some(new_module_id)) = crate::backend::linux::pactl::sync_virtual_device_description(
-                system_name,
-                entry.direction,
-                &entry.module_id,
-                alias,
-            ) {
+            if let Ok(Some(new_module_id)) =
+                crate::backend::linux::pactl::sync_virtual_device_description(
+                    system_name,
+                    entry.direction,
+                    &entry.module_id,
+                    alias,
+                )
+            {
                 let _ = self.registry.set_module_id(system_name, &new_module_id);
             }
         }
@@ -351,11 +440,18 @@ impl AudioBackend for LinuxPipeWireBackend {
         query_pipewire_version()
     }
 
-    fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+    fn measure_latency_ping(
+        &self,
+        path: &[LatencyPathNode],
+    ) -> Result<LatencyPingResult, BackendError> {
         measure_latency_ping_live(path, self.native_graph.as_ref())
     }
 
-    fn revert_to_plain_device(&self, device: &Device, wait_for_node: bool) -> Result<(), BackendError> {
+    fn revert_to_plain_device(
+        &self,
+        device: &Device,
+        wait_for_node: bool,
+    ) -> Result<(), BackendError> {
         if device.direction == DeviceDirection::Input {
             pactl::create_virtual_source(&device.system_name, &device.label)?;
             if wait_for_node {
@@ -370,7 +466,10 @@ impl AudioBackend for LinuxPipeWireBackend {
         Ok(())
     }
 
-    fn hold_sink_inputs_for_swap(&self, device_system_name: &str) -> Result<Vec<String>, BackendError> {
+    fn hold_sink_inputs_for_swap(
+        &self,
+        device_system_name: &str,
+    ) -> Result<Vec<String>, BackendError> {
         // Same query either native or CLI-backed path uses to answer "what's
         // currently feeding this sink's playback ports" — #412 already built
         // it for capture-source-into-sink discovery, and a playback stream
@@ -381,7 +480,11 @@ impl AudioBackend for LinuxPipeWireBackend {
         if !held.is_empty() {
             pactl::ensure_holding_sink()?;
             for stream_system_name in &held {
-                move_stream_with_retry(stream_system_name, pactl::HOLDING_SINK_NAME, Duration::from_secs(5));
+                move_stream_with_retry(
+                    stream_system_name,
+                    pactl::HOLDING_SINK_NAME,
+                    Duration::from_secs(5),
+                );
             }
         }
         Ok(held)
@@ -395,15 +498,27 @@ impl AudioBackend for LinuxPipeWireBackend {
     /// wait already gave up, and a move attempted at exactly that instant would
     /// otherwise silently fail with nothing ever retrying it — permanently
     /// stranding audio on the "Pipe Deck (temporary hold)" sink.
-    fn release_held_sink_inputs(&self, held_streams: &[String], target_system_name: &str) -> Result<(), BackendError> {
+    fn release_held_sink_inputs(
+        &self,
+        held_streams: &[String],
+        target_system_name: &str,
+    ) -> Result<(), BackendError> {
         for stream_system_name in held_streams {
-            move_stream_with_retry(stream_system_name, target_system_name, Duration::from_secs(5));
+            move_stream_with_retry(
+                stream_system_name,
+                target_system_name,
+                Duration::from_secs(5),
+            );
         }
         let _ = pactl::remove_holding_sink();
         Ok(())
     }
 
-    fn list_mic_feeds(&self, target_system_name: &str, target_is_virtual_source: bool) -> Vec<String> {
+    fn list_mic_feeds(
+        &self,
+        target_system_name: &str,
+        target_is_virtual_source: bool,
+    ) -> Vec<String> {
         virtual_mic_mix::list_feeds(target_system_name, target_is_virtual_source)
     }
 
@@ -414,7 +529,12 @@ impl AudioBackend for LinuxPipeWireBackend {
         to_system_name: &str,
         to_is_virtual_source: bool,
     ) -> Result<(), BackendError> {
-        virtual_mic_mix::relink_feeds_to(feeders, from_system_name, to_system_name, to_is_virtual_source)
+        virtual_mic_mix::relink_feeds_to(
+            feeders,
+            from_system_name,
+            to_system_name,
+            to_is_virtual_source,
+        )
     }
 
     // `native_host` is not called directly from this file (issue #148,
@@ -461,7 +581,8 @@ impl AudioBackend for LinuxPipeWireBackend {
 
         let mut allowed_targets = HashSet::new();
         for target in downstream_targets {
-            let is_virtual_input = target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
+            let is_virtual_input =
+                target.kind == DeviceKind::Virtual && target.direction == DeviceDirection::Input;
             let result = if is_virtual_input {
                 pw_link::link_capture_source_to_virtual_input(&playback_name, &target.system_name)
             } else {
@@ -490,13 +611,16 @@ impl AudioBackend for LinuxPipeWireBackend {
         // no-op on both `native_host::unload_chain` and
         // `native_dsp_host::unload_chain`, so this doesn't need to know in
         // advance which one loaded it.
-        NativeHostClient::unload_dsp_chain(device_system_name).map_err(|error| BackendError::Message(error.to_string()))?;
-        NativeHostClient::unload_chain(device_system_name).map_err(|error| BackendError::Message(error.to_string()))
+        NativeHostClient::unload_dsp_chain(device_system_name)
+            .map_err(|error| BackendError::Message(error.to_string()))?;
+        NativeHostClient::unload_chain(device_system_name)
+            .map_err(|error| BackendError::Message(error.to_string()))
     }
 
     fn is_effect_chain_loaded(&self, device_system_name: &str) -> bool {
         use crate::daemon::ipc::client::NativeHostClient;
-        NativeHostClient::is_dsp_chain_loaded(device_system_name) || NativeHostClient::is_loaded(device_system_name)
+        NativeHostClient::is_dsp_chain_loaded(device_system_name)
+            || NativeHostClient::is_loaded(device_system_name)
     }
 
     fn push_effect_chain_live_params(
@@ -508,11 +632,16 @@ impl AudioBackend for LinuxPipeWireBackend {
         use crate::daemon::ipc::client::NativeHostClient;
         use crate::pipewire::native_dsp_host;
 
-        if native_dsp_host::supports(config) && NativeHostClient::is_dsp_chain_loaded(device_system_name) {
+        if native_dsp_host::supports(config)
+            && NativeHostClient::is_dsp_chain_loaded(device_system_name)
+        {
             return NativeHostClient::set_dsp_chain_live_params(device_system_name, config)
                 .map_err(|error| BackendError::Message(error.to_string()));
         }
-        crate::pipewire::pw_cli::set_params(node_id, &crate::pipewire::fx_validate::live_params(config))
+        crate::pipewire::pw_cli::set_params(
+            node_id,
+            &crate::pipewire::fx_validate::live_params(config),
+        )
     }
 
     // --- Processing nodes (PD-032). Fan-out, Mixer, and EQ5Band (issue #293
@@ -521,8 +650,14 @@ impl AudioBackend for LinuxPipeWireBackend {
 
     fn load_processing_node(&self, node: &ProcessingNode) -> Result<(), BackendError> {
         match &node.kind {
-            ProcessingNodeKind::FanOut { volume_percent, muted }
-            | ProcessingNodeKind::Group { volume_percent, muted } => {
+            ProcessingNodeKind::FanOut {
+                volume_percent,
+                muted,
+            }
+            | ProcessingNodeKind::Group {
+                volume_percent,
+                muted,
+            } => {
                 if pactl::sink_exists(&node.system_name)? {
                     return Ok(());
                 }
@@ -571,8 +706,12 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 // Unlike the device-attached EQ path (`effects_ops.rs`'s
                 // `apply_effect_chain_structural`), which pivots an
                 // *already-existing* plain sink that inherited a sane
@@ -583,14 +722,24 @@ impl AudioBackend for LinuxPipeWireBackend {
                 // filter-chain node (observed: silence). Force a known-good
                 // state explicitly rather than relying on that default.
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new EQ5Band sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new EQ5Band sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new EQ5Band sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new EQ5Band sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
-            ProcessingNodeKind::Delay { delay_ms, feedback_percent, feedforward_percent } => {
+            ProcessingNodeKind::Delay {
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+            } => {
                 // Same "real DSP from creation" reasoning as the Eq5Band arm
                 // above — no plain-sink precursor to pivot from.
                 let config = crate::core::models::EffectChainConfig {
@@ -608,17 +757,31 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new Delay sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new Delay sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new Delay sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new Delay sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
-            ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric } => {
+            ProcessingNodeKind::Limiter {
+                ceiling_db,
+                floor_db,
+                symmetric,
+            } => {
                 // Same "real DSP from creation" reasoning as Eq5Band/Delay.
                 let config = crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Limiter {
@@ -635,17 +798,30 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new Limiter sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new Limiter sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new Limiter sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new Limiter sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
-            ProcessingNodeKind::Hpf { freq_hz, resonance_x10 } => {
+            ProcessingNodeKind::Hpf {
+                freq_hz,
+                resonance_x10,
+            } => {
                 // Same "real DSP from creation" reasoning as Eq5Band/Delay/Limiter.
                 let config = crate::core::models::EffectChainConfig {
                     stages: vec![crate::core::models::EffectStage::Hpf {
@@ -661,20 +837,33 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new HPF sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new HPF sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new HPF sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new HPF sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
             ProcessingNodeKind::Reverb { mix_percent } => {
                 // Same "real DSP from creation" reasoning as Eq5Band/Delay/Limiter.
                 let config = crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Reverb { id: "reverb".into(), mix_percent: *mix_percent }],
+                    stages: vec![crate::core::models::EffectStage::Reverb {
+                        id: "reverb".into(),
+                        mix_percent: *mix_percent,
+                    }],
                     bypassed: node.bypassed,
                     ..Default::default()
                 };
@@ -683,20 +872,33 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new Reverb sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new Reverb sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new Reverb sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new Reverb sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
             ProcessingNodeKind::Widener { width_percent } => {
                 // Same "real DSP from creation" reasoning as Eq5Band/Delay/Limiter.
                 let config = crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Widener { id: "widener".into(), width_percent: *width_percent }],
+                    stages: vec![crate::core::models::EffectStage::Widener {
+                        id: "widener".into(),
+                        width_percent: *width_percent,
+                    }],
                     bypassed: node.bypassed,
                     ..Default::default()
                 };
@@ -705,20 +907,33 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new Widener sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new Widener sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new Widener sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new Widener sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
             ProcessingNodeKind::Pan { balance_percent } => {
                 // Same "real DSP from creation" reasoning as Eq5Band/Delay/Limiter.
                 let config = crate::core::models::EffectChainConfig {
-                    stages: vec![crate::core::models::EffectStage::Pan { id: "pan".into(), balance_percent: *balance_percent }],
+                    stages: vec![crate::core::models::EffectStage::Pan {
+                        id: "pan".into(),
+                        balance_percent: *balance_percent,
+                    }],
                     bypassed: node.bypassed,
                     ..Default::default()
                 };
@@ -727,13 +942,23 @@ impl AudioBackend for LinuxPipeWireBackend {
                 if !preflight.ok {
                     return Err(BackendError::Message(preflight.blocking_reasons.join("; ")));
                 }
-                crate::daemon::ipc::client::NativeHostClient::load_chain(&node.system_name, false, &config)
-                    .map_err(|error| BackendError::Message(error.to_string()))?;
+                crate::daemon::ipc::client::NativeHostClient::load_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
                 if let Err(error) = pactl::set_sink_volume_by_name(&node.system_name, 100) {
-                    eprintln!("failed to force volume on new Pan sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to force volume on new Pan sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 if let Err(error) = pactl::set_sink_mute_by_name(&node.system_name, false) {
-                    eprintln!("failed to unmute new Pan sink {}: {error}", node.system_name);
+                    eprintln!(
+                        "failed to unmute new Pan sink {}: {error}",
+                        node.system_name
+                    );
                 }
                 Ok(())
             }
@@ -785,8 +1010,14 @@ impl AudioBackend for LinuxPipeWireBackend {
         direction: PortDirection,
         peer_id: Option<&str>,
     ) -> Result<(), BackendError> {
-        let node = graph.processing_nodes.iter().find(|node| node.system_name == system_name);
-        let is_mixer = matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Mixer { .. }));
+        let node = graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.system_name == system_name);
+        let is_mixer = matches!(
+            node.map(|node| &node.kind),
+            Some(ProcessingNodeKind::Mixer { .. })
+        );
 
         // A Stub node (issue #293's 11 non-DSP kinds) has no backing
         // PipeWire object at all — `load_processing_node` never creates one
@@ -795,7 +1026,10 @@ impl AudioBackend for LinuxPipeWireBackend {
         // as graph data (`CoreEngine::connect_processing_node_port` persists
         // it regardless of kind); this is purely the "don't attempt a
         // pw-link against a sink that was never created" guard.
-        if matches!(node.map(|node| &node.kind), Some(ProcessingNodeKind::Stub { .. })) {
+        if matches!(
+            node.map(|node| &node.kind),
+            Some(ProcessingNodeKind::Stub { .. })
+        ) {
             return Ok(());
         }
 
@@ -809,8 +1043,8 @@ impl AudioBackend for LinuxPipeWireBackend {
         // ports to `pw-link`.
         let resolve_sink_like = |id: &str| -> Option<(String, bool)> {
             if let Some(device) = graph.devices.iter().find(|device| device.id == id) {
-                let target_is_virtual_source =
-                    device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input;
+                let target_is_virtual_source = device.kind == DeviceKind::Virtual
+                    && device.direction == DeviceDirection::Input;
                 return Some((device.system_name.clone(), target_is_virtual_source));
             }
             graph
@@ -841,9 +1075,13 @@ impl AudioBackend for LinuxPipeWireBackend {
                             // `virtual_mic_mix::apply_virtual_mic_mix` for
                             // the device-scoped original this mirrors)
                             // rather than a direct unity-gain link.
-                            let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
-                            let feed_name =
-                                pactl::ensure_feed_sink_for_mix_pair(system_name, &peer_system_name, node_label)?;
+                            let node_label =
+                                node.map(|node| node.label.as_str()).unwrap_or(system_name);
+                            let feed_name = pactl::ensure_feed_sink_for_mix_pair(
+                                system_name,
+                                &peer_system_name,
+                                node_label,
+                            )?;
                             pw_link::link_capture_source_to_sink(&peer_source, &feed_name)?;
                             pactl::set_sink_volume_by_name(&feed_name, 100)?;
                             pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
@@ -860,8 +1098,10 @@ impl AudioBackend for LinuxPipeWireBackend {
                             // (not the stream's own system_name, which may
                             // still be unresolved) so connect and disconnect
                             // always compute the identical feed sink name.
-                            let node_label = node.map(|node| node.label.as_str()).unwrap_or(system_name);
-                            let feed_name = pactl::ensure_feed_sink_for_mix_pair(system_name, id, node_label)?;
+                            let node_label =
+                                node.map(|node| node.label.as_str()).unwrap_or(system_name);
+                            let feed_name =
+                                pactl::ensure_feed_sink_for_mix_pair(system_name, id, node_label)?;
                             pactl::move_stream_to_sink_name(graph, id, &feed_name)?;
                             pactl::set_sink_volume_by_name(&feed_name, 100)?;
                             pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
@@ -877,15 +1117,23 @@ impl AudioBackend for LinuxPipeWireBackend {
                             // new destination at once right after this exact
                             // move). Clean up anything left over so audio
                             // doesn't keep flowing to both places.
-                            if let Some(stream_system_name) =
-                                graph.streams.iter().find(|stream| stream.id == id).and_then(|stream| stream.system_name.as_deref())
+                            if let Some(stream_system_name) = graph
+                                .streams
+                                .iter()
+                                .find(|stream| stream.id == id)
+                                .and_then(|stream| stream.system_name.as_deref())
                             {
-                                let _ = pw_link::disconnect_stale_output_links(stream_system_name, system_name);
+                                let _ = pw_link::disconnect_stale_output_links(
+                                    stream_system_name,
+                                    system_name,
+                                );
                             }
                             Ok(())
                         }
                     } else {
-                        Err(BackendError::Message(format!("relink peer not found: {id}")))
+                        Err(BackendError::Message(format!(
+                            "relink peer not found: {id}"
+                        )))
                     }
                 }
                 // Disconnecting a stream's route is a graph-model concept
@@ -897,8 +1145,11 @@ impl AudioBackend for LinuxPipeWireBackend {
                     let Some(node) = node else {
                         return Ok(());
                     };
-                    let Some(previous_id) =
-                        node.inputs.iter().find(|port| port.index == port_index).and_then(|port| port.connected_id.as_deref())
+                    let Some(previous_id) = node
+                        .inputs
+                        .iter()
+                        .find(|port| port.index == port_index)
+                        .and_then(|port| port.connected_id.as_deref())
                     else {
                         return Ok(());
                     };
@@ -913,7 +1164,8 @@ impl AudioBackend for LinuxPipeWireBackend {
                             // — leaving live, unaccounted-for audio behind
                             // exactly like the retarget-leak bug bb25d6d
                             // fixed for the device-side case.
-                            let peer_source = split_sink::effective_fan_out_source(&peer_system_name);
+                            let peer_source =
+                                split_sink::effective_fan_out_source(&peer_system_name);
                             pw_link::disconnect_sink_monitor_route(&peer_source, system_name)
                         }
                     } else if is_mixer {
@@ -934,11 +1186,21 @@ impl AudioBackend for LinuxPipeWireBackend {
                 match peer_id {
                     Some(id) => {
                         let (target_system_name, target_is_virtual_source) = resolve_sink_like(id)
-                            .ok_or_else(|| BackendError::Message(format!("relink target not found: {id}")))?;
-                        pw_link::link_sink_monitor_to_target(&link_source, &target_system_name, target_is_virtual_source)
+                            .ok_or_else(|| {
+                                BackendError::Message(format!("relink target not found: {id}"))
+                            })?;
+                        pw_link::link_sink_monitor_to_target(
+                            &link_source,
+                            &target_system_name,
+                            target_is_virtual_source,
+                        )
                     }
                     None => {
-                        let Some(node) = graph.processing_nodes.iter().find(|node| node.system_name == system_name) else {
+                        let Some(node) = graph
+                            .processing_nodes
+                            .iter()
+                            .find(|node| node.system_name == system_name)
+                        else {
                             return Ok(());
                         };
                         let Some(previous_id) = node
@@ -951,7 +1213,10 @@ impl AudioBackend for LinuxPipeWireBackend {
                         };
                         match resolve_sink_like(previous_id) {
                             Some((target_system_name, _)) => {
-                                pw_link::disconnect_sink_monitor_route(&link_source, &target_system_name)
+                                pw_link::disconnect_sink_monitor_route(
+                                    &link_source,
+                                    &target_system_name,
+                                )
                             }
                             None => Ok(()),
                         }
@@ -973,7 +1238,12 @@ impl AudioBackend for LinuxPipeWireBackend {
         pactl::set_sink_mute_by_name(&feed_name, muted)
     }
 
-    fn set_processing_node_volume(&self, system_name: &str, volume_percent: u8, muted: bool) -> Result<(), BackendError> {
+    fn set_processing_node_volume(
+        &self,
+        system_name: &str,
+        volume_percent: u8,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         pactl::set_sink_volume_by_name(system_name, volume_percent)?;
         pactl::set_sink_mute_by_name(system_name, muted)
     }
@@ -1072,7 +1342,12 @@ impl AudioBackend for LinuxPipeWireBackend {
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Limiter { id: "limiter".into(), ceiling_db, floor_db, symmetric }],
+            stages: vec![crate::core::models::EffectStage::Limiter {
+                id: "limiter".into(),
+                ceiling_db,
+                floor_db,
+                symmetric,
+            }],
             bypassed,
             ..Default::default()
         };
@@ -1102,7 +1377,11 @@ impl AudioBackend for LinuxPipeWireBackend {
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Hpf { id: "hpf".into(), freq_hz, resonance_x10 }],
+            stages: vec![crate::core::models::EffectStage::Hpf {
+                id: "hpf".into(),
+                freq_hz,
+                resonance_x10,
+            }],
             bypassed,
             ..Default::default()
         };
@@ -1124,9 +1403,17 @@ impl AudioBackend for LinuxPipeWireBackend {
         )
     }
 
-    fn set_processing_node_reverb_params(&self, system_name: &str, mix_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+    fn set_processing_node_reverb_params(
+        &self,
+        system_name: &str,
+        mix_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Reverb { id: "reverb".into(), mix_percent }],
+            stages: vec![crate::core::models::EffectStage::Reverb {
+                id: "reverb".into(),
+                mix_percent,
+            }],
             bypassed,
             ..Default::default()
         };
@@ -1148,9 +1435,17 @@ impl AudioBackend for LinuxPipeWireBackend {
         )
     }
 
-    fn set_processing_node_widener_params(&self, system_name: &str, width_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+    fn set_processing_node_widener_params(
+        &self,
+        system_name: &str,
+        width_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Widener { id: "widener".into(), width_percent }],
+            stages: vec![crate::core::models::EffectStage::Widener {
+                id: "widener".into(),
+                width_percent,
+            }],
             bypassed,
             ..Default::default()
         };
@@ -1172,9 +1467,17 @@ impl AudioBackend for LinuxPipeWireBackend {
         )
     }
 
-    fn set_processing_node_pan_params(&self, system_name: &str, balance_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+    fn set_processing_node_pan_params(
+        &self,
+        system_name: &str,
+        balance_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
         let config = crate::core::models::EffectChainConfig {
-            stages: vec![crate::core::models::EffectStage::Pan { id: "pan".into(), balance_percent }],
+            stages: vec![crate::core::models::EffectStage::Pan {
+                id: "pan".into(),
+                balance_percent,
+            }],
             bypassed,
             ..Default::default()
         };
@@ -1265,7 +1568,11 @@ fn measure_latency_ping_live(
     let mut names_to_resolve: Vec<String> = Vec::new();
 
     for node in path {
-        if let Some(id) = node.id.strip_prefix("node-").and_then(|suffix| suffix.parse::<u32>().ok()) {
+        if let Some(id) = node
+            .id
+            .strip_prefix("node-")
+            .and_then(|suffix| suffix.parse::<u32>().ok())
+        {
             resolved_ids.push(Some(id));
         } else if let Some(system_name) = &node.system_name {
             names_to_resolve.push(system_name.clone());
@@ -1288,7 +1595,9 @@ fn measure_latency_ping_live(
         .cloned()
         .collect();
     if !still_missing.is_empty() {
-        name_lookup.extend(crate::pipewire::pw_cli::find_node_ids_by_names(&still_missing)?);
+        name_lookup.extend(crate::pipewire::pw_cli::find_node_ids_by_names(
+            &still_missing,
+        )?);
     }
 
     for (index, node) in path.iter().enumerate() {
@@ -1329,7 +1638,10 @@ fn measure_latency_ping_live(
         });
     }
 
-    Ok(LatencyPingResult { hops, total_latency_ms })
+    Ok(LatencyPingResult {
+        hops,
+        total_latency_ms,
+    })
 }
 
 fn notify_graph_listeners(
@@ -1448,7 +1760,6 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, BackendError> {
     Ok(graph)
 }
 
-
 #[cfg(test)]
 mod version_tests {
     use super::{parse_pipewire_version, push_eq_params_and_reforce_volume};
@@ -1482,8 +1793,14 @@ mod version_tests {
             || Err(BackendError::Message("simulated push failure".into())),
             || reforced.set(true),
         );
-        assert!(reforced.get(), "volume/mute reforce must run even when the live param push errors");
-        assert!(result.is_err(), "the original push error must still be surfaced to the caller");
+        assert!(
+            reforced.get(),
+            "volume/mute reforce must run even when the live param push errors"
+        );
+        assert!(
+            result.is_err(),
+            "the original push error must still be surfaced to the caller"
+        );
     }
 
     #[test]
@@ -1516,7 +1833,10 @@ mod live_tests {
     impl LoopedPlaybackStream {
         fn spawn(target_system_name: &str) -> Self {
             let clip = "/usr/share/sounds/speech-dispatcher/test.wav";
-            assert!(std::path::Path::new(clip).is_file(), "expected a system test wav to exist at {clip}");
+            assert!(
+                std::path::Path::new(clip).is_file(),
+                "expected a system test wav to exist at {clip}"
+            );
             let child = Command::new("sh")
                 .args(["-c", &format!("while true; do pw-cat --playback --target '{target_system_name}' '{clip}'; done")])
                 .stdout(Stdio::null())
@@ -1529,7 +1849,9 @@ mod live_tests {
 
     impl Drop for LoopedPlaybackStream {
         fn drop(&mut self) {
-            let _ = Command::new("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = Command::new("pkill")
+                .args(["-P", &self.child.id().to_string()])
+                .status();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
@@ -1540,8 +1862,11 @@ mod live_tests {
     fn holds_and_releases_a_real_stream_across_a_simulated_swap() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_output("Pipe Deck Hold Release Test", false).expect("create disposable device");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_output("Pipe Deck Hold Release Test", false)
+            .expect("create disposable device");
 
         let _stream = LoopedPlaybackStream::spawn(&device.system_name);
         let indexed = (0..50).any(|_| {
@@ -1551,21 +1876,36 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(indexed, "expected the looped pw-cat stream to register as a live node");
+        assert!(
+            indexed,
+            "expected the looped pw-cat stream to register as a live node"
+        );
 
         // Give the stream a moment to actually land on the device (pw-cat's
         // own --target resolution is itself async) before holding it.
         let landed = (0..20).any(|_| {
-            if pw_link::list_capture_sources_for_sink(&device.system_name).iter().any(|name| name == "pw-cat") {
+            if pw_link::list_capture_sources_for_sink(&device.system_name)
+                .iter()
+                .any(|name| name == "pw-cat")
+            {
                 return true;
             }
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(landed, "expected pw-cat to land on the disposable device before the hold/release test begins");
+        assert!(
+            landed,
+            "expected pw-cat to land on the disposable device before the hold/release test begins"
+        );
 
-        let held = backend.hold_sink_inputs_for_swap(&device.system_name).expect("hold should succeed");
-        assert_eq!(held, vec!["pw-cat".to_string()], "expected the held list to be the stream's own node name");
+        let held = backend
+            .hold_sink_inputs_for_swap(&device.system_name)
+            .expect("hold should succeed");
+        assert_eq!(
+            held,
+            vec!["pw-cat".to_string()],
+            "expected the held list to be the stream's own node name"
+        );
 
         let held_on_holding_sink = (0..20).any(|_| {
             if pw_link_native_shows_link("pw-cat", pactl::HOLDING_SINK_NAME) {
@@ -1574,13 +1914,18 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(held_on_holding_sink, "expected pw-cat to be parked on the holding sink");
+        assert!(
+            held_on_holding_sink,
+            "expected pw-cat to be parked on the holding sink"
+        );
         assert!(
             !pw_link_native_shows_link("pw-cat", &device.system_name),
             "expected pw-cat to no longer be linked into the original device while held"
         );
 
-        backend.release_held_sink_inputs(&held, &device.system_name).expect("release should succeed");
+        backend
+            .release_held_sink_inputs(&held, &device.system_name)
+            .expect("release should succeed");
 
         let released_back = (0..20).any(|_| {
             if pw_link_native_shows_link("pw-cat", &device.system_name) {
@@ -1589,13 +1934,19 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(released_back, "expected pw-cat to be moved back onto the original device after release");
+        assert!(
+            released_back,
+            "expected pw-cat to be moved back onto the original device after release"
+        );
 
         let _ = backend.remove_virtual_device(&device.system_name);
     }
 
     fn pw_link_native_shows_link(source_system_name: &str, target_system_name: &str) -> bool {
-        let output = crate::sysproc::command("pw-link").arg("-l").output().expect("failed to run pw-link -l");
+        let output = crate::sysproc::command("pw-link")
+            .arg("-l")
+            .output()
+            .expect("failed to run pw-link -l");
         let text = String::from_utf8_lossy(&output.stdout);
         let source_prefix = format!("{source_system_name}:");
         let target_prefix = format!("{target_system_name}:");
@@ -1603,7 +1954,8 @@ mod live_tests {
         for line in text.lines() {
             if let Some(port) = line.strip_prefix("  |<- ") {
                 if let Some(target) = &current_target {
-                    if target.starts_with(&target_prefix) && port.trim().starts_with(&source_prefix) {
+                    if target.starts_with(&target_prefix) && port.trim().starts_with(&source_prefix)
+                    {
                         return true;
                     }
                 }

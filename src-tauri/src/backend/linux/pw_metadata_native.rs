@@ -147,10 +147,9 @@ impl Connection {
 
         let (metadata, listener) = {
             let _lock = self._thread_loop.lock();
-            let metadata: Metadata = self
-                .registry
-                .bind(&global)
-                .map_err(|_| BackendError::Message(format!("failed to bind metadata object {metadata_id}")))?;
+            let metadata: Metadata = self.registry.bind(&global).map_err(|_| {
+                BackendError::Message(format!("failed to bind metadata object {metadata_id}"))
+            })?;
             let listener = metadata
                 .add_listener_local()
                 .property(move |_subject, event_key, _type_, value| {
@@ -182,8 +181,13 @@ impl Connection {
     }
 }
 
-fn metadata_name(global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>) -> Option<String> {
-    global.props?.get("metadata.name").map(|name| name.to_string())
+fn metadata_name(
+    global: &pw::registry::GlobalObject<&pw::spa::utils::dict::DictRef>,
+) -> Option<String> {
+    global
+        .props?
+        .get("metadata.name")
+        .map(|name| name.to_string())
 }
 
 /// Pulls the `name` field back out of a `default.audio.sink`/
@@ -207,13 +211,19 @@ fn connection() -> Option<&'static Connection> {
 /// currently configured.
 pub fn default_sink_name() -> Option<Result<Option<String>, BackendError>> {
     let conn = connection()?;
-    Some(conn.read_default("default.audio.sink").map(|raw| raw.as_deref().and_then(extract_name)))
+    Some(
+        conn.read_default("default.audio.sink")
+            .map(|raw| raw.as_deref().and_then(extract_name)),
+    )
 }
 
 /// Native equivalent of `pactl/routing.rs::get_default_source_name`.
 pub fn default_source_name() -> Option<Result<Option<String>, BackendError>> {
     let conn = connection()?;
-    Some(conn.read_default("default.audio.source").map(|raw| raw.as_deref().and_then(extract_name)))
+    Some(
+        conn.read_default("default.audio.source")
+            .map(|raw| raw.as_deref().and_then(extract_name)),
+    )
 }
 
 #[cfg(test)]
@@ -222,7 +232,10 @@ mod tests {
 
     #[test]
     fn extract_name_pulls_name_field_out_of_json_value() {
-        assert_eq!(extract_name(r#"{"name":"alsa_output.pci-0000_00_1f.3.analog-stereo"}"#), Some("alsa_output.pci-0000_00_1f.3.analog-stereo".to_string()));
+        assert_eq!(
+            extract_name(r#"{"name":"alsa_output.pci-0000_00_1f.3.analog-stereo"}"#),
+            Some("alsa_output.pci-0000_00_1f.3.analog-stereo".to_string())
+        );
     }
 
     #[test]
@@ -250,7 +263,11 @@ mod live_tests {
             return None;
         }
         let name = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        if name.is_empty() { None } else { Some(name) }
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
     }
 
     #[test]
@@ -258,12 +275,22 @@ mod live_tests {
     fn reads_default_sink_and_source_natively_matching_pactls_own_readback() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let native_sink = default_sink_name().expect("expected the native path to run, not fall back to the CLI").expect("native default sink read should succeed");
+        let native_sink = default_sink_name()
+            .expect("expected the native path to run, not fall back to the CLI")
+            .expect("native default sink read should succeed");
         let pactl_sink = pactl_default(&["get-default-sink"]);
-        assert_eq!(native_sink, pactl_sink, "native default sink should match pactl's own readback");
+        assert_eq!(
+            native_sink, pactl_sink,
+            "native default sink should match pactl's own readback"
+        );
 
-        let native_source = default_source_name().expect("expected the native path to run, not fall back to the CLI").expect("native default source read should succeed");
+        let native_source = default_source_name()
+            .expect("expected the native path to run, not fall back to the CLI")
+            .expect("native default source read should succeed");
         let pactl_source = pactl_default(&["get-default-source"]);
-        assert_eq!(native_source, pactl_source, "native default source should match pactl's own readback");
+        assert_eq!(
+            native_source, pactl_source,
+            "native default source should match pactl's own readback"
+        );
     }
 }

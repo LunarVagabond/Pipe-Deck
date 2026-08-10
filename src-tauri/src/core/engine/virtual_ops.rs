@@ -10,7 +10,11 @@ impl CoreEngine {
     /// syncs the feed sink and pactl module description to match. Moved
     /// here from the `set_device_alias` command handler, which used to call
     /// `backend::linux::pactl` directly instead of going through the engine.
-    pub fn apply_device_alias(&mut self, system_name: &str, alias: &str) -> Result<(), EngineError> {
+    pub fn apply_device_alias(
+        &mut self,
+        system_name: &str,
+        alias: &str,
+    ) -> Result<(), EngineError> {
         ConfigStore::new()
             .set_device_alias(system_name, alias)
             .map_err(|error| EngineError::Config(error.to_string()))?;
@@ -22,7 +26,10 @@ impl CoreEngine {
         Ok(())
     }
 
-    pub fn create_virtual_output(&mut self, name: &str) -> Result<VirtualDeviceResult, EngineError> {
+    pub fn create_virtual_output(
+        &mut self,
+        name: &str,
+    ) -> Result<VirtualDeviceResult, EngineError> {
         self.create_virtual_output_with_mode(name, false)
     }
 
@@ -135,7 +142,6 @@ impl CoreEngine {
         self.refresh_graph()?;
         Ok(())
     }
-
 }
 
 pub(super) fn merge_virtual_devices(
@@ -220,7 +226,9 @@ pub(super) fn merge_virtual_devices(
     }
 
     let mut seen_links = HashSet::new();
-    graph.links.retain(|link| seen_links.insert((link.source_id.clone(), link.target_id.clone())));
+    graph
+        .links
+        .retain(|link| seen_links.insert((link.source_id.clone(), link.target_id.clone())));
 }
 
 #[cfg(test)]

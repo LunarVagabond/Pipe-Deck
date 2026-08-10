@@ -34,10 +34,19 @@ trait Manager {
     fn reload(&self) -> zbus::Result<()>;
 
     #[zbus(name = "EnableUnitFiles")]
-    fn enable_unit_files(&self, files: &[&str], runtime: bool, force: bool) -> zbus::Result<(bool, Vec<UnitFileChange>)>;
+    fn enable_unit_files(
+        &self,
+        files: &[&str],
+        runtime: bool,
+        force: bool,
+    ) -> zbus::Result<(bool, Vec<UnitFileChange>)>;
 
     #[zbus(name = "DisableUnitFiles")]
-    fn disable_unit_files(&self, files: &[&str], runtime: bool) -> zbus::Result<Vec<UnitFileChange>>;
+    fn disable_unit_files(
+        &self,
+        files: &[&str],
+        runtime: bool,
+    ) -> zbus::Result<Vec<UnitFileChange>>;
 
     #[zbus(name = "StartUnit")]
     fn start_unit(&self, name: &str, mode: &str) -> zbus::Result<OwnedObjectPath>;
@@ -52,7 +61,10 @@ trait Manager {
     fn get_unit(&self, name: &str) -> zbus::Result<OwnedObjectPath>;
 }
 
-#[proxy(default_service = "org.freedesktop.systemd1", interface = "org.freedesktop.systemd1.Unit")]
+#[proxy(
+    default_service = "org.freedesktop.systemd1",
+    interface = "org.freedesktop.systemd1.Unit"
+)]
 trait Unit {
     #[zbus(property, name = "ActiveState")]
     fn active_state(&self) -> zbus::Result<String>;
@@ -75,8 +87,12 @@ pub fn reload() -> Result<(), String> {
 pub fn enable_and_start(unit: &str) -> Result<(), String> {
     let connection = Connection::session().map_err(|error| error.to_string())?;
     let manager = manager(&connection)?;
-    manager.enable_unit_files(&[unit], false, true).map_err(|error| error.to_string())?;
-    manager.start_unit(unit, "replace").map_err(|error| error.to_string())?;
+    manager
+        .enable_unit_files(&[unit], false, true)
+        .map_err(|error| error.to_string())?;
+    manager
+        .start_unit(unit, "replace")
+        .map_err(|error| error.to_string())?;
     Ok(())
 }
 
@@ -87,8 +103,14 @@ pub fn enable_and_start(unit: &str) -> Result<(), String> {
 pub fn disable_and_stop(unit: &str) -> Result<(), String> {
     let connection = Connection::session().map_err(|error| error.to_string())?;
     let manager = manager(&connection)?;
-    let stop_result = manager.stop_unit(unit, "replace").map(|_| ()).map_err(|error| error.to_string());
-    let disable_result = manager.disable_unit_files(&[unit], false).map(|_| ()).map_err(|error| error.to_string());
+    let stop_result = manager
+        .stop_unit(unit, "replace")
+        .map(|_| ())
+        .map_err(|error| error.to_string());
+    let disable_result = manager
+        .disable_unit_files(&[unit], false)
+        .map(|_| ())
+        .map_err(|error| error.to_string());
     stop_result.and(disable_result)
 }
 
@@ -96,9 +118,16 @@ pub fn disable_and_stop(unit: &str) -> Result<(), String> {
 /// "not-found", or any D-Bus error (unit never installed, no session bus,
 /// ...), matching the old shellout's `unwrap_or(false)` tolerance exactly.
 pub fn is_enabled(unit: &str) -> bool {
-    let Ok(connection) = Connection::session() else { return false };
-    let Ok(manager) = manager(&connection) else { return false };
-    manager.get_unit_file_state(unit).map(|state| state == "enabled").unwrap_or(false)
+    let Ok(connection) = Connection::session() else {
+        return false;
+    };
+    let Ok(manager) = manager(&connection) else {
+        return false;
+    };
+    manager
+        .get_unit_file_state(unit)
+        .map(|state| state == "enabled")
+        .unwrap_or(false)
 }
 
 /// `systemctl --user is-active <unit>` — `false` for "inactive", "failed",
@@ -111,7 +140,9 @@ pub fn is_active(unit: &str) -> bool {
 fn is_active_inner(unit: &str) -> zbus::Result<bool> {
     let connection = Connection::session()?;
     let unit_path = ManagerProxyBlocking::new(&connection)?.get_unit(unit)?;
-    let unit_proxy = UnitProxyBlocking::builder(&connection).path(unit_path)?.build()?;
+    let unit_proxy = UnitProxyBlocking::builder(&connection)
+        .path(unit_path)?
+        .build()?;
     Ok(unit_proxy.active_state()? == "active")
 }
 
@@ -180,8 +211,14 @@ mod live_tests {
 
         enable_and_start(TEST_UNIT).expect("enable_and_start should succeed");
 
-        assert!(is_enabled(TEST_UNIT), "expected the unit to report enabled after enable_and_start");
-        assert!(is_active(TEST_UNIT), "expected the unit to report active after enable_and_start");
+        assert!(
+            is_enabled(TEST_UNIT),
+            "expected the unit to report enabled after enable_and_start"
+        );
+        assert!(
+            is_active(TEST_UNIT),
+            "expected the unit to report active after enable_and_start"
+        );
         assert_eq!(
             systemctl_is_active(TEST_UNIT),
             "active",
@@ -190,8 +227,14 @@ mod live_tests {
 
         disable_and_stop(TEST_UNIT).expect("disable_and_stop should succeed");
 
-        assert!(!is_enabled(TEST_UNIT), "expected the unit to report disabled after disable_and_stop");
-        assert!(!is_active(TEST_UNIT), "expected the unit to report inactive after disable_and_stop");
+        assert!(
+            !is_enabled(TEST_UNIT),
+            "expected the unit to report disabled after disable_and_stop"
+        );
+        assert!(
+            !is_active(TEST_UNIT),
+            "expected the unit to report inactive after disable_and_stop"
+        );
         assert_ne!(
             systemctl_is_active(TEST_UNIT),
             "active",

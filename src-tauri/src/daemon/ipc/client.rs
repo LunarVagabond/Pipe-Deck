@@ -47,10 +47,17 @@ impl NativeHostClient {
     /// error, since "no native daemon available" is an expected, common case
     /// (e.g. restore-on-login never enabled).
     pub fn ping() -> bool {
-        matches!(request_with_timeout(IpcOp::Ping, PING_TIMEOUT), Ok(IpcOkPayload::Pong))
+        matches!(
+            request_with_timeout(IpcOp::Ping, PING_TIMEOUT),
+            Ok(IpcOkPayload::Pong)
+        )
     }
 
-    pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChainConfig) -> Result<String, IpcClientError> {
+    pub fn load_chain(
+        device_system_name: &str,
+        is_input: bool,
+        config: &EffectChainConfig,
+    ) -> Result<String, IpcClientError> {
         let op = IpcOp::LoadChain {
             device_system_name: device_system_name.to_string(),
             is_input,
@@ -63,7 +70,9 @@ impl NativeHostClient {
     }
 
     pub fn unload_chain(device_system_name: &str) -> Result<(), IpcClientError> {
-        let op = IpcOp::UnloadChain { device_system_name: device_system_name.to_string() };
+        let op = IpcOp::UnloadChain {
+            device_system_name: device_system_name.to_string(),
+        };
         match request_with_timeout(op, REQUEST_TIMEOUT)? {
             IpcOkPayload::Unit => Ok(()),
             _ => Err(IpcClientError::Protocol),
@@ -71,8 +80,13 @@ impl NativeHostClient {
     }
 
     pub fn is_loaded(device_system_name: &str) -> bool {
-        let op = IpcOp::IsLoaded { device_system_name: device_system_name.to_string() };
-        matches!(request_with_timeout(op, REQUEST_TIMEOUT), Ok(IpcOkPayload::Loaded { loaded: true }))
+        let op = IpcOp::IsLoaded {
+            device_system_name: device_system_name.to_string(),
+        };
+        matches!(
+            request_with_timeout(op, REQUEST_TIMEOUT),
+            Ok(IpcOkPayload::Loaded { loaded: true })
+        )
     }
 
     /// Pushes a live `Props` param update over the daemon's own persistent
@@ -80,8 +94,14 @@ impl NativeHostClient {
     /// `pw-dump`+`pw-cli set-param` per call on the slider-drag hot path
     /// (`pipewire::pw_cli::set_params`, still used by the device-attached EQ
     /// path). Uses `REQUEST_TIMEOUT`, same as `load_chain`/`unload_chain`.
-    pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(), IpcClientError> {
-        let op = IpcOp::SetParam { device_system_name: device_system_name.to_string(), params: params.to_vec() };
+    pub fn set_param(
+        device_system_name: &str,
+        params: &[(String, f64)],
+    ) -> Result<(), IpcClientError> {
+        let op = IpcOp::SetParam {
+            device_system_name: device_system_name.to_string(),
+            params: params.to_vec(),
+        };
         match request_with_timeout(op, REQUEST_TIMEOUT)? {
             IpcOkPayload::Unit => Ok(()),
             _ => Err(IpcClientError::Protocol),
@@ -90,8 +110,14 @@ impl NativeHostClient {
 
     /// Portable-DSP equivalent of `load_chain` (issue #74) — routed to
     /// `pipewire::native_dsp_host` daemon-side instead of `native_host`.
-    pub fn load_dsp_chain(device_system_name: &str, config: &EffectChainConfig) -> Result<String, IpcClientError> {
-        let op = IpcOp::LoadDspChain { device_system_name: device_system_name.to_string(), config: config.clone() };
+    pub fn load_dsp_chain(
+        device_system_name: &str,
+        config: &EffectChainConfig,
+    ) -> Result<String, IpcClientError> {
+        let op = IpcOp::LoadDspChain {
+            device_system_name: device_system_name.to_string(),
+            config: config.clone(),
+        };
         match request_with_timeout(op, REQUEST_TIMEOUT)? {
             IpcOkPayload::PlaybackName { name } => Ok(name),
             _ => Err(IpcClientError::Protocol),
@@ -99,7 +125,9 @@ impl NativeHostClient {
     }
 
     pub fn unload_dsp_chain(device_system_name: &str) -> Result<(), IpcClientError> {
-        let op = IpcOp::UnloadDspChain { device_system_name: device_system_name.to_string() };
+        let op = IpcOp::UnloadDspChain {
+            device_system_name: device_system_name.to_string(),
+        };
         match request_with_timeout(op, REQUEST_TIMEOUT)? {
             IpcOkPayload::Unit => Ok(()),
             _ => Err(IpcClientError::Protocol),
@@ -107,12 +135,23 @@ impl NativeHostClient {
     }
 
     pub fn is_dsp_chain_loaded(device_system_name: &str) -> bool {
-        let op = IpcOp::IsDspChainLoaded { device_system_name: device_system_name.to_string() };
-        matches!(request_with_timeout(op, REQUEST_TIMEOUT), Ok(IpcOkPayload::Loaded { loaded: true }))
+        let op = IpcOp::IsDspChainLoaded {
+            device_system_name: device_system_name.to_string(),
+        };
+        matches!(
+            request_with_timeout(op, REQUEST_TIMEOUT),
+            Ok(IpcOkPayload::Loaded { loaded: true })
+        )
     }
 
-    pub fn set_dsp_chain_live_params(device_system_name: &str, config: &EffectChainConfig) -> Result<(), IpcClientError> {
-        let op = IpcOp::SetDspChainLiveParams { device_system_name: device_system_name.to_string(), config: config.clone() };
+    pub fn set_dsp_chain_live_params(
+        device_system_name: &str,
+        config: &EffectChainConfig,
+    ) -> Result<(), IpcClientError> {
+        let op = IpcOp::SetDspChainLiveParams {
+            device_system_name: device_system_name.to_string(),
+            config: config.clone(),
+        };
         match request_with_timeout(op, REQUEST_TIMEOUT)? {
             IpcOkPayload::Unit => Ok(()),
             _ => Err(IpcClientError::Protocol),
@@ -123,22 +162,33 @@ impl NativeHostClient {
 fn request_with_timeout(op: IpcOp, timeout: Duration) -> Result<IpcOkPayload, IpcClientError> {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
 
-    let mut stream = UnixStream::connect(socket_path()).map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
-    stream.set_read_timeout(Some(timeout)).map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
-    stream.set_write_timeout(Some(timeout)).map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
+    let mut stream = UnixStream::connect(socket_path())
+        .map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
+    stream
+        .set_read_timeout(Some(timeout))
+        .map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
+    stream
+        .set_write_timeout(Some(timeout))
+        .map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
 
     let request = IpcRequest { id, op };
     let encoded = serde_json::to_string(&request).map_err(|_| IpcClientError::Protocol)?;
-    writeln!(stream, "{encoded}").map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
+    writeln!(stream, "{encoded}")
+        .map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
 
     let mut reader = BufReader::new(stream);
     let mut line = String::new();
-    reader.read_line(&mut line).map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
+    reader
+        .read_line(&mut line)
+        .map_err(|error| IpcClientError::Unreachable(error.to_string()))?;
     if line.is_empty() {
-        return Err(IpcClientError::Unreachable("connection closed with no response".to_string()));
+        return Err(IpcClientError::Unreachable(
+            "connection closed with no response".to_string(),
+        ));
     }
 
-    let response: IpcResponse = serde_json::from_str(line.trim_end()).map_err(|_| IpcClientError::Protocol)?;
+    let response: IpcResponse =
+        serde_json::from_str(line.trim_end()).map_err(|_| IpcClientError::Protocol)?;
     if response.id != id {
         return Err(IpcClientError::Protocol);
     }
@@ -172,7 +222,8 @@ mod live_tests {
     /// this module — each test still gets its own socket path/thread, so
     /// they don't interfere with each other even if run in the same process.
     fn spawn_test_server() -> PathBuf {
-        static NEXT_TEST_SOCKET_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static NEXT_TEST_SOCKET_ID: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
         let socket_path = PathBuf::from(format!(
             "/tmp/pipe-deck-native-host-test-{}-{}.sock",
             std::process::id(),
@@ -288,7 +339,8 @@ mod live_tests {
         // well after the node was created, not immediately after.
         thread::sleep(Duration::from_secs(2));
 
-        let set_param_result = NativeHostClient::set_param(device_system_name, &[("eq_bass:Gain".to_string(), 3.0)]);
+        let set_param_result =
+            NativeHostClient::set_param(device_system_name, &[("eq_bass:Gain".to_string(), 3.0)]);
         cleanup();
         set_param_result.expect(
             "set_param on a node created well before the call should still find it — \
@@ -311,11 +363,16 @@ mod live_tests {
             if object.get("type").and_then(|v| v.as_str()) != Some("PipeWire:Interface:Node") {
                 return None;
             }
-            let name = object.pointer("/info/props/node.name").and_then(|v| v.as_str());
+            let name = object
+                .pointer("/info/props/node.name")
+                .and_then(|v| v.as_str());
             if name != Some(node_name) {
                 return None;
             }
-            object.pointer("/info/state").and_then(|v| v.as_str()).map(str::to_string)
+            object
+                .pointer("/info/state")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)
         })
     }
 
@@ -377,14 +434,18 @@ mod live_tests {
         // active, not anything the test's own host actually plays audio out
         // of, so it works the same on any machine regardless of what
         // hardware is attached.
-        if let Err(error) = pactl::create_null_sink(driver_sink_name, "Pipe Deck test driver sink") {
+        if let Err(error) = pactl::create_null_sink(driver_sink_name, "Pipe Deck test driver sink")
+        {
             cleanup();
             panic!("failed to create the disposable driver sink: {error}");
         }
 
         for (playback_port, driver_port) in [("FL", "FL"), ("FR", "FR")] {
             let status = std::process::Command::new("pw-link")
-                .args([format!("{playback_name}:output_{playback_port}"), format!("{driver_sink_name}:playback_{driver_port}")])
+                .args([
+                    format!("{playback_name}:output_{playback_port}"),
+                    format!("{driver_sink_name}:playback_{driver_port}"),
+                ])
                 .status();
             if !matches!(status, Ok(status) if status.success()) {
                 cleanup();
@@ -502,7 +563,9 @@ mod live_tests {
     /// necessarily show up in RSS (a closed-but-not-freed fd is cheap), so
     /// this is checked as an independent signal.
     fn fd_count_for(pid: u32) -> Option<usize> {
-        std::fs::read_dir(format!("/proc/{pid}/fd")).ok().map(|entries| entries.count())
+        std::fs::read_dir(format!("/proc/{pid}/fd"))
+            .ok()
+            .map(|entries| entries.count())
     }
 
     /// Number of `pipe-deck-native-ipc-prodsoak`-tagged sinks currently known
@@ -511,7 +574,9 @@ mod live_tests {
     /// reports success but the underlying PipeWire module/node didn't
     /// actually go away.
     fn orphaned_module_count(device_system_name: &str) -> usize {
-        let output = std::process::Command::new("pactl").args(["list", "short", "sinks"]).output();
+        let output = std::process::Command::new("pactl")
+            .args(["list", "short", "sinks"])
+            .output();
         match output {
             Ok(output) => String::from_utf8_lossy(&output.stdout)
                 .lines()
@@ -530,7 +595,8 @@ mod live_tests {
     /// drive a fresh process. Returns the child (caller must kill it) and the
     /// socket path (caller must remove it).
     fn spawn_real_daemon() -> (std::process::Child, PathBuf) {
-        static NEXT_TEST_SOCKET_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        static NEXT_TEST_SOCKET_ID: std::sync::atomic::AtomicU64 =
+            std::sync::atomic::AtomicU64::new(0);
         let socket_path = PathBuf::from(format!(
             "/tmp/pipe-deck-native-host-prodsoak-{}-{}.sock",
             std::process::id(),
@@ -557,7 +623,10 @@ mod live_tests {
             }
             thread::sleep(Duration::from_millis(100));
         }
-        assert!(bound, "spawned daemon did not start accepting connections in time");
+        assert!(
+            bound,
+            "spawned daemon did not start accepting connections in time"
+        );
         (child, socket_path)
     }
 
@@ -629,7 +698,9 @@ mod live_tests {
             }
             if NativeHostClient::is_loaded(device_system_name) {
                 cleanup(&mut child);
-                panic!("cycle {cycle}: daemon still reports the chain as loaded after unload_chain");
+                panic!(
+                    "cycle {cycle}: daemon still reports the chain as loaded after unload_chain"
+                );
             }
             let orphaned = orphaned_module_count(device_system_name);
             if orphaned > 0 {
@@ -661,7 +732,8 @@ mod live_tests {
 
         if let (Some(after_warmup), Some(final_rss)) = (rss_after_warmup, rss_final) {
             let post_warmup_growth = final_rss.saturating_sub(after_warmup);
-            let cap = MAX_ACCEPTABLE_POST_WARMUP_GROWTH_KB * (cycles as u64 / SOAK_CYCLES as u64).max(1);
+            let cap =
+                MAX_ACCEPTABLE_POST_WARMUP_GROWTH_KB * (cycles as u64 / SOAK_CYCLES as u64).max(1);
             assert!(
                 post_warmup_growth <= cap,
                 "RSS grew {post_warmup_growth}kB over {} cycles after warmup, exceeding the {cap}kB cap \
@@ -725,7 +797,9 @@ mod live_tests {
             }
             if NativeHostClient::is_loaded(device_system_name) {
                 cleanup();
-                panic!("cycle {cycle}: daemon still reports the chain as loaded after unload_chain");
+                panic!(
+                    "cycle {cycle}: daemon still reports the chain as loaded after unload_chain"
+                );
             }
             if pactl::sink_exists(device_system_name).unwrap_or(false) {
                 cleanup();

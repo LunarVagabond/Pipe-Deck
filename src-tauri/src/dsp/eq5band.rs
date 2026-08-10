@@ -38,7 +38,15 @@ impl Eq5BandProcessor {
     /// panics if given any other stage kind — callers are expected to
     /// dispatch on `EffectStage`'s variant before constructing this.
     pub fn from_stage(sample_rate_hz: f64, stage: &EffectStage) -> Self {
-        let EffectStage::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain, .. } = stage
+        let EffectStage::Eq5Band {
+            eq_sub,
+            eq_bass,
+            eq_mid,
+            eq_treble,
+            eq_air,
+            output_gain,
+            ..
+        } = stage
         else {
             panic!("Eq5BandProcessor::from_stage called with a non-Eq5Band EffectStage");
         };
@@ -57,7 +65,12 @@ impl Eq5BandProcessor {
                 BiquadState::default(),
             ),
             (
-                BiquadCoeffs::peaking(sample_rate_hz, TREBLE_FREQ_HZ, BAND_Q, f64::from(*eq_treble)),
+                BiquadCoeffs::peaking(
+                    sample_rate_hz,
+                    TREBLE_FREQ_HZ,
+                    BAND_Q,
+                    f64::from(*eq_treble),
+                ),
                 BiquadState::default(),
             ),
             (
@@ -66,7 +79,10 @@ impl Eq5BandProcessor {
             ),
         ];
 
-        Self { bands, output_gain_linear: 10f64.powf(f64::from(*output_gain) / 20.0) }
+        Self {
+            bands,
+            output_gain_linear: 10f64.powf(f64::from(*output_gain) / 20.0),
+        }
     }
 }
 
@@ -119,7 +135,10 @@ mod tests {
             eq.process(0.0);
         }
         let out = eq.process(1.0);
-        assert!((out - 1.0).abs() < 1e-3, "flat EQ should pass an impulse near-unchanged, got {out}");
+        assert!(
+            (out - 1.0).abs() < 1e-3,
+            "flat EQ should pass an impulse near-unchanged, got {out}"
+        );
     }
 
     #[test]
@@ -143,7 +162,10 @@ mod tests {
             assert!(out.is_finite());
             max_abs = max_abs.max(out.abs());
         }
-        assert!(max_abs < 20.0, "5-band max boost should not run away, peaked at {max_abs}");
+        assert!(
+            max_abs < 20.0,
+            "5-band max boost should not run away, peaked at {max_abs}"
+        );
     }
 
     #[test]
@@ -181,7 +203,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "non-Eq5Band")]
     fn from_stage_panics_on_wrong_variant() {
-        let stage = EffectStage::Hpf { id: "hpf".to_string(), freq_hz: 100, resonance_x10: 10 };
+        let stage = EffectStage::Hpf {
+            id: "hpf".to_string(),
+            freq_hz: 100,
+            resonance_x10: 10,
+        };
         let _ = Eq5BandProcessor::from_stage(48000.0, &stage);
     }
 }

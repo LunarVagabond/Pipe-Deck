@@ -1,19 +1,31 @@
-use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirection};
-use crate::backend::BackendError;
 use crate::backend::linux::pactl::parse::{find_sink_input_index, find_source_output_index};
 use crate::backend::linux::pactl::run_pactl;
 use crate::backend::linux::pw_mixer_native as native;
+use crate::backend::BackendError;
+use crate::core::models::{DeviceDirection, DeviceKind, RuntimeGraph, StreamDirection};
 
 /// Moves a single sink-input (an app's playback stream) onto a different
 /// sink by raw name, bypassing `RuntimeGraph` lookup. Used to temporarily
 /// hold an in-use device's streams elsewhere while its underlying module is
 /// swapped out for an effects-hosted one, then move them back — see
 /// `core::engine::effects_ops::apply_effect_chain_structural`.
-pub fn move_sink_input_to_sink_name(sink_input_index: u32, target_sink_name: &str) -> Result<(), BackendError> {
-    run_pactl(&["move-sink-input", &sink_input_index.to_string(), target_sink_name]).map(|_| ())
+pub fn move_sink_input_to_sink_name(
+    sink_input_index: u32,
+    target_sink_name: &str,
+) -> Result<(), BackendError> {
+    run_pactl(&[
+        "move-sink-input",
+        &sink_input_index.to_string(),
+        target_sink_name,
+    ])
+    .map(|_| ())
 }
 
-pub fn set_device_volume(device_id: &str, graph: &RuntimeGraph, percent: u8) -> Result<(), BackendError> {
+pub fn set_device_volume(
+    device_id: &str,
+    graph: &RuntimeGraph,
+    percent: u8,
+) -> Result<(), BackendError> {
     let device = graph
         .devices
         .iter()
@@ -25,8 +37,14 @@ pub fn set_device_volume(device_id: &str, graph: &RuntimeGraph, percent: u8) -> 
 
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => {
-            let monitor_name = uses_monitor_fan_out(device).then(|| monitor_source_name(&device.system_name));
-            if let Some(result) = native::set_device_volume(&device.system_name, percent, channels, monitor_name.as_deref()) {
+            let monitor_name =
+                uses_monitor_fan_out(device).then(|| monitor_source_name(&device.system_name));
+            if let Some(result) = native::set_device_volume(
+                &device.system_name,
+                percent,
+                channels,
+                monitor_name.as_deref(),
+            ) {
                 return result;
             }
             let volume_arg = format!("{percent}%");
@@ -36,21 +54,23 @@ pub fn set_device_volume(device_id: &str, graph: &RuntimeGraph, percent: u8) -> 
             }
         }
         DeviceDirection::Input => {
-            if let Some(result) = native::set_device_volume(&device.system_name, percent, channels, None) {
+            if let Some(result) =
+                native::set_device_volume(&device.system_name, percent, channels, None)
+            {
                 return result;
             }
             let volume_arg = format!("{percent}%");
-            run_pactl(&[
-                "set-source-volume",
-                &device.system_name,
-                &volume_arg,
-            ])?;
+            run_pactl(&["set-source-volume", &device.system_name, &volume_arg])?;
         }
     }
     Ok(())
 }
 
-pub fn set_device_mute(device_id: &str, graph: &RuntimeGraph, muted: bool) -> Result<(), BackendError> {
+pub fn set_device_mute(
+    device_id: &str,
+    graph: &RuntimeGraph,
+    muted: bool,
+) -> Result<(), BackendError> {
     let device = graph
         .devices
         .iter()
@@ -59,8 +79,11 @@ pub fn set_device_mute(device_id: &str, graph: &RuntimeGraph, muted: bool) -> Re
 
     match device.direction {
         DeviceDirection::Output | DeviceDirection::Duplex => {
-            let monitor_name = uses_monitor_fan_out(device).then(|| monitor_source_name(&device.system_name));
-            if let Some(result) = native::set_device_mute(&device.system_name, muted, monitor_name.as_deref()) {
+            let monitor_name =
+                uses_monitor_fan_out(device).then(|| monitor_source_name(&device.system_name));
+            if let Some(result) =
+                native::set_device_mute(&device.system_name, muted, monitor_name.as_deref())
+            {
                 return result;
             }
             let flag = if muted { "1" } else { "0" };
@@ -99,11 +122,7 @@ pub fn set_stream_volume(
         }
         StreamDirection::Capture => {
             let index = find_source_output_index(graph, stream)?;
-            run_pactl(&[
-                "set-source-output-volume",
-                &index.to_string(),
-                &volume_arg,
-            ])?;
+            run_pactl(&["set-source-output-volume", &index.to_string(), &volume_arg])?;
         }
     }
     Ok(())

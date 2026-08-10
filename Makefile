@@ -81,7 +81,8 @@ check: build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend
 	$(NPM) run test:unit
 	$(CARGO) check --manifest-path $(TAURI_DIR)/Cargo.toml
 
-lint-rust: ## Run cargo clippy across all Rust targets (lib, bins, tests) with warnings denied
+lint-rust: ## Run cargo fmt --check and cargo clippy across all Rust targets (lib, bins, tests) with warnings denied
+	$(CARGO) fmt --manifest-path $(TAURI_DIR)/Cargo.toml --all -- --check
 	$(CARGO) clippy --manifest-path $(TAURI_DIR)/Cargo.toml --all-targets -- -D warnings
 
 test: build-daemon-dev build-cli ## Run Rust tests

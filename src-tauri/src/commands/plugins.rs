@@ -2,7 +2,9 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn list_plugins(state: State<'_, AppState>) -> Result<Vec<crate::core::models::PluginStatus>, String> {
+pub async fn list_plugins(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::core::models::PluginStatus>, String> {
     let engine = state.engine.read().await;
     Ok(engine.list_plugins())
 }

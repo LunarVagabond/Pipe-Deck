@@ -14,7 +14,11 @@ impl CoreEngine {
             .adapter
             .fetch_graph()
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
-        merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
+        merge_virtual_devices(
+            &mut self.graph,
+            &mut self.device_id_remap,
+            self.adapter.as_ref(),
+        );
         merge_processing_nodes(&mut self.graph, self.adapter.as_ref());
         self.sync_live_graph();
         self.reconcile_effect_chain_liveness_after_refresh();
@@ -28,13 +32,18 @@ impl CoreEngine {
         // — bump so the pw-dump monitor (see `graph_generation` field doc in
         // `mod.rs`) can tell a snapshot it sampled before this point is
         // stale relative to this now-authoritative state.
-        self.graph_generation.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        self.graph_generation
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         Ok(())
     }
 
     pub fn apply_graph_update(&mut self, graph: RuntimeGraph) {
         self.graph = graph;
-        merge_virtual_devices(&mut self.graph, &mut self.device_id_remap, self.adapter.as_ref());
+        merge_virtual_devices(
+            &mut self.graph,
+            &mut self.device_id_remap,
+            self.adapter.as_ref(),
+        );
         merge_processing_nodes(&mut self.graph, self.adapter.as_ref());
         self.sync_live_graph();
         self.reconcile_effect_chain_liveness_after_refresh();

@@ -97,7 +97,11 @@ mod tests {
     #[test]
     fn from_config_skips_non_eq5band_stages() {
         let config = EffectChainConfig {
-            stages: vec![EffectStage::Hpf { id: "hpf".to_string(), freq_hz: 100, resonance_x10: 10 }],
+            stages: vec![EffectStage::Hpf {
+                id: "hpf".to_string(),
+                freq_hz: 100,
+                resonance_x10: 10,
+            }],
             ..Default::default()
         };
         let chain = DspChain::from_config(48000.0, &config);

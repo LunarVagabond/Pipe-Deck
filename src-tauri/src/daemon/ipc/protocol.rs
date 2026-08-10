@@ -188,22 +188,32 @@ mod tests {
 
     #[test]
     fn load_dsp_chain_roundtrips() {
-        roundtrips(IpcOp::LoadDspChain { device_system_name: "pipe-deck-mic".to_string(), config: eq5band_config() });
+        roundtrips(IpcOp::LoadDspChain {
+            device_system_name: "pipe-deck-mic".to_string(),
+            config: eq5band_config(),
+        });
     }
 
     #[test]
     fn unload_dsp_chain_roundtrips() {
-        roundtrips(IpcOp::UnloadDspChain { device_system_name: "pipe-deck-mic".to_string() });
+        roundtrips(IpcOp::UnloadDspChain {
+            device_system_name: "pipe-deck-mic".to_string(),
+        });
     }
 
     #[test]
     fn is_dsp_chain_loaded_roundtrips() {
-        roundtrips(IpcOp::IsDspChainLoaded { device_system_name: "pipe-deck-mic".to_string() });
+        roundtrips(IpcOp::IsDspChainLoaded {
+            device_system_name: "pipe-deck-mic".to_string(),
+        });
     }
 
     #[test]
     fn set_dsp_chain_live_params_roundtrips() {
-        roundtrips(IpcOp::SetDspChainLiveParams { device_system_name: "pipe-deck-mic".to_string(), config: eq5band_config() });
+        roundtrips(IpcOp::SetDspChainLiveParams {
+            device_system_name: "pipe-deck-mic".to_string(),
+            config: eq5band_config(),
+        });
     }
 
     fn response_roundtrips(result: IpcResult) {
@@ -215,29 +225,39 @@ mod tests {
 
     #[test]
     fn ok_pong_roundtrips() {
-        response_roundtrips(IpcResult::Ok { payload: IpcOkPayload::Pong });
+        response_roundtrips(IpcResult::Ok {
+            payload: IpcOkPayload::Pong,
+        });
     }
 
     #[test]
     fn ok_playback_name_roundtrips() {
         response_roundtrips(IpcResult::Ok {
-            payload: IpcOkPayload::PlaybackName { name: "effect_output.pipe-deck-game".to_string() },
+            payload: IpcOkPayload::PlaybackName {
+                name: "effect_output.pipe-deck-game".to_string(),
+            },
         });
     }
 
     #[test]
     fn ok_unit_roundtrips() {
-        response_roundtrips(IpcResult::Ok { payload: IpcOkPayload::Unit });
+        response_roundtrips(IpcResult::Ok {
+            payload: IpcOkPayload::Unit,
+        });
     }
 
     #[test]
     fn ok_loaded_roundtrips() {
-        response_roundtrips(IpcResult::Ok { payload: IpcOkPayload::Loaded { loaded: true } });
+        response_roundtrips(IpcResult::Ok {
+            payload: IpcOkPayload::Loaded { loaded: true },
+        });
     }
 
     #[test]
     fn error_roundtrips() {
-        response_roundtrips(IpcResult::Error { message: "boom".to_string() });
+        response_roundtrips(IpcResult::Error {
+            message: "boom".to_string(),
+        });
     }
 
     /// Regression: `Pong` and `Unit` are both zero-field variants — under

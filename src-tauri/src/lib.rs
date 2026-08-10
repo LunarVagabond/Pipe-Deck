@@ -133,7 +133,9 @@ pub fn run() {
             tray::setup_tray(app)?;
             tray::attach_close_to_tray(app.handle());
 
-            app.manage(daemon::EphemeralDaemonHandle(std::sync::Mutex::new(daemon::ensure_ephemeral_daemon())));
+            app.manage(daemon::EphemeralDaemonHandle(std::sync::Mutex::new(
+                daemon::ensure_ephemeral_daemon(),
+            )));
 
             let handle = app.handle().clone();
             let engine_arc = app.state::<AppState>().engine.clone();

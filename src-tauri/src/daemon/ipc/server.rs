@@ -43,15 +43,24 @@ pub fn run_at(path: &Path) -> std::io::Result<()> {
 }
 
 fn handle_connection(stream: UnixStream) {
-    let Ok(reader_stream) = stream.try_clone() else { return };
+    let Ok(reader_stream) = stream.try_clone() else {
+        return;
+    };
     let reader = BufReader::new(reader_stream);
     let mut writer = stream;
 
     for line in reader.lines().map_while(Result::ok) {
-        let Ok(request) = serde_json::from_str::<IpcRequest>(&line) else { continue };
+        let Ok(request) = serde_json::from_str::<IpcRequest>(&line) else {
+            continue;
+        };
         let result = dispatch(request.op);
-        let response = IpcResponse { id: request.id, result };
-        let Ok(encoded) = serde_json::to_string(&response) else { continue };
+        let response = IpcResponse {
+            id: request.id,
+            result,
+        };
+        let Ok(encoded) = serde_json::to_string(&response) else {
+            continue;
+        };
         if writeln!(writer, "{encoded}").is_err() {
             break;
         }
@@ -60,44 +69,79 @@ fn handle_connection(stream: UnixStream) {
 
 fn dispatch(op: IpcOp) -> IpcResult {
     match op {
-        IpcOp::Ping => IpcResult::Ok { payload: IpcOkPayload::Pong },
-        IpcOp::LoadChain { device_system_name, is_input, config } => {
-            match native_host::load_chain(&device_system_name, is_input, &config) {
-                Ok(name) => IpcResult::Ok { payload: IpcOkPayload::PlaybackName { name } },
-                Err(error) => IpcResult::Error { message: error.to_string() },
-            }
-        }
-        IpcOp::UnloadChain { device_system_name } => match native_host::unload_chain(&device_system_name) {
-            Ok(()) => IpcResult::Ok { payload: IpcOkPayload::Unit },
-            Err(error) => IpcResult::Error { message: error.to_string() },
+        IpcOp::Ping => IpcResult::Ok {
+            payload: IpcOkPayload::Pong,
         },
-        IpcOp::IsLoaded { device_system_name } => {
-            IpcResult::Ok { payload: IpcOkPayload::Loaded { loaded: native_host::is_loaded(&device_system_name) } }
-        }
-        IpcOp::SetParam { device_system_name, params } => {
-            match native_host::set_param(&device_system_name, &params) {
-                Ok(()) => IpcResult::Ok { payload: IpcOkPayload::Unit },
-                Err(error) => IpcResult::Error { message: error.to_string() },
+        IpcOp::LoadChain {
+            device_system_name,
+            is_input,
+            config,
+        } => match native_host::load_chain(&device_system_name, is_input, &config) {
+            Ok(name) => IpcResult::Ok {
+                payload: IpcOkPayload::PlaybackName { name },
+            },
+            Err(error) => IpcResult::Error {
+                message: error.to_string(),
+            },
+        },
+        IpcOp::UnloadChain { device_system_name } => {
+            match native_host::unload_chain(&device_system_name) {
+                Ok(()) => IpcResult::Ok {
+                    payload: IpcOkPayload::Unit,
+                },
+                Err(error) => IpcResult::Error {
+                    message: error.to_string(),
+                },
             }
         }
-        IpcOp::LoadDspChain { device_system_name, config } => {
-            match native_dsp_host::load_chain(&device_system_name, &config) {
-                Ok(name) => IpcResult::Ok { payload: IpcOkPayload::PlaybackName { name } },
-                Err(error) => IpcResult::Error { message: error.to_string() },
-            }
-        }
+        IpcOp::IsLoaded { device_system_name } => IpcResult::Ok {
+            payload: IpcOkPayload::Loaded {
+                loaded: native_host::is_loaded(&device_system_name),
+            },
+        },
+        IpcOp::SetParam {
+            device_system_name,
+            params,
+        } => match native_host::set_param(&device_system_name, &params) {
+            Ok(()) => IpcResult::Ok {
+                payload: IpcOkPayload::Unit,
+            },
+            Err(error) => IpcResult::Error {
+                message: error.to_string(),
+            },
+        },
+        IpcOp::LoadDspChain {
+            device_system_name,
+            config,
+        } => match native_dsp_host::load_chain(&device_system_name, &config) {
+            Ok(name) => IpcResult::Ok {
+                payload: IpcOkPayload::PlaybackName { name },
+            },
+            Err(error) => IpcResult::Error {
+                message: error.to_string(),
+            },
+        },
         IpcOp::UnloadDspChain { device_system_name } => {
             native_dsp_host::unload_chain(&device_system_name);
-            IpcResult::Ok { payload: IpcOkPayload::Unit }
-        }
-        IpcOp::IsDspChainLoaded { device_system_name } => {
-            IpcResult::Ok { payload: IpcOkPayload::Loaded { loaded: native_dsp_host::is_loaded(&device_system_name) } }
-        }
-        IpcOp::SetDspChainLiveParams { device_system_name, config } => {
-            match native_dsp_host::set_live_chain(&device_system_name, &config) {
-                Ok(()) => IpcResult::Ok { payload: IpcOkPayload::Unit },
-                Err(error) => IpcResult::Error { message: error.to_string() },
+            IpcResult::Ok {
+                payload: IpcOkPayload::Unit,
             }
         }
+        IpcOp::IsDspChainLoaded { device_system_name } => IpcResult::Ok {
+            payload: IpcOkPayload::Loaded {
+                loaded: native_dsp_host::is_loaded(&device_system_name),
+            },
+        },
+        IpcOp::SetDspChainLiveParams {
+            device_system_name,
+            config,
+        } => match native_dsp_host::set_live_chain(&device_system_name, &config) {
+            Ok(()) => IpcResult::Ok {
+                payload: IpcOkPayload::Unit,
+            },
+            Err(error) => IpcResult::Error {
+                message: error.to_string(),
+            },
+        },
     }
 }

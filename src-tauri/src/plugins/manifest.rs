@@ -158,7 +158,11 @@ capabilities:
         let dir = std::env::temp_dir().join(format!("pipe-deck-discover-{}", std::process::id()));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(dir.join("broken-plugin")).unwrap();
-        fs::write(dir.join("broken-plugin/plugin.yaml"), b"not: [valid yaml for a manifest").unwrap();
+        fs::write(
+            dir.join("broken-plugin/plugin.yaml"),
+            b"not: [valid yaml for a manifest",
+        )
+        .unwrap();
         fs::create_dir_all(dir.join("empty-dir")).unwrap();
 
         let (plugins, issues) = discover_in_dir(&dir);

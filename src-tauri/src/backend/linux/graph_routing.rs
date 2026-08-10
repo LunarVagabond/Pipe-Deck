@@ -1,12 +1,14 @@
+use crate::backend::linux::pactl;
+use crate::backend::linux::pw_link;
+use crate::backend::linux::split_sink::effective_fan_out_source;
+use crate::backend::linux::stream_match::{
+    resolve_capture_target_device_id, resolve_playback_target_device_id,
+};
 use crate::core::models::{
     DeviceDirection, DeviceKind, Link, MixSource, RuntimeGraph, StreamDirection,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_identity_key, StreamIdentityKey};
-use crate::backend::linux::pactl;
-use crate::backend::linux::pw_link;
-use crate::backend::linux::split_sink::effective_fan_out_source;
-use crate::backend::linux::stream_match::{resolve_capture_target_device_id, resolve_playback_target_device_id};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn sync_live_routing_graph(graph: &mut RuntimeGraph) {
@@ -47,7 +49,10 @@ fn apply_native_playback_targets(graph: &mut RuntimeGraph) {
         let Some(system_name) = &stream.system_name else {
             continue;
         };
-        let Some(target_name) = pw_link::list_all_monitor_routes_for_source(system_name).into_iter().next() else {
+        let Some(target_name) = pw_link::list_all_monitor_routes_for_source(system_name)
+            .into_iter()
+            .next()
+        else {
             continue;
         };
         let Some(target_id) = resolve_playback_target_device_id(graph, &target_name) else {
@@ -57,7 +62,11 @@ fn apply_native_playback_targets(graph: &mut RuntimeGraph) {
     }
 
     for (stream_id, target_id) in updates {
-        if let Some(stream) = graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
+        if let Some(stream) = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+        {
             stream.current_target = Some(target_id);
         }
     }
@@ -79,7 +88,10 @@ fn apply_native_capture_targets(graph: &mut RuntimeGraph) {
         let Some(system_name) = &stream.system_name else {
             continue;
         };
-        let Some(source_name) = pw_link::list_capture_sources_for_stream(system_name).into_iter().next() else {
+        let Some(source_name) = pw_link::list_capture_sources_for_stream(system_name)
+            .into_iter()
+            .next()
+        else {
             continue;
         };
         let Some(target_id) = resolve_capture_target_device_id(graph, &source_name) else {
@@ -89,7 +101,11 @@ fn apply_native_capture_targets(graph: &mut RuntimeGraph) {
     }
 
     for (stream_id, target_id) in updates {
-        if let Some(stream) = graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
+        if let Some(stream) = graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+        {
             stream.current_target = Some(target_id);
         }
     }
@@ -159,10 +175,16 @@ fn gc_feed_sinks(graph: &RuntimeGraph) {
     let known_mixer_nodes = graph
         .processing_nodes
         .iter()
-        .filter(|node| matches!(node.kind, crate::core::models::ProcessingNodeKind::Mixer { .. }))
+        .filter(|node| {
+            matches!(
+                node.kind,
+                crate::core::models::ProcessingNodeKind::Mixer { .. }
+            )
+        })
         .map(|node| node.system_name.clone());
 
-    let known_feed_owners: HashSet<String> = known_virtual_inputs.chain(known_mixer_nodes).collect();
+    let known_feed_owners: HashSet<String> =
+        known_virtual_inputs.chain(known_mixer_nodes).collect();
 
     let _ = pactl::gc_feed_sinks(&known_feed_owners);
 }
@@ -211,8 +233,11 @@ pub fn normalize_stream_routing_links(graph: &mut RuntimeGraph) {
     // new one. The result was a second, disagreeing edge with no
     // corresponding port/handle for it to attach to, rendered floating at
     // the node's default anchor instead of a real connection point.
-    let processing_node_ids: HashSet<&str> =
-        graph.processing_nodes.iter().map(|node| node.id.as_str()).collect();
+    let processing_node_ids: HashSet<&str> = graph
+        .processing_nodes
+        .iter()
+        .map(|node| node.id.as_str())
+        .collect();
 
     for stream in &graph.streams {
         let Some(target_id) = &stream.current_target else {
@@ -311,7 +336,9 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
         .map(|device| (device.system_name.clone(), device.id.clone()))
         .collect();
 
-    graph.links.retain(|link| !link.id.starts_with("pwlink-mix-"));
+    graph
+        .links
+        .retain(|link| !link.id.starts_with("pwlink-mix-"));
 
     for device in &mut graph.devices {
         if device.kind != DeviceKind::Virtual
@@ -329,7 +356,10 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
                 continue;
             }
 
-            let Some(source_name) = pw_link::list_capture_sources_for_sink(feed_sink_name).into_iter().next() else {
+            let Some(source_name) = pw_link::list_capture_sources_for_sink(feed_sink_name)
+                .into_iter()
+                .next()
+            else {
                 continue;
             };
             let Some(source_id) = name_to_id.get(&source_name) else {
@@ -340,7 +370,10 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
                 .ok()
                 .flatten()
                 .unwrap_or(100);
-            let muted = pactl::sink_mute_state(feed_sink_name).ok().flatten().unwrap_or(false);
+            let muted = pactl::sink_mute_state(feed_sink_name)
+                .ok()
+                .flatten()
+                .unwrap_or(false);
 
             mix_sources.push(MixSource {
                 device_id: source_id.clone(),
@@ -363,8 +396,8 @@ fn apply_virtual_mic_mix_routes(graph: &mut RuntimeGraph) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::{Device, Stream};
     use crate::backend::linux::stream_match::resolve_playback_target_device_id;
+    use crate::core::models::{Device, Stream};
 
     #[test]
     fn feed_sink_maps_to_virtual_input_target() {
@@ -524,11 +557,17 @@ mod tests {
             processing_nodes: vec![ProcessingNode {
                 id: "processing-mixer-mixer".into(),
                 label: "Mixer".into(),
-                kind: ProcessingNodeKind::Mixer { input_gains_percent: vec![100] },
+                kind: ProcessingNodeKind::Mixer {
+                    input_gains_percent: vec![100],
+                },
                 system_name: "pipe-deck-proc-mixer-mixer".into(),
                 bypassed: false,
                 live: true,
-                inputs: vec![ProcessingNodePort { index: 0, connected_id: Some("node-97".into()), feed_key: None }],
+                inputs: vec![ProcessingNodePort {
+                    index: 0,
+                    connected_id: Some("node-97".into()),
+                    feed_key: None,
+                }],
                 outputs: Vec::new(),
             }],
             data_source: "pipewire".into(),
@@ -564,8 +603,8 @@ mod live_tests {
     //! and confirms `sync_live_routing_graph` resolves a real routed
     //! stream's target to it with zero `pactl` calls in the path.
     use super::*;
-    use crate::backend::AudioBackend;
     use crate::backend::linux::live::LinuxPipeWireBackend;
+    use crate::backend::AudioBackend;
     use crate::core::models::DeviceKind;
     use std::thread;
     use std::time::Duration;
@@ -577,7 +616,10 @@ mod live_tests {
     impl LoopedPlaybackStream {
         fn spawn(target_system_name: &str) -> Self {
             let clip = "/usr/share/sounds/speech-dispatcher/test.wav";
-            assert!(std::path::Path::new(clip).is_file(), "expected a system test wav to exist at {clip}");
+            assert!(
+                std::path::Path::new(clip).is_file(),
+                "expected a system test wav to exist at {clip}"
+            );
             let child = crate::sysproc::command("sh")
                 .args(["-c", &format!("while true; do pw-cat --playback --target '{target_system_name}' '{clip}'; done")])
                 .stdout(std::process::Stdio::null())
@@ -590,7 +632,9 @@ mod live_tests {
 
     impl Drop for LoopedPlaybackStream {
         fn drop(&mut self) {
-            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = crate::sysproc::command("pkill")
+                .args(["-P", &self.child.id().to_string()])
+                .status();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
@@ -601,14 +645,18 @@ mod live_tests {
     fn resolves_a_playback_streams_target_to_a_virtual_device_natively() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
         let device = backend
             .create_virtual_output("Pipe Deck Native Target Resolution Test", false)
             .expect("create virtual output should succeed");
 
         let _stream = LoopedPlaybackStream::spawn(&device.system_name);
 
-        let virtual_device_id = format!("virtual-{}", device.system_name.strip_prefix("pipe-deck-").unwrap());
+        let virtual_device_id = format!(
+            "virtual-{}",
+            device.system_name.strip_prefix("pipe-deck-").unwrap()
+        );
 
         let found = (0..20).find_map(|_| {
             let mut graph = backend.fetch_graph().expect("fetch_graph should succeed");
@@ -636,15 +684,27 @@ mod live_tests {
 
             sync_live_routing_graph(&mut graph);
 
-            let stream = graph.streams.iter().find(|stream| stream.system_name.as_deref() == Some("pw-cat")).cloned();
-            if stream.as_ref().and_then(|s| s.current_target.as_ref()).is_some() {
+            let stream = graph
+                .streams
+                .iter()
+                .find(|stream| stream.system_name.as_deref() == Some("pw-cat"))
+                .cloned();
+            if stream
+                .as_ref()
+                .and_then(|s| s.current_target.as_ref())
+                .is_some()
+            {
                 return stream;
             }
             thread::sleep(Duration::from_millis(100));
             None
         });
-        let stream = found.expect("expected sync_live_routing_graph to resolve pw-cat's current_target");
-        assert_eq!(stream.current_target.as_deref(), Some(virtual_device_id.as_str()));
+        let stream =
+            found.expect("expected sync_live_routing_graph to resolve pw-cat's current_target");
+        assert_eq!(
+            stream.current_target.as_deref(),
+            Some(virtual_device_id.as_str())
+        );
 
         let _ = backend.remove_virtual_device(&device.system_name);
     }
@@ -667,7 +727,9 @@ mod live_tests {
 
     impl Drop for LoopedRecordStream {
         fn drop(&mut self) {
-            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = crate::sysproc::command("pkill")
+                .args(["-P", &self.child.id().to_string()])
+                .status();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
@@ -680,7 +742,8 @@ mod live_tests {
     fn resolves_a_capture_streams_target_to_a_virtual_device_natively() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
         let source = backend
             .create_virtual_output("Pipe Deck Native Capture Target Resolution Test", false)
             .expect("create virtual output should succeed");
@@ -693,9 +756,15 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(routed, "expected the capture route to succeed once pw-cat registers as a live node");
+        assert!(
+            routed,
+            "expected the capture route to succeed once pw-cat registers as a live node"
+        );
 
-        let virtual_device_id = format!("virtual-{}", source.system_name.strip_prefix("pipe-deck-").unwrap());
+        let virtual_device_id = format!(
+            "virtual-{}",
+            source.system_name.strip_prefix("pipe-deck-").unwrap()
+        );
 
         let found = (0..20).find_map(|_| {
             // Re-assert the route on every attempt, not just once up front —
@@ -728,15 +797,27 @@ mod live_tests {
 
             sync_live_routing_graph(&mut graph);
 
-            let stream = graph.streams.iter().find(|stream| stream.system_name.as_deref() == Some("pw-cat")).cloned();
-            if stream.as_ref().and_then(|s| s.current_target.as_ref()).is_some() {
+            let stream = graph
+                .streams
+                .iter()
+                .find(|stream| stream.system_name.as_deref() == Some("pw-cat"))
+                .cloned();
+            if stream
+                .as_ref()
+                .and_then(|s| s.current_target.as_ref())
+                .is_some()
+            {
                 return stream;
             }
             thread::sleep(Duration::from_millis(100));
             None
         });
-        let stream = found.expect("expected sync_live_routing_graph to resolve pw-cat's current_target");
-        assert_eq!(stream.current_target.as_deref(), Some(virtual_device_id.as_str()));
+        let stream =
+            found.expect("expected sync_live_routing_graph to resolve pw-cat's current_target");
+        assert_eq!(
+            stream.current_target.as_deref(),
+            Some(virtual_device_id.as_str())
+        );
 
         let _ = backend.remove_virtual_device(&source.system_name);
     }

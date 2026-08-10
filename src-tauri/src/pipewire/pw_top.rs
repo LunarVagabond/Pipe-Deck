@@ -74,7 +74,11 @@ fn parse_batch_output(text: &str) -> Vec<PwTopRow> {
             existing.quantum = quantum;
             existing.rate = rate;
         } else {
-            rows.push(PwTopRow { node_id, quantum, rate });
+            rows.push(PwTopRow {
+                node_id,
+                quantum,
+                rate,
+            });
         }
     }
 
@@ -110,7 +114,10 @@ R  105   1024  44100  12.7us  44.7us  0.00  0.00    1    F32LE 2 44100  + cs2
         assert_eq!(node_63.quantum, Some(1024));
         assert_eq!(node_63.rate, Some(48000));
 
-        let node_105 = rows.iter().find(|row| row.node_id == 105).expect("node 105");
+        let node_105 = rows
+            .iter()
+            .find(|row| row.node_id == 105)
+            .expect("node 105");
         assert_eq!(node_105.quantum, Some(1024));
         assert_eq!(node_105.rate, Some(44100));
     }
@@ -134,7 +141,9 @@ R  105   1024  44100  12.7us  44.7us  0.00  0.00    1    F32LE 2 44100  + cs2
 
     #[test]
     fn ignores_header_and_blank_lines() {
-        let rows = parse_batch_output("S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME \n\n");
+        let rows = parse_batch_output(
+            "S   ID  QUANT   RATE    WAIT    BUSY   W/Q   B/Q  ERR FORMAT           NAME \n\n",
+        );
         assert!(rows.is_empty());
     }
 }

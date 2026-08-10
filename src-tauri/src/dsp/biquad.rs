@@ -22,7 +22,13 @@ pub struct BiquadCoeffs {
 impl BiquadCoeffs {
     /// Identity filter — output equals input.
     pub const fn identity() -> Self {
-        Self { b0: 1.0, b1: 0.0, b2: 0.0, a1: 0.0, a2: 0.0 }
+        Self {
+            b0: 1.0,
+            b1: 0.0,
+            b2: 0.0,
+            a1: 0.0,
+            a2: 0.0,
+        }
     }
 
     /// Peaking EQ (boost/cut around `freq_hz` with bandwidth set by `q`).
@@ -87,7 +93,13 @@ impl BiquadCoeffs {
         // a caller got here, so callers use `BiquadState`'s own
         // sanitization on top of this rather than trusting coefficients
         // blindly.
-        Self { b0: b0 / a0, b1: b1 / a0, b2: b2 / a0, a1: a1 / a0, a2: a2 / a0 }
+        Self {
+            b0: b0 / a0,
+            b1: b1 / a0,
+            b2: b2 / a0,
+            a1: a1 / a0,
+            a2: a2 / a0,
+        }
     }
 }
 
@@ -161,10 +173,26 @@ mod tests {
         // the same RBJ cookbook formula (not derived from this file).
         let c = BiquadCoeffs::peaking(48000.0, 1000.0, 1.0, 6.0);
         assert!((c.b0 - 1.043_953_086_990_335).abs() < 1e-9, "b0 = {}", c.b0);
-        assert!((c.b1 - (-1.895_320_723_936_596_1)).abs() < 1e-9, "b1 = {}", c.b1);
-        assert!((c.b2 - 0.867_722_284_759_856_6).abs() < 1e-9, "b2 = {}", c.b2);
-        assert!((c.a1 - (-1.895_320_723_936_596_1)).abs() < 1e-9, "a1 = {}", c.a1);
-        assert!((c.a2 - 0.911_675_371_750_191_5).abs() < 1e-9, "a2 = {}", c.a2);
+        assert!(
+            (c.b1 - (-1.895_320_723_936_596_1)).abs() < 1e-9,
+            "b1 = {}",
+            c.b1
+        );
+        assert!(
+            (c.b2 - 0.867_722_284_759_856_6).abs() < 1e-9,
+            "b2 = {}",
+            c.b2
+        );
+        assert!(
+            (c.a1 - (-1.895_320_723_936_596_1)).abs() < 1e-9,
+            "a1 = {}",
+            c.a1
+        );
+        assert!(
+            (c.a2 - 0.911_675_371_750_191_5).abs() < 1e-9,
+            "a2 = {}",
+            c.a2
+        );
     }
 
     /// At 0dB gain the numerator and denominator polynomials are identical
@@ -186,7 +214,10 @@ mod tests {
                 let inputs = [1.0, 0.5, -0.3, 0.0, -1.0, 0.2];
                 for &input in &inputs {
                     let out = state.process(&coeffs, input);
-                    assert!((out - input).abs() < 1e-9, "0dB should pass {input} through unchanged, got {out}");
+                    assert!(
+                        (out - input).abs() < 1e-9,
+                        "0dB should pass {input} through unchanged, got {out}"
+                    );
                 }
             }
         }

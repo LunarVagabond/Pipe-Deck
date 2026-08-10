@@ -10,6 +10,7 @@ mod routing_ops;
 mod soundboard_ops;
 mod virtual_ops;
 
+use crate::backend::{AudioBackend, BackendError};
 use crate::config::ConfigStore;
 use crate::core::models::{
     LatencyPathNode, LatencyPingResult, PluginStatus, Rule, RuntimeGraph, SimulationResult,
@@ -18,7 +19,6 @@ use crate::core::recent_streams::RecentStreamCache;
 use crate::core::restore;
 use crate::core::rules;
 use crate::core::stream_identity::StreamIdentityKey;
-use crate::backend::{AudioBackend, BackendError};
 use crate::pipewire::filter_chain;
 use crate::plugins::PluginManager;
 use std::collections::{HashMap, HashSet};
@@ -239,7 +239,10 @@ impl CoreEngine {
         self.adapter.platform_audio_version()
     }
 
-    pub fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+    pub fn measure_latency_ping(
+        &self,
+        path: &[LatencyPathNode],
+    ) -> Result<LatencyPingResult, BackendError> {
         self.adapter.measure_latency_ping(path)
     }
 
@@ -334,7 +337,12 @@ impl CoreEngine {
                 }
                 Err(error) => {
                     let message = error.to_string();
-                    crate::plugins::audit::log(&plugin_id, "effects.apply", "error", Some(&message));
+                    crate::plugins::audit::log(
+                        &plugin_id,
+                        "effects.apply",
+                        "error",
+                        Some(&message),
+                    );
                 }
             }
         }
@@ -409,7 +417,10 @@ impl CoreEngine {
     fn apply_restore_notice(&mut self, result: &crate::core::models::RestoreResult) {
         let mut parts = Vec::new();
         if !result.created.is_empty() {
-            parts.push(format!("Restored {} virtual device(s)", result.created.len()));
+            parts.push(format!(
+                "Restored {} virtual device(s)",
+                result.created.len()
+            ));
         }
         for warning in &result.warnings {
             parts.push(warning.clone());

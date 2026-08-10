@@ -1,6 +1,6 @@
 use crate::core::models::{
     AppConfig, DeviceAliasEntry, EffectChainConfig, Preferences, ProcessingNodePortSpec,
-    ProcessingNodeSpec, ProcessingNodeSpecKind, ProfileIndexEntry, Rule, RoutingRulesConfig,
+    ProcessingNodeSpec, ProcessingNodeSpecKind, ProfileIndexEntry, RoutingRulesConfig, Rule,
     VirtualDeviceSpec,
 };
 use std::collections::HashMap;
@@ -142,11 +142,22 @@ impl ConfigStore {
         output_gain: i32,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Eq5Band { .. } = &node.kind {
-            node.kind = ProcessingNodeSpecKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
+            node.kind = ProcessingNodeSpecKind::Eq5Band {
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            };
         }
         self.save_config(&config)
     }
@@ -159,11 +170,19 @@ impl ConfigStore {
         feedforward_percent: i32,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Delay { .. } = &node.kind {
-            node.kind = ProcessingNodeSpecKind::Delay { delay_ms, feedback_percent, feedforward_percent };
+            node.kind = ProcessingNodeSpecKind::Delay {
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+            };
         }
         self.save_config(&config)
     }
@@ -176,29 +195,57 @@ impl ConfigStore {
         symmetric: bool,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Limiter { .. } = &node.kind {
-            node.kind = ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric };
+            node.kind = ProcessingNodeSpecKind::Limiter {
+                ceiling_db,
+                floor_db,
+                symmetric,
+            };
         }
         self.save_config(&config)
     }
 
-    pub fn update_processing_node_hpf(&self, node_id: &str, freq_hz: i32, resonance_x10: i32) -> Result<(), ConfigError> {
+    pub fn update_processing_node_hpf(
+        &self,
+        node_id: &str,
+        freq_hz: i32,
+        resonance_x10: i32,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Hpf { .. } = &node.kind {
-            node.kind = ProcessingNodeSpecKind::Hpf { freq_hz, resonance_x10 };
+            node.kind = ProcessingNodeSpecKind::Hpf {
+                freq_hz,
+                resonance_x10,
+            };
         }
         self.save_config(&config)
     }
 
-    pub fn update_processing_node_reverb(&self, node_id: &str, mix_percent: i32) -> Result<(), ConfigError> {
+    pub fn update_processing_node_reverb(
+        &self,
+        node_id: &str,
+        mix_percent: i32,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Reverb { .. } = &node.kind {
@@ -207,9 +254,17 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
-    pub fn update_processing_node_widener(&self, node_id: &str, width_percent: i32) -> Result<(), ConfigError> {
+    pub fn update_processing_node_widener(
+        &self,
+        node_id: &str,
+        width_percent: i32,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Widener { .. } = &node.kind {
@@ -218,9 +273,17 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
-    pub fn update_processing_node_pan(&self, node_id: &str, balance_percent: i32) -> Result<(), ConfigError> {
+    pub fn update_processing_node_pan(
+        &self,
+        node_id: &str,
+        balance_percent: i32,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let ProcessingNodeSpecKind::Pan { .. } = &node.kind {
@@ -229,26 +292,49 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
-    pub fn set_processing_node_volume(&self, node_id: &str, volume_percent: u8, muted: bool) -> Result<(), ConfigError> {
+    pub fn set_processing_node_volume(
+        &self,
+        node_id: &str,
+        volume_percent: u8,
+        muted: bool,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         match &node.kind {
             ProcessingNodeSpecKind::FanOut { .. } => {
-                node.kind = ProcessingNodeSpecKind::FanOut { volume_percent, muted };
+                node.kind = ProcessingNodeSpecKind::FanOut {
+                    volume_percent,
+                    muted,
+                };
             }
             ProcessingNodeSpecKind::Group { .. } => {
-                node.kind = ProcessingNodeSpecKind::Group { volume_percent, muted };
+                node.kind = ProcessingNodeSpecKind::Group {
+                    volume_percent,
+                    muted,
+                };
             }
             _ => {}
         }
         self.save_config(&config)
     }
 
-    pub fn set_processing_node_bypassed(&self, node_id: &str, bypassed: bool) -> Result<(), ConfigError> {
+    pub fn set_processing_node_bypassed(
+        &self,
+        node_id: &str,
+        bypassed: bool,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         node.bypassed = bypassed;
@@ -269,7 +355,11 @@ impl ConfigStore {
         source_stream_identity: Option<crate::core::stream_identity::StreamIdentityKey>,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         let index = port_index as usize;
@@ -306,7 +396,11 @@ impl ConfigStore {
         muted: bool,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         if let Some(entry) = node.input_sources.get_mut(port_index as usize) {
@@ -323,7 +417,11 @@ impl ConfigStore {
         port_index: u32,
     ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        let Some(node) = config.processing_nodes.iter_mut().find(|node| node.id == node_id) else {
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
             return Ok(());
         };
         let index = port_index as usize;
@@ -376,7 +474,10 @@ impl ConfigStore {
             .strip_prefix("pipe-deck-")
             .filter(|_| !system_name.starts_with("pipe-deck-feed-"))
         {
-            if let Some(entry) = config.virtual_devices.iter_mut().find(|entry| entry.slug == slug)
+            if let Some(entry) = config
+                .virtual_devices
+                .iter_mut()
+                .find(|entry| entry.slug == slug)
             {
                 entry.label = alias.to_string();
             }
@@ -400,9 +501,17 @@ impl ConfigStore {
     /// `soundboard_boards` is updated in place (rename or folder change),
     /// otherwise the board is appended. Same upsert-by-id convention as
     /// `save_rule`/`Rule.id`, with the id minted client-side.
-    pub fn save_soundboard_board(&self, board: crate::core::soundboard::SoundboardBoard) -> Result<(), ConfigError> {
+    pub fn save_soundboard_board(
+        &self,
+        board: crate::core::soundboard::SoundboardBoard,
+    ) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        match config.preferences.soundboard_boards.iter_mut().find(|existing| existing.id == board.id) {
+        match config
+            .preferences
+            .soundboard_boards
+            .iter_mut()
+            .find(|existing| existing.id == board.id)
+        {
             Some(existing) => *existing = board,
             None => config.preferences.soundboard_boards.push(board),
         }
@@ -411,7 +520,10 @@ impl ConfigStore {
 
     pub fn delete_soundboard_board(&self, board_id: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        config.preferences.soundboard_boards.retain(|board| board.id != board_id);
+        config
+            .preferences
+            .soundboard_boards
+            .retain(|board| board.id != board_id);
         self.save_config(&config)
     }
 
@@ -498,13 +610,9 @@ impl ConfigStore {
         let slug = virtual_system_name
             .strip_prefix("pipe-deck-")
             .unwrap_or(virtual_system_name);
-        let Some(spec) = config
-            .virtual_devices
-            .iter_mut()
-            .find(|entry| {
-                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
-            })
-        else {
+        let Some(spec) = config.virtual_devices.iter_mut().find(|entry| {
+            entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+        }) else {
             return Err(ConfigError::Read(format!(
                 "virtual device not found: {virtual_system_name}"
             )));
@@ -525,13 +633,9 @@ impl ConfigStore {
         let slug = virtual_system_name
             .strip_prefix("pipe-deck-")
             .unwrap_or(virtual_system_name);
-        let Some(spec) = config
-            .virtual_devices
-            .iter_mut()
-            .find(|entry| {
-                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
-            })
-        else {
+        let Some(spec) = config.virtual_devices.iter_mut().find(|entry| {
+            entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+        }) else {
             return Err(ConfigError::Read(format!(
                 "virtual device not found: {virtual_system_name}"
             )));
@@ -558,13 +662,9 @@ impl ConfigStore {
         let slug = virtual_system_name
             .strip_prefix("pipe-deck-")
             .unwrap_or(virtual_system_name);
-        let Some(spec) = config
-            .virtual_devices
-            .iter_mut()
-            .find(|entry| {
-                entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
-            })
-        else {
+        let Some(spec) = config.virtual_devices.iter_mut().find(|entry| {
+            entry.slug == slug || format!("pipe-deck-{}", entry.slug) == virtual_system_name
+        }) else {
             return Err(ConfigError::Read(format!(
                 "virtual device not found: {virtual_system_name}"
             )));
@@ -623,7 +723,8 @@ impl ConfigStore {
         fs::create_dir_all(self.config_dir.join("plugins"))
             .map_err(|error| ConfigError::Write(format!("{error}")))?;
 
-        let profile_store = crate::config::profile_store::ProfileStore::new(self.config_dir.clone());
+        let profile_store =
+            crate::config::profile_store::ProfileStore::new(self.config_dir.clone());
         profile_store
             .ensure_default_profile()
             .map_err(|error| ConfigError::Write(error.to_string()))?;
@@ -637,7 +738,11 @@ impl ConfigStore {
 
     pub fn add_profile_to_index(&self, entry: ProfileIndexEntry) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
-        if let Some(existing) = config.profile_index.iter_mut().find(|item| item.id == entry.id) {
+        if let Some(existing) = config
+            .profile_index
+            .iter_mut()
+            .find(|item| item.id == entry.id)
+        {
             *existing = entry;
         } else {
             config.profile_index.push(entry);
@@ -666,7 +771,9 @@ impl ConfigStore {
         } else {
             config.rules.push(rule);
         }
-        config.rules.sort_by_key(|rule| std::cmp::Reverse(rule.priority));
+        config
+            .rules
+            .sort_by_key(|rule| std::cmp::Reverse(rule.priority));
         self.save_config(&config)
     }
 
@@ -740,7 +847,8 @@ impl ConfigStore {
         };
         plugin_config.insert(
             "chains".into(),
-            serde_json::to_value(chains).unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
+            serde_json::to_value(chains)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new())),
         );
         plugin.config = serde_json::Value::Object(plugin_config);
     }
@@ -767,7 +875,9 @@ fn migrate_mix_sources_to_mixer_nodes(config: &mut AppConfig) -> bool {
     let mut synthesized = Vec::new();
     let mut migrated_specs = Vec::new();
     for spec in &config.virtual_devices {
-        if spec.direction != crate::core::models::DeviceDirection::Input || spec.mix_sources.is_empty() {
+        if spec.direction != crate::core::models::DeviceDirection::Input
+            || spec.mix_sources.is_empty()
+        {
             continue;
         }
         let target_system_name = format!("pipe-deck-{}", spec.slug);
@@ -836,10 +946,8 @@ mod tests {
 
     fn with_temp_config<F: FnOnce(&ConfigStore)>(run: F) {
         let _guard = super::lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!(
-            "pipe-deck-config-test-{}",
-            std::process::id()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("pipe-deck-config-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
         let store = ConfigStore::new();
@@ -965,7 +1073,10 @@ mod tests {
                 monitor_volume_percent: 100,
             };
             store.save_soundboard_board(music.clone()).unwrap();
-            assert_eq!(store.preferences().soundboard_boards, vec![sfx.clone(), music.clone()]);
+            assert_eq!(
+                store.preferences().soundboard_boards,
+                vec![sfx.clone(), music.clone()]
+            );
 
             let renamed_sfx = SoundboardBoard {
                 id: "board-1".into(),
@@ -977,7 +1088,10 @@ mod tests {
                 monitor_volume_percent: 100,
             };
             store.save_soundboard_board(renamed_sfx.clone()).unwrap();
-            assert_eq!(store.preferences().soundboard_boards, vec![renamed_sfx, music.clone()]);
+            assert_eq!(
+                store.preferences().soundboard_boards,
+                vec![renamed_sfx, music.clone()]
+            );
 
             store.delete_soundboard_board("board-1").unwrap();
             assert_eq!(store.preferences().soundboard_boards, vec![music]);
@@ -1003,8 +1117,14 @@ mod tests {
             store.save_soundboard_board(board).unwrap();
 
             let reloaded = store.preferences().soundboard_boards;
-            assert_eq!(reloaded[0].target_system_name, Some("pipe-deck-stream-mic".to_string()));
-            assert_eq!(reloaded[0].monitor_system_name, Some("alsa_output.pci-hdmi".to_string()));
+            assert_eq!(
+                reloaded[0].target_system_name,
+                Some("pipe-deck-stream-mic".to_string())
+            );
+            assert_eq!(
+                reloaded[0].monitor_system_name,
+                Some("alsa_output.pci-hdmi".to_string())
+            );
             assert_eq!(reloaded[0].monitor_volume_percent, 40);
 
             let mut updated = reloaded[0].clone();
@@ -1014,7 +1134,10 @@ mod tests {
 
             let reloaded = store.preferences().soundboard_boards;
             assert_eq!(reloaded[0].target_system_name, None);
-            assert_eq!(reloaded[0].monitor_system_name, Some("alsa_output.pci-hdmi".to_string()));
+            assert_eq!(
+                reloaded[0].monitor_system_name,
+                Some("alsa_output.pci-hdmi".to_string())
+            );
             assert_eq!(reloaded[0].monitor_volume_percent, 25);
         });
     }
@@ -1065,8 +1188,16 @@ mod tests {
             store.add_virtual_device(spec).unwrap();
 
             let sources = vec![
-                MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
-                MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
+                MixSourceSpec {
+                    system_name: "alsa_input.headset".into(),
+                    volume_percent: 60,
+                    muted: false,
+                },
+                MixSourceSpec {
+                    system_name: "alsa_input.webcam".into(),
+                    volume_percent: 100,
+                    muted: true,
+                },
             ];
             store
                 .set_virtual_mic_mix_sources("pipe-deck-mic", &sources)
@@ -1093,8 +1224,16 @@ mod tests {
                 created_at: "2026-07-09T10:00:00Z".into(),
                 multi: false,
                 mix_sources: vec![
-                    MixSourceSpec { system_name: "alsa_input.headset".into(), volume_percent: 60, muted: false },
-                    MixSourceSpec { system_name: "alsa_input.webcam".into(), volume_percent: 100, muted: true },
+                    MixSourceSpec {
+                        system_name: "alsa_input.headset".into(),
+                        volume_percent: 60,
+                        muted: false,
+                    },
+                    MixSourceSpec {
+                        system_name: "alsa_input.webcam".into(),
+                        volume_percent: 100,
+                        muted: true,
+                    },
                 ],
             };
             store.add_virtual_device(spec).unwrap();
@@ -1104,10 +1243,16 @@ mod tests {
             assert!(matches!(nodes[0].kind, ProcessingNodeSpecKind::Mixer));
             assert_eq!(nodes[0].output_targets, vec!["pipe-deck-mic".to_string()]);
             assert_eq!(nodes[0].input_sources.len(), 2);
-            assert_eq!(nodes[0].input_sources[0].source_system_name, "alsa_input.headset");
+            assert_eq!(
+                nodes[0].input_sources[0].source_system_name,
+                "alsa_input.headset"
+            );
             assert_eq!(nodes[0].input_sources[0].gain_percent, 60);
             assert!(!nodes[0].input_sources[0].muted);
-            assert_eq!(nodes[0].input_sources[1].source_system_name, "alsa_input.webcam");
+            assert_eq!(
+                nodes[0].input_sources[1].source_system_name,
+                "alsa_input.webcam"
+            );
             assert!(nodes[0].input_sources[1].muted);
 
             // Migration is durable — the legacy field is cleared and the
@@ -1138,7 +1283,9 @@ mod tests {
             let config = store.load_config().unwrap();
             assert_eq!(
                 config.virtual_devices[0].mix_sources,
-                vec![crate::core::models::MixSourceSpec::unity("alsa_input.headset")]
+                vec![crate::core::models::MixSourceSpec::unity(
+                    "alsa_input.headset"
+                )]
             );
         });
     }
@@ -1234,5 +1381,4 @@ mod tests {
             assert_eq!(eq.output_gain, -3);
         });
     }
-
 }

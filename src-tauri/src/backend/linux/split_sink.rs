@@ -1,6 +1,6 @@
-use crate::backend::BackendError;
 use crate::backend::linux::pactl;
 use crate::backend::linux::pw_link;
+use crate::backend::BackendError;
 use crate::core::models::effect_output_name_for_device;
 
 /// A virtual output currently hosting live effects (PD-020) has its

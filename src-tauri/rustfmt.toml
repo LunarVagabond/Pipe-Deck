@@ -1,0 +1,4 @@
+# Intentionally minimal: commit to rustfmt's stable defaults rather than
+# a pile of opinionated overrides. Only pin what isn't already inferred
+# correctly.
+edition = "2021"
