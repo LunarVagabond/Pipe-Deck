@@ -2,7 +2,8 @@ export type DeviceKind = "physical" | "virtual";
 export type DeviceDirection = "input" | "output" | "duplex";
 export type StreamDirection = "playback" | "capture";
 
-export type RouteSource = "manual_override" | "persisted_rule" | "authored_rule" | "no_rule";
+export type RouteSource =
+  "manual_override" | "persisted_rule" | "authored_rule" | "no_rule";
 export type ActionStatus =
   | "applied"
   | "blocked"
@@ -11,7 +12,8 @@ export type ActionStatus =
   | "simulated"
   | "no_action";
 
-export type SkipReason = "lower_priority" | "manual_override" | "missing_metadata";
+export type SkipReason =
+  "lower_priority" | "manual_override" | "missing_metadata";
 
 export interface SkippedCandidate {
   rule_key: string;
@@ -415,7 +417,13 @@ export interface DynamicsStage {
 }
 
 export function emptyDynamicsStage(): DynamicsStage {
-  return { enabled: false, threshold_db: 0, ratio_x10: 0, attack_ms: 0, release_ms: 0 };
+  return {
+    enabled: false,
+    threshold_db: 0,
+    ratio_x10: 0,
+    attack_ms: 0,
+    release_ms: 0,
+  };
 }
 
 /**

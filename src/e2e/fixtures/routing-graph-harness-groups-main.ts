@@ -67,9 +67,11 @@ const Harness = defineComponent({
     return () =>
       h("div", { style: "height:100vh;display:flex;flex-direction:column;" }, [
         h(PromptDialog),
-        h("div", { style: "flex:1;min-height:0;display:flex;flex-direction:column;" }, [
-          h(RoutingGraph, { graph }),
-        ]),
+        h(
+          "div",
+          { style: "flex:1;min-height:0;display:flex;flex-direction:column;" },
+          [h(RoutingGraph, { graph })],
+        ),
       ]);
   },
 });

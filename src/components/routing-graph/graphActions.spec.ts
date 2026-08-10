@@ -7,7 +7,17 @@ import {
 
 describe("isProcessingNodeType", () => {
   it("recognizes every processing-node menu type", () => {
-    for (const type of ["fan_out", "mixer", "eq5band", "delay", "limiter", "hpf", "reverb", "widener", "pan"]) {
+    for (const type of [
+      "fan_out",
+      "mixer",
+      "eq5band",
+      "delay",
+      "limiter",
+      "hpf",
+      "reverb",
+      "widener",
+      "pan",
+    ]) {
       expect(isProcessingNodeType(type)).toBe(true);
     }
   });

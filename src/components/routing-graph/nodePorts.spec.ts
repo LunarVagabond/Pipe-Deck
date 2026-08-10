@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { makeDevice, makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
+import {
+  makeDevice,
+  makeGraph,
+  makeProcessingNode,
+  makeStream,
+} from "../../test/graphFixtures";
 import {
   computeDeviceConnections,
   graphEntityExists,
@@ -10,7 +15,11 @@ import {
 
 describe("computeDeviceConnections", () => {
   it("tracks a playback stream as an input connection on its target", () => {
-    const stream = makeStream({ id: "s1", direction: "playback", current_target: "d1" });
+    const stream = makeStream({
+      id: "s1",
+      direction: "playback",
+      current_target: "d1",
+    });
     const device = makeDevice({ id: "d1", direction: "output" });
     const graph = makeGraph([device], [stream]);
 
@@ -20,7 +29,11 @@ describe("computeDeviceConnections", () => {
   });
 
   it("tracks a capture stream as an output connection on its source", () => {
-    const stream = makeStream({ id: "s1", direction: "capture", current_target: "mic1" });
+    const stream = makeStream({
+      id: "s1",
+      direction: "capture",
+      current_target: "mic1",
+    });
     const mic = makeDevice({ id: "mic1", direction: "input" });
     const graph = makeGraph([mic], [stream]);
 
@@ -48,7 +61,11 @@ describe("computeDeviceConnections", () => {
   });
 
   it("tracks mix_sources on both the mic and the mix target", () => {
-    const physMic = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
+    const physMic = makeDevice({
+      id: "mic1",
+      kind: "physical",
+      direction: "input",
+    });
     const virtualMic = makeDevice({
       id: "mic2",
       kind: "virtual",
@@ -64,8 +81,16 @@ describe("computeDeviceConnections", () => {
   });
 
   it("tracks a processing node's ports on the devices at either end", () => {
-    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
-    const target = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const source = makeDevice({
+      id: "src1",
+      kind: "virtual",
+      direction: "output",
+    });
+    const target = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
     const node = makeProcessingNode({
       id: "proc1",
       inputs: [{ index: 0, connected_id: "src1" }],
@@ -84,31 +109,63 @@ describe("handlesForStream", () => {
   it("gives a playback stream a single source handle", () => {
     const stream = makeStream({ direction: "playback", current_target: "d1" });
     expect(handlesForStream(stream)).toEqual([
-      { id: "audio-out", type: "source", position: "right", portType: "audio-out", connectedId: "d1" },
+      {
+        id: "audio-out",
+        type: "source",
+        position: "right",
+        portType: "audio-out",
+        connectedId: "d1",
+      },
     ]);
   });
 
   it("gives a capture stream a single target handle", () => {
     const stream = makeStream({ direction: "capture", current_target: "mic1" });
     expect(handlesForStream(stream)).toEqual([
-      { id: "audio-in", type: "target", position: "left", portType: "audio-in", connectedId: "mic1" },
+      {
+        id: "audio-in",
+        type: "target",
+        position: "left",
+        portType: "audio-in",
+        connectedId: "mic1",
+      },
     ]);
   });
 });
 
 describe("handlesForDevice", () => {
   it("gives a physical output device one input handle plus a trailing empty slot", () => {
-    const device = makeDevice({ id: "d1", kind: "physical", direction: "output" });
+    const device = makeDevice({
+      id: "d1",
+      kind: "physical",
+      direction: "output",
+    });
     const handles = handlesForDevice(device, { in: ["s1"], out: [] });
 
     expect(handles).toEqual([
-      { id: "audio-in:s1", type: "target", position: "left", portType: "audio-in", connectedId: "s1" },
-      { id: "audio-in:empty", type: "target", position: "left", portType: "audio-in", empty: true },
+      {
+        id: "audio-in:s1",
+        type: "target",
+        position: "left",
+        portType: "audio-in",
+        connectedId: "s1",
+      },
+      {
+        id: "audio-in:empty",
+        type: "target",
+        position: "left",
+        portType: "audio-in",
+        empty: true,
+      },
     ]);
   });
 
   it("gives an unconnected virtual output device zero output handles — #293, no fresh forward-route slot", () => {
-    const device = makeDevice({ id: "term1", kind: "virtual", direction: "output" });
+    const device = makeDevice({
+      id: "term1",
+      kind: "virtual",
+      direction: "output",
+    });
     const handles = handlesForDevice(device, { in: ["s1"], out: [] });
 
     expect(handles.some((h) => h.portType === "audio-out")).toBe(false);
@@ -116,7 +173,11 @@ describe("handlesForDevice", () => {
   });
 
   it("gives a virtual output device's existing monitor connection a real but non-connectable anchor, with no extra empty slot (#388/#391)", () => {
-    const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
+    const device = makeDevice({
+      id: "sink1",
+      kind: "virtual",
+      direction: "output",
+    });
     const handles = handlesForDevice(device, { in: [], out: ["headphones"] });
     const outHandles = handles.filter((h) => h.portType === "audio-out");
 
@@ -138,25 +199,49 @@ describe("handlesForDevice", () => {
   });
 
   it("gives every one of a virtual output device's existing multi-target monitor connections a non-connectable anchor, with no extra empty slot (#388/#391)", () => {
-    const device = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
-    const handles = handlesForDevice(device, { in: [], out: ["headphones", "stream-output"] });
+    const device = makeDevice({
+      id: "sink1",
+      kind: "virtual",
+      direction: "output",
+    });
+    const handles = handlesForDevice(device, {
+      in: [],
+      out: ["headphones", "stream-output"],
+    });
     const outHandles = handles.filter((h) => h.portType === "audio-out");
 
-    expect(outHandles.map((h) => h.id)).toEqual(["audio-out:headphones", "audio-out:stream-output"]);
+    expect(outHandles.map((h) => h.id)).toEqual([
+      "audio-out:headphones",
+      "audio-out:stream-output",
+    ]);
     expect(outHandles.every((h) => h.connectable === false)).toBe(true);
   });
 
   it("caps a non-multi-capable side at a single filled handle with no trailing empty slot", () => {
-    const device = makeDevice({ id: "d1", kind: "physical", direction: "input" });
+    const device = makeDevice({
+      id: "d1",
+      kind: "physical",
+      direction: "input",
+    });
     const handles = handlesForDevice(device, { in: [], out: ["s1"] });
 
     expect(handles).toEqual([
-      { id: "audio-out:s1", type: "source", position: "right", portType: "audio-out", connectedId: "s1" },
+      {
+        id: "audio-out:s1",
+        type: "source",
+        position: "right",
+        portType: "audio-out",
+        connectedId: "s1",
+      },
     ]);
   });
 
   it("returns no handles for a device outside any known column", () => {
-    const device = makeDevice({ id: "feed1", system_name: "pipe-deck-feed-1", direction: "output" });
+    const device = makeDevice({
+      id: "feed1",
+      system_name: "pipe-deck-feed-1",
+      direction: "output",
+    });
     expect(handlesForDevice(device)).toEqual([]);
   });
 });
@@ -166,8 +251,20 @@ describe("handlesForProcessingNode", () => {
     const node = makeProcessingNode();
     const handles = handlesForProcessingNode(node);
     expect(handles).toEqual([
-      { id: "audio-in:empty", type: "target", position: "left", portType: "audio-in", empty: true },
-      { id: "audio-out:empty", type: "source", position: "right", portType: "audio-out", empty: true },
+      {
+        id: "audio-in:empty",
+        type: "target",
+        position: "left",
+        portType: "audio-in",
+        empty: true,
+      },
+      {
+        id: "audio-out:empty",
+        type: "source",
+        position: "right",
+        portType: "audio-out",
+        empty: true,
+      },
     ]);
   });
 
@@ -181,7 +278,11 @@ describe("handlesForProcessingNode", () => {
     });
     const handles = handlesForProcessingNode(node);
     const outHandles = handles.filter((h) => h.portType === "audio-out");
-    expect(outHandles.map((h) => h.id)).toEqual(["audio-out:out1", "audio-out:out2", "audio-out:empty"]);
+    expect(outHandles.map((h) => h.id)).toEqual([
+      "audio-out:out1",
+      "audio-out:out2",
+      "audio-out:empty",
+    ]);
     expect(handles.some((h) => h.id === "audio-in:src1")).toBe(true);
   });
 
@@ -192,12 +293,17 @@ describe("handlesForProcessingNode", () => {
         { index: 1, connected_id: "src2" },
       ],
     });
-    const inHandles = handlesForProcessingNode(node).filter((h) => h.portType === "audio-in");
+    const inHandles = handlesForProcessingNode(node).filter(
+      (h) => h.portType === "audio-in",
+    );
     // Every existing connection gets a real handle to anchor to — silently
     // dropping the second one used to leave its edge anchored nowhere real
     // (issue #388). The side still never grows a fresh *empty* slot beyond
     // what's already connected, so this can't be used to add a third.
-    expect(inHandles.map((h) => h.id)).toEqual(["audio-in:src1", "audio-in:src2"]);
+    expect(inHandles.map((h) => h.id)).toEqual([
+      "audio-in:src1",
+      "audio-in:src2",
+    ]);
   });
 
   it("grows a mixer node's inputs but caps its output at one slot", () => {
@@ -212,14 +318,26 @@ describe("handlesForProcessingNode", () => {
     const handles = handlesForProcessingNode(node);
     const inHandles = handles.filter((h) => h.portType === "audio-in");
     const outHandles = handles.filter((h) => h.portType === "audio-out");
-    expect(inHandles.map((h) => h.id)).toEqual(["audio-in:src1", "audio-in:src2", "audio-in:empty"]);
+    expect(inHandles.map((h) => h.id)).toEqual([
+      "audio-in:src1",
+      "audio-in:src2",
+      "audio-in:empty",
+    ]);
     expect(outHandles).toHaveLength(1);
     expect(outHandles[0].id).toBe("audio-out:out1");
   });
 
   it("caps both sides of an EQ node at one slot", () => {
     const node = makeProcessingNode({
-      kind: { kind: "eq5band", eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+      kind: {
+        kind: "eq5band",
+        eq_sub: 0,
+        eq_bass: 0,
+        eq_mid: 0,
+        eq_treble: 0,
+        eq_air: 0,
+        output_gain: 0,
+      },
       inputs: [{ index: 0, connected_id: "src1" }],
       outputs: [{ index: 0, connected_id: "out1" }],
     });

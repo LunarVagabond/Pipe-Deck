@@ -8,7 +8,7 @@ function mountPanel() {
     id: "s1",
     route_explanation: {
       source: "authored_rule",
-      match_reasons: ["app_name matched \"Test App\""],
+      match_reasons: ['app_name matched "Test App"'],
       skipped_candidates: [],
       action_status: "applied",
       fallback_applied: false,
@@ -54,7 +54,9 @@ describe("RouteExplanationPanel", () => {
 
   it("hides the decorative chevron from assistive tech", () => {
     const wrapper = mountPanel();
-    expect(wrapper.get(".route-explanation-chevron").attributes("aria-hidden")).toBe("true");
+    expect(
+      wrapper.get(".route-explanation-chevron").attributes("aria-hidden"),
+    ).toBe("true");
   });
 
   it("'Change route' focuses the matching data-stream-route-select element", async () => {

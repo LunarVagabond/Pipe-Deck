@@ -13,7 +13,9 @@ vi.mock("../stores/confirm", () => ({
   useConfirm: () => ({ confirm: confirmMock }),
 }));
 
-const consumePendingIdentityMock = vi.hoisted(() => vi.fn().mockReturnValue(null));
+const consumePendingIdentityMock = vi.hoisted(() =>
+  vi.fn().mockReturnValue(null),
+);
 vi.mock("../stores/ruleDraft", () => ({
   useRuleDraft: () => ({ consumePendingIdentity: consumePendingIdentityMock }),
 }));
@@ -21,7 +23,10 @@ vi.mock("../stores/ruleDraft", () => ({
 const pushNoticeMock = vi.hoisted(() => vi.fn());
 vi.mock("../stores/notices", () => ({
   useApplyResult: () => ({
-    handleApplyResult: (result: { success: boolean; message?: string }, successMessage: string) => {
+    handleApplyResult: (
+      result: { success: boolean; message?: string },
+      successMessage: string,
+    ) => {
       if (result.success) {
         pushNoticeMock("success", successMessage);
         return true;
@@ -72,7 +77,14 @@ beforeEach(() => {
   consumePendingIdentityMock.mockReturnValue(null);
   pushNoticeMock.mockClear();
   graph.value = {
-    devices: [makeDevice({ id: "dev-1", system_name: "physical-out-1", label: "Speakers", direction: "output" })],
+    devices: [
+      makeDevice({
+        id: "dev-1",
+        system_name: "physical-out-1",
+        label: "Speakers",
+        direction: "output",
+      }),
+    ],
     streams: [],
     links: [],
   };
@@ -94,7 +106,9 @@ describe("Rules view", () => {
     const { wrapper } = mountRules();
     await flushPromises();
 
-    const names = wrapper.findAll(".rule-name-meta strong").map((node) => node.text());
+    const names = wrapper
+      .findAll(".rule-name-meta strong")
+      .map((node) => node.text());
     expect(names).toEqual(["High priority", "Low priority"]);
   });
 
@@ -108,15 +122,25 @@ describe("Rules view", () => {
     const { wrapper } = mountRules();
     await flushPromises();
 
-    expect(wrapper.find(".rules-empty-state").text()).toContain("No authored rules yet.");
+    expect(wrapper.find(".rules-empty-state").text()).toContain(
+      "No authored rules yet.",
+    );
   });
 
   it("filters rules by the search query across name, target, and conditions", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_rules") {
         return Promise.resolve([
-          makeRule({ id: "a", name: "Discord rule", conditions: [{ type: "identity", value: "discord" }] }),
-          makeRule({ id: "b", name: "Firefox rule", conditions: [{ type: "identity", value: "firefox" }] }),
+          makeRule({
+            id: "a",
+            name: "Discord rule",
+            conditions: [{ type: "identity", value: "discord" }],
+          }),
+          makeRule({
+            id: "b",
+            name: "Firefox rule",
+            conditions: [{ type: "identity", value: "firefox" }],
+          }),
         ]);
       }
       if (cmd === "simulate_rules") return Promise.resolve([]);
@@ -128,7 +152,9 @@ describe("Rules view", () => {
 
     await wrapper.find(".rules-search-input").setValue("firefox");
 
-    const names = wrapper.findAll(".rule-name-meta strong").map((node) => node.text());
+    const names = wrapper
+      .findAll(".rule-name-meta strong")
+      .map((node) => node.text());
     expect(names).toEqual(["Firefox rule"]);
   });
 
@@ -144,23 +170,32 @@ describe("Rules view", () => {
 
     await wrapper.find(".rules-search-input").setValue("nothing-matches-this");
 
-    expect(wrapper.find(".rules-empty-state").text()).toContain('No rules match "nothing-matches-this"');
+    expect(wrapper.find(".rules-empty-state").text()).toContain(
+      'No rules match "nothing-matches-this"',
+    );
   });
 
   it("counts live simulation matches keyed by matched_rule_key against the rule name", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "list_rules") return Promise.resolve([makeRule({ name: "Discord rule" })]);
+      if (cmd === "list_rules")
+        return Promise.resolve([makeRule({ name: "Discord rule" })]);
       if (cmd === "simulate_rules") {
         return Promise.resolve([
           {
             stream_id: "s1",
             stream_label: "Discord",
-            explanation: { matched_rule_key: "Discord rule", match_reasons: [] },
+            explanation: {
+              matched_rule_key: "Discord rule",
+              match_reasons: [],
+            },
           },
           {
             stream_id: "s2",
             stream_label: "Other",
-            explanation: { matched_rule_key: "Some other rule", match_reasons: [] },
+            explanation: {
+              matched_rule_key: "Some other rule",
+              match_reasons: [],
+            },
           },
         ]);
       }
@@ -188,7 +223,9 @@ describe("Rules view", () => {
     await flushPromises();
 
     expect(confirmMock).toHaveBeenCalled();
-    expect(invokeMock).toHaveBeenCalledWith("delete_rule", { ruleId: "rule-1" });
+    expect(invokeMock).toHaveBeenCalledWith("delete_rule", {
+      ruleId: "rule-1",
+    });
     expect(invokeMock).toHaveBeenCalledWith("list_rules");
   });
 
@@ -206,7 +243,10 @@ describe("Rules view", () => {
     await wrapper.find(".rule-card-actions button.danger").trigger("click");
     await flushPromises();
 
-    expect(invokeMock).not.toHaveBeenCalledWith("delete_rule", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "delete_rule",
+      expect.anything(),
+    );
   });
 
   it("opens the create-rule modal defaulted to an output target and saves a new rule", async () => {
@@ -233,14 +273,20 @@ describe("Rules view", () => {
     await body.find(".rules-modal-actions button.primary").trigger("click");
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith("save_rule", expect.objectContaining({
-      rule: expect.objectContaining({ name: "New rule" }),
-    }));
+    expect(invokeMock).toHaveBeenCalledWith(
+      "save_rule",
+      expect.objectContaining({
+        rule: expect.objectContaining({ name: "New rule" }),
+      }),
+    );
   });
 
   it("rejects saving a rule with no conditions left after trimming blanks", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "list_rules") return Promise.resolve([makeRule({ conditions: [{ type: "identity", value: "" }] })]);
+      if (cmd === "list_rules")
+        return Promise.resolve([
+          makeRule({ conditions: [{ type: "identity", value: "" }] }),
+        ]);
       if (cmd === "simulate_rules") return Promise.resolve([]);
       return Promise.resolve(undefined);
     });
@@ -248,14 +294,19 @@ describe("Rules view", () => {
     const { wrapper, body } = mountRules();
     await flushPromises();
 
-    await wrapper.find(".rule-card-actions button:not(.danger)").trigger("click");
+    await wrapper
+      .find(".rule-card-actions button:not(.danger)")
+      .trigger("click");
     await flushPromises();
 
     await body.find(".rules-modal-actions button.primary").trigger("click");
     await flushPromises();
 
     expect(invokeMock).not.toHaveBeenCalledWith("save_rule", expect.anything());
-    expect(pushNoticeMock).toHaveBeenCalledWith("error", "Add at least one condition");
+    expect(pushNoticeMock).toHaveBeenCalledWith(
+      "error",
+      "Add at least one condition",
+    );
   });
 
   it("swaps priority between adjacent rules when moved up or down", async () => {
@@ -274,12 +325,18 @@ describe("Rules view", () => {
     const { wrapper } = mountRules();
     await flushPromises();
 
-    const downButtons = wrapper.findAll(".rule-priority-btn").filter((b) => b.text() === "▼");
+    const downButtons = wrapper
+      .findAll(".rule-priority-btn")
+      .filter((b) => b.text() === "▼");
     await downButtons[0].trigger("click");
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith("save_rule", { rule: expect.objectContaining({ id: "high", priority: 10 }) });
-    expect(invokeMock).toHaveBeenCalledWith("save_rule", { rule: expect.objectContaining({ id: "low", priority: 20 }) });
+    expect(invokeMock).toHaveBeenCalledWith("save_rule", {
+      rule: expect.objectContaining({ id: "high", priority: 10 }),
+    });
+    expect(invokeMock).toHaveBeenCalledWith("save_rule", {
+      rule: expect.objectContaining({ id: "low", priority: 20 }),
+    });
   });
 
   it("surfaces a conflict panel and resolves it via preview + apply", async () => {
@@ -288,43 +345,52 @@ describe("Rules view", () => {
       makeRule({ id: "low", name: "Low", priority: 5 }),
     ];
     let simulateCallCount = 0;
-    invokeMock.mockImplementation((cmd: string, args?: Record<string, unknown>) => {
-      if (cmd === "list_rules") return Promise.resolve(rules);
-      if (cmd === "simulate_rules") {
-        simulateCallCount += 1;
-        const overrides = (args?.priorityOverrides ?? {}) as Record<string, number>;
-        const lowWins = (overrides.low ?? 5) > 50;
-        return Promise.resolve([
-          {
-            stream_id: "s1",
-            stream_label: "Firefox",
-            explanation: {
-              matched_rule_id: lowWins ? "low" : "high",
-              matched_rule_key: lowWins ? "Low" : "High",
-              match_reasons: [],
-              skipped_candidates: [
-                {
-                  rule_key: lowWins ? "High" : "Low",
-                  rule_id: lowWins ? "high" : "low",
-                  reason: "Lower priority than",
-                  kind: "lower_priority",
-                },
-              ],
+    invokeMock.mockImplementation(
+      (cmd: string, args?: Record<string, unknown>) => {
+        if (cmd === "list_rules") return Promise.resolve(rules);
+        if (cmd === "simulate_rules") {
+          simulateCallCount += 1;
+          const overrides = (args?.priorityOverrides ?? {}) as Record<
+            string,
+            number
+          >;
+          const lowWins = (overrides.low ?? 5) > 50;
+          return Promise.resolve([
+            {
+              stream_id: "s1",
+              stream_label: "Firefox",
+              explanation: {
+                matched_rule_id: lowWins ? "low" : "high",
+                matched_rule_key: lowWins ? "Low" : "High",
+                match_reasons: [],
+                skipped_candidates: [
+                  {
+                    rule_key: lowWins ? "High" : "Low",
+                    rule_id: lowWins ? "high" : "low",
+                    reason: "Lower priority than",
+                    kind: "lower_priority",
+                  },
+                ],
+              },
             },
-          },
-        ]);
-      }
-      if (cmd === "save_rule") return Promise.resolve({ success: true });
-      if (cmd === "apply_rules") return Promise.resolve({ success: true });
-      return Promise.resolve(undefined);
-    });
+          ]);
+        }
+        if (cmd === "save_rule") return Promise.resolve({ success: true });
+        if (cmd === "apply_rules") return Promise.resolve({ success: true });
+        return Promise.resolve(undefined);
+      },
+    );
 
     const { wrapper } = mountRules();
     await flushPromises();
 
     expect(wrapper.find(".rules-conflicts").exists()).toBe(true);
-    expect(wrapper.findAll(".conflict-rule-winner strong")[0].text()).toBe("High");
-    expect(wrapper.findAll(".conflict-rule-loser strong")[0].text()).toBe("Low");
+    expect(wrapper.findAll(".conflict-rule-winner strong")[0].text()).toBe(
+      "High",
+    );
+    expect(wrapper.findAll(".conflict-rule-loser strong")[0].text()).toBe(
+      "Low",
+    );
 
     await wrapper.find(".conflict-promote-btn").trigger("click");
     await flushPromises();
@@ -334,14 +400,18 @@ describe("Rules view", () => {
       expect.objectContaining({ priorityOverrides: { low: 51 } }),
     );
     expect(simulateCallCount).toBeGreaterThan(1);
-    expect(wrapper.find(".conflict-resolved").text()).toBe("Resolved in preview");
+    expect(wrapper.find(".conflict-resolved").text()).toBe(
+      "Resolved in preview",
+    );
 
     await wrapper.find(".conflict-actions button.primary").trigger("click");
     await flushPromises();
 
     expect(invokeMock).toHaveBeenCalledWith(
       "save_rule",
-      expect.objectContaining({ rule: expect.objectContaining({ id: "low", priority: 51 }) }),
+      expect.objectContaining({
+        rule: expect.objectContaining({ id: "low", priority: 51 }),
+      }),
     );
     expect(invokeMock).toHaveBeenCalledWith("apply_rules");
   });
@@ -353,7 +423,13 @@ describe("Rules view", () => {
       return Promise.resolve(undefined);
     });
     graph.value = {
-      devices: [makeDevice({ id: "dev-1", system_name: "physical-out-1", direction: "output" })],
+      devices: [
+        makeDevice({
+          id: "dev-1",
+          system_name: "physical-out-1",
+          direction: "output",
+        }),
+      ],
       streams: [],
       links: [],
       recent_stream_identities: [

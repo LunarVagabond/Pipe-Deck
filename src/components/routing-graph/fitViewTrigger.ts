@@ -29,11 +29,17 @@ export function detectNewlyAddedNodes(
 ): NewNodeDetectionResult {
   const currentIds = new Set(current.map((node) => node.id));
   const currentIdentityKeys = new Set(
-    current.map((node) => node.identityKey).filter((key): key is string => !!key),
+    current
+      .map((node) => node.identityKey)
+      .filter((key): key is string => !!key),
   );
 
   if (knownNodeIds === null) {
-    return { addedIds: [], nodeIds: currentIds, identityKeys: currentIdentityKeys };
+    return {
+      addedIds: [],
+      nodeIds: currentIds,
+      identityKeys: currentIdentityKeys,
+    };
   }
 
   const addedIds = [...currentIds].filter((id) => {

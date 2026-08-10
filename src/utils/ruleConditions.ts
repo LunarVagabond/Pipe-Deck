@@ -61,7 +61,8 @@ export const CONDITION_TYPE_OPTIONS: ConditionTypeMeta[] = [
   {
     type: "category",
     label: "Category",
-    description: "A built-in grouping such as Game, Music, or Browser inferred from the app.",
+    description:
+      "A built-in grouping such as Game, Music, or Browser inferred from the app.",
     example: "Game",
     placeholder: "e.g. Game",
   },
@@ -79,7 +80,13 @@ export const DIRECTION_OPTIONS: { value: StreamDirection; label: string }[] = [
   { value: "capture", label: "Capture" },
 ];
 
-export const CATEGORY_OPTIONS = ["Game", "Music", "Chat", "Browser", "Streaming"] as const;
+export const CATEGORY_OPTIONS = [
+  "Game",
+  "Music",
+  "Chat",
+  "Browser",
+  "Streaming",
+] as const;
 
 export const REGEX_FIELD_OPTIONS: { value: string; label: string }[] = [
   { value: "app_name", label: "App Name" },
@@ -89,7 +96,9 @@ export const REGEX_FIELD_OPTIONS: { value: string; label: string }[] = [
 ];
 
 export function conditionTypeLabel(type: ConditionType): string {
-  return CONDITION_TYPE_OPTIONS.find((entry) => entry.type === type)?.label ?? type;
+  return (
+    CONDITION_TYPE_OPTIONS.find((entry) => entry.type === type)?.label ?? type
+  );
 }
 
 export function conditionTypeMeta(type: ConditionType): ConditionTypeMeta {
@@ -104,7 +113,10 @@ export function conditionTypeMeta(type: ConditionType): ConditionTypeMeta {
   );
 }
 
-export function streamFieldValue(stream: Stream, type: ConditionType): string | undefined {
+export function streamFieldValue(
+  stream: Stream,
+  type: ConditionType,
+): string | undefined {
   switch (type) {
     case "identity":
       return stream.executable ?? (stream.app_name || undefined);
@@ -132,8 +144,10 @@ export function inferStreamCategory(stream: Stream): string | undefined {
   const appLower = stream.app_name.toLowerCase();
 
   if (executable.includes("steam") || appLower.includes("steam")) return "Game";
-  if (executable.includes("spotify") || appLower.includes("spotify")) return "Music";
-  if (executable.includes("discord") || appLower.includes("discord")) return "Chat";
+  if (executable.includes("spotify") || appLower.includes("spotify"))
+    return "Music";
+  if (executable.includes("discord") || appLower.includes("discord"))
+    return "Chat";
   if (
     executable.includes("firefox") ||
     executable.includes("chromium") ||
@@ -143,7 +157,8 @@ export function inferStreamCategory(stream: Stream): string | undefined {
   ) {
     return "Browser";
   }
-  if (executable.includes("obs") || appLower.includes("obs")) return "Streaming";
+  if (executable.includes("obs") || appLower.includes("obs"))
+    return "Streaming";
   return undefined;
 }
 
@@ -176,7 +191,10 @@ export function setConditionValue(condition: RuleCondition, value: string) {
   condition.value = value;
 }
 
-export function setConditionType(condition: RuleCondition, type: ConditionType) {
+export function setConditionType(
+  condition: RuleCondition,
+  type: ConditionType,
+) {
   if (type === "regex") {
     Object.assign(condition, { type, field: "app_name", pattern: "" });
     return;
@@ -194,8 +212,9 @@ export function setConditionType(condition: RuleCondition, type: ConditionType) 
 
 export function formatConditionSummary(condition: RuleCondition): string {
   if (condition.type === "regex") {
-    const field = REGEX_FIELD_OPTIONS.find((entry) => entry.value === condition.field)?.label
-      ?? condition.field;
+    const field =
+      REGEX_FIELD_OPTIONS.find((entry) => entry.value === condition.field)
+        ?.label ?? condition.field;
     return `${field} matches /${condition.pattern}/`;
   }
   if (condition.type === "direction") {

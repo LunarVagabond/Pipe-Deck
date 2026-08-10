@@ -30,22 +30,33 @@ const port = 4317;
 const baseUrl = `http://localhost:${port}`;
 
 function loadMockRuntimeGraph() {
-  const cargoTargetDir = process.env.CARGO_TARGET_DIR ?? join(repoRoot, "src-tauri", "target");
+  const cargoTargetDir =
+    process.env.CARGO_TARGET_DIR ?? join(repoRoot, "src-tauri", "target");
   const cliBin = join(cargoTargetDir, "debug", "pipe-deck-cli");
   if (!existsSync(cliBin)) {
-    throw new Error(`pipe-deck-cli binary not found at ${cliBin} — run \`make build-cli\` first`);
+    throw new Error(
+      `pipe-deck-cli binary not found at ${cliBin} — run \`make build-cli\` first`,
+    );
   }
 
   // Isolated config dir so this never touches (or creates) the real
   // ~/.config/pipe-deck/ on the machine running the screenshot script.
-  const scratchConfigDir = mkdtempSync(join(tmpdir(), "pipe-deck-screenshot-config-"));
+  const scratchConfigDir = mkdtempSync(
+    join(tmpdir(), "pipe-deck-screenshot-config-"),
+  );
   try {
     const result = spawnSync(cliBin, ["graph"], {
-      env: { ...process.env, PIPE_DECK_USE_MOCK: "1", PIPE_DECK_CONFIG_DIR: scratchConfigDir },
+      env: {
+        ...process.env,
+        PIPE_DECK_USE_MOCK: "1",
+        PIPE_DECK_CONFIG_DIR: scratchConfigDir,
+      },
       encoding: "utf8",
     });
     if (result.status !== 0) {
-      throw new Error(`pipe-deck-cli graph failed: ${result.stderr || result.stdout}`);
+      throw new Error(
+        `pipe-deck-cli graph failed: ${result.stderr || result.stdout}`,
+      );
     }
     const graph = JSON.parse(result.stdout);
     // Deliberately drop data_source/notice — every view gates its "Showing
@@ -61,7 +72,11 @@ function loadMockRuntimeGraph() {
 
 const runtimeGraph = loadMockRuntimeGraph();
 
-const appConfig = { version: 1, profile_index: [], preferences: { theme_mode: "dark" } };
+const appConfig = {
+  version: 1,
+  profile_index: [],
+  preferences: { theme_mode: "dark" },
+};
 const daemonStatus = { running: true, enabled: true, devices_restored: 7 };
 const appInfo = {
   buildRevision: "0.0.5",
@@ -83,7 +98,15 @@ const themeColors = {
   status_warning: "#f5b95c",
   status_danger: "#ef5b6b",
 };
-const themes = [{ id: "midnight-deck", name: "Midnight Deck", kind: "dark", source: "builtin", colors: themeColors }];
+const themes = [
+  {
+    id: "midnight-deck",
+    name: "Midnight Deck",
+    kind: "dark",
+    source: "builtin",
+    colors: themeColors,
+  },
+];
 
 const commandResponses = {
   get_runtime_graph: runtimeGraph,
@@ -155,23 +178,28 @@ async function main() {
     await waitForServer(baseUrl);
 
     const browser = await chromium.launch();
-    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    const page = await browser.newPage({
+      viewport: { width: 1440, height: 900 },
+    });
 
-    await page.addInitScript((responses) => {
-      window.__TAURI_INTERNALS__ = {
-        invoke: (cmd) => {
-          if (Object.prototype.hasOwnProperty.call(responses.data, cmd)) {
-            return Promise.resolve(responses.data[cmd]);
-          }
-          if (responses.noop.includes(cmd)) {
-            return Promise.resolve(cmd === "plugin:event|listen" ? 1 : null);
-          }
-          return Promise.resolve(null);
-        },
-        transformCallback: () => 0,
-        unregisterCallback: () => {},
-      };
-    }, { data: commandResponses, noop: [...noopCommands] });
+    await page.addInitScript(
+      (responses) => {
+        window.__TAURI_INTERNALS__ = {
+          invoke: (cmd) => {
+            if (Object.prototype.hasOwnProperty.call(responses.data, cmd)) {
+              return Promise.resolve(responses.data[cmd]);
+            }
+            if (responses.noop.includes(cmd)) {
+              return Promise.resolve(cmd === "plugin:event|listen" ? 1 : null);
+            }
+            return Promise.resolve(null);
+          },
+          transformCallback: () => 0,
+          unregisterCallback: () => {},
+        };
+      },
+      { data: commandResponses, noop: [...noopCommands] },
+    );
 
     await page.goto(baseUrl, { waitUntil: "networkidle" });
     await page.waitForSelector(".nav-item");
@@ -179,7 +207,10 @@ async function main() {
     for (const view of views) {
       await page.getByRole("link", { name: view.label, exact: true }).click();
       await page.waitForTimeout(400);
-      await page.screenshot({ path: join(imagesDir, view.file), fullPage: true });
+      await page.screenshot({
+        path: join(imagesDir, view.file),
+        fullPage: true,
+      });
       console.log(`Captured ${view.file}`);
     }
 

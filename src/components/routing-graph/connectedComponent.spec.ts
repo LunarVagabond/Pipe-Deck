@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import { computeConnectedComponent } from "./connectedComponent";
 import type { BuiltRoutingGraph } from "./buildGraph";
 
-function edge(source: string, target: string): BuiltRoutingGraph["edges"][number] {
+function edge(
+  source: string,
+  target: string,
+): BuiltRoutingGraph["edges"][number] {
   return { id: `${source}->${target}`, source, target };
 }
 
@@ -46,7 +49,9 @@ describe("computeConnectedComponent", () => {
     ];
 
     const result = computeConnectedComponent("processingNode:eq1", edges);
-    expect(result).toEqual(new Set(["processingNode:eq1", "processingNode:eq2"]));
+    expect(result).toEqual(
+      new Set(["processingNode:eq1", "processingNode:eq2"]),
+    );
     expect(result.has("processingNode:eq3")).toBe(false);
     expect(result.has("processingNode:eq4")).toBe(false);
   });

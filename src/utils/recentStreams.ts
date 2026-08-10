@@ -14,7 +14,10 @@ export function recentEntryLabel(entry: RecentStreamIdentity): string {
 }
 
 export function recentEntryAgo(entry: RecentStreamIdentity): string {
-  const seconds = Math.max(0, Math.floor(Date.now() / 1000) - entry.last_seen_secs);
+  const seconds = Math.max(
+    0,
+    Math.floor(Date.now() / 1000) - entry.last_seen_secs,
+  );
   if (seconds < 60) return "just now";
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;

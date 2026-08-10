@@ -1,18 +1,28 @@
 <script setup lang="ts">
 import ToggleSwitch from "../ToggleSwitch.vue";
 import type { Rule } from "../../types/graph";
-import { conditionTypeLabel, formatConditionSummary } from "../../utils/ruleConditions";
+import {
+  conditionTypeLabel,
+  formatConditionSummary,
+} from "../../utils/ruleConditions";
 
-const { rule, targetKindLabel, targetName, liveMatchCount, hasConflict, canMoveUp, canMoveDown } =
-  defineProps<{
-    rule: Rule;
-    targetKindLabel: string;
-    targetName?: string;
-    liveMatchCount: number;
-    hasConflict?: boolean;
-    canMoveUp: boolean;
-    canMoveDown: boolean;
-  }>();
+const {
+  rule,
+  targetKindLabel,
+  targetName,
+  liveMatchCount,
+  hasConflict,
+  canMoveUp,
+  canMoveDown,
+} = defineProps<{
+  rule: Rule;
+  targetKindLabel: string;
+  targetName?: string;
+  liveMatchCount: number;
+  hasConflict?: boolean;
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+}>();
 
 const emit = defineEmits<{
   edit: [];
@@ -51,7 +61,11 @@ const emit = defineEmits<{
       <div class="rule-name-meta">
         <strong>
           {{ rule.name }}
-          <span v-if="hasConflict" class="rule-conflict-badge" title="Conflicts with another rule">
+          <span
+            v-if="hasConflict"
+            class="rule-conflict-badge"
+            title="Conflicts with another rule"
+          >
             ⚠ Conflict
           </span>
         </strong>
@@ -61,10 +75,17 @@ const emit = defineEmits<{
 
     <td>
       <ul class="rule-condition-lines">
-        <li v-for="(condition, index) in rule.conditions" :key="`${rule.id}-${index}`">
+        <li
+          v-for="(condition, index) in rule.conditions"
+          :key="`${rule.id}-${index}`"
+        >
           <span class="rule-condition-chip">
-            <span class="rule-condition-label">{{ conditionTypeLabel(condition.type) }}</span>
-            <span class="rule-condition-text">{{ formatConditionSummary(condition) }}</span>
+            <span class="rule-condition-label">{{
+              conditionTypeLabel(condition.type)
+            }}</span>
+            <span class="rule-condition-text">{{
+              formatConditionSummary(condition)
+            }}</span>
           </span>
         </li>
       </ul>
@@ -80,9 +101,17 @@ const emit = defineEmits<{
     <td>
       <span
         class="rule-match-badge"
-        :class="liveMatchCount > 0 ? 'rule-match-badge-active' : 'rule-match-badge-idle'"
+        :class="
+          liveMatchCount > 0
+            ? 'rule-match-badge-active'
+            : 'rule-match-badge-idle'
+        "
       >
-        {{ liveMatchCount > 0 ? `Matching ${liveMatchCount} now` : "No live match" }}
+        {{
+          liveMatchCount > 0
+            ? `Matching ${liveMatchCount} now`
+            : "No live match"
+        }}
       </span>
     </td>
 
@@ -97,7 +126,9 @@ const emit = defineEmits<{
     <td class="rules-actions-cell">
       <div class="rule-card-actions">
         <button type="button" @click.stop="emit('edit')">Edit</button>
-        <button type="button" class="danger" @click.stop="emit('delete')">Delete</button>
+        <button type="button" class="danger" @click.stop="emit('delete')">
+          Delete
+        </button>
       </div>
     </td>
   </tr>

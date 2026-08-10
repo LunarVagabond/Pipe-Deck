@@ -1,0 +1,8 @@
+dist
+node_modules
+src-tauri/target
+src-tauri/gen
+coverage
+.vscode
+docs/images
+package-lock.json

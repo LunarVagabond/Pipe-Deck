@@ -1,16 +1,25 @@
 import { nextTick } from "vue";
-import { getRectOfNodes, getTransformForBounds, type VueFlowStore } from "@vue-flow/core";
+import {
+  getRectOfNodes,
+  getTransformForBounds,
+  type VueFlowStore,
+} from "@vue-flow/core";
 import { toPng } from "html-to-image";
 import { LEGEND_ENTRIES } from "../components/routing-graph/portTypes";
 
-export type ExportResultHandler = (result: { success: boolean; message?: string }, successMessage: string) => void;
+export type ExportResultHandler = (
+  result: { success: boolean; message?: string },
+  successMessage: string,
+) => void;
 
 const EXPORT_PADDING = 60;
 const MAX_EXPORT_DIMENSION = 4000;
 const LEGEND_STRIP_HEIGHT = 48;
 
 function cssVar(name: string, fallback: string): string {
-  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  const value = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
   return value || fallback;
 }
 
@@ -18,7 +27,8 @@ function loadImage(src: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => resolve(img);
-    img.onerror = () => reject(new Error("Failed to load captured graph image"));
+    img.onerror = () =>
+      reject(new Error("Failed to load captured graph image"));
     img.src = src;
   });
 }
@@ -27,7 +37,11 @@ function loadImage(src: string): Promise<HTMLImageElement> {
  * hint text) below the captured graph — the live `.routing-graph-legend`
  * DOM isn't reused here since it carries keyboard-shortcut hint text that
  * would read oddly baked into a static shared image. */
-function drawLegendStrip(ctx: CanvasRenderingContext2D, width: number, top: number) {
+function drawLegendStrip(
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  top: number,
+) {
   ctx.fillStyle = cssVar("--surface-1", "#12151c");
   ctx.fillRect(0, top, width, LEGEND_STRIP_HEIGHT);
 
@@ -50,7 +64,11 @@ function drawLegendStrip(ctx: CanvasRenderingContext2D, width: number, top: numb
   }
 }
 
-async function composeExportCanvas(graphDataUrl: string, width: number, height: number): Promise<HTMLCanvasElement> {
+async function composeExportCanvas(
+  graphDataUrl: string,
+  width: number,
+  height: number,
+): Promise<HTMLCanvasElement> {
   const image = await loadImage(graphDataUrl);
   const canvas = document.createElement("canvas");
   canvas.width = width;
@@ -113,8 +131,14 @@ export async function exportRoutingGraphImage(
   }
 
   const bounds = getRectOfNodes(nodes);
-  const width = Math.min(MAX_EXPORT_DIMENSION, Math.round(bounds.width + EXPORT_PADDING * 2));
-  const height = Math.min(MAX_EXPORT_DIMENSION, Math.round(bounds.height + EXPORT_PADDING * 2));
+  const width = Math.min(
+    MAX_EXPORT_DIMENSION,
+    Math.round(bounds.width + EXPORT_PADDING * 2),
+  );
+  const height = Math.min(
+    MAX_EXPORT_DIMENSION,
+    Math.round(bounds.height + EXPORT_PADDING * 2),
+  );
   // `getTransformForBounds`'s padding argument is a *ratio* of width/height
   // (default 0.1 == 10%), not a pixel count — passing EXPORT_PADDING (a
   // pixel value) here was being read as "6000% padding", which floored the
@@ -141,7 +165,10 @@ export async function exportRoutingGraphImage(
     onResult({ success: true }, "Routing graph exported");
   } catch (error) {
     onResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   } finally {

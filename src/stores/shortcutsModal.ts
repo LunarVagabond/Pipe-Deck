@@ -19,5 +19,10 @@ export function useShortcutsModal() {
     open.value = !open.value;
   }
 
-  return { shortcutsModalOpen: open, openShortcutsModal, closeShortcutsModal, toggleShortcutsModal };
+  return {
+    shortcutsModalOpen: open,
+    openShortcutsModal,
+    closeShortcutsModal,
+    toggleShortcutsModal,
+  };
 }

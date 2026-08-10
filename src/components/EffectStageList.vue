@@ -14,12 +14,22 @@ const props = withDefaults(
   { compact: false },
 );
 
-const { chainFor, removeStage, reorderStages, scheduleStageUpdate, addEq5BandStage } = useEffectChain();
+const {
+  chainFor,
+  removeStage,
+  reorderStages,
+  scheduleStageUpdate,
+  addEq5BandStage,
+} = useEffectChain();
 
 const expandedStageIds = ref<Set<string>>(new Set());
 const draggedStageId = ref<string | null>(null);
 
-const eqBands: { key: keyof Omit<Eq5BandStage, "kind" | "id">; label: string; hint: string }[] = [
+const eqBands: {
+  key: keyof Omit<Eq5BandStage, "kind" | "id">;
+  label: string;
+  hint: string;
+}[] = [
   { key: "eq_sub", label: "Sub", hint: "60 Hz" },
   { key: "eq_bass", label: "Bass", hint: "150 Hz" },
   { key: "eq_mid", label: "Mid", hint: "1 kHz" },
@@ -42,7 +52,11 @@ function stageLabel(stage: Eq5BandStage): string {
   return stage.kind === "eq5band" ? "5-Band EQ" : stage.kind;
 }
 
-function onSliderInput(stage: Eq5BandStage, key: keyof Omit<Eq5BandStage, "kind" | "id">, event: Event) {
+function onSliderInput(
+  stage: Eq5BandStage,
+  key: keyof Omit<Eq5BandStage, "kind" | "id">,
+  event: Event,
+) {
   const value = Number((event.target as HTMLInputElement).value);
   scheduleStageUpdate(props.deviceId, { ...stage, [key]: value });
 }
@@ -58,7 +72,9 @@ function resetStage(stage: EffectStage) {
 }
 
 function hasEq5Band(): boolean {
-  return chainFor(props.deviceId).stages.some((stage) => stage.kind === "eq5band");
+  return chainFor(props.deviceId).stages.some(
+    (stage) => stage.kind === "eq5band",
+  );
 }
 
 function onDragStart(stageId: string) {
@@ -82,7 +98,10 @@ function onDrop(targetStageId: string) {
 </script>
 
 <template>
-  <div class="effect-stage-list" :class="{ 'effect-stage-list--compact': compact }">
+  <div
+    class="effect-stage-list"
+    :class="{ 'effect-stage-list--compact': compact }"
+  >
     <div
       v-for="stage in chainFor(deviceId).stages"
       :key="stage.id"
@@ -117,8 +136,15 @@ function onDrop(targetStageId: string) {
         </button>
       </div>
 
-      <div v-if="expandedStageIds.has(stage.id) && stage.kind === 'eq5band'" class="effect-stage-sliders">
-        <label v-for="band in eqBands" :key="band.key" class="effect-stage-slider-row">
+      <div
+        v-if="expandedStageIds.has(stage.id) && stage.kind === 'eq5band'"
+        class="effect-stage-sliders"
+      >
+        <label
+          v-for="band in eqBands"
+          :key="band.key"
+          class="effect-stage-slider-row"
+        >
           <span class="effect-stage-slider-label">
             {{ band.label }}
             <em>{{ band.hint }}</em>
@@ -133,7 +159,11 @@ function onDrop(targetStageId: string) {
           />
           <span class="effect-stage-slider-value">{{ stage[band.key] }}</span>
         </label>
-        <button type="button" class="effect-stage-reset" @click="resetStage(stage)">
+        <button
+          type="button"
+          class="effect-stage-reset"
+          @click="resetStage(stage)"
+        >
           Reset to default
         </button>
       </div>

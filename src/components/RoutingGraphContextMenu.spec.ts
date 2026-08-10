@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { flushPromises, mount } from "@vue/test-utils";
 import RoutingGraphContextMenu from "./RoutingGraphContextMenu.vue";
-import type { RoutingGraphMultiNodeMenuTarget, RoutingGraphPaneMenuTarget } from "../composables/routingGraphContext";
+import type {
+  RoutingGraphMultiNodeMenuTarget,
+  RoutingGraphPaneMenuTarget,
+} from "../composables/routingGraphContext";
 
 function paneTarget(): RoutingGraphPaneMenuTarget {
   return { kind: "pane", x: 100, y: 200 };
@@ -31,7 +34,9 @@ describe("RoutingGraphContextMenu bring-node-here picker", () => {
 
     expect(wrapper.find(".routing-graph-node-picker").exists()).toBe(false);
 
-    const trigger = wrapper.findAll("button").find((b) => b.text().includes("Bring node here"));
+    const trigger = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Bring node here"));
     await trigger?.trigger("click");
 
     const picker = wrapper.find(".routing-graph-node-picker");
@@ -72,7 +77,9 @@ describe("RoutingGraphContextMenu pane search", () => {
     });
     await flushPromises();
 
-    expect(wrapper.find(".routing-graph-context-menu-search").element).toBe(document.activeElement);
+    expect(wrapper.find(".routing-graph-context-menu-search").element).toBe(
+      document.activeElement,
+    );
     wrapper.unmount();
   });
 
@@ -146,7 +153,9 @@ describe("RoutingGraphContextMenu multi-node target (issue #80)", () => {
 
     expect(wrapper.text()).toContain("2 outputs selected");
 
-    const button = wrapper.findAll("button").find((b) => b.text().includes("Group Selected Outputs"));
+    const button = wrapper
+      .findAll("button")
+      .find((b) => b.text().includes("Group Selected Outputs"));
     expect(button?.exists()).toBe(true);
     await button?.trigger("click");
 

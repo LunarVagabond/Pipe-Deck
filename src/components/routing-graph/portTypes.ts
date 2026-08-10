@@ -95,7 +95,10 @@ export function canConnectPorts(
   if (!requireEmptySlot) {
     return true;
   }
-  return isHandleFillable(sourcePort, alsoFillable) && isHandleFillable(targetPort, alsoFillable);
+  return (
+    isHandleFillable(sourcePort, alsoFillable) &&
+    isHandleFillable(targetPort, alsoFillable)
+  );
 }
 
 export function edgeColorForPorts(): string {

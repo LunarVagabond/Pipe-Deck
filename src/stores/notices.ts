@@ -19,7 +19,11 @@ const noticeDurationMs = ref(DEFAULT_NOTICE_DURATION_MS);
 let nextId = 1;
 
 export function useNotices() {
-  function pushNotice(kind: NoticeKind, message: string, timeoutMs = noticeDurationMs.value) {
+  function pushNotice(
+    kind: NoticeKind,
+    message: string,
+    timeoutMs = noticeDurationMs.value,
+  ) {
     const notice: AppNotice = { id: nextId++, kind, message };
     notices.value = [notice, ...notices.value].slice(0, 4);
     if (timeoutMs > 0) {
@@ -40,7 +44,8 @@ export function useNoticeSettings() {
   async function initNoticeSettings() {
     try {
       const config = await invoke<{ preferences?: Preferences }>("get_config");
-      noticeDurationMs.value = config.preferences?.notice_duration_ms ?? DEFAULT_NOTICE_DURATION_MS;
+      noticeDurationMs.value =
+        config.preferences?.notice_duration_ms ?? DEFAULT_NOTICE_DURATION_MS;
     } catch {
       // Static default stands as the fallback if config load fails.
     }
@@ -54,7 +59,10 @@ export function useNoticeSettings() {
     } catch (error) {
       noticeDurationMs.value = previous;
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }

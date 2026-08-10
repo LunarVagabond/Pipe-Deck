@@ -154,7 +154,9 @@
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  transition: opacity 0.15s ease, visibility 0.15s ease;
+  transition:
+    opacity 0.15s ease,
+    visibility 0.15s ease;
   z-index: 5;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
 }
@@ -283,7 +285,9 @@
   color: var(--text-muted);
   border-radius: 8px;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease;
+  transition:
+    color 0.15s ease,
+    border-color 0.15s ease;
 
   &:hover {
     color: var(--text);

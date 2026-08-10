@@ -79,9 +79,11 @@ const Harness = defineComponent({
   setup() {
     return () =>
       h("div", { style: "height:100vh;display:flex;flex-direction:column;" }, [
-        h("div", { style: "flex:1;min-height:0;display:flex;flex-direction:column;" }, [
-          h(RoutingGraph, { graph }),
-        ]),
+        h(
+          "div",
+          { style: "flex:1;min-height:0;display:flex;flex-direction:column;" },
+          [h(RoutingGraph, { graph })],
+        ),
       ]);
   },
 });

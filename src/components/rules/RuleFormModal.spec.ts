@@ -53,8 +53,17 @@ function mountModal(overrides: Record<string, unknown> = {}) {
       open: true,
       isEditing: false,
       devices: [
-        makeDevice({ id: "dev-out", system_name: "physical-out-1", direction: "output" }),
-        makeDevice({ id: "dev-in", system_name: "physical-in-1", direction: "input", label: "Mic" }),
+        makeDevice({
+          id: "dev-out",
+          system_name: "physical-out-1",
+          direction: "output",
+        }),
+        makeDevice({
+          id: "dev-in",
+          system_name: "physical-in-1",
+          direction: "input",
+          label: "Mic",
+        }),
       ],
       identityStreams: [makeStream()],
       recentIdentityIds: new Set<string>(),
@@ -89,8 +98,12 @@ describe("RuleFormModal", () => {
     const { body } = mountModal();
 
     const options = body.find(".rules-target-section select").findAll("option");
-    expect(options.map((option) => option.text())).toContain("Speakers — Hardware Output");
-    expect(options.map((option) => option.text()).join(" ")).not.toContain("Mic");
+    expect(options.map((option) => option.text())).toContain(
+      "Speakers — Hardware Output",
+    );
+    expect(options.map((option) => option.text()).join(" ")).not.toContain(
+      "Mic",
+    );
   });
 
   it("switching target kind to input re-filters the device list", async () => {
@@ -111,7 +124,9 @@ describe("RuleFormModal", () => {
     });
     const { wrapper, body } = mountModal({ modelValue: rule });
 
-    expect(wrapper.findAllComponents({ name: "RuleConditionEditor" })).toHaveLength(2);
+    expect(
+      wrapper.findAllComponents({ name: "RuleConditionEditor" }),
+    ).toHaveLength(2);
 
     await body.find(".rule-conditions-editor-header button").trigger("click");
     expect(rule.conditions).toHaveLength(3);
@@ -128,7 +143,10 @@ describe("RuleFormModal", () => {
   });
 
   it("shows the identity reference table with live and recent rows distinguished", () => {
-    const recentStream = makeStream({ id: "stream-recent", app_name: "Discord" });
+    const recentStream = makeStream({
+      id: "stream-recent",
+      app_name: "Discord",
+    });
     const { body } = mountModal({
       identityStreams: [makeStream(), recentStream],
       recentIdentityIds: new Set(["stream-recent"]),
@@ -150,6 +168,9 @@ describe("RuleFormModal", () => {
     const executableCell = body.findAll(".identity-value-btn")[1];
     await executableCell.trigger("click");
 
-    expect(rule.conditions[0]).toEqual({ type: "executable", value: "firefox" });
+    expect(rule.conditions[0]).toEqual({
+      type: "executable",
+      value: "firefox",
+    });
   });
 });

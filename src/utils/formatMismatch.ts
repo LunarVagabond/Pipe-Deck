@@ -12,10 +12,16 @@ export interface FormatMismatchInfo {
  * when both sides report a known, differing value — an unknown value on
  * either side isn't treated as a mismatch. PipeWire already resamples/remixes
  * transparently at the link layer, so this is informational, not an error. */
-export function formatMismatch(a: AudioFormatInfo, b: AudioFormatInfo): FormatMismatchInfo {
+export function formatMismatch(
+  a: AudioFormatInfo,
+  b: AudioFormatInfo,
+): FormatMismatchInfo {
   const rateMismatch =
-    a.sample_rate != null && b.sample_rate != null && a.sample_rate !== b.sample_rate;
-  const channelMismatch = a.channels != null && b.channels != null && a.channels !== b.channels;
+    a.sample_rate != null &&
+    b.sample_rate != null &&
+    a.sample_rate !== b.sample_rate;
+  const channelMismatch =
+    a.channels != null && b.channels != null && a.channels !== b.channels;
 
   if (!rateMismatch && !channelMismatch) {
     return { mismatch: false };

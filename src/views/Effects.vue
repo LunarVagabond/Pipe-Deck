@@ -8,7 +8,13 @@ import { ref } from "vue";
 import type { Device } from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
-const { chainFor, capabilities, loading: chainsLoading, setBypassed, setDynamicsStageEnabled } = useEffectChain();
+const {
+  chainFor,
+  capabilities,
+  loading: chainsLoading,
+  setBypassed,
+  setDynamicsStageEnabled,
+} = useEffectChain();
 
 const selectedDeviceId = ref<string | null>(null);
 
@@ -29,7 +35,8 @@ const dynamicsStages = computed(() => [
     key: "noise_gate" as const,
     label: "Noise gate",
     available: Boolean(capabilities.value.ladspa_noise_gate),
-    unavailableReason: "Requires a LADSPA noise-suppression plugin (e.g. librnnoise) not found on this system",
+    unavailableReason:
+      "Requires a LADSPA noise-suppression plugin (e.g. librnnoise) not found on this system",
   },
 ]);
 
@@ -43,27 +50,40 @@ function isEffectsDevice(device: Device): boolean {
   );
 }
 
-const eligibleDevices = computed(() => graph.value.devices.filter(isEffectsDevice));
+const eligibleDevices = computed(() =>
+  graph.value.devices.filter(isEffectsDevice),
+);
 
-const selectedDevice = computed(() =>
-  eligibleDevices.value.find((device) => device.id === selectedDeviceId.value) ?? null,
+const selectedDevice = computed(
+  () =>
+    eligibleDevices.value.find(
+      (device) => device.id === selectedDeviceId.value,
+    ) ?? null,
 );
 
 const isMockData = computed(() => graph.value.data_source === "mock");
 
 const showBlockingLoader = computed(
-  () => chainsLoading.value || (loading.value && eligibleDevices.value.length === 0 && !error.value),
+  () =>
+    chainsLoading.value ||
+    (loading.value && eligibleDevices.value.length === 0 && !error.value),
 );
 
 const isEmpty = computed(
-  () => !showBlockingLoader.value && !error.value && eligibleDevices.value.length === 0,
+  () =>
+    !showBlockingLoader.value &&
+    !error.value &&
+    eligibleDevices.value.length === 0,
 );
 
 function selectDevice(deviceId: string) {
   selectedDeviceId.value = deviceId;
 }
 
-function toggleDynamicsStage(key: "compressor" | "limiter" | "noise_gate", enabled: boolean) {
+function toggleDynamicsStage(
+  key: "compressor" | "limiter" | "noise_gate",
+  enabled: boolean,
+) {
   if (!selectedDevice.value) return;
   void setDynamicsStageEnabled(selectedDevice.value.id, key, enabled);
 }
@@ -75,7 +95,10 @@ watch(
       selectedDeviceId.value = null;
       return;
     }
-    if (!selectedDeviceId.value || !devices.some((device) => device.id === selectedDeviceId.value)) {
+    if (
+      !selectedDeviceId.value ||
+      !devices.some((device) => device.id === selectedDeviceId.value)
+    ) {
       selectedDeviceId.value = devices[0].id;
     }
   },
@@ -95,14 +118,16 @@ watch(
     </header>
 
     <p class="effects-help">
-      Right-click a device on the Routing graph (or a channel in Mixer) to add an effect directly —
-      it applies immediately, no separate enable step. This page is the same effect chains as a flat
-      list, useful when you'd rather not hunt across the graph.
+      Right-click a device on the Routing graph (or a channel in Mixer) to add
+      an effect directly — it applies immediately, no separate enable step. This
+      page is the same effect chains as a flat list, useful when you'd rather
+      not hunt across the graph.
     </p>
     <p class="effects-help">
-      This covers effects attached directly to an existing device. Mixer, Fan-out, and 5-Band EQ are
-      also available as dedicated processing nodes you drag into the Routing graph — right-click the
-      canvas and choose "Add node" to add one.
+      This covers effects attached directly to an existing device. Mixer,
+      Fan-out, and 5-Band EQ are also available as dedicated processing nodes
+      you drag into the Routing graph — right-click the canvas and choose "Add
+      node" to add one.
     </p>
 
     <p v-if="isMockData" class="notice-banner mock">
@@ -115,7 +140,8 @@ watch(
     <p v-if="showBlockingLoader" class="status">Loading devices…</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
     <p v-else-if="isEmpty" class="status">
-      No Pipe Deck virtual devices available. Create a virtual output or virtual input from + New first.
+      No Pipe Deck virtual devices available. Create a virtual output or virtual
+      input from + New first.
     </p>
 
     <template v-else>
@@ -139,7 +165,9 @@ watch(
           <div class="effects-panel-header">
             <div>
               <h2>{{ selectedDevice.label }}</h2>
-              <p class="effects-panel-subtitle">{{ selectedDevice.system_name }}</p>
+              <p class="effects-panel-subtitle">
+                {{ selectedDevice.system_name }}
+              </p>
             </div>
             <div class="effects-panel-header-actions">
               <label
@@ -150,15 +178,21 @@ watch(
                   :model-value="chainFor(selectedDevice.id).bypassed"
                   :disabled="chainFor(selectedDevice.id).stages.length === 0"
                   :show-state-labels="false"
-                  @update:model-value="(next) => setBypassed(selectedDevice!.id, next)"
+                  @update:model-value="
+                    (next) => setBypassed(selectedDevice!.id, next)
+                  "
                 />
                 <span>Bypass</span>
               </label>
             </div>
           </div>
 
-          <p v-if="!capabilities.builtin_eq" class="notice-banner warn effects-live-disabled">
-            Live EQ isn't available on this system (PipeWire's filter-chain module wasn't found).
+          <p
+            v-if="!capabilities.builtin_eq"
+            class="notice-banner warn effects-live-disabled"
+          >
+            Live EQ isn't available on this system (PipeWire's filter-chain
+            module wasn't found).
           </p>
 
           <div class="effects-section">
@@ -180,7 +214,9 @@ watch(
                 :model-value="chainFor(selectedDevice.id)[stage.key].enabled"
                 :disabled="!stage.available"
                 :show-state-labels="false"
-                @update:model-value="(next) => toggleDynamicsStage(stage.key, next)"
+                @update:model-value="
+                  (next) => toggleDynamicsStage(stage.key, next)
+                "
               />
             </div>
           </div>

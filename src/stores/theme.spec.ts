@@ -30,8 +30,14 @@ describe("theme store", () => {
     expect(theme.mode.value).toBe("system");
     expect(theme.darkSchemeId.value).toBe("midnight-deck");
     expect(theme.lightSchemeId.value).toBe("paper-deck");
-    expect(invokeMock).toHaveBeenNthCalledWith(1, "set_theme_mode", { mode: "system" });
-    expect(invokeMock).toHaveBeenNthCalledWith(2, "set_dark_scheme", { id: "midnight-deck" });
-    expect(invokeMock).toHaveBeenNthCalledWith(3, "set_light_scheme", { id: "paper-deck" });
+    expect(invokeMock).toHaveBeenNthCalledWith(1, "set_theme_mode", {
+      mode: "system",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(2, "set_dark_scheme", {
+      id: "midnight-deck",
+    });
+    expect(invokeMock).toHaveBeenNthCalledWith(3, "set_light_scheme", {
+      id: "paper-deck",
+    });
   });
 });

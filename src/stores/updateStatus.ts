@@ -45,8 +45,11 @@ export function useUpdateStatus() {
   async function ensureUpdateChannel(): Promise<UpdateChannel> {
     if (!updateChannelLoaded) {
       try {
-        const config = await invoke<{ preferences?: Preferences }>("get_config");
-        updateChannel.value = (config.preferences?.update_channel as UpdateChannel) ?? "latest";
+        const config = await invoke<{ preferences?: Preferences }>(
+          "get_config",
+        );
+        updateChannel.value =
+          (config.preferences?.update_channel as UpdateChannel) ?? "latest";
       } catch {
         updateChannel.value = "latest";
       }
@@ -64,7 +67,10 @@ export function useUpdateStatus() {
     } catch (error) {
       updateChannel.value = previous;
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
       return;

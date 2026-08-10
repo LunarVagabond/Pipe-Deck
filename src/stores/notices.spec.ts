@@ -31,7 +31,12 @@ describe("useNotices", () => {
     }
 
     expect(notices.value).toHaveLength(4);
-    expect(notices.value.map((n) => n.message)).toEqual(["notice-5", "notice-4", "notice-3", "notice-2"]);
+    expect(notices.value.map((n) => n.message)).toEqual([
+      "notice-5",
+      "notice-4",
+      "notice-3",
+      "notice-2",
+    ]);
   });
 
   describe("auto-dismiss timing", () => {
@@ -95,7 +100,8 @@ describe("useNoticeSettings.initNoticeSettings", () => {
 
   it("falls back to the default when preferences/notice_duration_ms is missing", async () => {
     invokeMock.mockResolvedValue({});
-    const { useNoticeSettings, DEFAULT_NOTICE_DURATION_MS } = await import("./notices");
+    const { useNoticeSettings, DEFAULT_NOTICE_DURATION_MS } =
+      await import("./notices");
     const { noticeDurationMs, initNoticeSettings } = useNoticeSettings();
 
     await initNoticeSettings();
@@ -105,7 +111,8 @@ describe("useNoticeSettings.initNoticeSettings", () => {
 
   it("silently falls back to the default when the invoke call rejects", async () => {
     invokeMock.mockRejectedValue(new Error("config unavailable"));
-    const { useNoticeSettings, DEFAULT_NOTICE_DURATION_MS } = await import("./notices");
+    const { useNoticeSettings, DEFAULT_NOTICE_DURATION_MS } =
+      await import("./notices");
     const { noticeDurationMs, initNoticeSettings } = useNoticeSettings();
 
     await expect(initNoticeSettings()).resolves.toBeUndefined();
@@ -120,12 +127,15 @@ describe("useNoticeSettings.setNoticeDuration", () => {
 
     await setNoticeDuration(9000);
 
-    expect(invokeMock).toHaveBeenCalledWith("set_notice_duration_ms", { ms: 9000 });
+    expect(invokeMock).toHaveBeenCalledWith("set_notice_duration_ms", {
+      ms: 9000,
+    });
     expect(noticeDurationMs.value).toBe(9000);
   });
 
   it("rolls back and pushes an error notice when the invoke call fails", async () => {
-    const { useNoticeSettings, useNotices, DEFAULT_NOTICE_DURATION_MS } = await import("./notices");
+    const { useNoticeSettings, useNotices, DEFAULT_NOTICE_DURATION_MS } =
+      await import("./notices");
     const { noticeDurationMs, setNoticeDuration } = useNoticeSettings();
     const { notices } = useNotices();
     invokeMock.mockRejectedValue(new Error("save failed"));
@@ -133,7 +143,10 @@ describe("useNoticeSettings.setNoticeDuration", () => {
     await setNoticeDuration(9000);
 
     expect(noticeDurationMs.value).toBe(DEFAULT_NOTICE_DURATION_MS);
-    expect(notices.value[0]).toMatchObject({ kind: "error", message: "save failed" });
+    expect(notices.value[0]).toMatchObject({
+      kind: "error",
+      message: "save failed",
+    });
   });
 });
 
@@ -146,7 +159,10 @@ describe("useApplyResult.handleApplyResult", () => {
     const outcome = handleApplyResult({ success: true }, "Saved");
 
     expect(outcome).toBe(true);
-    expect(notices.value[0]).toMatchObject({ kind: "success", message: "Saved" });
+    expect(notices.value[0]).toMatchObject({
+      kind: "success",
+      message: "Saved",
+    });
   });
 
   it("pushes an error notice with the message and returns false on failure", async () => {
@@ -167,6 +183,9 @@ describe("useApplyResult.handleApplyResult", () => {
 
     handleApplyResult({ success: false }, "");
 
-    expect(notices.value[0]).toMatchObject({ kind: "error", message: "Operation failed" });
+    expect(notices.value[0]).toMatchObject({
+      kind: "error",
+      message: "Operation failed",
+    });
   });
 });

@@ -64,11 +64,18 @@ export function boundsForMembers(members: GroupMemberInput[]): {
 } {
   const minX = Math.min(...members.map((member) => member.position.x));
   const minY = Math.min(...members.map((member) => member.position.y));
-  const maxX = Math.max(...members.map((member) => member.position.x + member.width));
-  const maxY = Math.max(...members.map((member) => member.position.y + member.height));
+  const maxX = Math.max(
+    ...members.map((member) => member.position.x + member.width),
+  );
+  const maxY = Math.max(
+    ...members.map((member) => member.position.y + member.height),
+  );
 
   return {
-    position: { x: minX - GROUP_PADDING, y: minY - GROUP_PADDING - GROUP_HEADER_HEIGHT },
+    position: {
+      x: minX - GROUP_PADDING,
+      y: minY - GROUP_PADDING - GROUP_HEADER_HEIGHT,
+    },
     size: {
       width: maxX - minX + GROUP_PADDING * 2,
       height: maxY - minY + GROUP_PADDING * 2 + GROUP_HEADER_HEIGHT,
@@ -76,7 +83,10 @@ export function boundsForMembers(members: GroupMemberInput[]): {
   };
 }
 
-export function createGroup(label: string, members: GroupMemberInput[]): GraphGroup {
+export function createGroup(
+  label: string,
+  members: GroupMemberInput[],
+): GraphGroup {
   const { position, size } = boundsForMembers(members);
 
   return {
@@ -90,10 +100,16 @@ export function createGroup(label: string, members: GroupMemberInput[]): GraphGr
 
 /** How much of `inner`'s area overlaps `outer`, from 0 to 1. */
 export function containmentRatio(inner: GraphRect, outer: GraphRect): number {
-  const overlapX =
-    Math.max(0, Math.min(inner.x + inner.width, outer.x + outer.width) - Math.max(inner.x, outer.x));
-  const overlapY =
-    Math.max(0, Math.min(inner.y + inner.height, outer.y + outer.height) - Math.max(inner.y, outer.y));
+  const overlapX = Math.max(
+    0,
+    Math.min(inner.x + inner.width, outer.x + outer.width) -
+      Math.max(inner.x, outer.x),
+  );
+  const overlapY = Math.max(
+    0,
+    Math.min(inner.y + inner.height, outer.y + outer.height) -
+      Math.max(inner.y, outer.y),
+  );
   const innerArea = inner.width * inner.height;
   return innerArea > 0 ? (overlapX * overlapY) / innerArea : 0;
 }
@@ -107,7 +123,10 @@ export function containmentRatio(inner: GraphRect, outer: GraphRect): number {
 export function reflowMembers(
   axis: GroupLayoutAxis,
   orderedMembers: GroupMemberInput[],
-): { positions: Record<string, { x: number; y: number }>; bounds: ReturnType<typeof boundsForMembers> } {
+): {
+  positions: Record<string, { x: number; y: number }>;
+  bounds: ReturnType<typeof boundsForMembers>;
+} {
   const positions: Record<string, { x: number; y: number }> = {};
   if (orderedMembers.length === 0) {
     return {
@@ -118,21 +137,28 @@ export function reflowMembers(
 
   if (axis === "row") {
     const top = Math.min(...orderedMembers.map((member) => member.position.y));
-    let cursorX = Math.min(...orderedMembers.map((member) => member.position.x));
+    let cursorX = Math.min(
+      ...orderedMembers.map((member) => member.position.x),
+    );
     for (const member of orderedMembers) {
       positions[member.id] = { x: cursorX, y: top };
       cursorX += member.width + MEMBER_GAP;
     }
   } else {
     const left = Math.min(...orderedMembers.map((member) => member.position.x));
-    let cursorY = Math.min(...orderedMembers.map((member) => member.position.y));
+    let cursorY = Math.min(
+      ...orderedMembers.map((member) => member.position.y),
+    );
     for (const member of orderedMembers) {
       positions[member.id] = { x: left, y: cursorY };
       cursorY += member.height + MEMBER_GAP;
     }
   }
 
-  const laidOut = orderedMembers.map((member) => ({ ...member, position: positions[member.id] }));
+  const laidOut = orderedMembers.map((member) => ({
+    ...member,
+    position: positions[member.id],
+  }));
   return { positions, bounds: boundsForMembers(laidOut) };
 }
 
@@ -147,7 +173,10 @@ const HOVER_MARGIN = 70;
  * Returns null when the node is too far from the group to be considered a
  * directional-insert candidate.
  */
-export function nearestGroupEdge(nodeRect: GraphRect, group: GraphRect): GroupEdge | null {
+export function nearestGroupEdge(
+  nodeRect: GraphRect,
+  group: GraphRect,
+): GroupEdge | null {
   const expanded = {
     x: group.x - HOVER_MARGIN,
     y: group.y - HOVER_MARGIN,

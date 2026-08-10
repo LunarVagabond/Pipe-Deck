@@ -1,8 +1,15 @@
-import type { CapabilityInfo, DaemonStatus, PluginDiscoveryIssue, PluginStatus } from "../types/graph";
+import type {
+  CapabilityInfo,
+  DaemonStatus,
+  PluginDiscoveryIssue,
+  PluginStatus,
+} from "../types/graph";
 import type { AppInfo, UpdateCheckResult } from "../types/app";
 import type { ResolvedScheme } from "../types/theme";
 
-export function makePluginStatus(overrides: Partial<PluginStatus> = {}): PluginStatus {
+export function makePluginStatus(
+  overrides: Partial<PluginStatus> = {},
+): PluginStatus {
   return {
     id: "plugin-1",
     name: "Sample Plugin",
@@ -19,7 +26,9 @@ export function makePluginStatus(overrides: Partial<PluginStatus> = {}): PluginS
   };
 }
 
-export function makeCapabilityInfo(overrides: Partial<CapabilityInfo> = {}): CapabilityInfo {
+export function makeCapabilityInfo(
+  overrides: Partial<CapabilityInfo> = {},
+): CapabilityInfo {
   return {
     id: "network",
     description: "Access the network",
@@ -28,7 +37,9 @@ export function makeCapabilityInfo(overrides: Partial<CapabilityInfo> = {}): Cap
   };
 }
 
-export function makeDiscoveryIssue(overrides: Partial<PluginDiscoveryIssue> = {}): PluginDiscoveryIssue {
+export function makeDiscoveryIssue(
+  overrides: Partial<PluginDiscoveryIssue> = {},
+): PluginDiscoveryIssue {
   return {
     path: "/home/user/.config/pipe-deck/plugins/broken",
     message: "Failed to parse manifest",
@@ -36,7 +47,9 @@ export function makeDiscoveryIssue(overrides: Partial<PluginDiscoveryIssue> = {}
   };
 }
 
-export function makeDaemonStatus(overrides: Partial<DaemonStatus> = {}): DaemonStatus {
+export function makeDaemonStatus(
+  overrides: Partial<DaemonStatus> = {},
+): DaemonStatus {
   return {
     running: true,
     enabled: true,
@@ -54,7 +67,9 @@ export function makeAppInfo(overrides: Partial<AppInfo> = {}): AppInfo {
   };
 }
 
-export function makeUpdateResult(overrides: Partial<UpdateCheckResult> = {}): UpdateCheckResult {
+export function makeUpdateResult(
+  overrides: Partial<UpdateCheckResult> = {},
+): UpdateCheckResult {
   return {
     status: "current",
     currentVersion: "0.1.0",
@@ -62,7 +77,9 @@ export function makeUpdateResult(overrides: Partial<UpdateCheckResult> = {}): Up
   };
 }
 
-export function makeResolvedScheme(overrides: Partial<ResolvedScheme> = {}): ResolvedScheme {
+export function makeResolvedScheme(
+  overrides: Partial<ResolvedScheme> = {},
+): ResolvedScheme {
   const colors = {
     background: "#000000",
     surface_1: "#111111",
