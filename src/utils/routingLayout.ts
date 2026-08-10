@@ -135,7 +135,10 @@ function titleCaseFromBinary(executable: string): string {
  * correctly. `application.process.binary` (the actual executable) is more
  * reliable when present, so it takes precedence; `app_name` is the fallback
  * for streams with no executable reported. */
-export function streamDisplayLabel(stream: { app_name: string; executable?: string }): string {
+export function streamDisplayLabel(stream: {
+  app_name: string;
+  executable?: string;
+}): string {
   if (stream.executable) {
     return titleCaseFromBinary(stream.executable);
   }
@@ -221,4 +224,3 @@ export function sinksForStream(devices: Device[], stream: Stream): Device[] {
     return device.direction === "input" || device.direction === "duplex";
   });
 }
-

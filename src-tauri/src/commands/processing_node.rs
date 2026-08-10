@@ -110,7 +110,15 @@ pub async fn update_processing_node_eq_params(
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
     let result = engine
-        .update_processing_node_eq_params(&node_id, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
+        .update_processing_node_eq_params(
+            &node_id,
+            eq_sub,
+            eq_bass,
+            eq_mid,
+            eq_treble,
+            eq_air,
+            output_gain,
+        )
         .map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(result)
@@ -127,7 +135,12 @@ pub async fn update_processing_node_delay_params(
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
     let result = engine
-        .update_processing_node_delay_params(&node_id, delay_ms, feedback_percent, feedforward_percent)
+        .update_processing_node_delay_params(
+            &node_id,
+            delay_ms,
+            feedback_percent,
+            feedforward_percent,
+        )
         .map_err(|error| error.to_string())?;
     engine.emit_graph_update(&app);
     Ok(result)

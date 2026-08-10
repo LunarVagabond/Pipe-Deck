@@ -1,9 +1,9 @@
+use crate::backend::slugify;
+use crate::backend::AudioBackend;
 use crate::config::ConfigStore;
 use crate::core::models::{
     DeviceDirection, Profile, RestoreResult, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceSpec,
 };
-use crate::backend::AudioBackend;
-use crate::backend::slugify;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
@@ -64,9 +64,9 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
                 mix_sources: Vec::new(),
             })
             .collect();
-        result.warnings.push(
-            "Migrated existing Pipe Deck virtual devices into config.yaml".into(),
-        );
+        result
+            .warnings
+            .push("Migrated existing Pipe Deck virtual devices into config.yaml".into());
     }
 
     let configured_names: HashSet<String> = config
@@ -77,7 +77,9 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
 
     for spec in &config.virtual_devices {
         let system_name = format!("pipe-deck-{}", spec.slug);
-        if module_by_name.contains_key(&system_name) || backend.device_is_live(&system_name, spec.direction.clone()) {
+        if module_by_name.contains_key(&system_name)
+            || backend.device_is_live(&system_name, spec.direction.clone())
+        {
             result.adopted.push(system_name);
             continue;
         }
@@ -104,7 +106,11 @@ pub fn restore_session(backend: &dyn AudioBackend) -> Result<RestoreResult, Rest
         }
     }
 
-    if result.warnings.iter().any(|warning| warning.contains("Migrated")) {
+    if result
+        .warnings
+        .iter()
+        .any(|warning| warning.contains("Migrated"))
+    {
         store
             .save_virtual_devices(&config.virtual_devices)
             .map_err(|error| RestoreError::Config(error.to_string()))?;
@@ -177,7 +183,9 @@ pub fn restore_profile_virtual_devices(
             continue;
         };
         let system_name = format!("pipe-deck-{}", spec.slug);
-        if present.contains(&system_name) || backend.device_is_live(&system_name, spec.direction.clone()) {
+        if present.contains(&system_name)
+            || backend.device_is_live(&system_name, spec.direction.clone())
+        {
             result.adopted.push(system_name);
             continue;
         }

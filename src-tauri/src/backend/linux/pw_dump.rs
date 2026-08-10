@@ -1,14 +1,14 @@
+use crate::backend::linux::graph_enrich;
+use crate::backend::BackendError;
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, Link, RuntimeGraph, Stream, StreamDirection,
 };
 use crate::core::stream_identity::{
     is_internal_audio_client, parse_stream_identity, parse_window_class,
 };
-use crate::backend::BackendError;
-use crate::backend::linux::graph_enrich;
+use crate::sysproc;
 use serde::Deserialize;
 use serde_json::Value;
-use crate::sysproc;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Deserialize)]
@@ -252,7 +252,8 @@ pub(crate) fn device_label(props: &serde_json::Map<String, Value>, media_class: 
     let node_name = prop_str(props, "node.name");
 
     if media_class == "Audio/Sink" {
-        if profile.is_empty() && description.is_empty() && card.is_empty() && !node_name.is_empty() {
+        if profile.is_empty() && description.is_empty() && card.is_empty() && !node_name.is_empty()
+        {
             return prettify_node_name(&node_name);
         }
 
@@ -274,10 +275,7 @@ pub(crate) fn device_label(props: &serde_json::Map<String, Value>, media_class: 
             return fallback_device_label(&description, &card, &node_name);
         }
 
-        let label = format!(
-            "Microphone - {}",
-            device_short_name(&card, &description)
-        );
+        let label = format!("Microphone - {}", device_short_name(&card, &description));
         if label != "Microphone - " {
             return label;
         }
@@ -344,9 +342,7 @@ fn node_id(id: u32) -> String {
 }
 
 fn should_skip_media_class(media_class: &str) -> bool {
-    media_class.is_empty()
-        || media_class.starts_with("Midi/")
-        || media_class.starts_with("Video/")
+    media_class.is_empty() || media_class.starts_with("Midi/") || media_class.starts_with("Video/")
 }
 
 fn is_source_media_class(media_class: &str) -> bool {
@@ -469,10 +465,7 @@ mod tests {
             "node.name": "alsa_output.pci-0000_01_00.1.hdmi-stereo",
         });
 
-        let label = device_label(
-            props.as_object().expect("props object"),
-            "Audio/Sink",
-        );
+        let label = device_label(props.as_object().expect("props object"), "Audio/Sink");
         assert_eq!(label, "HDMI / DP - GA102 HD Audio");
     }
 
@@ -486,10 +479,7 @@ mod tests {
             "node.name": "alsa_output.usb-headset.analog-stereo",
         });
 
-        let label = device_label(
-            props.as_object().expect("props object"),
-            "Audio/Sink",
-        );
+        let label = device_label(props.as_object().expect("props object"), "Audio/Sink");
         assert_eq!(label, "Analog Output - Arctis Nova Pro Wireless");
     }
 
@@ -502,10 +492,7 @@ mod tests {
             "node.name": "alsa_input.usb-headset.mono-fallback",
         });
 
-        let label = device_label(
-            props.as_object().expect("props object"),
-            "Audio/Source",
-        );
+        let label = device_label(props.as_object().expect("props object"), "Audio/Source");
         assert_eq!(label, "Microphone - Arctis Nova Pro Wireless");
     }
 
@@ -755,7 +742,9 @@ mod live_tests {
 
     impl Drop for LoopedRecordStream {
         fn drop(&mut self) {
-            let _ = crate::sysproc::command("pkill").args(["-P", &self.child.id().to_string()]).status();
+            let _ = crate::sysproc::command("pkill")
+                .args(["-P", &self.child.id().to_string()])
+                .status();
             let _ = self.child.kill();
             let _ = self.child.wait();
         }
@@ -763,7 +752,8 @@ mod live_tests {
 
     fn snapshot_graph() -> RuntimeGraph {
         let stdout = run_snapshot().expect("pw-dump snapshot should succeed");
-        let objects: Vec<PwDumpObject> = serde_json::from_slice(&stdout).expect("pw-dump output should parse");
+        let objects: Vec<PwDumpObject> =
+            serde_json::from_slice(&stdout).expect("pw-dump output should parse");
         normalize(&objects)
     }
 
@@ -801,7 +791,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(routed, "expected the capture route to succeed once pw-cat registers as a live node");
+        assert!(
+            routed,
+            "expected the capture route to succeed once pw-cat registers as a live node"
+        );
 
         let found = (0..20).find_map(|_| {
             // Re-assert the route on every attempt, not just once up front —
@@ -815,14 +808,26 @@ mod live_tests {
             // auto-connect and this test happened to land in.
             let _ = pw_link::route_capture_stream(&hardware_source.system_name, "pw-cat");
             let graph = snapshot_graph();
-            let stream = graph.streams.iter().find(|stream| stream.system_name.as_deref() == Some("pw-cat")).cloned();
-            if stream.as_ref().and_then(|s| s.current_target.as_ref()).is_some() {
+            let stream = graph
+                .streams
+                .iter()
+                .find(|stream| stream.system_name.as_deref() == Some("pw-cat"))
+                .cloned();
+            if stream
+                .as_ref()
+                .and_then(|s| s.current_target.as_ref())
+                .is_some()
+            {
                 return stream;
             }
             thread::sleep(Duration::from_millis(100));
             None
         });
-        let stream = found.expect("expected a live snapshot to show pw-cat's current_target once routed");
-        assert_eq!(stream.current_target.as_deref(), Some(hardware_source.id.as_str()));
+        let stream =
+            found.expect("expected a live snapshot to show pw-cat's current_target once routed");
+        assert_eq!(
+            stream.current_target.as_deref(),
+            Some(hardware_source.id.as_str())
+        );
     }
 }

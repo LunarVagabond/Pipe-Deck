@@ -1,40 +1,83 @@
 import { describe, expect, it } from "vitest";
-import { makeDevice, makeGraph, makeProcessingNode, makeStream } from "../../test/graphFixtures";
+import {
+  makeDevice,
+  makeGraph,
+  makeProcessingNode,
+  makeStream,
+} from "../../test/graphFixtures";
 import { collectRoutingEdges } from "./collectEdges";
 
 describe("collectRoutingEdges", () => {
   it("builds an edge for a playback stream routed to an output device", () => {
-    const stream = makeStream({ id: "s1", direction: "playback", current_target: "d1" });
+    const stream = makeStream({
+      id: "s1",
+      direction: "playback",
+      current_target: "d1",
+    });
     const device = makeDevice({ id: "d1", direction: "output" });
-    const graph = makeGraph([device], [stream], [{ id: "link-1", source_id: "s1", target_id: "d1" }]);
+    const graph = makeGraph(
+      [device],
+      [stream],
+      [{ id: "link-1", source_id: "s1", target_id: "d1" }],
+    );
 
     const edges = collectRoutingEdges(graph);
 
     expect(edges).toHaveLength(1);
-    expect(edges[0]).toMatchObject({ source: "stream:s1", target: "device:d1" });
+    expect(edges[0]).toMatchObject({
+      source: "stream:s1",
+      target: "device:d1",
+    });
   });
 
   it("drops a link whose stream no longer targets that device", () => {
-    const stream = makeStream({ id: "s1", direction: "playback", current_target: "d2" });
+    const stream = makeStream({
+      id: "s1",
+      direction: "playback",
+      current_target: "d2",
+    });
     const device = makeDevice({ id: "d1", direction: "output" });
-    const graph = makeGraph([device], [stream], [{ id: "link-1", source_id: "s1", target_id: "d1" }]);
+    const graph = makeGraph(
+      [device],
+      [stream],
+      [{ id: "link-1", source_id: "s1", target_id: "d1" }],
+    );
 
     expect(collectRoutingEdges(graph)).toHaveLength(0);
   });
 
   it("builds an edge for a capture stream's mic source", () => {
-    const stream = makeStream({ id: "s1", direction: "capture", current_target: "mic1" });
-    const mic = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
-    const graph = makeGraph([mic], [stream], [{ id: "link-1", source_id: "mic1", target_id: "s1" }]);
+    const stream = makeStream({
+      id: "s1",
+      direction: "capture",
+      current_target: "mic1",
+    });
+    const mic = makeDevice({
+      id: "mic1",
+      kind: "physical",
+      direction: "input",
+    });
+    const graph = makeGraph(
+      [mic],
+      [stream],
+      [{ id: "link-1", source_id: "mic1", target_id: "s1" }],
+    );
 
     const edges = collectRoutingEdges(graph);
 
     expect(edges).toHaveLength(1);
-    expect(edges[0]).toMatchObject({ source: "device:mic1", target: "stream:s1" });
+    expect(edges[0]).toMatchObject({
+      source: "device:mic1",
+      target: "stream:s1",
+    });
   });
 
   it("draws no edge from a device's legacy mix_sources — retired in favor of the Mixer Node", () => {
-    const physMic = makeDevice({ id: "mic1", kind: "physical", direction: "input" });
+    const physMic = makeDevice({
+      id: "mic1",
+      kind: "physical",
+      direction: "input",
+    });
     const virtualMic = makeDevice({
       id: "mic2",
       kind: "virtual",
@@ -52,9 +95,21 @@ describe("collectRoutingEdges", () => {
     // live backend already emits one `pwlink-*` link per fan-out target
     // directly (`graph_routing.rs::apply_pw_link_device_routes`), so
     // rendering just needs to draw whatever's in graph.links.
-    const sink = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
-    const out2 = makeDevice({ id: "out2", kind: "physical", direction: "output" });
+    const sink = makeDevice({
+      id: "sink1",
+      kind: "virtual",
+      direction: "output",
+    });
+    const out1 = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
+    const out2 = makeDevice({
+      id: "out2",
+      kind: "physical",
+      direction: "output",
+    });
     const graph = makeGraph(
       [sink, out1, out2],
       [],
@@ -67,22 +122,43 @@ describe("collectRoutingEdges", () => {
     const edges = collectRoutingEdges(graph);
 
     expect(edges).toHaveLength(2);
-    expect(edges.map((edge) => edge.target).sort()).toEqual(["device:out1", "device:out2"]);
+    expect(edges.map((edge) => edge.target).sort()).toEqual([
+      "device:out1",
+      "device:out2",
+    ]);
   });
 
   it("renders a monitor-derived fan-out link as solid and dimmed, distinct from a direct route (#27)", () => {
-    const sink = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const sink = makeDevice({
+      id: "sink1",
+      kind: "virtual",
+      direction: "output",
+    });
+    const out1 = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
     const graph = makeGraph(
       [sink, out1],
       [],
-      [{ id: "pwlink-sink1-out1", source_id: "sink1", target_id: "out1", is_monitor: true }],
+      [
+        {
+          id: "pwlink-sink1-out1",
+          source_id: "sink1",
+          target_id: "out1",
+          is_monitor: true,
+        },
+      ],
     );
 
     const edges = collectRoutingEdges(graph);
 
     expect(edges).toHaveLength(1);
-    expect(edges[0]).toMatchObject({ animated: false, class: expect.stringContaining("routing-edge--monitor") });
+    expect(edges[0]).toMatchObject({
+      animated: false,
+      class: expect.stringContaining("routing-edge--monitor"),
+    });
     expect(edges[0].style).toMatchObject({ strokeOpacity: "0.55" });
   });
 
@@ -93,7 +169,11 @@ describe("collectRoutingEdges", () => {
       direction: "output",
       current_targets: ["out1"],
     });
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const out1 = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
     const graph = makeGraph(
       [sink, out1],
       [],
@@ -105,15 +185,31 @@ describe("collectRoutingEdges", () => {
 
   it("drops a link referencing an entity no longer in the graph", () => {
     const device = makeDevice({ id: "d1", direction: "output" });
-    const graph = makeGraph([device], [], [{ id: "link-1", source_id: "gone", target_id: "d1" }]);
+    const graph = makeGraph(
+      [device],
+      [],
+      [{ id: "link-1", source_id: "gone", target_id: "d1" }],
+    );
 
     expect(collectRoutingEdges(graph)).toHaveLength(0);
   });
 
   it("builds an edge for each connected port on a processing node — PD-032's 4th edge shape", () => {
-    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
-    const out2 = makeDevice({ id: "out2", kind: "physical", direction: "output" });
+    const source = makeDevice({
+      id: "src1",
+      kind: "virtual",
+      direction: "output",
+    });
+    const out1 = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
+    const out2 = makeDevice({
+      id: "out2",
+      kind: "physical",
+      direction: "output",
+    });
     const node = makeProcessingNode({
       id: "proc-1",
       inputs: [{ index: 0, connected_id: "src1" }],
@@ -127,22 +223,52 @@ describe("collectRoutingEdges", () => {
     const edges = collectRoutingEdges(graph);
 
     expect(edges).toHaveLength(3);
-    expect(edges).toContainEqual(expect.objectContaining({ source: "device:src1", target: "processingNode:proc-1" }));
-    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:proc-1", target: "device:out1" }));
-    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:proc-1", target: "device:out2" }));
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: "device:src1",
+        target: "processingNode:proc-1",
+      }),
+    );
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: "processingNode:proc-1",
+        target: "device:out1",
+      }),
+    );
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: "processingNode:proc-1",
+        target: "device:out2",
+      }),
+    );
   });
 
   it("drops a processing-node edge whose port peer no longer exists in the graph", () => {
-    const node = makeProcessingNode({ id: "proc-1", outputs: [{ index: 0, connected_id: "gone" }] });
+    const node = makeProcessingNode({
+      id: "proc-1",
+      outputs: [{ index: 0, connected_id: "gone" }],
+    });
     const graph = makeGraph([], [], [], [node]);
 
     expect(collectRoutingEdges(graph)).toHaveLength(0);
   });
 
   it("never draws a Group node's edges to its own members, but keeps its own input edge — issue #80", () => {
-    const source = makeDevice({ id: "src1", kind: "virtual", direction: "output" });
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
-    const out2 = makeDevice({ id: "out2", kind: "physical", direction: "output" });
+    const source = makeDevice({
+      id: "src1",
+      kind: "virtual",
+      direction: "output",
+    });
+    const out1 = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
+    const out2 = makeDevice({
+      id: "out2",
+      kind: "physical",
+      direction: "output",
+    });
     const node = makeProcessingNode({
       id: "group-1",
       kind: { kind: "group", volume_percent: 100, muted: false },
@@ -159,11 +285,20 @@ describe("collectRoutingEdges", () => {
     // as graph edges to the real device nodes elsewhere on the canvas.
     const edges = collectRoutingEdges(graph);
     expect(edges).toHaveLength(1);
-    expect(edges).toContainEqual(expect.objectContaining({ source: "device:src1", target: "processingNode:group-1" }));
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: "device:src1",
+        target: "processingNode:group-1",
+      }),
+    );
   });
 
   it("still draws a Fan-out node's member edges — unlike Group, Fan-out keeps its real wiring visible", () => {
-    const out1 = makeDevice({ id: "out1", kind: "physical", direction: "output" });
+    const out1 = makeDevice({
+      id: "out1",
+      kind: "physical",
+      direction: "output",
+    });
     const node = makeProcessingNode({
       id: "fan-1",
       kind: { kind: "fan_out", volume_percent: 100, muted: false },
@@ -173,6 +308,11 @@ describe("collectRoutingEdges", () => {
 
     const edges = collectRoutingEdges(graph);
     expect(edges).toHaveLength(1);
-    expect(edges).toContainEqual(expect.objectContaining({ source: "processingNode:fan-1", target: "device:out1" }));
+    expect(edges).toContainEqual(
+      expect.objectContaining({
+        source: "processingNode:fan-1",
+        target: "device:out1",
+      }),
+    );
   });
 });

@@ -5,7 +5,8 @@ import { makeDevice, makeGraph, makeStream } from "../../test/graphFixtures";
 const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
 
-const { applyEdgeDisconnect, applyRoutingConnection } = await import("./applyConnection");
+const { applyEdgeDisconnect, applyRoutingConnection } =
+  await import("./applyConnection");
 
 function connection(overrides: Partial<Connection>): Connection {
   return {
@@ -26,12 +27,19 @@ describe("applyRoutingConnection", () => {
     const graph = makeGraph();
     const onResult = vi.fn();
 
-    const applied = await applyRoutingConnection(graph, connection({}), onResult);
+    const applied = await applyRoutingConnection(
+      graph,
+      connection({}),
+      onResult,
+    );
 
     expect(applied).toBe(false);
     expect(invokeMock).not.toHaveBeenCalled();
     expect(onResult).toHaveBeenCalledWith(
-      { success: false, message: "Drag needs both a source and a target port." },
+      {
+        success: false,
+        message: "Drag needs both a source and a target port.",
+      },
       "",
     );
   });
@@ -63,7 +71,11 @@ describe("applyRoutingConnection", () => {
   });
 
   it("reports an error, without invoking anything, for a device-to-device drag — #293", async () => {
-    const sink = makeDevice({ id: "sink1", kind: "virtual", direction: "output" });
+    const sink = makeDevice({
+      id: "sink1",
+      kind: "virtual",
+      direction: "output",
+    });
     const out1 = makeDevice({ id: "out1", direction: "output" });
     const graph = makeGraph([sink, out1]);
     const onResult = vi.fn();
@@ -82,7 +94,12 @@ describe("applyRoutingConnection", () => {
     expect(applied).toBe(false);
     expect(invokeMock).not.toHaveBeenCalled();
     expect(onResult).toHaveBeenCalledWith(
-      { success: false, message: expect.stringContaining("plain devices no longer route onward") },
+      {
+        success: false,
+        message: expect.stringContaining(
+          "plain devices no longer route onward",
+        ),
+      },
       "",
     );
   });
@@ -130,7 +147,10 @@ describe("applyRoutingConnection", () => {
       onResult,
     );
 
-    expect(onResult).toHaveBeenCalledWith({ success: false, message: "device is busy" }, "Routing updated");
+    expect(onResult).toHaveBeenCalledWith(
+      { success: false, message: "device is busy" },
+      "Routing updated",
+    );
   });
 });
 
@@ -142,7 +162,11 @@ describe("applyEdgeDisconnect", () => {
     invokeMock.mockResolvedValue({ success: true });
     const onResult = vi.fn();
 
-    await applyEdgeDisconnect(graph, { source: "stream:s1", target: "device:d1" }, onResult);
+    await applyEdgeDisconnect(
+      graph,
+      { source: "stream:s1", target: "device:d1" },
+      onResult,
+    );
 
     expect(invokeMock).toHaveBeenCalledWith("clear_stream_target", {
       streamId: "s1",

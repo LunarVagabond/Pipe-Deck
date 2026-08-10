@@ -16,7 +16,9 @@ const props = defineProps<{
 const { handleApplyResult } = useApplyResult();
 const actions = inject(routingGraphActionsKey, null);
 const graphNodeId = computed(() => processingNodeNodeId(props.nodeId));
-const isIsolated = computed(() => actions?.isEffectIsolated(graphNodeId.value) ?? false);
+const isIsolated = computed(
+  () => actions?.isEffectIsolated(graphNodeId.value) ?? false,
+);
 
 function onToggleIsolate() {
   void actions?.isolateEffectNode(graphNodeId.value);
@@ -29,16 +31,25 @@ function onToggleIsolate() {
  * to the last server-echoed value for that entire window. */
 const pending = ref<{ ceilingDb?: number; floorDb?: number }>({});
 
-const displayCeiling = computed(() => pending.value.ceilingDb ?? props.ceilingDb);
+const displayCeiling = computed(
+  () => pending.value.ceilingDb ?? props.ceilingDb,
+);
 const displayFloor = computed(() => pending.value.floorDb ?? props.floorDb);
 
-async function pushLimiterParams(ceilingDb: number, floorDb: number, symmetric: boolean) {
-  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_limiter_params", {
-    nodeId: props.nodeId,
-    ceilingDb,
-    floorDb,
-    symmetric,
-  });
+async function pushLimiterParams(
+  ceilingDb: number,
+  floorDb: number,
+  symmetric: boolean,
+) {
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "update_processing_node_limiter_params",
+    {
+      nodeId: props.nodeId,
+      ceilingDb,
+      floorDb,
+      symmetric,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -103,10 +114,13 @@ async function onReset() {
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
-  const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {
-    nodeId: props.nodeId,
-    bypassed: !props.bypassed,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "set_processing_node_bypassed",
+    {
+      nodeId: props.nodeId,
+      bypassed: !props.bypassed,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -121,14 +135,21 @@ defineExpose({ reset: onReset });
 </script>
 
 <template>
-  <div class="routing-graph-node-limiter nodrag" :class="{ 'is-bypassed': bypassed }">
+  <div
+    class="routing-graph-node-limiter nodrag"
+    :class="{ 'is-bypassed': bypassed }"
+  >
     <div class="routing-graph-node-limiter-actions">
       <button
         type="button"
         class="routing-graph-node-limiter-bypass"
         :class="{ active: bypassed }"
         :aria-pressed="bypassed"
-        :title="bypassed ? 'Bypassed — passing through unprocessed' : 'Bypass — keep wiring, skip processing'"
+        :title="
+          bypassed
+            ? 'Bypassed — passing through unprocessed'
+            : 'Bypass — keep wiring, skip processing'
+        "
         @click="onToggleBypass"
       >
         {{ bypassed ? "Bypassed" : "Bypass" }}
@@ -138,7 +159,11 @@ defineExpose({ reset: onReset });
         class="routing-graph-node-limiter-isolate"
         :class="{ active: isIsolated }"
         :aria-pressed="isIsolated"
-        :title="isIsolated ? 'Isolated — click to restore other effects' : 'Isolate — bypass every other effect in this chain'"
+        :title="
+          isIsolated
+            ? 'Isolated — click to restore other effects'
+            : 'Isolate — bypass every other effect in this chain'
+        "
         @click="onToggleIsolate"
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
@@ -148,7 +173,11 @@ defineExpose({ reset: onReset });
         class="routing-graph-node-limiter-symmetric"
         :class="{ active: symmetric }"
         :aria-pressed="symmetric"
-        :title="symmetric ? 'Symmetric — Floor always matches Ceiling. Click to unlock and set them independently.' : 'Asymmetric — Ceiling and Floor are independent. Click to re-lock (snaps Floor to Ceiling).'"
+        :title="
+          symmetric
+            ? 'Symmetric — Floor always matches Ceiling. Click to unlock and set them independently.'
+            : 'Asymmetric — Ceiling and Floor are independent. Click to re-lock (snaps Floor to Ceiling).'
+        "
         @click="onToggleSymmetric"
       >
         {{ symmetric ? "Symmetric" : "Asymmetric" }}
@@ -167,7 +196,9 @@ defineExpose({ reset: onReset });
         @input="onCeilingInput"
         @change="onCeilingChange"
       />
-      <span class="routing-graph-node-limiter-value">{{ displayCeiling }}dB</span>
+      <span class="routing-graph-node-limiter-value"
+        >{{ displayCeiling }}dB</span
+      >
     </div>
     <div v-if="!symmetric" class="routing-graph-node-limiter-row">
       <span class="routing-graph-node-limiter-label">Floor</span>

@@ -248,7 +248,9 @@ fn isolated_engine_with_state_dir(
     std::env::set_var("PIPE_DECK_USE_MOCK", "1");
     std::env::set_var("XDG_STATE_HOME", &state_dir);
     let mut engine = CoreEngine::new();
-    engine.refresh_graph().expect("initial refresh should succeed");
+    engine
+        .refresh_graph()
+        .expect("initial refresh should succeed");
     (engine, guard, state_dir)
 }
 
@@ -271,7 +273,11 @@ fn discover_surfaces_malformed_manifest_as_a_discovery_error() {
     engine.initialize_plugins();
 
     let issues = engine.plugin_discovery_errors();
-    assert_eq!(issues.len(), 1, "expected exactly one discovery issue, got {issues:?}");
+    assert_eq!(
+        issues.len(),
+        1,
+        "expected exactly one discovery issue, got {issues:?}"
+    );
     assert!(issues[0].path.ends_with("broken"));
 
     let plugins = engine.list_plugins();
@@ -288,21 +294,33 @@ fn plugin_lifecycle_start_and_stop_via_enable_toggle() {
     engine.initialize_plugins();
 
     let plugins = engine.list_plugins();
-    let echo = plugins.iter().find(|p| p.id == "echo").expect("echo plugin discovered");
+    let echo = plugins
+        .iter()
+        .find(|p| p.id == "echo")
+        .expect("echo plugin discovered");
     assert!(echo.enabled, "bundled plugin should be auto-enabled");
-    assert_eq!(echo.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Running);
+    assert_eq!(
+        echo.runtime_status,
+        pipe_deck_lib::core::models::PluginRuntimeStatus::Running
+    );
 
     engine.set_plugin_enabled("echo", false).unwrap();
     let plugins = engine.list_plugins();
     let echo = plugins.iter().find(|p| p.id == "echo").unwrap();
     assert!(!echo.enabled);
-    assert_eq!(echo.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Stopped);
+    assert_eq!(
+        echo.runtime_status,
+        pipe_deck_lib::core::models::PluginRuntimeStatus::Stopped
+    );
 
     engine.set_plugin_enabled("echo", true).unwrap();
     let plugins = engine.list_plugins();
     let echo = plugins.iter().find(|p| p.id == "echo").unwrap();
     assert!(echo.enabled);
-    assert_eq!(echo.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Running);
+    assert_eq!(
+        echo.runtime_status,
+        pipe_deck_lib::core::models::PluginRuntimeStatus::Running
+    );
 }
 
 #[test]
@@ -319,7 +337,10 @@ fn rescan_discovers_a_newly_added_plugin_without_a_restart() {
 
     let second = engine.list_plugins().into_iter().find(|p| p.id == "second");
     let second = second.expect("newly-added plugin should be discovered by rescan");
-    assert_eq!(second.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Running);
+    assert_eq!(
+        second.runtime_status,
+        pipe_deck_lib::core::models::PluginRuntimeStatus::Running
+    );
 }
 
 #[test]
@@ -343,17 +364,28 @@ fn rescan_stops_an_orphaned_plugin_whose_directory_was_removed() {
 #[test]
 fn routing_suggest_capability_captures_plugin_suggestions() {
     let bundled_dir = unique_temp_dir("bundled-routing-suggest");
-    write_plugin(&bundled_dir, "suggester", &["routing.suggest"], SUGGESTING_PLUGIN_SCRIPT);
+    write_plugin(
+        &bundled_dir,
+        "suggester",
+        &["routing.suggest"],
+        SUGGESTING_PLUGIN_SCRIPT,
+    );
 
     let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
     // Let the async stdout-reader thread catch up before draining (see #118's stderr
     // grace period for the same class of race, just on the stdout side here).
     std::thread::sleep(std::time::Duration::from_millis(30));
-    engine.refresh_graph().expect("refresh should succeed and drain queued notifications");
+    engine
+        .refresh_graph()
+        .expect("refresh should succeed and drain queued notifications");
 
     let suggestions = engine.plugin_routing_suggestions();
-    assert_eq!(suggestions.len(), 1, "expected exactly one captured suggestion: {suggestions:?}");
+    assert_eq!(
+        suggestions.len(),
+        1,
+        "expected exactly one captured suggestion: {suggestions:?}"
+    );
     assert_eq!(suggestions[0].plugin_id, "suggester");
     assert_eq!(suggestions[0].stream_id, "stream-1");
     assert_eq!(suggestions[0].target_system_name, "pipe-deck-game-mix");
@@ -363,17 +395,26 @@ fn routing_suggest_capability_captures_plugin_suggestions() {
 #[test]
 fn profile_read_capability_receives_active_profile_metadata_on_start() {
     let bundled_dir = unique_temp_dir("bundled-profile-read");
-    write_plugin(&bundled_dir, "profile-aware", &["profile.read"], PROFILE_AWARE_PLUGIN_SCRIPT);
+    write_plugin(
+        &bundled_dir,
+        "profile-aware",
+        &["profile.read"],
+        PROFILE_AWARE_PLUGIN_SCRIPT,
+    );
 
     let (mut engine, _guard) = isolated_engine(&bundled_dir);
-    let config_dir = pipe_deck_lib::config::ConfigStore::new().config_dir().clone();
+    let config_dir = pipe_deck_lib::config::ConfigStore::new()
+        .config_dir()
+        .clone();
     pipe_deck_lib::config::profile_store::ProfileStore::new(config_dir)
         .ensure_default_profile()
         .expect("should be able to write the default profile fixture");
 
     engine.initialize_plugins();
 
-    let received_path = bundled_dir.join("profile-aware").join("received-profile.json");
+    let received_path = bundled_dir
+        .join("profile-aware")
+        .join("received-profile.json");
     let mut content = String::new();
     for _ in 0..50 {
         if let Ok(text) = fs::read_to_string(&received_path) {
@@ -382,8 +423,14 @@ fn profile_read_capability_receives_active_profile_metadata_on_start() {
         }
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
-    assert!(!content.is_empty(), "plugin never received a profile.updated notification");
-    assert!(content.contains("default"), "expected the default profile id in: {content}");
+    assert!(
+        !content.is_empty(),
+        "plugin never received a profile.updated notification"
+    );
+    assert!(
+        content.contains("default"),
+        "expected the default profile id in: {content}"
+    );
 }
 
 #[test]
@@ -395,7 +442,12 @@ fn effects_manage_capability_applies_a_queued_request_to_a_pipe_deck_device() {
         .create_virtual_output("EffectsTest")
         .expect("mock backend should support creating a virtual output");
 
-    write_plugin(&bundled_dir, "effector", &["effects.manage"], EFFECTS_APPLYING_PLUGIN_SCRIPT);
+    write_plugin(
+        &bundled_dir,
+        "effector",
+        &["effects.manage"],
+        EFFECTS_APPLYING_PLUGIN_SCRIPT,
+    );
     fs::write(
         bundled_dir.join("effector").join("target-device-id.txt"),
         &virtual_device.device_id,
@@ -404,9 +456,13 @@ fn effects_manage_capability_applies_a_queued_request_to_a_pipe_deck_device() {
 
     engine.initialize_plugins();
     std::thread::sleep(std::time::Duration::from_millis(30));
-    engine.refresh_graph().expect("refresh should apply the queued effects.apply request");
+    engine
+        .refresh_graph()
+        .expect("refresh should apply the queued effects.apply request");
 
-    let chains = engine.get_effect_chains().expect("effect chains should be readable");
+    let chains = engine
+        .get_effect_chains()
+        .expect("effect chains should be readable");
     let applied = chains
         .get(&virtual_device.device_id)
         .expect("effects.apply request should have been applied to the target device");
@@ -417,22 +473,49 @@ fn effects_manage_capability_applies_a_queued_request_to_a_pipe_deck_device() {
 #[test]
 fn grant_plugin_capabilities_reflects_granted_vs_requested_and_enforced_flag() {
     let bundled_dir = unique_temp_dir("bundled-capabilities");
-    write_plugin(&bundled_dir, "echo", &["graph.read", "profile.read"], OK_PLUGIN_SCRIPT);
+    write_plugin(
+        &bundled_dir,
+        "echo",
+        &["graph.read", "profile.read"],
+        OK_PLUGIN_SCRIPT,
+    );
 
     let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
-    let echo = engine.list_plugins().into_iter().find(|p| p.id == "echo").unwrap();
-    assert_eq!(echo.requested_capabilities, vec!["graph.read", "profile.read"]);
-    assert_eq!(echo.granted_capabilities, vec!["graph.read", "profile.read"]);
+    let echo = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "echo")
+        .unwrap();
+    assert_eq!(
+        echo.requested_capabilities,
+        vec!["graph.read", "profile.read"]
+    );
+    assert_eq!(
+        echo.granted_capabilities,
+        vec!["graph.read", "profile.read"]
+    );
 
-    engine.grant_plugin_capabilities("echo", vec!["graph.read".to_string()]).unwrap();
-    let echo = engine.list_plugins().into_iter().find(|p| p.id == "echo").unwrap();
+    engine
+        .grant_plugin_capabilities("echo", vec!["graph.read".to_string()])
+        .unwrap();
+    let echo = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "echo")
+        .unwrap();
     assert_eq!(echo.granted_capabilities, vec!["graph.read"]);
-    assert_eq!(echo.requested_capabilities, vec!["graph.read", "profile.read"]);
+    assert_eq!(
+        echo.requested_capabilities,
+        vec!["graph.read", "profile.read"]
+    );
 
     let metadata = engine.plugin_capability_metadata();
-    assert!(metadata.iter().all(|info| info.enforced), "all v1 capabilities should be enforced: {metadata:?}");
+    assert!(
+        metadata.iter().all(|info| info.enforced),
+        "all v1 capabilities should be enforced: {metadata:?}"
+    );
 }
 
 #[test]
@@ -443,32 +526,59 @@ fn plugin_initialize_failure_surfaces_stderr_tail_in_last_error() {
     let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
-    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
-    assert_eq!(failing.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Error);
-    let last_error = failing.last_error.expect("expected a last_error to be recorded");
-    assert!(last_error.contains("simulated failure"), "last_error was: {last_error}");
-    assert!(last_error.contains("boom: simulated plugin failure"), "last_error was: {last_error}");
+    let failing = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "failing")
+        .unwrap();
+    assert_eq!(
+        failing.runtime_status,
+        pipe_deck_lib::core::models::PluginRuntimeStatus::Error
+    );
+    let last_error = failing
+        .last_error
+        .expect("expected a last_error to be recorded");
+    assert!(
+        last_error.contains("simulated failure"),
+        "last_error was: {last_error}"
+    );
+    assert!(
+        last_error.contains("boom: simulated plugin failure"),
+        "last_error was: {last_error}"
+    );
 }
 
 #[test]
-fn repeated_rescan_of_a_crashing_plugin_backs_off_instead_of_respawning_immediately(
-) {
+fn repeated_rescan_of_a_crashing_plugin_backs_off_instead_of_respawning_immediately() {
     let bundled_dir = unique_temp_dir("bundled-crash-backoff");
     write_plugin(&bundled_dir, "failing", &[], FAILING_PLUGIN_SCRIPT);
 
     let (mut engine, _guard) = isolated_engine(&bundled_dir);
     engine.initialize_plugins();
 
-    let before = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
-    let first_error = before.last_error.expect("first failed attempt should record last_error");
+    let before = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "failing")
+        .unwrap();
+    let first_error = before
+        .last_error
+        .expect("first failed attempt should record last_error");
 
     // Rescanning again immediately should hit the backoff window and skip respawning
     // entirely — `last_errors` (and thus the surfaced message) is untouched by a
     // skipped attempt, so it stays exactly what the first crash produced.
     engine.rescan_plugins().unwrap();
-    let after = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    let after = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "failing")
+        .unwrap();
     assert_eq!(after.last_error.as_deref(), Some(first_error.as_str()));
-    assert!(after.disabled_reason.is_none(), "should not be disabled after a single crash");
+    assert!(
+        after.disabled_reason.is_none(),
+        "should not be disabled after a single crash"
+    );
 }
 
 #[test]
@@ -487,11 +597,18 @@ fn plugin_is_disabled_after_max_consecutive_crashes() {
         engine.rescan_plugins().unwrap();
     }
 
-    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    let failing = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "failing")
+        .unwrap();
     let disabled_reason = failing
         .disabled_reason
         .expect("plugin should be disabled after repeated consecutive crashes");
-    assert!(disabled_reason.contains("consecutive crashes"), "reason was: {disabled_reason}");
+    assert!(
+        disabled_reason.contains("consecutive crashes"),
+        "reason was: {disabled_reason}"
+    );
 }
 
 #[test]
@@ -505,16 +622,30 @@ fn re_enabling_a_disabled_plugin_clears_crash_state_and_retries_immediately() {
         std::thread::sleep(std::time::Duration::from_secs(1));
         engine.rescan_plugins().unwrap();
     }
-    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
-    assert!(failing.disabled_reason.is_some(), "expected plugin to be disabled going into this test");
+    let failing = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "failing")
+        .unwrap();
+    assert!(
+        failing.disabled_reason.is_some(),
+        "expected plugin to be disabled going into this test"
+    );
 
     // A user explicitly toggling the plugin off then back on is a deliberate retry and
     // should not be blocked by leftover crash-loop state.
     engine.set_plugin_enabled("failing", false).unwrap();
     let result = engine.set_plugin_enabled("failing", true);
-    assert!(result.is_err(), "the plugin still crashes on init, so re-enabling should still fail");
+    assert!(
+        result.is_err(),
+        "the plugin still crashes on init, so re-enabling should still fail"
+    );
 
-    let failing = engine.list_plugins().into_iter().find(|p| p.id == "failing").unwrap();
+    let failing = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "failing")
+        .unwrap();
     assert_eq!(
         failing.disabled_reason, None,
         "re-enabling should reset crash-loop state even though the retry itself failed"
@@ -539,10 +670,22 @@ fn plugin_that_never_responds_to_initialize_times_out_after_five_seconds() {
         "expected initialize to block for the full 5s request timeout, took {elapsed:?}"
     );
 
-    let hanging = engine.list_plugins().into_iter().find(|p| p.id == "hanging").unwrap();
-    assert_eq!(hanging.runtime_status, pipe_deck_lib::core::models::PluginRuntimeStatus::Error);
-    let last_error = hanging.last_error.expect("expected a last_error to be recorded");
-    assert!(last_error.contains("timeout"), "last_error was: {last_error}");
+    let hanging = engine
+        .list_plugins()
+        .into_iter()
+        .find(|p| p.id == "hanging")
+        .unwrap();
+    assert_eq!(
+        hanging.runtime_status,
+        pipe_deck_lib::core::models::PluginRuntimeStatus::Error
+    );
+    let last_error = hanging
+        .last_error
+        .expect("expected a last_error to be recorded");
+    assert!(
+        last_error.contains("timeout"),
+        "last_error was: {last_error}"
+    );
 }
 
 #[test]

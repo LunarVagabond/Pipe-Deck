@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
+import {
+  deviceNodeId,
+  parseGraphNodeId,
+  processingNodeNodeId,
+  streamNodeId,
+} from "./nodeIds";
 
 describe("nodeIds", () => {
   it("round-trips a stream id", () => {
@@ -17,12 +22,18 @@ describe("nodeIds", () => {
   it("round-trips a processing node id", () => {
     const id = processingNodeNodeId("processing-fan_out-stream-fan-out");
     expect(id).toBe("processingNode:processing-fan_out-stream-fan-out");
-    expect(parseGraphNodeId(id)).toEqual({ kind: "processingNode", id: "processing-fan_out-stream-fan-out" });
+    expect(parseGraphNodeId(id)).toEqual({
+      kind: "processingNode",
+      id: "processing-fan_out-stream-fan-out",
+    });
   });
 
   it("preserves colons within the underlying id", () => {
     const id = deviceNodeId("pactl:sink:5");
-    expect(parseGraphNodeId(id)).toEqual({ kind: "device", id: "pactl:sink:5" });
+    expect(parseGraphNodeId(id)).toEqual({
+      kind: "device",
+      id: "pactl:sink:5",
+    });
   });
 
   it("returns null for an unknown kind prefix", () => {

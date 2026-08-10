@@ -9,7 +9,9 @@ export function filterRuntimeGraph(
   }
 
   const hiddenStreamIds = new Set(
-    graph.streams.filter((stream) => stream.is_system).map((stream) => stream.id),
+    graph.streams
+      .filter((stream) => stream.is_system)
+      .map((stream) => stream.id),
   );
 
   if (hiddenStreamIds.size === 0) {

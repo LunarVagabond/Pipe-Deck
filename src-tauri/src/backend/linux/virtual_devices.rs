@@ -1,9 +1,9 @@
+use crate::backend::linux::pactl;
+use crate::backend::BackendError;
 use crate::config::ConfigStore;
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, SinkMode, VirtualDeviceInfo, VirtualDeviceResult,
 };
-use crate::backend::BackendError;
-use crate::backend::linux::pactl;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -150,14 +150,20 @@ impl VirtualDeviceRegistry {
         Ok(())
     }
 
-    pub fn create_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
+    pub fn create_output(
+        self: &Arc<Self>,
+        name: &str,
+    ) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(name));
         Ok(self
             .create_output_for(&system_name, name, false)?
             .into_result())
     }
 
-    pub fn create_multi_output(self: &Arc<Self>, name: &str) -> Result<VirtualDeviceResult, BackendError> {
+    pub fn create_multi_output(
+        self: &Arc<Self>,
+        name: &str,
+    ) -> Result<VirtualDeviceResult, BackendError> {
         let system_name = format!("pipe-deck-{}", slugify(name));
         Ok(self
             .create_output_for(&system_name, name, true)?
@@ -192,7 +198,11 @@ impl VirtualDeviceRegistry {
         Ok(self.create_input_for(&system_name, name)?.into_result())
     }
 
-    pub fn create_input_for(self: &Arc<Self>, system_name: &str, label: &str) -> Result<VirtualDeviceEntry, BackendError> {
+    pub fn create_input_for(
+        self: &Arc<Self>,
+        system_name: &str,
+        label: &str,
+    ) -> Result<VirtualDeviceEntry, BackendError> {
         let module_id = pactl::create_virtual_source(system_name, label)?;
         let entry = VirtualDeviceEntry {
             module_id,

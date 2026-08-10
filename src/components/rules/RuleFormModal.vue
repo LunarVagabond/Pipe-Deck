@@ -17,13 +17,14 @@ import {
   type RuleTargetKind,
 } from "../../utils/routingLayout";
 
-const { open, isEditing, devices, identityStreams, recentIdentityIds } = defineProps<{
-  open: boolean;
-  isEditing: boolean;
-  devices: Device[];
-  identityStreams: Stream[];
-  recentIdentityIds: Set<string>;
-}>();
+const { open, isEditing, devices, identityStreams, recentIdentityIds } =
+  defineProps<{
+    open: boolean;
+    isEditing: boolean;
+    devices: Device[];
+    identityStreams: Stream[];
+    recentIdentityIds: Set<string>;
+  }>();
 
 const rule = defineModel<Rule>({ required: true });
 
@@ -41,7 +42,9 @@ watch(
   (isOpen) => {
     if (!isOpen) return;
     targetKind.value = inferRuleTargetKind(
-      devices.find((device) => device.system_name === rule.value.action.target_system_name),
+      devices.find(
+        (device) => device.system_name === rule.value.action.target_system_name,
+      ),
     );
     activeConditionIndex.value = 0;
     showIdentityReference.value = true;
@@ -49,12 +52,17 @@ watch(
   { immediate: true },
 );
 
-const filteredTargetDevices = computed(() => devicesForTargetKind(devices, targetKind.value));
+const filteredTargetDevices = computed(() =>
+  devicesForTargetKind(devices, targetKind.value),
+);
 
 watch(targetKind, (kind) => {
   const targets = devicesForTargetKind(devices, kind);
-  const current = devices.find((device) => device.system_name === rule.value.action.target_system_name);
-  const stillValid = current && targets.some((device) => device.id === current.id);
+  const current = devices.find(
+    (device) => device.system_name === rule.value.action.target_system_name,
+  );
+  const stillValid =
+    current && targets.some((device) => device.id === current.id);
   if (!stillValid) {
     rule.value.action.target_system_name = targets[0]?.system_name ?? "";
   }
@@ -98,7 +106,12 @@ function useIdentityValue(type: ConditionType, value: string) {
   const condition = rule.value.conditions[activeConditionIndex.value];
   if (!condition || !value || value === "—" || type === "regex") return;
   setConditionType(condition, type);
-  const normalized = type === "direction" ? (value === "Capture" ? "capture" : "playback") : value;
+  const normalized =
+    type === "direction"
+      ? value === "Capture"
+        ? "capture"
+        : "playback"
+      : value;
   setConditionValue(condition, normalized);
 }
 </script>
@@ -125,7 +138,12 @@ function useIdentityValue(type: ConditionType, value: string) {
               }}
             </p>
           </div>
-          <button type="button" class="rules-modal-close" aria-label="Close" @click="emit('cancel')">
+          <button
+            type="button"
+            class="rules-modal-close"
+            aria-label="Close"
+            @click="emit('cancel')"
+          >
             ×
           </button>
         </header>
@@ -148,7 +166,11 @@ function useIdentityValue(type: ConditionType, value: string) {
               <p class="rules-target-hint">{{ targetKindHint }}</p>
             </div>
 
-            <div class="target-kind-switch" role="group" aria-label="Target type">
+            <div
+              class="target-kind-switch"
+              role="group"
+              aria-label="Target type"
+            >
               <button
                 type="button"
                 class="target-kind-option"
@@ -169,8 +191,15 @@ function useIdentityValue(type: ConditionType, value: string) {
 
             <label>
               <span class="field-label">Target device</span>
-              <select v-model="rule.action.target_system_name" :disabled="filteredTargetDevices.length === 0">
-                <option v-if="filteredTargetDevices.length === 0" value="" disabled>
+              <select
+                v-model="rule.action.target_system_name"
+                :disabled="filteredTargetDevices.length === 0"
+              >
+                <option
+                  v-if="filteredTargetDevices.length === 0"
+                  value=""
+                  disabled
+                >
                   No {{ targetKind }} targets available
                 </option>
                 <option
@@ -187,7 +216,9 @@ function useIdentityValue(type: ConditionType, value: string) {
               <span class="field-label">If target unavailable</span>
               <select v-model="rule.safeguards.fallback_policy">
                 <option value="keep_current">Keep current route</option>
-                <option value="safe_default">Route to safe default device</option>
+                <option value="safe_default">
+                  Route to safe default device
+                </option>
               </select>
             </label>
           </div>
@@ -198,7 +229,9 @@ function useIdentityValue(type: ConditionType, value: string) {
                 <h4>Conditions</h4>
                 <p>All entered conditions must match.</p>
               </div>
-              <button type="button" class="secondary" @click="addCondition">Add condition</button>
+              <button type="button" class="secondary" @click="addCondition">
+                Add condition
+              </button>
             </div>
 
             <RuleConditionEditor
@@ -224,15 +257,19 @@ function useIdentityValue(type: ConditionType, value: string) {
 
               <div v-if="showIdentityReference" class="identity-reference-body">
                 <p>
-                  Compare how PipeWire labels each stream. Live rows update in real time; recently
-                  seen rows stay for about an hour after a stream disappears (e.g. while you adjust
-                  volume). Rule the app that is actually playing — not internal clients like
+                  Compare how PipeWire labels each stream. Live rows update in
+                  real time; recently seen rows stay for about an hour after a
+                  stream disappears (e.g. while you adjust volume). Rule the app
+                  that is actually playing — not internal clients like
                   <code>pw-play</code>.
                 </p>
 
-                <div v-if="identityStreams.length === 0" class="identity-reference-empty">
-                  No streams seen yet. Start audio in an app, or change system volume once, then
-                  check back here.
+                <div
+                  v-if="identityStreams.length === 0"
+                  class="identity-reference-empty"
+                >
+                  No streams seen yet. Start audio in an app, or change system
+                  volume once, then check back here.
                 </div>
 
                 <div v-else class="identity-reference-table-wrap">
@@ -255,16 +292,29 @@ function useIdentityValue(type: ConditionType, value: string) {
                       >
                         <td class="identity-app-cell">
                           {{ stream.app_name }}
-                          <span v-if="recentIdentityIds.has(stream.id)" class="identity-recent-badge">
+                          <span
+                            v-if="recentIdentityIds.has(stream.id)"
+                            class="identity-recent-badge"
+                          >
                             recent
                           </span>
                         </td>
-                        <td v-for="column in identityColumns" :key="`${stream.id}-${column.type}`">
+                        <td
+                          v-for="column in identityColumns"
+                          :key="`${stream.id}-${column.type}`"
+                        >
                           <button
                             type="button"
                             class="identity-value-btn"
-                            :disabled="identityCellValue(stream, column.type) === '—'"
-                            @click="useIdentityValue(column.type, identityCellValue(stream, column.type))"
+                            :disabled="
+                              identityCellValue(stream, column.type) === '—'
+                            "
+                            @click="
+                              useIdentityValue(
+                                column.type,
+                                identityCellValue(stream, column.type),
+                              )
+                            "
                           >
                             {{ identityCellValue(stream, column.type) }}
                           </button>

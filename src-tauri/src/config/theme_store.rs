@@ -163,7 +163,11 @@ impl ThemeStore {
         schemes
     }
 
-    fn load_custom_scheme_file(&self, path: &std::path::Path, stem: &str) -> Result<ResolvedScheme, ThemeError> {
+    fn load_custom_scheme_file(
+        &self,
+        path: &std::path::Path,
+        stem: &str,
+    ) -> Result<ResolvedScheme, ThemeError> {
         let contents = fs::read_to_string(path)
             .map_err(|error| ThemeError::Read(format!("{path:?}: {error}")))?;
         let file: CustomThemeFile = serde_yaml::from_str(&contents)
@@ -218,7 +222,10 @@ mod tests {
     fn built_in_list_has_two_light_two_dark() {
         let schemes = ThemeStore::built_in_schemes();
         let dark = schemes.iter().filter(|s| s.kind == ThemeBase::Dark).count();
-        let light = schemes.iter().filter(|s| s.kind == ThemeBase::Light).count();
+        let light = schemes
+            .iter()
+            .filter(|s| s.kind == ThemeBase::Light)
+            .count();
         assert_eq!(dark, 2);
         assert_eq!(light, 2);
     }

@@ -41,8 +41,7 @@ pub fn identity_matches(stream_key: &StreamIdentityKey, override_key: &StreamIde
         }
     }
 
-    stream_key.app_name == override_key.app_name
-        && stream_key.media_name == override_key.media_name
+    stream_key.app_name == override_key.app_name && stream_key.media_name == override_key.media_name
 }
 
 pub fn stream_display_label(stream: &Stream) -> String {
@@ -54,7 +53,9 @@ pub fn stream_display_label(stream: &Stream) -> String {
     stream.app_name.clone()
 }
 
-pub fn parse_stream_identity(props: &serde_json::Map<String, serde_json::Value>) -> (String, Option<String>) {
+pub fn parse_stream_identity(
+    props: &serde_json::Map<String, serde_json::Value>,
+) -> (String, Option<String>) {
     let app_name = prop_str(props, "application.name");
     let executable = {
         let binary = prop_str(props, "application.process.binary");

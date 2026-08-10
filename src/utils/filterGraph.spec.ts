@@ -43,7 +43,10 @@ describe("filterRuntimeGraph", () => {
 
   it("removes system streams when showSystemStreams is false", () => {
     const g = graph({
-      streams: [stream({ id: "normal" }), stream({ id: "sys", is_system: true })],
+      streams: [
+        stream({ id: "normal" }),
+        stream({ id: "sys", is_system: true }),
+      ],
     });
     const result = filterRuntimeGraph(g, false);
     expect(result.streams.map((s) => s.id)).toEqual(["normal"]);
@@ -51,7 +54,10 @@ describe("filterRuntimeGraph", () => {
 
   it("removes links that reference a hidden system stream on either end", () => {
     const g = graph({
-      streams: [stream({ id: "normal" }), stream({ id: "sys", is_system: true })],
+      streams: [
+        stream({ id: "normal" }),
+        stream({ id: "sys", is_system: true }),
+      ],
       links: [
         link({ id: "keep", source_id: "normal", target_id: "device" }),
         link({ id: "drop-source", source_id: "sys", target_id: "device" }),
@@ -64,7 +70,10 @@ describe("filterRuntimeGraph", () => {
 
   it("does not mutate the original graph", () => {
     const original = graph({
-      streams: [stream({ id: "normal" }), stream({ id: "sys", is_system: true })],
+      streams: [
+        stream({ id: "normal" }),
+        stream({ id: "sys", is_system: true }),
+      ],
       links: [link({ id: "l1", source_id: "sys", target_id: "device" })],
     });
     const originalStreamCount = original.streams.length;

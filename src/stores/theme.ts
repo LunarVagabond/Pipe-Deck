@@ -17,13 +17,18 @@ const systemPrefersDark = ref(true);
 let mediaQueryAttached = false;
 
 const resolvedKind = computed<ThemeBaseKind>(() => {
-  if (mode.value === "system") return systemPrefersDark.value ? "dark" : "light";
+  if (mode.value === "system")
+    return systemPrefersDark.value ? "dark" : "light";
   return mode.value;
 });
 
 const activeScheme = computed<ResolvedScheme | null>(() => {
-  const wantedId = resolvedKind.value === "dark" ? darkSchemeId.value : lightSchemeId.value;
-  const fallbackId = resolvedKind.value === "dark" ? DEFAULT_DARK_SCHEME_ID : DEFAULT_LIGHT_SCHEME_ID;
+  const wantedId =
+    resolvedKind.value === "dark" ? darkSchemeId.value : lightSchemeId.value;
+  const fallbackId =
+    resolvedKind.value === "dark"
+      ? DEFAULT_DARK_SCHEME_ID
+      : DEFAULT_LIGHT_SCHEME_ID;
   return (
     schemes.value.find((scheme) => scheme.id === wantedId) ??
     schemes.value.find((scheme) => scheme.id === fallbackId) ??
@@ -76,7 +81,12 @@ export function useTheme() {
   const { handleApplyResult } = useApplyResult();
 
   function attachSystemThemeListener() {
-    if (mediaQueryAttached || typeof window === "undefined" || !window.matchMedia) return;
+    if (
+      mediaQueryAttached ||
+      typeof window === "undefined" ||
+      !window.matchMedia
+    )
+      return;
     mediaQueryAttached = true;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     systemPrefersDark.value = media.matches;
@@ -91,8 +101,10 @@ export function useTheme() {
     try {
       const config = await invoke<{ preferences?: Preferences }>("get_config");
       mode.value = (config.preferences?.theme_mode as ThemeMode) ?? "dark";
-      darkSchemeId.value = config.preferences?.dark_scheme ?? DEFAULT_DARK_SCHEME_ID;
-      lightSchemeId.value = config.preferences?.light_scheme ?? DEFAULT_LIGHT_SCHEME_ID;
+      darkSchemeId.value =
+        config.preferences?.dark_scheme ?? DEFAULT_DARK_SCHEME_ID;
+      lightSchemeId.value =
+        config.preferences?.light_scheme ?? DEFAULT_LIGHT_SCHEME_ID;
       schemes.value = await invoke<ResolvedScheme[]>("list_themes");
     } catch {
       // Static _variables.scss dark palette stands as the fallback if theme load fails.
@@ -113,7 +125,10 @@ export function useTheme() {
       mode.value = previous;
       applyToDom();
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }
@@ -129,7 +144,10 @@ export function useTheme() {
       darkSchemeId.value = previous;
       applyToDom();
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }
@@ -145,7 +163,10 @@ export function useTheme() {
       lightSchemeId.value = previous;
       applyToDom();
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }

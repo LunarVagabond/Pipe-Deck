@@ -10,8 +10,8 @@
 //! both implementations — see `pw_link_native::pair_ports` and this file's
 //! own `pair_capture_ports`.
 
-use crate::backend::BackendError;
 use crate::backend::linux::pw_link_native as native;
+use crate::backend::BackendError;
 use crate::sysproc;
 
 /// Links a virtual sink's monitor ports into a target's playback (or, for a
@@ -32,10 +32,18 @@ pub fn link_sink_monitor_to_target(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> Result<(), BackendError> {
-    if let Some(result) = native::link_sink_monitor_to_target(source_system_name, target_system_name, target_is_virtual_source) {
+    if let Some(result) = native::link_sink_monitor_to_target(
+        source_system_name,
+        target_system_name,
+        target_is_virtual_source,
+    ) {
         return result;
     }
-    link_sink_monitor_to_target_cli(source_system_name, target_system_name, target_is_virtual_source)
+    link_sink_monitor_to_target_cli(
+        source_system_name,
+        target_system_name,
+        target_is_virtual_source,
+    )
 }
 
 fn link_sink_monitor_to_target_cli(
@@ -43,7 +51,11 @@ fn link_sink_monitor_to_target_cli(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> Result<(), BackendError> {
-    let target_port_prefix = if target_is_virtual_source { "input_" } else { "playback_" };
+    let target_port_prefix = if target_is_virtual_source {
+        "input_"
+    } else {
+        "playback_"
+    };
 
     let source_ports = output_ports_for(source_system_name);
     if source_ports.is_empty() {
@@ -78,10 +90,18 @@ pub fn is_sink_monitor_routed_to(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> bool {
-    if let Some(result) = native::is_sink_monitor_routed_to(source_system_name, target_system_name, target_is_virtual_source) {
+    if let Some(result) = native::is_sink_monitor_routed_to(
+        source_system_name,
+        target_system_name,
+        target_is_virtual_source,
+    ) {
         return result;
     }
-    is_sink_monitor_routed_to_cli(source_system_name, target_system_name, target_is_virtual_source)
+    is_sink_monitor_routed_to_cli(
+        source_system_name,
+        target_system_name,
+        target_is_virtual_source,
+    )
 }
 
 fn is_sink_monitor_routed_to_cli(
@@ -89,7 +109,11 @@ fn is_sink_monitor_routed_to_cli(
     target_system_name: &str,
     target_is_virtual_source: bool,
 ) -> bool {
-    let target_port_prefix = if target_is_virtual_source { "input_" } else { "playback_" };
+    let target_port_prefix = if target_is_virtual_source {
+        "input_"
+    } else {
+        "playback_"
+    };
     let source_ports = output_ports_for(source_system_name);
     let target_ports = target_ports_with_prefix(target_system_name, target_port_prefix);
     if source_ports.is_empty() || target_ports.is_empty() {
@@ -129,13 +153,18 @@ pub fn disconnect_sink_monitor_route(
     source_system_name: &str,
     target_system_name: &str,
 ) -> Result<(), BackendError> {
-    if let Some(result) = native::disconnect_sink_monitor_route(source_system_name, target_system_name) {
+    if let Some(result) =
+        native::disconnect_sink_monitor_route(source_system_name, target_system_name)
+    {
         return result;
     }
     disconnect_sink_monitor_route_cli(source_system_name, target_system_name)
 }
 
-fn disconnect_sink_monitor_route_cli(source_system_name: &str, target_system_name: &str) -> Result<(), BackendError> {
+fn disconnect_sink_monitor_route_cli(
+    source_system_name: &str,
+    target_system_name: &str,
+) -> Result<(), BackendError> {
     let target_prefix = format!("{target_system_name}:");
     disconnect_links(
         list_monitor_links_for_source(source_system_name)
@@ -170,7 +199,10 @@ pub fn disconnect_all_inputs(target_system_name: &str) -> Result<(), BackendErro
 /// always a genuine sink-shaped node. The stream's own ports are never
 /// prefix-filtered (same as every "source" side elsewhere in this file)
 /// since an arbitrary app's port names follow no Pipe Deck naming convention.
-pub fn route_playback_stream(stream_system_name: &str, target_system_name: &str) -> Result<(), BackendError> {
+pub fn route_playback_stream(
+    stream_system_name: &str,
+    target_system_name: &str,
+) -> Result<(), BackendError> {
     if let Some(result) = native::route_playback_stream(stream_system_name, target_system_name) {
         return result;
     }
@@ -185,7 +217,10 @@ pub fn route_playback_stream(stream_system_name: &str, target_system_name: &str)
 /// own ports are matched with an empty prefix (any input port) for the same
 /// arbitrary-naming reason `route_playback_stream` never prefix-filters the
 /// stream side either.
-pub fn route_capture_stream(source_system_name: &str, stream_system_name: &str) -> Result<(), BackendError> {
+pub fn route_capture_stream(
+    source_system_name: &str,
+    stream_system_name: &str,
+) -> Result<(), BackendError> {
     if let Some(result) = native::route_capture_stream(source_system_name, stream_system_name) {
         return result;
     }
@@ -204,20 +239,34 @@ pub fn link_capture_source_to_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Result<(), BackendError> {
-    if let Some(result) = native::link_capture_source_to_virtual_input(capture_source_system_name, virtual_input_system_name) {
+    if let Some(result) = native::link_capture_source_to_virtual_input(
+        capture_source_system_name,
+        virtual_input_system_name,
+    ) {
         return result;
     }
-    link_capture_source_to_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
+    link_capture_source_to_target_ports(
+        capture_source_system_name,
+        virtual_input_system_name,
+        "input_",
+    )
 }
 
 pub fn disconnect_capture_source_from_virtual_input(
     capture_source_system_name: &str,
     virtual_input_system_name: &str,
 ) -> Result<(), BackendError> {
-    if let Some(result) = native::disconnect_capture_source_from_virtual_input(capture_source_system_name, virtual_input_system_name) {
+    if let Some(result) = native::disconnect_capture_source_from_virtual_input(
+        capture_source_system_name,
+        virtual_input_system_name,
+    ) {
         return result;
     }
-    disconnect_capture_source_from_target_ports(capture_source_system_name, virtual_input_system_name, "input_")
+    disconnect_capture_source_from_target_ports(
+        capture_source_system_name,
+        virtual_input_system_name,
+        "input_",
+    )
 }
 
 /// Links a physical capture source into a regular sink's playback ports
@@ -228,7 +277,9 @@ pub fn link_capture_source_to_sink(
     capture_source_system_name: &str,
     sink_system_name: &str,
 ) -> Result<(), BackendError> {
-    if let Some(result) = native::link_capture_source_to_sink(capture_source_system_name, sink_system_name) {
+    if let Some(result) =
+        native::link_capture_source_to_sink(capture_source_system_name, sink_system_name)
+    {
         return result;
     }
     link_capture_source_to_target_ports(capture_source_system_name, sink_system_name, "playback_")
@@ -238,10 +289,16 @@ pub fn disconnect_capture_source_from_sink(
     capture_source_system_name: &str,
     sink_system_name: &str,
 ) -> Result<(), BackendError> {
-    if let Some(result) = native::disconnect_capture_source_from_sink(capture_source_system_name, sink_system_name) {
+    if let Some(result) =
+        native::disconnect_capture_source_from_sink(capture_source_system_name, sink_system_name)
+    {
         return result;
     }
-    disconnect_capture_source_from_target_ports(capture_source_system_name, sink_system_name, "playback_")
+    disconnect_capture_source_from_target_ports(
+        capture_source_system_name,
+        sink_system_name,
+        "playback_",
+    )
 }
 
 fn link_capture_source_to_target_ports(
@@ -303,12 +360,20 @@ fn disconnect_capture_source_from_target_ports(
 /// links. Both `existing`/`desired` are small (per-target port counts), so
 /// a linear `contains` scan per side is simpler than reaching for a `HashSet`
 /// and no less correct.
-fn apply_link_diff(existing: &[(String, String)], desired: &[(String, String)]) -> Result<(), BackendError> {
-    let to_remove = existing.iter().filter(|pair| !desired.contains(pair)).cloned();
+fn apply_link_diff(
+    existing: &[(String, String)],
+    desired: &[(String, String)],
+) -> Result<(), BackendError> {
+    let to_remove = existing
+        .iter()
+        .filter(|pair| !desired.contains(pair))
+        .cloned();
     disconnect_links(to_remove)?;
 
     for (output_port, input_port) in desired {
-        let already_present = existing.iter().any(|(o, i)| o == output_port && i == input_port);
+        let already_present = existing
+            .iter()
+            .any(|(o, i)| o == output_port && i == input_port);
         if !already_present {
             run_pw_link(&["-L", output_port, input_port])?;
         }
@@ -381,7 +446,9 @@ pub fn has_input_ports(system_name: &str) -> bool {
         return result;
     }
     let prefix = format!("{system_name}:");
-    list_ports("-i").into_iter().any(|port| port.starts_with(&prefix))
+    list_ports("-i")
+        .into_iter()
+        .any(|port| port.starts_with(&prefix))
 }
 
 fn target_ports_with_prefix(system_name: &str, port_prefix: &str) -> Vec<String> {
@@ -408,7 +475,8 @@ fn pair_capture_ports(source_ports: &[String], target_ports: &[String]) -> Vec<(
 }
 
 pub fn list_capture_sources_for_virtual_input(virtual_input_system_name: &str) -> Vec<String> {
-    if let Some(sources) = native::list_capture_sources_for_virtual_input(virtual_input_system_name) {
+    if let Some(sources) = native::list_capture_sources_for_virtual_input(virtual_input_system_name)
+    {
         return sources;
     }
     list_capture_sources_for_target_ports(virtual_input_system_name, "input_")
@@ -437,7 +505,10 @@ pub fn list_capture_sources_for_stream(stream_system_name: &str) -> Vec<String> 
     list_capture_sources_for_target_ports(stream_system_name, "")
 }
 
-fn list_capture_sources_for_target_ports(target_system_name: &str, target_port_prefix: &str) -> Vec<String> {
+fn list_capture_sources_for_target_ports(
+    target_system_name: &str,
+    target_port_prefix: &str,
+) -> Vec<String> {
     let target_prefix = format!("{target_system_name}:{target_port_prefix}");
     let mut sources = Vec::new();
     for (source_port, target_port) in run_pw_link_list() {
@@ -473,8 +544,13 @@ fn list_monitor_links_for_source(source_system_name: &str) -> Vec<(String, Strin
 /// live via `pw-link -l` showing a stream linked to both its old and new
 /// destination simultaneously right after this exact move: `pactl` reported
 /// success, but audio kept flowing to the old destination too).
-pub fn disconnect_stale_output_links(source_system_name: &str, keep_target_system_name: &str) -> Result<(), BackendError> {
-    if let Some(result) = native::disconnect_stale_output_links(source_system_name, keep_target_system_name) {
+pub fn disconnect_stale_output_links(
+    source_system_name: &str,
+    keep_target_system_name: &str,
+) -> Result<(), BackendError> {
+    if let Some(result) =
+        native::disconnect_stale_output_links(source_system_name, keep_target_system_name)
+    {
         return result;
     }
     let keep_prefix = format!("{keep_target_system_name}:");
@@ -624,13 +700,16 @@ mod tests {
         )));
         // A mono mic capture cycled across both input ports of a virtual mic.
         assert!(links.contains(&(
-            "alsa_input.usb-SteelSeries_Arctis_Nova_Pro_Wireless-00.mono-fallback:capture_MONO".to_string(),
+            "alsa_input.usb-SteelSeries_Arctis_Nova_Pro_Wireless-00.mono-fallback:capture_MONO"
+                .to_string(),
             "pipe-deck-mic:input_FL".to_string()
         )));
 
         // The `|-> ` (output-direction) lines must never be mistaken for
         // `|<- ` input relations or for port headers.
-        assert!(!links.iter().any(|(output, _)| output.starts_with("alsa_output.pci-0000_01_00.1.hdmi-stereo")));
+        assert!(!links
+            .iter()
+            .any(|(output, _)| output.starts_with("alsa_output.pci-0000_01_00.1.hdmi-stereo")));
 
         // A header with no relation lines under it contributes no links.
         assert!(!links
@@ -647,8 +726,15 @@ mod tests {
     #[test]
     fn parse_pw_link_list_skips_an_unrecognized_line_without_panicking() {
         // No colon, not a relation line — format drift, not a crash.
-        let links = parse_pw_link_list("some garbage line\ntarget:playback_FL\n  |<- source:monitor_FL\n");
-        assert_eq!(links, vec![("source:monitor_FL".to_string(), "target:playback_FL".to_string())]);
+        let links =
+            parse_pw_link_list("some garbage line\ntarget:playback_FL\n  |<- source:monitor_FL\n");
+        assert_eq!(
+            links,
+            vec![(
+                "source:monitor_FL".to_string(),
+                "target:playback_FL".to_string()
+            )]
+        );
     }
 
     #[test]
@@ -677,7 +763,11 @@ mod tests {
         ];
         let target_ports = vec!["bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO".to_string()];
         let pairs = pair_capture_ports(&source_ports, &target_ports);
-        assert_eq!(pairs.len(), 1, "a mono target should only need one link, not two: {pairs:?}");
+        assert_eq!(
+            pairs.len(),
+            1,
+            "a mono target should only need one link, not two: {pairs:?}"
+        );
         assert_eq!(pairs[0].1, "bluez_output.AA_BB_CC_DD_EE_FF.1:playback_MONO");
     }
 

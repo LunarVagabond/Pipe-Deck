@@ -175,7 +175,10 @@ async fn rebuild_tray_menu(app: &tauri::AppHandle) -> tauri::Result<()> {
 /// Builds the full tray menu. `engine` is `None` only for the very first,
 /// placeholder build in [`setup_tray`], before the core engine has fetched
 /// its first graph snapshot.
-fn build_menu_items(app: &tauri::AppHandle, engine: Option<&CoreEngine>) -> tauri::Result<Menu<tauri::Wry>> {
+fn build_menu_items(
+    app: &tauri::AppHandle,
+    engine: Option<&CoreEngine>,
+) -> tauri::Result<Menu<tauri::Wry>> {
     let show = MenuItem::with_id(app, "tray-show", "Show Pipe Deck", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "tray-hide", "Hide", true, None::<&str>)?;
     let top_separator = PredefinedMenuItem::separator(app)?;
@@ -186,16 +189,31 @@ fn build_menu_items(app: &tauri::AppHandle, engine: Option<&CoreEngine>) -> taur
         "tray-default-output-label",
         format!(
             "Output: {}",
-            default_device.map(|device| device.label.as_str()).unwrap_or("Unknown")
+            default_device
+                .map(|device| device.label.as_str())
+                .unwrap_or("Unknown")
         ),
         false,
         None::<&str>,
     )?;
 
-    let outputs = engine.map(|engine| engine.available_output_devices()).unwrap_or_default();
-    let output_submenu = Submenu::with_id(app, "tray-output-submenu", "Switch Output", !outputs.is_empty())?;
+    let outputs = engine
+        .map(|engine| engine.available_output_devices())
+        .unwrap_or_default();
+    let output_submenu = Submenu::with_id(
+        app,
+        "tray-output-submenu",
+        "Switch Output",
+        !outputs.is_empty(),
+    )?;
     if outputs.is_empty() {
-        let placeholder = MenuItem::with_id(app, "tray-output-none", "No output devices available", false, None::<&str>)?;
+        let placeholder = MenuItem::with_id(
+            app,
+            "tray-output-none",
+            "No output devices available",
+            false,
+            None::<&str>,
+        )?;
         output_submenu.append(&placeholder)?;
     } else {
         for device in outputs {
@@ -212,7 +230,9 @@ fn build_menu_items(app: &tauri::AppHandle, engine: Option<&CoreEngine>) -> taur
         }
     }
 
-    let mute_checked = engine.and_then(|engine| engine.default_output_muted()).unwrap_or(false);
+    let mute_checked = engine
+        .and_then(|engine| engine.default_output_muted())
+        .unwrap_or(false);
     let mute_item = CheckMenuItem::with_id(
         app,
         MUTE_TOGGLE_ID,

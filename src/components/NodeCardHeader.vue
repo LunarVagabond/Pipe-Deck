@@ -115,7 +115,9 @@ function onKeydown(event: KeyboardEvent) {
           @blur="commitEdit"
           @keydown="onKeydown"
         />
-        <strong v-else :title="showLabelTooltip ? label : undefined">{{ label }}</strong>
+        <strong v-else :title="showLabelTooltip ? label : undefined">{{
+          label
+        }}</strong>
       </div>
     </template>
     <template v-else>
@@ -128,9 +130,14 @@ function onKeydown(event: KeyboardEvent) {
           @blur="commitEdit"
           @keydown="onKeydown"
         />
-        <strong v-else :title="showLabelTooltip ? label : undefined">{{ label }}</strong>
+        <strong v-else :title="showLabelTooltip ? label : undefined">{{
+          label
+        }}</strong>
       </div>
-      <div v-if="editable || deletable || $slots['toolbar-extra']" class="node-card-actions">
+      <div
+        v-if="editable || deletable || $slots['toolbar-extra']"
+        class="node-card-actions"
+      >
         <button
           v-if="editable"
           type="button"

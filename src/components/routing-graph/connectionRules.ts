@@ -1,23 +1,48 @@
 import type { Connection } from "@vue-flow/core";
-import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
+import type {
+  Device,
+  ProcessingNode,
+  RuntimeGraph,
+  Stream,
+} from "../../types/graph";
+import { sinksForStream, streamDisplayLabel } from "../../utils/routingLayout";
 import {
-  sinksForStream,
-  streamDisplayLabel,
-} from "../../utils/routingLayout";
-import { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
+  deviceNodeId,
+  parseGraphNodeId,
+  processingNodeNodeId,
+  streamNodeId,
+} from "./nodeIds";
 import { canConnectPorts } from "./portTypes";
 import { isMicPassthroughCandidate } from "./routingRelationship";
 
 export type RoutingConnectionAction =
   | { type: "stream_target"; streamId: string; targetDeviceId: string }
-  | { type: "clear_stream_target"; streamId: string; previousTargetDeviceId: string }
-  | { type: "stream_mic_passthrough_add"; streamId: string; micDeviceId: string }
+  | {
+      type: "clear_stream_target";
+      streamId: string;
+      previousTargetDeviceId: string;
+    }
+  | {
+      type: "stream_mic_passthrough_add";
+      streamId: string;
+      micDeviceId: string;
+    }
   // PD-032 processing nodes: `peerId` is a device or stream id, resolved
   // server-side against the engine's own graph (`connect_processing_node_port`),
   // same "computed against live state, not a client-built full list" caution
   // as the mic-mix actions above.
-  | { type: "processing_node_connect"; nodeId: string; direction: "input" | "output"; peerId: string }
-  | { type: "processing_node_disconnect"; nodeId: string; direction: "input" | "output"; portIndex: number }
+  | {
+      type: "processing_node_connect";
+      nodeId: string;
+      direction: "input" | "output";
+      peerId: string;
+    }
+  | {
+      type: "processing_node_disconnect";
+      nodeId: string;
+      direction: "input" | "output";
+      portIndex: number;
+    }
   // Retargeting an edge that used to touch a processing-node port — dragging
   // either end to a new peer, even one that isn't itself a processing node
   // (e.g. moving a Mixer input's stream to route straight to a device
@@ -31,8 +56,15 @@ export type RoutingConnectionAction =
   // connected to) instead of being replaced.
   | {
       type: "processing_node_retarget";
-      disconnect: { nodeId: string; direction: "input" | "output"; portIndex: number };
-      then: Exclude<RoutingConnectionAction, { type: "processing_node_retarget" }>;
+      disconnect: {
+        nodeId: string;
+        direction: "input" | "output";
+        portIndex: number;
+      };
+      then: Exclude<
+        RoutingConnectionAction,
+        { type: "processing_node_retarget" }
+      >;
     };
 
 export interface PreviousEdge {
@@ -69,16 +101,27 @@ export function resolveConnectionAction(
     context.mode === "edge_update" && context.previousEdge
       ? [context.previousEdge.sourceHandle, context.previousEdge.targetHandle]
       : [];
-  if (!canConnectPorts(connection.sourceHandle, connection.targetHandle, true, alsoFillable)) {
+  if (
+    !canConnectPorts(
+      connection.sourceHandle,
+      connection.targetHandle,
+      true,
+      alsoFillable,
+    )
+  ) {
     return {
-      error: "Connect an output port to an open input slot — this target's slot is already in use or the wrong direction.",
+      error:
+        "Connect an output port to an open input slot — this target's slot is already in use or the wrong direction.",
     };
   }
 
   const source = parseGraphNodeId(connection.source);
   const target = parseGraphNodeId(connection.target);
   if (!source || !target) {
-    return { error: "Could not identify one end of this connection — try refreshing the routing view." };
+    return {
+      error:
+        "Could not identify one end of this connection — try refreshing the routing view.",
+    };
   }
 
   const primary = resolvePrimaryConnectionAction(graph, source, target);
@@ -87,9 +130,19 @@ export function resolveConnectionAction(
   }
 
   if (context.mode === "edge_update" && context.previousEdge) {
-    const staleDisconnect = resolveStaleProcessingNodePortDisconnect(graph, context.previousEdge, primary.action);
+    const staleDisconnect = resolveStaleProcessingNodePortDisconnect(
+      graph,
+      context.previousEdge,
+      primary.action,
+    );
     if (staleDisconnect && primary.action.type !== "processing_node_retarget") {
-      return { action: { type: "processing_node_retarget", disconnect: staleDisconnect, then: primary.action } };
+      return {
+        action: {
+          type: "processing_node_retarget",
+          disconnect: staleDisconnect,
+          then: primary.action,
+        },
+      };
     }
   }
 
@@ -140,7 +193,10 @@ function findDevice(graph: RuntimeGraph, deviceId: string): Device | undefined {
   return graph.devices.find((device) => device.id === deviceId);
 }
 
-function findProcessingNode(graph: RuntimeGraph, nodeId: string): ProcessingNode | undefined {
+function findProcessingNode(
+  graph: RuntimeGraph,
+  nodeId: string,
+): ProcessingNode | undefined {
   return (graph.processing_nodes ?? []).find((node) => node.id === nodeId);
 }
 
@@ -176,9 +232,18 @@ function resolveProcessingNodePortConnect(
 ): { action: RoutingConnectionAction } | { error: string } {
   const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
   if (ports.some((port) => port.connected_id === peerId)) {
-    return { error: `"${peerLabel(graph, peerId)}" is already connected to "${node.label}".` };
+    return {
+      error: `"${peerLabel(graph, peerId)}" is already connected to "${node.label}".`,
+    };
   }
-  return { action: { type: "processing_node_connect", nodeId: node.id, direction, peerId } };
+  return {
+    action: {
+      type: "processing_node_connect",
+      nodeId: node.id,
+      direction,
+      peerId,
+    },
+  };
 }
 
 /**
@@ -204,12 +269,24 @@ function resolveStaleProcessingNodePortDisconnect(
     return null;
   }
 
-  const candidates: Array<{ nodeId: string; direction: "input" | "output"; peerId: string }> = [];
+  const candidates: Array<{
+    nodeId: string;
+    direction: "input" | "output";
+    peerId: string;
+  }> = [];
   if (previousSource.kind === "processingNode") {
-    candidates.push({ nodeId: previousSource.id, direction: "output", peerId: previousTarget.id });
+    candidates.push({
+      nodeId: previousSource.id,
+      direction: "output",
+      peerId: previousTarget.id,
+    });
   }
   if (previousTarget.kind === "processingNode") {
-    candidates.push({ nodeId: previousTarget.id, direction: "input", peerId: previousSource.id });
+    candidates.push({
+      nodeId: previousTarget.id,
+      direction: "input",
+      peerId: previousSource.id,
+    });
   }
 
   for (const candidate of candidates) {
@@ -228,10 +305,17 @@ function resolveStaleProcessingNodePortDisconnect(
     if (!node) {
       continue;
     }
-    const ports = (candidate.direction === "input" ? node.inputs : node.outputs) ?? [];
-    const oldPort = ports.find((port) => port.connected_id === candidate.peerId);
+    const ports =
+      (candidate.direction === "input" ? node.inputs : node.outputs) ?? [];
+    const oldPort = ports.find(
+      (port) => port.connected_id === candidate.peerId,
+    );
     if (oldPort) {
-      return { nodeId: node.id, direction: candidate.direction, portIndex: oldPort.index };
+      return {
+        nodeId: node.id,
+        direction: candidate.direction,
+        portIndex: oldPort.index,
+      };
     }
   }
 
@@ -258,7 +342,12 @@ function resolveProcessingNodeConnection(
     if (sourceNode.id === targetNode.id) {
       return { error: "A processing node can't feed its own input." };
     }
-    return resolveProcessingNodePortConnect(graph, targetNode, "input", sourceNode.id);
+    return resolveProcessingNodePortConnect(
+      graph,
+      targetNode,
+      "input",
+      sourceNode.id,
+    );
   }
 
   const nodeId = source.kind === "processingNode" ? source.id : target.id;
@@ -267,7 +356,8 @@ function resolveProcessingNodeConnection(
     return { error: "Processing node not found." };
   }
 
-  const direction: "input" | "output" = source.kind === "processingNode" ? "output" : "input";
+  const direction: "input" | "output" =
+    source.kind === "processingNode" ? "output" : "input";
   const peerId = source.kind === "processingNode" ? target.id : source.id;
   return resolveProcessingNodePortConnect(graph, node, direction, peerId);
 }
@@ -281,9 +371,18 @@ function resolveProcessingNodePortDisconnect(
   const ports = (direction === "input" ? node.inputs : node.outputs) ?? [];
   const port = ports.find((entry) => entry.connected_id === peerId);
   if (!port) {
-    return { error: `"${node.label}" isn't currently connected to "${peerLabel(graph, peerId)}" — nothing to disconnect.` };
+    return {
+      error: `"${node.label}" isn't currently connected to "${peerLabel(graph, peerId)}" — nothing to disconnect.`,
+    };
   }
-  return { action: { type: "processing_node_disconnect", nodeId: node.id, direction, portIndex: port.index } };
+  return {
+    action: {
+      type: "processing_node_disconnect",
+      nodeId: node.id,
+      direction,
+      portIndex: port.index,
+    },
+  };
 }
 
 function resolveProcessingNodeDisconnect(
@@ -300,7 +399,12 @@ function resolveProcessingNodeDisconnect(
     if (!sourceNode || !targetNode) {
       return { error: "Processing node not found." };
     }
-    return resolveProcessingNodePortDisconnect(graph, targetNode, "input", sourceNode.id);
+    return resolveProcessingNodePortDisconnect(
+      graph,
+      targetNode,
+      "input",
+      sourceNode.id,
+    );
   }
 
   const nodeId = source.kind === "processingNode" ? source.id : target.id;
@@ -309,7 +413,8 @@ function resolveProcessingNodeDisconnect(
     return { error: "Processing node not found." };
   }
 
-  const direction: "input" | "output" = source.kind === "processingNode" ? "output" : "input";
+  const direction: "input" | "output" =
+    source.kind === "processingNode" ? "output" : "input";
   const peerId = source.kind === "processingNode" ? target.id : source.id;
   return resolveProcessingNodePortDisconnect(graph, node, direction, peerId);
 }
@@ -327,7 +432,8 @@ function resolveStreamToDevice(
 
   const allowed = sinksForStream(graph.devices, stream);
   if (!allowed.some((entry) => entry.id === deviceId)) {
-    const directionWord = stream.direction === "playback" ? "playback output" : "capture input";
+    const directionWord =
+      stream.direction === "playback" ? "playback output" : "capture input";
     return {
       error: `"${labelFor(stream)}" is a ${stream.direction} stream — "${device.label}" doesn't accept that direction. Pick a ${directionWord} instead.`,
     };
@@ -335,7 +441,9 @@ function resolveStreamToDevice(
 
   if (isMicPassthroughCandidate(stream, device)) {
     if (stream.current_target === deviceId) {
-      return { error: `"${labelFor(stream)}" is already sending audio to "${device.label}".` };
+      return {
+        error: `"${labelFor(stream)}" is already sending audio to "${device.label}".`,
+      };
     }
     return {
       action: {
@@ -354,7 +462,6 @@ function resolveStreamToDevice(
     },
   };
 }
-
 
 function resolveEdgeDisconnect(
   graph: RuntimeGraph,
@@ -376,7 +483,9 @@ function resolveEdgeDisconnect(
     if (!stream || stream.current_target !== target.id) {
       const streamLabel = stream ? labelFor(stream) : source.id;
       const deviceLabel = device?.label ?? target.id;
-      return { error: `"${streamLabel}" isn't currently routed to "${deviceLabel}" — nothing to disconnect.` };
+      return {
+        error: `"${streamLabel}" isn't currently routed to "${deviceLabel}" — nothing to disconnect.`,
+      };
     }
     return {
       action: {
@@ -393,7 +502,9 @@ function resolveEdgeDisconnect(
     if (!stream || stream.current_target !== source.id) {
       const streamLabel = stream ? labelFor(stream) : target.id;
       const deviceLabel = device?.label ?? source.id;
-      return { error: `"${streamLabel}" isn't currently routed to "${deviceLabel}" — nothing to disconnect.` };
+      return {
+        error: `"${streamLabel}" isn't currently routed to "${deviceLabel}" — nothing to disconnect.`,
+      };
     }
     return {
       action: {

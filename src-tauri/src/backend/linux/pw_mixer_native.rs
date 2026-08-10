@@ -146,7 +146,11 @@ impl Connection {
     }
 
     fn node_id(&self, name: &str) -> Option<u32> {
-        self.node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(name).copied()
+        self.node_ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(name)
+            .copied()
     }
 
     /// Binds a `Node` proxy for `node_id` and pushes `props` as a
@@ -158,21 +162,31 @@ impl Connection {
     /// thread-safety assertions).
     fn set_props<P: PodSerialize>(&self, node_id: u32, props: &P) -> Result<(), BackendError> {
         let mut bytes = Vec::new();
-        PodSerializer::serialize(Cursor::new(&mut bytes), props)
-            .map_err(|error| BackendError::Message(format!("failed to build Props pod: {error:?}")))?;
-        let pod = Pod::from_bytes(&bytes)
-            .ok_or_else(|| BackendError::Message("serialized Props pod bytes were malformed".into()))?;
+        PodSerializer::serialize(Cursor::new(&mut bytes), props).map_err(|error| {
+            BackendError::Message(format!("failed to build Props pod: {error:?}"))
+        })?;
+        let pod = Pod::from_bytes(&bytes).ok_or_else(|| {
+            BackendError::Message("serialized Props pod bytes were malformed".into())
+        })?;
 
         // `bind()` only reads `id` and (via `type_.client_version()`)
         // `type_` — a hand-built `GlobalObject` carrying just those two real
         // fields is exactly as valid a `bind()` target as a
         // registry-supplied one, same shortcut `native_host.rs::set_param`
         // takes.
-        let global = GlobalObject { id: node_id, permissions: PermissionFlags::empty(), type_: ObjectType::Node, version: 0, props: None::<PropertiesBox> };
+        let global = GlobalObject {
+            id: node_id,
+            permissions: PermissionFlags::empty(),
+            type_: ObjectType::Node,
+            version: 0,
+            props: None::<PropertiesBox>,
+        };
 
         let _lock = self._thread_loop.lock();
-        let node: pw::node::Node =
-            self.registry.bind(&global).map_err(|_| BackendError::Message(format!("failed to bind node {node_id}")))?;
+        let node: pw::node::Node = self
+            .registry
+            .bind(&global)
+            .map_err(|_| BackendError::Message(format!("failed to bind node {node_id}")))?;
         node.set_param(ParamType::from_raw(spa_sys::SPA_PARAM_Props), 0, pod);
         drop(node);
 
@@ -200,13 +214,21 @@ impl Connection {
     /// run is exactly the case where releasing the lock in between is
     /// required, not just permitted.
     fn query_props(&self, node_id: u32) -> Result<Value, BackendError> {
-        let global = GlobalObject { id: node_id, permissions: PermissionFlags::empty(), type_: ObjectType::Node, version: 0, props: None::<PropertiesBox> };
+        let global = GlobalObject {
+            id: node_id,
+            permissions: PermissionFlags::empty(),
+            type_: ObjectType::Node,
+            version: 0,
+            props: None::<PropertiesBox>,
+        };
         let (tx, rx) = mpsc::channel::<Value>();
 
         let (node, listener) = {
             let _lock = self._thread_loop.lock();
-            let node: pw::node::Node =
-                self.registry.bind(&global).map_err(|_| BackendError::Message(format!("failed to bind node {node_id}")))?;
+            let node: pw::node::Node = self
+                .registry
+                .bind(&global)
+                .map_err(|_| BackendError::Message(format!("failed to bind node {node_id}")))?;
             let listener = node
                 .add_listener_local()
                 .param(move |_seq, param_type, _index, _next, pod| {
@@ -214,12 +236,19 @@ impl Connection {
                         return;
                     }
                     let Some(pod) = pod else { return };
-                    if let Ok((_, value)) = PodDeserializer::deserialize_from::<Value>(pod.as_bytes()) {
+                    if let Ok((_, value)) =
+                        PodDeserializer::deserialize_from::<Value>(pod.as_bytes())
+                    {
                         let _ = tx.send(value);
                     }
                 })
                 .register();
-            node.enum_params(0, Some(ParamType::from_raw(spa_sys::SPA_PARAM_Props)), 0, u32::MAX);
+            node.enum_params(
+                0,
+                Some(ParamType::from_raw(spa_sys::SPA_PARAM_Props)),
+                0,
+                u32::MAX,
+            );
             (node, listener)
         };
 
@@ -231,7 +260,11 @@ impl Connection {
             drop(node);
         }
 
-        result.map_err(|_| BackendError::Message(format!("timed out waiting for Props param from node {node_id}")))
+        result.map_err(|_| {
+            BackendError::Message(format!(
+                "timed out waiting for Props param from node {node_id}"
+            ))
+        })
     }
 }
 
@@ -241,21 +274,37 @@ impl Connection {
 /// doesn't carry a `channelVolumes` property at all (both real, if unlikely,
 /// possibilities from a raw `enum_params` response, not treated as an error).
 fn channel_volume_percent_from_props(value: &Value) -> Option<u8> {
-    let Value::Object(object) = value else { return None };
-    object.properties.iter().find(|property| property.key == spa_sys::SPA_PROP_channelVolumes).and_then(|property| {
-        let Value::ValueArray(ValueArray::Float(volumes)) = &property.value else { return None };
-        let linear = *volumes.first()?;
-        Some((linear.max(0.0).cbrt() * 100.0).round().clamp(0.0, 100.0) as u8)
-    })
+    let Value::Object(object) = value else {
+        return None;
+    };
+    object
+        .properties
+        .iter()
+        .find(|property| property.key == spa_sys::SPA_PROP_channelVolumes)
+        .and_then(|property| {
+            let Value::ValueArray(ValueArray::Float(volumes)) = &property.value else {
+                return None;
+            };
+            let linear = *volumes.first()?;
+            Some((linear.max(0.0).cbrt() * 100.0).round().clamp(0.0, 100.0) as u8)
+        })
 }
 
 /// Extracts `SPA_PROP_mute` from a deserialized `Props` `Value::Object`.
 fn mute_state_from_props(value: &Value) -> Option<bool> {
-    let Value::Object(object) = value else { return None };
-    object.properties.iter().find(|property| property.key == spa_sys::SPA_PROP_mute).and_then(|property| {
-        let Value::Bool(muted) = property.value else { return None };
-        Some(muted)
-    })
+    let Value::Object(object) = value else {
+        return None;
+    };
+    object
+        .properties
+        .iter()
+        .find(|property| property.key == spa_sys::SPA_PROP_mute)
+        .and_then(|property| {
+            let Value::Bool(muted) = property.value else {
+                return None;
+            };
+            Some(muted)
+        })
 }
 
 static CONNECTION: OnceLock<Option<Connection>> = OnceLock::new();
@@ -268,12 +317,19 @@ fn node_name(global: &pw::registry::GlobalObject<&DictRef>) -> Option<String> {
     global.props?.get("node.name").map(|name| name.to_string())
 }
 
-fn run_assembler(rx: mpsc::Receiver<(u32, String)>, node_ids: Arc<Mutex<HashMap<String, u32>>>, ready_tx: mpsc::Sender<()>) {
+fn run_assembler(
+    rx: mpsc::Receiver<(u32, String)>,
+    node_ids: Arc<Mutex<HashMap<String, u32>>>,
+    ready_tx: mpsc::Sender<()>,
+) {
     let mut ready_tx = Some(ready_tx);
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok((id, name)) => {
-                node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(name, id);
+                node_ids
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .insert(name, id);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
@@ -300,8 +356,13 @@ impl PodSerialize for ChannelVolumesProp {
         &self,
         serializer: PodSerializer<O>,
     ) -> Result<SerializeSuccess<O>, pw::spa::pod::serialize::GenError> {
-        let mut obj = serializer.serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
-        obj.serialize_property(spa_sys::SPA_PROP_channelVolumes, &self.0[..], PropertyFlags::empty())?;
+        let mut obj = serializer
+            .serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
+        obj.serialize_property(
+            spa_sys::SPA_PROP_channelVolumes,
+            &self.0[..],
+            PropertyFlags::empty(),
+        )?;
         obj.end()
     }
 }
@@ -313,7 +374,8 @@ impl PodSerialize for MuteProp {
         &self,
         serializer: PodSerializer<O>,
     ) -> Result<SerializeSuccess<O>, pw::spa::pod::serialize::GenError> {
-        let mut obj = serializer.serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
+        let mut obj = serializer
+            .serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
         obj.serialize_property(spa_sys::SPA_PROP_mute, &self.0, PropertyFlags::empty())?;
         obj.end()
     }
@@ -388,14 +450,20 @@ pub fn set_device_mute(
 pub fn channel_volume_percent(system_name: &str) -> Option<Result<Option<u8>, BackendError>> {
     let conn = connection()?;
     let node_id = conn.node_id(system_name)?;
-    Some(conn.query_props(node_id).map(|value| channel_volume_percent_from_props(&value)))
+    Some(
+        conn.query_props(node_id)
+            .map(|value| channel_volume_percent_from_props(&value)),
+    )
 }
 
 /// Native equivalent of `pactl/mixer.rs::sink_mute_state`.
 pub fn mute_state(system_name: &str) -> Option<Result<Option<bool>, BackendError>> {
     let conn = connection()?;
     let node_id = conn.node_id(system_name)?;
-    Some(conn.query_props(node_id).map(|value| mute_state_from_props(&value)))
+    Some(
+        conn.query_props(node_id)
+            .map(|value| mute_state_from_props(&value)),
+    )
 }
 
 #[cfg(test)]
@@ -413,14 +481,15 @@ mod live_tests {
     //! server-side channel volume, converted back through the same cubic
     //! curve `pactl set-sink-volume` itself uses.
     use super::*;
-    use crate::backend::AudioBackend;
     use crate::backend::linux::live::LinuxPipeWireBackend;
     use crate::backend::linux::pactl::{sink_mute_state, sink_volume_percent};
+    use crate::backend::AudioBackend;
     use std::thread;
     use std::time::Duration;
 
     fn wait_until_indexed(name: &str) {
-        let conn = connection().expect("native mixer connection should start against a real session");
+        let conn =
+            connection().expect("native mixer connection should start against a real session");
         for _ in 0..50 {
             if conn.node_id(name).is_some() {
                 return;
@@ -435,14 +504,22 @@ mod live_tests {
     fn sets_volume_and_mute_natively_matching_pactls_own_readback() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_output("Pipe Deck Native Mixer Test", false).expect("create disposable device");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_output("Pipe Deck Native Mixer Test", false)
+            .expect("create disposable device");
 
         wait_until_indexed(&device.system_name);
 
         let volume_result = set_device_volume(&device.system_name, 42, 2, None);
-        assert!(volume_result.is_some(), "expected the native path to run, not fall back to the CLI");
-        volume_result.unwrap().expect("native volume set should succeed");
+        assert!(
+            volume_result.is_some(),
+            "expected the native path to run, not fall back to the CLI"
+        );
+        volume_result
+            .unwrap()
+            .expect("native volume set should succeed");
 
         let readback = (0..20).find_map(|_| {
             let percent = sink_volume_percent(&device.system_name).ok().flatten();
@@ -452,11 +529,17 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             None
         });
-        assert_eq!(readback, Some(42), "pactl's own readback should agree with the native 42% write");
+        assert_eq!(
+            readback,
+            Some(42),
+            "pactl's own readback should agree with the native 42% write"
+        );
 
         let mute_result = set_device_mute(&device.system_name, true, None);
         assert!(mute_result.is_some());
-        mute_result.unwrap().expect("native mute set should succeed");
+        mute_result
+            .unwrap()
+            .expect("native mute set should succeed");
 
         let muted = (0..20).find_map(|_| {
             let state = sink_mute_state(&device.system_name).ok().flatten();
@@ -466,7 +549,11 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             None
         });
-        assert_eq!(muted, Some(true), "pactl's own readback should agree with the native mute");
+        assert_eq!(
+            muted,
+            Some(true),
+            "pactl's own readback should agree with the native mute"
+        );
 
         let _ = backend.remove_virtual_device(&device.system_name);
     }
@@ -476,8 +563,11 @@ mod live_tests {
     fn reads_volume_and_mute_natively_matching_pactls_own_readback() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_output("Pipe Deck Native Mixer Read Test", false).expect("create disposable device");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_output("Pipe Deck Native Mixer Read Test", false)
+            .expect("create disposable device");
 
         wait_until_indexed(&device.system_name);
 
@@ -486,8 +576,10 @@ mod live_tests {
         // producing — a bug that made the read just echo back whatever this
         // module itself last wrote wouldn't be caught by round-tripping a
         // native write through a native read.
-        crate::backend::linux::pactl::run_pactl(&["set-sink-volume", &device.system_name, "77%"]).expect("pactl set-sink-volume");
-        crate::backend::linux::pactl::run_pactl(&["set-sink-mute", &device.system_name, "1"]).expect("pactl set-sink-mute");
+        crate::backend::linux::pactl::run_pactl(&["set-sink-volume", &device.system_name, "77%"])
+            .expect("pactl set-sink-volume");
+        crate::backend::linux::pactl::run_pactl(&["set-sink-mute", &device.system_name, "1"])
+            .expect("pactl set-sink-mute");
 
         let volume = (0..20).find_map(|_| {
             let result = channel_volume_percent(&device.system_name)?;
@@ -498,7 +590,11 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             None
         });
-        assert_eq!(volume, Some(77), "expected the native read to agree with the value pactl itself set");
+        assert_eq!(
+            volume,
+            Some(77),
+            "expected the native read to agree with the value pactl itself set"
+        );
 
         let muted = (0..20).find_map(|_| {
             let result = mute_state(&device.system_name)?;
@@ -509,7 +605,11 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             None
         });
-        assert_eq!(muted, Some(true), "expected the native mute read to agree with the value pactl itself set");
+        assert_eq!(
+            muted,
+            Some(true),
+            "expected the native mute read to agree with the value pactl itself set"
+        );
 
         let _ = backend.remove_virtual_device(&device.system_name);
     }

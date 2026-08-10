@@ -51,7 +51,11 @@ export type RoutingGraphMenuTarget =
 export interface RoutingGraphActions {
   openMenu: (target: RoutingGraphMenuTarget) => void;
   closeMenu: () => void;
-  renameDevice: (systemName: string, currentLabel: string, alias?: string) => void | Promise<void>;
+  renameDevice: (
+    systemName: string,
+    currentLabel: string,
+    alias?: string,
+  ) => void | Promise<void>;
   deleteDevice: (systemName: string, label: string) => void;
   /** PD-032: a processing node (Mixer/Fan-out/EQ/stub) has no PipeWire
    * device-alias identity — deleting it goes through `remove_processing_node`
@@ -63,7 +67,10 @@ export interface RoutingGraphActions {
   labelForEntity: (entityId: string) => string;
   /** Keyboard equivalent of dragging a wire end off a port: disconnects the
    * one link `handle` represents. No-op if `handle` isn't a live connection. */
-  disconnectPort: (nodeId: string, handle: RoutingGraphHandle) => void | Promise<void>;
+  disconnectPort: (
+    nodeId: string,
+    handle: RoutingGraphHandle,
+  ) => void | Promise<void>;
   /** PD-025: adds a 5-Band EQ stage to `deviceId` and applies immediately —
    * no separate confirm step. */
   addEffectStage: (deviceId: string) => void | Promise<void>;
@@ -91,5 +98,6 @@ export interface RoutingGraphActions {
   isNodeHighlighted: (entityId: string) => boolean;
 }
 
-export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> =
-  Symbol("routingGraphActions");
+export const routingGraphActionsKey: InjectionKey<RoutingGraphActions> = Symbol(
+  "routingGraphActions",
+);

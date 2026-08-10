@@ -1,7 +1,11 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { defineComponent } from "vue";
 import { mount, flushPromises } from "@vue/test-utils";
-import { emptyDynamicsStage, emptyEq5BandStage, type EffectChainConfig } from "../types/graph";
+import {
+  emptyDynamicsStage,
+  emptyEq5BandStage,
+  type EffectChainConfig,
+} from "../types/graph";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 const listenMock = vi.hoisted(() => vi.fn());
@@ -15,7 +19,9 @@ vi.mock("../stores/notices", () => ({
   useNotices: () => ({ pushNotice: pushNoticeMock }),
 }));
 
-function chainWithStage(overrides: Partial<EffectChainConfig> = {}): EffectChainConfig {
+function chainWithStage(
+  overrides: Partial<EffectChainConfig> = {},
+): EffectChainConfig {
   return {
     stages: [emptyEq5BandStage("stage-1")],
     compressor: emptyDynamicsStage(),
@@ -40,9 +46,12 @@ async function mountEffectChain() {
     }),
   );
   await flushPromises();
-  return { wrapper, get composable() {
-    return composable;
-  } };
+  return {
+    wrapper,
+    get composable() {
+      return composable;
+    },
+  };
 }
 
 beforeEach(() => {
@@ -60,7 +69,11 @@ beforeEach(() => {
   invokeMock.mockImplementation((cmd: string) => {
     if (cmd === "get_effect_chains") return Promise.resolve({});
     if (cmd === "get_effect_capabilities") {
-      return Promise.resolve({ builtin_eq: true, builtin_gain: true, builtin_limiter: false });
+      return Promise.resolve({
+        builtin_eq: true,
+        builtin_gain: true,
+        builtin_limiter: false,
+      });
     }
     return Promise.resolve({ success: true });
   });
@@ -73,9 +86,14 @@ afterEach(() => {
 describe("mount lifecycle", () => {
   it("fetches chains and capabilities on mount and stops loading", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chainWithStage() });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chainWithStage() });
       if (cmd === "get_effect_capabilities") {
-        return Promise.resolve({ builtin_eq: true, builtin_gain: false, builtin_limiter: false });
+        return Promise.resolve({
+          builtin_eq: true,
+          builtin_gain: false,
+          builtin_limiter: false,
+        });
       }
       return Promise.resolve({ success: true });
     });
@@ -86,15 +104,27 @@ describe("mount lifecycle", () => {
     expect(invokeMock).toHaveBeenCalledWith("get_effect_capabilities");
     expect(composable.loading.value).toBe(false);
     expect(composable.chains.value["dev-1"]).toBeDefined();
-    expect(composable.capabilities.value).toEqual({ builtin_eq: true, builtin_gain: false, builtin_limiter: false });
-    expect(listenMock).toHaveBeenCalledWith("graph-updated", expect.any(Function));
+    expect(composable.capabilities.value).toEqual({
+      builtin_eq: true,
+      builtin_gain: false,
+      builtin_limiter: false,
+    });
+    expect(listenMock).toHaveBeenCalledWith(
+      "graph-updated",
+      expect.any(Function),
+    );
   });
 
   it("resets chains to empty on a get_effect_chains failure", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.reject(new Error("fetch failed"));
+      if (cmd === "get_effect_chains")
+        return Promise.reject(new Error("fetch failed"));
       if (cmd === "get_effect_capabilities") {
-        return Promise.resolve({ builtin_eq: true, builtin_gain: true, builtin_limiter: false });
+        return Promise.resolve({
+          builtin_eq: true,
+          builtin_gain: true,
+          builtin_limiter: false,
+        });
       }
       return Promise.resolve({ success: true });
     });
@@ -108,13 +138,18 @@ describe("mount lifecycle", () => {
   it("resets capabilities to the all-false default on a get_effect_capabilities failure", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "get_effect_chains") return Promise.resolve({});
-      if (cmd === "get_effect_capabilities") return Promise.reject(new Error("fetch failed"));
+      if (cmd === "get_effect_capabilities")
+        return Promise.reject(new Error("fetch failed"));
       return Promise.resolve({ success: true });
     });
 
     const { composable } = await mountEffectChain();
 
-    expect(composable.capabilities.value).toEqual({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+    expect(composable.capabilities.value).toEqual({
+      builtin_eq: false,
+      builtin_gain: false,
+      builtin_limiter: false,
+    });
   });
 
   it("re-fetches when a graph-updated event fires", async () => {
@@ -142,8 +177,13 @@ describe("mount lifecycle", () => {
 describe("chainFor", () => {
   it("returns the fetched chain for a known device", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chainWithStage() });
-      return Promise.resolve({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chainWithStage() });
+      return Promise.resolve({
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      });
     });
 
     const { composable } = await mountEffectChain();
@@ -173,7 +213,10 @@ describe("addEq5BandStage", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       "add_effect_stage",
-      expect.objectContaining({ deviceId: "dev-1", stage: expect.objectContaining({ kind: "eq5band" }) }),
+      expect.objectContaining({
+        deviceId: "dev-1",
+        stage: expect.objectContaining({ kind: "eq5band" }),
+      }),
     );
     expect(invokeMock).toHaveBeenCalledWith("get_effect_chains");
   });
@@ -182,13 +225,20 @@ describe("addEq5BandStage", () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "add_effect_stage") return Promise.reject(new Error("nope"));
       if (cmd === "get_effect_chains") return Promise.resolve({});
-      return Promise.resolve({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+      return Promise.resolve({
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      });
     });
     const { composable } = await mountEffectChain();
 
     await composable.addEq5BandStage("dev-1");
 
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "nope" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "nope" },
+      "",
+    );
   });
 });
 
@@ -199,15 +249,23 @@ describe("removeStage", () => {
 
     await composable.removeStage("dev-1", "stage-1");
 
-    expect(invokeMock).toHaveBeenCalledWith("remove_effect_stage", { deviceId: "dev-1", stageId: "stage-1" });
+    expect(invokeMock).toHaveBeenCalledWith("remove_effect_stage", {
+      deviceId: "dev-1",
+      stageId: "stage-1",
+    });
     expect(invokeMock).toHaveBeenCalledWith("get_effect_chains");
   });
 
   it("stringifies a non-Error rejection for handleApplyResult", async () => {
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "remove_effect_stage") return Promise.reject("plain string failure");
+      if (cmd === "remove_effect_stage")
+        return Promise.reject("plain string failure");
       if (cmd === "get_effect_chains") return Promise.resolve({});
-      return Promise.resolve({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+      return Promise.resolve({
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      });
     });
     const { composable } = await mountEffectChain();
 
@@ -222,31 +280,51 @@ describe("removeStage", () => {
 
 describe("reorderStages", () => {
   it("optimistically reorders stages before the invoke resolves", async () => {
-    const chain = chainWithStage({ stages: [emptyEq5BandStage("a"), emptyEq5BandStage("b")] });
+    const chain = chainWithStage({
+      stages: [emptyEq5BandStage("a"), emptyEq5BandStage("b")],
+    });
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
       if (cmd === "reorder_effect_stages") return new Promise(() => {});
-      return Promise.resolve({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+      return Promise.resolve({
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      });
     });
     const { composable } = await mountEffectChain();
 
     void composable.reorderStages("dev-1", ["b", "a"]);
 
-    expect(composable.chains.value["dev-1"].stages.map((s) => s.id)).toEqual(["b", "a"]);
+    expect(composable.chains.value["dev-1"].stages.map((s) => s.id)).toEqual([
+      "b",
+      "a",
+    ]);
   });
 
   it("filters out ids that don't match any existing stage", async () => {
-    const chain = chainWithStage({ stages: [emptyEq5BandStage("a"), emptyEq5BandStage("b")] });
+    const chain = chainWithStage({
+      stages: [emptyEq5BandStage("a"), emptyEq5BandStage("b")],
+    });
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
       if (cmd === "reorder_effect_stages") return new Promise(() => {});
-      return Promise.resolve({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+      return Promise.resolve({
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      });
     });
     const { composable } = await mountEffectChain();
 
     void composable.reorderStages("dev-1", ["missing", "b", "a"]);
 
-    expect(composable.chains.value["dev-1"].stages.map((s) => s.id)).toEqual(["b", "a"]);
+    expect(composable.chains.value["dev-1"].stages.map((s) => s.id)).toEqual([
+      "b",
+      "a",
+    ]);
   });
 
   it("is a no-op locally when the chain doesn't exist yet", async () => {
@@ -265,15 +343,23 @@ describe("reorderStages", () => {
         getEffectChainsCalls += 1;
         return Promise.resolve({ "dev-1": chain });
       }
-      if (cmd === "reorder_effect_stages") return Promise.reject(new Error("reorder failed"));
-      return Promise.resolve({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+      if (cmd === "reorder_effect_stages")
+        return Promise.reject(new Error("reorder failed"));
+      return Promise.resolve({
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      });
     });
     const { composable } = await mountEffectChain();
     const callsAfterMount = getEffectChainsCalls;
 
     await composable.reorderStages("dev-1", ["stage-1"]);
 
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "reorder failed" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "reorder failed" },
+      "",
+    );
     expect(getEffectChainsCalls).toBe(callsAfterMount + 1);
   });
 });
@@ -282,7 +368,8 @@ describe("scheduleStageUpdate", () => {
   it("applies the update locally right away, and debounces the live-params invoke", async () => {
     const chain = chainWithStage();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
       return Promise.resolve({ success: true });
     });
     const { composable } = await mountEffectChain();
@@ -293,7 +380,10 @@ describe("scheduleStageUpdate", () => {
 
     expect(composable.chains.value["dev-1"].stages[0].eq_bass).toBe(5);
     await vi.advanceTimersByTimeAsync(59);
-    expect(invokeMock).not.toHaveBeenCalledWith("set_effect_chain_live_params", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "set_effect_chain_live_params",
+      expect.anything(),
+    );
 
     await vi.advanceTimersByTimeAsync(1);
     expect(invokeMock).toHaveBeenCalledWith(
@@ -305,22 +395,33 @@ describe("scheduleStageUpdate", () => {
   it("collapses rapid repeated calls into a single invoke with the latest value", async () => {
     const chain = chainWithStage();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
       return Promise.resolve({ success: true });
     });
     const { composable } = await mountEffectChain();
     invokeMock.mockClear();
 
-    composable.scheduleStageUpdate("dev-1", { ...emptyEq5BandStage("stage-1"), eq_bass: 1 });
+    composable.scheduleStageUpdate("dev-1", {
+      ...emptyEq5BandStage("stage-1"),
+      eq_bass: 1,
+    });
     await vi.advanceTimersByTimeAsync(20);
-    composable.scheduleStageUpdate("dev-1", { ...emptyEq5BandStage("stage-1"), eq_bass: 2 });
+    composable.scheduleStageUpdate("dev-1", {
+      ...emptyEq5BandStage("stage-1"),
+      eq_bass: 2,
+    });
     await vi.advanceTimersByTimeAsync(60);
 
-    const liveParamCalls = invokeMock.mock.calls.filter(([cmd]) => cmd === "set_effect_chain_live_params");
+    const liveParamCalls = invokeMock.mock.calls.filter(
+      ([cmd]) => cmd === "set_effect_chain_live_params",
+    );
     expect(liveParamCalls).toHaveLength(1);
     expect(liveParamCalls[0][1]).toEqual(
       expect.objectContaining({
-        config: expect.objectContaining({ stages: [expect.objectContaining({ eq_bass: 2 })] }),
+        config: expect.objectContaining({
+          stages: [expect.objectContaining({ eq_bass: 2 })],
+        }),
       }),
     );
   });
@@ -328,8 +429,10 @@ describe("scheduleStageUpdate", () => {
   it("reports a failure via handleApplyResult", async () => {
     const chain = chainWithStage();
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
-      if (cmd === "set_effect_chain_live_params") return Promise.reject(new Error("push failed"));
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
+      if (cmd === "set_effect_chain_live_params")
+        return Promise.reject(new Error("push failed"));
       return Promise.resolve({ success: true });
     });
     const { composable } = await mountEffectChain();
@@ -338,7 +441,10 @@ describe("scheduleStageUpdate", () => {
     await vi.advanceTimersByTimeAsync(60);
     await flushPromises();
 
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "push failed" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "push failed" },
+      "",
+    );
   });
 });
 
@@ -346,7 +452,8 @@ describe("setBypassed", () => {
   it("debounces a live-params push when the chain has stages", async () => {
     const chain = chainWithStage({ bypassed: false });
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
       return Promise.resolve({ success: true });
     });
     const { composable } = await mountEffectChain();
@@ -355,12 +462,18 @@ describe("setBypassed", () => {
     composable.setBypassed("dev-1", true);
 
     expect(composable.chains.value["dev-1"].bypassed).toBe(true);
-    expect(invokeMock).not.toHaveBeenCalledWith("set_effect_chain_live_params", expect.anything());
+    expect(invokeMock).not.toHaveBeenCalledWith(
+      "set_effect_chain_live_params",
+      expect.anything(),
+    );
 
     await vi.advanceTimersByTimeAsync(60);
     expect(invokeMock).toHaveBeenCalledWith(
       "set_effect_chain_live_params",
-      expect.objectContaining({ deviceId: "dev-1", config: expect.objectContaining({ bypassed: true }) }),
+      expect.objectContaining({
+        deviceId: "dev-1",
+        config: expect.objectContaining({ bypassed: true }),
+      }),
     );
   });
 
@@ -377,14 +490,18 @@ describe("setBypassed", () => {
 
     expect(invokeMock).toHaveBeenCalledWith(
       "set_device_effects",
-      expect.objectContaining({ deviceId: "dev-1", config: expect.objectContaining({ bypassed: true }) }),
+      expect.objectContaining({
+        deviceId: "dev-1",
+        config: expect.objectContaining({ bypassed: true }),
+      }),
     );
   });
 
   it("reports a failure via handleApplyResult for the immediate persist-only path", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "get_effect_chains") return Promise.resolve({});
-      if (cmd === "set_device_effects") return Promise.reject(new Error("persist failed"));
+      if (cmd === "set_device_effects")
+        return Promise.reject(new Error("persist failed"));
       return Promise.resolve({ success: true });
     });
     const { composable } = await mountEffectChain();
@@ -392,7 +509,10 @@ describe("setBypassed", () => {
     composable.setBypassed("dev-1", true);
     await flushPromises();
 
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "persist failed" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "persist failed" },
+      "",
+    );
   });
 });
 
@@ -406,21 +526,30 @@ describe("setDynamicsStageEnabled", () => {
     expect(composable.chains.value["dev-1"].compressor.enabled).toBe(true);
     expect(invokeMock).toHaveBeenCalledWith(
       "set_device_effects",
-      expect.objectContaining({ deviceId: "dev-1", config: expect.objectContaining({ compressor: expect.objectContaining({ enabled: true }) }) }),
+      expect.objectContaining({
+        deviceId: "dev-1",
+        config: expect.objectContaining({
+          compressor: expect.objectContaining({ enabled: true }),
+        }),
+      }),
     );
   });
 
   it("reports a failure via handleApplyResult", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "get_effect_chains") return Promise.resolve({});
-      if (cmd === "set_device_effects") return Promise.reject(new Error("nope"));
+      if (cmd === "set_device_effects")
+        return Promise.reject(new Error("nope"));
       return Promise.resolve({ success: true });
     });
     const { composable } = await mountEffectChain();
 
     await composable.setDynamicsStageEnabled("dev-1", "limiter", true);
 
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "nope" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "nope" },
+      "",
+    );
   });
 });
 
@@ -429,7 +558,8 @@ describe("pendingWrites guard", () => {
     const chain = chainWithStage();
     let resolveLiveParams: (() => void) | undefined;
     invokeMock.mockImplementation((cmd: string) => {
-      if (cmd === "get_effect_chains") return Promise.resolve({ "dev-1": chain });
+      if (cmd === "get_effect_chains")
+        return Promise.resolve({ "dev-1": chain });
       if (cmd === "set_effect_chain_live_params") {
         return new Promise<void>((resolve) => {
           resolveLiveParams = resolve;

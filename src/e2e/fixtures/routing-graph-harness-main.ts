@@ -52,7 +52,11 @@ const harness: RoutingGraphHarness = {
     if (stream) {
       stream.current_target = deviceId;
     }
-    graph.links.push({ id: `link-${streamId}-${deviceId}`, source_id: streamId, target_id: deviceId });
+    graph.links.push({
+      id: `link-${streamId}-${deviceId}`,
+      source_id: streamId,
+      target_id: deviceId,
+    });
   },
   touchDevice(deviceId) {
     const device = graph.devices.find((entry) => entry.id === deviceId);
@@ -85,9 +89,11 @@ const Harness = defineComponent({
   setup() {
     return () =>
       h("div", { style: "height:100vh;display:flex;flex-direction:column;" }, [
-        h("div", { style: "flex:1;min-height:0;display:flex;flex-direction:column;" }, [
-          h(RoutingGraph, { graph }),
-        ]),
+        h(
+          "div",
+          { style: "flex:1;min-height:0;display:flex;flex-direction:column;" },
+          [h(RoutingGraph, { graph })],
+        ),
       ]);
   },
 });

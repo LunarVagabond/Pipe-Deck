@@ -25,10 +25,19 @@ export function resolveConnectionValidity(
 ): boolean {
   const isExistingEdge = Boolean((connection as unknown as { id?: string }).id);
   if (isExistingEdge) {
-    return canConnectPorts(connection.sourceHandle, connection.targetHandle, false);
+    return canConnectPorts(
+      connection.sourceHandle,
+      connection.targetHandle,
+      false,
+    );
   }
   const alsoFillable = pendingEdgeUpdate
     ? [pendingEdgeUpdate.sourceHandle, pendingEdgeUpdate.targetHandle]
     : [];
-  return canConnectPorts(connection.sourceHandle, connection.targetHandle, true, alsoFillable);
+  return canConnectPorts(
+    connection.sourceHandle,
+    connection.targetHandle,
+    true,
+    alsoFillable,
+  );
 }

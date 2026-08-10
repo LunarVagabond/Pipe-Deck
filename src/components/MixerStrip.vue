@@ -116,7 +116,9 @@ const hasChannels = computed(
 
 function channelAccentClass(channel: MixerChannel): string {
   if (channel.channelType === "stream") {
-    return channel.direction === "capture" ? "channel-capture" : "channel-playback";
+    return channel.direction === "capture"
+      ? "channel-capture"
+      : "channel-playback";
   }
   if (channel.kind === "virtual") {
     return "channel-virtual";
@@ -191,7 +193,10 @@ async function saveRename(channel: MixerChannel, alias: string) {
     handleApplyResult({ success: true }, "Device renamed");
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -215,7 +220,10 @@ async function removeVirtual(channel: MixerChannel) {
     handleApplyResult({ success: true }, "Virtual device removed");
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -252,12 +260,17 @@ async function removeVirtual(channel: MixerChannel) {
                     @save="(name) => saveRename(channel, name)"
                     @delete="removeVirtual(channel)"
                   />
-                  <p v-else class="stream-channel-label" :title="channel.label">{{ channel.label }}</p>
+                  <p v-else class="stream-channel-label" :title="channel.label">
+                    {{ channel.label }}
+                  </p>
                 </div>
 
                 <div class="channel-fader">
                   <div class="channel-meter" aria-hidden="true">
-                    <span class="channel-meter-fill" :style="{ width: `${channel.level}%` }" />
+                    <span
+                      class="channel-meter-fill"
+                      :style="{ width: `${channel.level}%` }"
+                    />
                   </div>
                   <input
                     type="range"
@@ -266,7 +279,12 @@ async function removeVirtual(channel: MixerChannel) {
                     max="100"
                     :value="channel.level"
                     :aria-label="`${channel.label} volume`"
-                    @input="scheduleVolume(channel, Number(($event.target as HTMLInputElement).value))"
+                    @input="
+                      scheduleVolume(
+                        channel,
+                        Number(($event.target as HTMLInputElement).value),
+                      )
+                    "
                   />
                 </div>
 
@@ -318,7 +336,12 @@ async function removeVirtual(channel: MixerChannel) {
                 </button>
               </div>
 
-              <div v-if="supportsEffects(channel) && expandedEffectsIds.has(channel.id)" class="channel-effects">
+              <div
+                v-if="
+                  supportsEffects(channel) && expandedEffectsIds.has(channel.id)
+                "
+                class="channel-effects"
+              >
                 <EffectStageList :device-id="channel.id" />
               </div>
             </article>

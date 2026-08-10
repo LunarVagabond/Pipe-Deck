@@ -54,12 +54,8 @@ pub fn detect_external_manual_overrides(
             continue;
         };
 
-        if should_track_manual_override(
-            stream,
-            target_system_name,
-            authored_rules,
-            persisted_rules,
-        ) {
+        if should_track_manual_override(stream, target_system_name, authored_rules, persisted_rules)
+        {
             overrides.insert(stream_identity_key(stream));
         }
     }
@@ -84,7 +80,8 @@ pub fn reconcile_manual_overrides(
             let Some(current_target_id) = &stream.current_target else {
                 return false;
             };
-            let Some(target_system_name) = resolve_target_system_name(graph, current_target_id) else {
+            let Some(target_system_name) = resolve_target_system_name(graph, current_target_id)
+            else {
                 return false;
             };
             !should_track_manual_override(
@@ -105,7 +102,9 @@ pub fn reconcile_manual_overrides(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::{Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection};
+    use crate::core::models::{
+        Device, DeviceDirection, DeviceKind, RuntimeGraph, Stream, StreamDirection,
+    };
     use crate::core::stream_identity::stream_identity_key;
 
     fn sample_stream(app_name: &str, executable: Option<&str>, media_name: Option<&str>) -> Stream {
@@ -146,7 +145,12 @@ mod tests {
         }];
 
         assert!(!should_track_manual_override(&stream, "hdmi", &rules, &[]));
-        assert!(should_track_manual_override(&stream, "headphones", &rules, &[]));
+        assert!(should_track_manual_override(
+            &stream,
+            "headphones",
+            &rules,
+            &[]
+        ));
     }
 
     #[test]

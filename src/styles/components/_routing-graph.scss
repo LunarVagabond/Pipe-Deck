@@ -8,7 +8,6 @@
   min-height: 0;
 }
 
-
 .routing-graph-context-menu {
   position: fixed;
   z-index: 1000;
@@ -419,10 +418,14 @@
 @keyframes routing-graph-idle-pulse {
   0%,
   100% {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 0 0 vars.translucent(--accent-purple, 0);
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.25),
+      0 0 0 0 vars.translucent(--accent-purple, 0);
   }
   50% {
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 16px 2px vars.translucent(--accent-purple, 35);
+    box-shadow:
+      0 8px 24px rgba(0, 0, 0, 0.25),
+      0 0 16px 2px vars.translucent(--accent-purple, 35);
   }
 }
 
@@ -612,7 +615,9 @@
   background: var(--handle-color, #3fd0c9);
   border: 2px solid rgba(255, 255, 255, 0.92);
   box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35);
-  transition: box-shadow 0.12s ease, opacity 0.12s ease;
+  transition:
+    box-shadow 0.12s ease,
+    opacity 0.12s ease;
 
   &::after {
     content: "";
@@ -1559,7 +1564,9 @@
 .routing-graph-canvas .vue-flow__edgeupdater {
   cursor: grab;
   opacity: 0;
-  transition: opacity 0.12s ease, fill 0.12s ease;
+  transition:
+    opacity 0.12s ease,
+    fill 0.12s ease;
 }
 
 .routing-graph-canvas .vue-flow__edge:hover .vue-flow__edgeupdater,

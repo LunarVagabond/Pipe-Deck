@@ -1,5 +1,14 @@
-import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
-import { deviceColumn, deviceTargetIds, isMultiSink } from "../../utils/routingLayout";
+import type {
+  Device,
+  ProcessingNode,
+  RuntimeGraph,
+  Stream,
+} from "../../types/graph";
+import {
+  deviceColumn,
+  deviceTargetIds,
+  isMultiSink,
+} from "../../utils/routingLayout";
 import type { PortType } from "./portTypes";
 
 export interface RoutingGraphHandle {
@@ -31,7 +40,9 @@ export interface DeviceConnections {
  * render one handle per live connection plus a trailing empty slot, instead of
  * funneling every connection through a single shared dot.
  */
-export function computeDeviceConnections(graph: RuntimeGraph): Map<string, DeviceConnections> {
+export function computeDeviceConnections(
+  graph: RuntimeGraph,
+): Map<string, DeviceConnections> {
   const map = new Map<string, DeviceConnections>();
 
   function entry(deviceId: string): DeviceConnections {
@@ -98,7 +109,10 @@ function isMultiCapableSide(device: Device, side: "in" | "out"): boolean {
     return false;
   }
 
-  if (device.kind === "virtual" && (device.direction === "output" || device.direction === "duplex")) {
+  if (
+    device.kind === "virtual" &&
+    (device.direction === "output" || device.direction === "duplex")
+  ) {
     return isMultiSink(device);
   }
   if (device.kind === "virtual" && device.direction === "input") {
@@ -113,7 +127,8 @@ function buildSideHandles(
   connectedIds: string[],
   multiCapable: boolean,
 ): RoutingGraphHandle[] {
-  const type: "source" | "target" = portType === "audio-out" ? "source" : "target";
+  const type: "source" | "target" =
+    portType === "audio-out" ? "source" : "target";
   const position: "left" | "right" = portType === "audio-in" ? "left" : "right";
   // Every existing connection gets a real handle regardless of `multiCapable`
   // — capping to the first one here used to silently drop a second live
@@ -138,7 +153,10 @@ function buildSideHandles(
     return filled;
   }
 
-  return [...filled, { id: `${portType}:empty`, type, position, portType, empty: true }];
+  return [
+    ...filled,
+    { id: `${portType}:empty`, type, position, portType, empty: true },
+  ];
 }
 
 export function handlesForStream(stream: Stream): RoutingGraphHandle[] {
@@ -170,19 +188,26 @@ const EMPTY_CONNECTIONS: DeviceConnections = { in: [], out: [] };
  * all — single source of truth shared by `handlesForDevice` (what actually
  * renders) and the routing-graph layout (issue #342, which column a device
  * lands in), so the two can never drift apart. */
-export function deviceHandleSides(device: Device): { hasIn: boolean; hasOut: boolean } {
+export function deviceHandleSides(device: Device): {
+  hasIn: boolean;
+  hasOut: boolean;
+} {
   const column = deviceColumn(device);
   if (!column) {
     return { hasIn: false, hasOut: false };
   }
 
-  const isVirtualInput = device.kind === "virtual" && device.direction === "input";
+  const isVirtualInput =
+    device.kind === "virtual" && device.direction === "input";
   // A virtual output device is a dead end — no forward routing of any kind
   // (retired along with VirtualRole::Bus, #293), so it never gets an output
   // pin to drag from; only a dedicated Mixer/Fan-Out/EQ node routes onward.
-  const isTerminalVirtualOutput = device.kind === "virtual" && device.direction === "output";
+  const isTerminalVirtualOutput =
+    device.kind === "virtual" && device.direction === "output";
   const hasIn = column === "routing" || column === "outputs" || isVirtualInput;
-  const hasOut = (column === "routing" || column === "inputs" || isVirtualInput) && !isTerminalVirtualOutput;
+  const hasOut =
+    (column === "routing" || column === "inputs" || isVirtualInput) &&
+    !isTerminalVirtualOutput;
   return { hasIn, hasOut };
 }
 
@@ -194,10 +219,22 @@ export function handlesForDevice(
 
   const handles: RoutingGraphHandle[] = [];
   if (hasIn) {
-    handles.push(...buildSideHandles("audio-in", connections.in, isMultiCapableSide(device, "in")));
+    handles.push(
+      ...buildSideHandles(
+        "audio-in",
+        connections.in,
+        isMultiCapableSide(device, "in"),
+      ),
+    );
   }
   if (hasOut) {
-    handles.push(...buildSideHandles("audio-out", connections.out, isMultiCapableSide(device, "out")));
+    handles.push(
+      ...buildSideHandles(
+        "audio-out",
+        connections.out,
+        isMultiCapableSide(device, "out"),
+      ),
+    );
   } else if (connections.out.length > 0) {
     // A "terminal" virtual output device (PD-033/UI_Spec.md: the frontend
     // never rendering a *connectable* output handle is what makes it a dead
@@ -209,10 +246,12 @@ export function handlesForDevice(
     // non-interactive: it can be landed on by an existing edge, but never
     // dragged to create a *new* arbitrary forward-route.
     handles.push(
-      ...buildSideHandles("audio-out", connections.out, false).map((handle) => ({
-        ...handle,
-        connectable: false,
-      })),
+      ...buildSideHandles("audio-out", connections.out, false).map(
+        (handle) => ({
+          ...handle,
+          connectable: false,
+        }),
+      ),
     );
   }
   return handles;
@@ -226,9 +265,15 @@ export function handlesForDevice(
  * this too: only the "how many ports, growable or fixed" answer differs per
  * kind, not the handle-building mechanics.
  */
-export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHandle[] {
-  const inConnected = (node.inputs ?? []).map((port) => port.connected_id).filter((id): id is string => !!id);
-  const outConnected = (node.outputs ?? []).map((port) => port.connected_id).filter((id): id is string => !!id);
+export function handlesForProcessingNode(
+  node: ProcessingNode,
+): RoutingGraphHandle[] {
+  const inConnected = (node.inputs ?? [])
+    .map((port) => port.connected_id)
+    .filter((id): id is string => !!id);
+  const outConnected = (node.outputs ?? [])
+    .map((port) => port.connected_id)
+    .filter((id): id is string => !!id);
 
   // Mirrors the engine's own growability rule
   // (`CoreEngine::connect_processing_node_port`): a Mixer's inputs grow (N
@@ -248,7 +293,9 @@ export function handlesForProcessingNode(node: ProcessingNode): RoutingGraphHand
   // through the node's own member-list UI (RoutingGraphNodeGroup.vue), not
   // drag-to-connect. Revisit if per-member drag-wiring is ever wanted later.
   if (node.kind.kind !== "group") {
-    handles.push(...buildSideHandles("audio-out", outConnected, outputGrowable));
+    handles.push(
+      ...buildSideHandles("audio-out", outConnected, outputGrowable),
+    );
   }
   return handles;
 }

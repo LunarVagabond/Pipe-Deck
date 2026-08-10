@@ -31,7 +31,11 @@ function emptyChain(): EffectChainConfig {
 export function useEffectChain() {
   const { handleApplyResult } = useApplyResult();
   const chains = ref<Record<string, EffectChainConfig>>({});
-  const capabilities = ref<FxCapabilities>({ builtin_eq: false, builtin_gain: false, builtin_limiter: false });
+  const capabilities = ref<FxCapabilities>({
+    builtin_eq: false,
+    builtin_gain: false,
+    builtin_limiter: false,
+  });
   const loading = ref(true);
   let unlisten: (() => void) | null = null;
   const liveParamsTimers: Record<string, number> = {};
@@ -50,7 +54,8 @@ export function useEffectChain() {
 
   async function refresh() {
     try {
-      const fetched = await invoke<Record<string, EffectChainConfig>>("get_effect_chains");
+      const fetched =
+        await invoke<Record<string, EffectChainConfig>>("get_effect_chains");
       const merged = { ...fetched };
       for (const deviceId of Object.keys(pendingWrites)) {
         if (pendingWrites[deviceId] && chains.value[deviceId]) {
@@ -67,9 +72,15 @@ export function useEffectChain() {
 
   async function refreshCapabilities() {
     try {
-      capabilities.value = await invoke<FxCapabilities>("get_effect_capabilities");
+      capabilities.value = await invoke<FxCapabilities>(
+        "get_effect_capabilities",
+      );
     } catch {
-      capabilities.value = { builtin_eq: false, builtin_gain: false, builtin_limiter: false };
+      capabilities.value = {
+        builtin_eq: false,
+        builtin_gain: false,
+        builtin_limiter: false,
+      };
     }
   }
 
@@ -82,7 +93,10 @@ export function useEffectChain() {
       await refresh();
     } catch (error) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }
@@ -94,7 +108,10 @@ export function useEffectChain() {
       await refresh();
     } catch (error) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }
@@ -110,7 +127,9 @@ export function useEffectChain() {
         ...chains.value,
         [deviceId]: {
           ...chain,
-          stages: orderedStageIds.map((id) => byId.get(id)).filter((stage): stage is EffectStage => Boolean(stage)),
+          stages: orderedStageIds
+            .map((id) => byId.get(id))
+            .filter((stage): stage is EffectStage => Boolean(stage)),
         },
       };
     }
@@ -119,7 +138,10 @@ export function useEffectChain() {
       await refresh();
     } catch (error) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
       await refresh();
@@ -136,7 +158,10 @@ export function useEffectChain() {
       await invoke("set_effect_chain_live_params", { deviceId, config });
     } catch (error) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     } finally {
@@ -153,7 +178,9 @@ export function useEffectChain() {
     const chain = chains.value[deviceId] ?? emptyChain();
     const nextChain: EffectChainConfig = {
       ...chain,
-      stages: chain.stages.map((stage) => (stage.id === updatedStage.id ? updatedStage : stage)),
+      stages: chain.stages.map((stage) =>
+        stage.id === updatedStage.id ? updatedStage : stage,
+      ),
     };
     chains.value = { ...chains.value, [deviceId]: nextChain };
 
@@ -189,7 +216,10 @@ export function useEffectChain() {
     invoke("set_device_effects", { deviceId, config: nextChain })
       .catch((error) => {
         handleApplyResult(
-          { success: false, message: error instanceof Error ? error.message : String(error) },
+          {
+            success: false,
+            message: error instanceof Error ? error.message : String(error),
+          },
           "",
         );
       })
@@ -219,7 +249,10 @@ export function useEffectChain() {
       await invoke("set_device_effects", { deviceId, config: nextChain });
     } catch (error) {
       handleApplyResult(
-        { success: false, message: error instanceof Error ? error.message : String(error) },
+        {
+          success: false,
+          message: error instanceof Error ? error.message : String(error),
+        },
         "",
       );
     }

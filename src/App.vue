@@ -52,15 +52,22 @@ const activeView = ref<AppView>("dashboard");
 const sidebarCollapsed = ref(false);
 const { handleApplyResult } = useApplyResult();
 const { openNewDeviceDialog } = useNewDeviceDialog();
-const { updateStatus, updateStatusText, checkForUpdatesNow } = useUpdateStatus();
-const { graph: runtimeGraph, loading: runtimeGraphLoading, error: runtimeGraphError } =
-  useRuntimeGraph();
-const { refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass } = useDaemonStatus();
+const { updateStatus, updateStatusText, checkForUpdatesNow } =
+  useUpdateStatus();
+const {
+  graph: runtimeGraph,
+  loading: runtimeGraphLoading,
+  error: runtimeGraphError,
+} = useRuntimeGraph();
+const { refreshDaemonStatus, restoreAtLoginText, restoreAtLoginClass } =
+  useDaemonStatus();
 const { resolvedKind, setMode } = useTheme();
 const { openShortcutsModal } = useShortcutsModal();
 const { confirm } = useConfirm();
 
-const showNewDeviceButton = computed(() => NEW_DEVICE_VIEWS.has(activeView.value));
+const showNewDeviceButton = computed(() =>
+  NEW_DEVICE_VIEWS.has(activeView.value),
+);
 
 // Additive fast-access toggle (issue #266) — flips the explicit light/dark
 // mode directly, leaving Settings' theme selector (light/dark/system) as the
@@ -69,10 +76,16 @@ async function toggleThemeKind() {
   await setMode(resolvedKind.value === "dark" ? "light" : "dark");
 }
 
-const updateStatusDotClass = computed(() => `update-status-dot--${updateStatus.value}`);
+const updateStatusDotClass = computed(
+  () => `update-status-dot--${updateStatus.value}`,
+);
 
 const pipeWireStatusText = computed(() => {
-  if (runtimeGraphLoading.value && !runtimeGraph.value.devices.length && !runtimeGraph.value.streams.length) {
+  if (
+    runtimeGraphLoading.value &&
+    !runtimeGraph.value.devices.length &&
+    !runtimeGraph.value.streams.length
+  ) {
     return "Checking…";
   }
   if (runtimeGraphError.value) return "PipeWire unreachable";
@@ -81,7 +94,11 @@ const pipeWireStatusText = computed(() => {
 });
 
 const pipeWireStatusClass = computed(() => {
-  if (runtimeGraphLoading.value && !runtimeGraph.value.devices.length && !runtimeGraph.value.streams.length) {
+  if (
+    runtimeGraphLoading.value &&
+    !runtimeGraph.value.devices.length &&
+    !runtimeGraph.value.streams.length
+  ) {
     return "status-dot--muted";
   }
   if (runtimeGraphError.value) return "status-dot--error";
@@ -123,14 +140,20 @@ async function toggleSidebar() {
   } catch (error) {
     sidebarCollapsed.value = !next;
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
-  return target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(target.tagName);
+  return (
+    target instanceof HTMLElement &&
+    ["INPUT", "TEXTAREA"].includes(target.tagName)
+  );
 }
 
 function onWindowKeydown(event: KeyboardEvent) {
@@ -158,7 +181,10 @@ async function onCloseBehaviorPromptNeeded() {
     await invoke("set_close_behavior", { behavior, applyNow: true });
   } catch (error) {
     handleApplyResult(
-      { success: false, message: error instanceof Error ? error.message : String(error) },
+      {
+        success: false,
+        message: error instanceof Error ? error.message : String(error),
+      },
       "",
     );
   }
@@ -185,10 +211,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="app-shell" :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }">
+  <div
+    class="app-shell"
+    :class="{ 'app-shell--sidebar-collapsed': sidebarCollapsed }"
+  >
     <nav class="sidebar" :class="{ 'sidebar--collapsed': sidebarCollapsed }">
       <div class="brand">
-        <img class="brand-logo" src="/pipe-deck.svg" alt="" width="56" height="56" />
+        <img
+          class="brand-logo"
+          src="/pipe-deck.svg"
+          alt=""
+          width="56"
+          height="56"
+        />
         <span v-show="!sidebarCollapsed" class="brand-name">Pipe Deck</span>
       </div>
       <a
@@ -201,31 +236,54 @@ onUnmounted(() => {
           'has-popover': item.comingSoon,
         }"
         :aria-disabled="!item.enabled || undefined"
-        :title="sidebarCollapsed ? item.label : item.comingSoon ? 'Coming soon' : undefined"
+        :title="
+          sidebarCollapsed
+            ? item.label
+            : item.comingSoon
+              ? 'Coming soon'
+              : undefined
+        "
         href="#"
         @click.prevent="selectView(item.id, item.enabled)"
       >
         <NavIcon :kind="item.id" class="nav-item-icon" />
-        <span v-show="!sidebarCollapsed" class="nav-item-label">{{ item.label }}</span>
-        <span v-if="item.comingSoon" class="nav-popover" role="tooltip">Coming soon</span>
+        <span v-show="!sidebarCollapsed" class="nav-item-label">{{
+          item.label
+        }}</span>
+        <span v-if="item.comingSoon" class="nav-popover" role="tooltip"
+          >Coming soon</span
+        >
       </a>
 
       <div class="sidebar-footer">
         <div class="status-tray">
-          <div class="status-row" :title="sidebarCollapsed ? pipeWireStatusText : undefined">
+          <div
+            class="status-row"
+            :title="sidebarCollapsed ? pipeWireStatusText : undefined"
+          >
             <span class="status-dot" :class="pipeWireStatusClass" />
-            <span v-show="!sidebarCollapsed" class="status-row-label">{{ pipeWireStatusText }}</span>
+            <span v-show="!sidebarCollapsed" class="status-row-label">{{
+              pipeWireStatusText
+            }}</span>
           </div>
           <div
             class="status-row"
-            :title="sidebarCollapsed ? `Updates: ${updateStatusText}` : undefined"
+            :title="
+              sidebarCollapsed ? `Updates: ${updateStatusText}` : undefined
+            "
           >
             <span class="status-dot" :class="updateStatusDotClass" />
-            <span v-show="!sidebarCollapsed" class="status-row-label">{{ updateStatusText }}</span>
+            <span v-show="!sidebarCollapsed" class="status-row-label">{{
+              updateStatusText
+            }}</span>
           </div>
           <div
             class="status-row"
-            :title="sidebarCollapsed ? `Restore at login: ${restoreAtLoginText}` : undefined"
+            :title="
+              sidebarCollapsed
+                ? `Restore at login: ${restoreAtLoginText}`
+                : undefined
+            "
           >
             <span class="status-dot" :class="restoreAtLoginClass" />
             <span v-show="!sidebarCollapsed" class="status-row-label">
@@ -263,12 +321,33 @@ onUnmounted(() => {
           <button
             type="button"
             class="topbar-theme-toggle"
-            :aria-label="resolvedKind === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
-            :title="resolvedKind === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'"
+            :aria-label="
+              resolvedKind === 'dark'
+                ? 'Switch to light theme'
+                : 'Switch to dark theme'
+            "
+            :title="
+              resolvedKind === 'dark'
+                ? 'Switch to light theme'
+                : 'Switch to dark theme'
+            "
             @click="toggleThemeKind"
           >
-            <svg v-if="resolvedKind === 'dark'" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <circle cx="12" cy="12" r="4" fill="none" stroke="currentColor" stroke-width="2" />
+            <svg
+              v-if="resolvedKind === 'dark'"
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
+              <circle
+                cx="12"
+                cy="12"
+                r="4"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              />
               <path
                 d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"
                 stroke="currentColor"
@@ -276,7 +355,13 @@ onUnmounted(() => {
                 stroke-linecap="round"
               />
             </svg>
-            <svg v-else viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <svg
+              v-else
+              viewBox="0 0 24 24"
+              width="16"
+              height="16"
+              aria-hidden="true"
+            >
               <path
                 d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"
                 fill="none"
@@ -294,7 +379,14 @@ onUnmounted(() => {
             @click="openShortcutsModal()"
           >
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" />
+              <circle
+                cx="12"
+                cy="12"
+                r="9"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+              />
               <path
                 d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.29c-.7.32-1 .82-1 1.46V14"
                 fill="none"
@@ -303,7 +395,13 @@ onUnmounted(() => {
                 stroke-linecap="round"
                 stroke-linejoin="round"
               />
-              <circle cx="12" cy="17" r="0.75" fill="currentColor" stroke="none" />
+              <circle
+                cx="12"
+                cy="17"
+                r="0.75"
+                fill="currentColor"
+                stroke="none"
+              />
             </svg>
           </button>
           <button

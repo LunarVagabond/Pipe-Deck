@@ -52,7 +52,9 @@ function main() {
     body = args.body || "";
     author = args.author;
     if (!author) {
-      console.error("Need --author (or --pr) to simulate a permission/assignee check.");
+      console.error(
+        "Need --author (or --pr) to simulate a permission/assignee check.",
+      );
       process.exit(2);
     }
     console.log(`Simulated PR: "${title}" by @${author}`);
@@ -64,9 +66,13 @@ function main() {
   if (/^(\[noissue\]|\[hotfix\]) - .+/.test(title)) {
     let perm;
     try {
-      perm = ghApi(`repos/${OWNER}/${REPO}/collaborators/${encodeURIComponent(author)}/permission`);
+      perm = ghApi(
+        `repos/${OWNER}/${REPO}/collaborators/${encodeURIComponent(author)}/permission`,
+      );
     } catch (error) {
-      console.log(`FAIL: could not look up @${author}'s permission (${error.message})`);
+      console.log(
+        `FAIL: could not look up @${author}'s permission (${error.message})`,
+      );
       process.exit(1);
     }
     if (perm.permission === "admin" || perm.permission === "write") {
@@ -75,12 +81,13 @@ function main() {
     }
     console.log(
       `FAIL: [noissue]/[hotfix] titles are restricted to the maintainer and named core devs. ` +
-        `@${author} has "${perm.permission}" access (needs admin/write) — this title isn't allowed.`
+        `@${author} has "${perm.permission}" access (needs admin/write) — this title isn't allowed.`,
     );
     process.exit(1);
   }
 
-  const keywordPattern = /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)/gi;
+  const keywordPattern =
+    /\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)/gi;
   const issueNumbers = new Set();
   let match;
   while ((match = keywordPattern.exec(body)) !== null) {
@@ -88,7 +95,9 @@ function main() {
   }
 
   if (issueNumbers.size === 0) {
-    console.log("FAIL: no issue reference found (need e.g. 'Closes #123' in the PR body).");
+    console.log(
+      "FAIL: no issue reference found (need e.g. 'Closes #123' in the PR body).",
+    );
     process.exit(1);
   }
 
@@ -98,13 +107,19 @@ function main() {
     try {
       issue = ghApi(`repos/${OWNER}/${REPO}/issues/${issue_number}`);
     } catch (error) {
-      problems.push(`#${issue_number} could not be looked up (${error.message})`);
+      problems.push(
+        `#${issue_number} could not be looked up (${error.message})`,
+      );
       continue;
     }
     const assignees = issue.assignees.map((a) => a.login);
     if (!assignees.includes(author)) {
-      const assigneeList = assignees.length ? assignees.map((l) => `@${l}`).join(", ") : "nobody";
-      problems.push(`#${issue_number} is assigned to ${assigneeList}, not @${author}`);
+      const assigneeList = assignees.length
+        ? assignees.map((l) => `@${l}`).join(", ")
+        : "nobody";
+      problems.push(
+        `#${issue_number} is assigned to ${assigneeList}, not @${author}`,
+      );
     }
   }
 
@@ -114,7 +129,9 @@ function main() {
     process.exit(1);
   }
 
-  console.log(`PASS: @${author} is assigned to every referenced issue (${[...issueNumbers].join(", ")}).`);
+  console.log(
+    `PASS: @${author} is assigned to every referenced issue (${[...issueNumbers].join(", ")}).`,
+  );
   process.exit(0);
 }
 

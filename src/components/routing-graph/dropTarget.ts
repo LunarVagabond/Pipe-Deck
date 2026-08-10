@@ -1,5 +1,11 @@
 import { MEMBER_GAP, nearestGroupEdge } from "./groups";
-import type { GraphGroup, GraphRect, GroupEdge, GroupLayoutAxis, GroupMemberInput } from "./groups";
+import type {
+  GraphGroup,
+  GraphRect,
+  GroupEdge,
+  GroupLayoutAxis,
+  GroupMemberInput,
+} from "./groups";
 
 /** Finds which group (if any) a loose node dragged to `nodeRect` should join, and at which edge. */
 export function findDropTarget(
@@ -15,7 +21,8 @@ export function findDropTarget(
     };
     const edge = nearestGroupEdge(nodeRect, groupRect);
     if (edge) {
-      const axis: GroupLayoutAxis = edge === "left" || edge === "right" ? "row" : "column";
+      const axis: GroupLayoutAxis =
+        edge === "left" || edge === "right" ? "row" : "column";
       return { group, axis, edge };
     }
   }
@@ -39,7 +46,9 @@ export function computeSlotPosition(
       const minX = Math.min(...members.map((member) => member.position.x));
       return { x: minX - MEMBER_GAP - nodeRect.width, y: top };
     }
-    const maxX = Math.max(...members.map((member) => member.position.x + member.width));
+    const maxX = Math.max(
+      ...members.map((member) => member.position.x + member.width),
+    );
     return { x: maxX + MEMBER_GAP, y: top };
   }
   const left = Math.min(...members.map((member) => member.position.x));
@@ -47,6 +56,8 @@ export function computeSlotPosition(
     const minY = Math.min(...members.map((member) => member.position.y));
     return { x: left, y: minY - MEMBER_GAP - nodeRect.height };
   }
-  const maxY = Math.max(...members.map((member) => member.position.y + member.height));
+  const maxY = Math.max(
+    ...members.map((member) => member.position.y + member.height),
+  );
   return { x: left, y: maxY + MEMBER_GAP };
 }

@@ -45,8 +45,8 @@ const isEmpty = computed(
     <p v-if="loading" class="status">Loading runtime graph…</p>
     <p v-else-if="error" class="status error">{{ error }}</p>
     <p v-else-if="isEmpty" class="empty">
-      No active audio streams. Play something or connect an audio device to see mixer controls
-      here.
+      No active audio streams. Play something or connect an audio device to see
+      mixer controls here.
     </p>
 
     <MixerStrip v-else :devices="graph.devices" :streams="mixerStreams" />

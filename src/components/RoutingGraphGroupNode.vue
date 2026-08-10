@@ -24,12 +24,20 @@ function pickColor(color: string) {
 
 function onDocumentPointerDown(event: PointerEvent) {
   if (!colorPickerOpen.value) return;
-  if (event.target instanceof Node && colorPickerRef.value?.contains(event.target)) return;
+  if (
+    event.target instanceof Node &&
+    colorPickerRef.value?.contains(event.target)
+  )
+    return;
   colorPickerOpen.value = false;
 }
 
-onMounted(() => document.addEventListener("pointerdown", onDocumentPointerDown));
-onUnmounted(() => document.removeEventListener("pointerdown", onDocumentPointerDown));
+onMounted(() =>
+  document.addEventListener("pointerdown", onDocumentPointerDown),
+);
+onUnmounted(() =>
+  document.removeEventListener("pointerdown", onDocumentPointerDown),
+);
 
 watch(
   () => props.data.label,
@@ -67,8 +75,14 @@ function onKeydown(event: KeyboardEvent) {
 </script>
 
 <template>
-  <div class="routing-graph-group" :style="data.color ? { '--group-color': data.color } : undefined">
-    <div class="routing-graph-group-header group-drag-handle" @dblclick="startEdit">
+  <div
+    class="routing-graph-group"
+    :style="data.color ? { '--group-color': data.color } : undefined"
+  >
+    <div
+      class="routing-graph-group-header group-drag-handle"
+      @dblclick="startEdit"
+    >
       <div class="routing-graph-group-color" ref="colorPickerRef">
         <button
           type="button"
@@ -79,7 +93,11 @@ function onKeydown(event: KeyboardEvent) {
           @pointerdown.stop
           @click.stop="colorPickerOpen = !colorPickerOpen"
         />
-        <div v-if="colorPickerOpen" class="routing-graph-group-color-popover" @pointerdown.stop>
+        <div
+          v-if="colorPickerOpen"
+          class="routing-graph-group-color-popover"
+          @pointerdown.stop
+        >
           <button
             v-for="color in colorChoices"
             :key="color"

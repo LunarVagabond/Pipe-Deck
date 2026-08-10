@@ -19,7 +19,9 @@ const props = defineProps<{
 const { handleApplyResult } = useApplyResult();
 const actions = inject(routingGraphActionsKey, null);
 const graphNodeId = computed(() => processingNodeNodeId(props.nodeId));
-const isIsolated = computed(() => actions?.isEffectIsolated(graphNodeId.value) ?? false);
+const isIsolated = computed(
+  () => actions?.isEffectIsolated(graphNodeId.value) ?? false,
+);
 
 function onToggleIsolate() {
   void actions?.isolateEffectNode(graphNodeId.value);
@@ -55,21 +57,27 @@ function onBandInput(key: (typeof BANDS)[number]["key"], event: Event) {
   pending.value[key] = Number((event.target as HTMLInputElement).value);
 }
 
-async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event) {
+async function onBandChange(
+  param: (typeof BANDS)[number]["param"],
+  event: Event,
+) {
   const value = Number((event.target as HTMLInputElement).value);
   const band = BANDS.find((entry) => entry.param === param);
   if (band) {
     pending.value[band.key] = value;
   }
-  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_eq_params", {
-    nodeId: props.nodeId,
-    eqSub: param === "eq_sub" ? value : props.eqSub,
-    eqBass: param === "eq_bass" ? value : props.eqBass,
-    eqMid: param === "eq_mid" ? value : props.eqMid,
-    eqTreble: param === "eq_treble" ? value : props.eqTreble,
-    eqAir: param === "eq_air" ? value : props.eqAir,
-    outputGain: param === "output_gain" ? value : props.outputGain,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "update_processing_node_eq_params",
+    {
+      nodeId: props.nodeId,
+      eqSub: param === "eq_sub" ? value : props.eqSub,
+      eqBass: param === "eq_bass" ? value : props.eqBass,
+      eqMid: param === "eq_mid" ? value : props.eqMid,
+      eqTreble: param === "eq_treble" ? value : props.eqTreble,
+      eqAir: param === "eq_air" ? value : props.eqAir,
+      outputGain: param === "output_gain" ? value : props.outputGain,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -80,15 +88,18 @@ async function onBandChange(param: (typeof BANDS)[number]["param"], event: Event
  * than one param changed at a time. */
 async function onReset() {
   pending.value = {};
-  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_eq_params", {
-    nodeId: props.nodeId,
-    eqSub: 0,
-    eqBass: 0,
-    eqMid: 0,
-    eqTreble: 0,
-    eqAir: 0,
-    outputGain: 0,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "update_processing_node_eq_params",
+    {
+      nodeId: props.nodeId,
+      eqSub: 0,
+      eqBass: 0,
+      eqMid: 0,
+      eqTreble: 0,
+      eqAir: 0,
+      outputGain: 0,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -97,10 +108,13 @@ async function onReset() {
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
-  const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {
-    nodeId: props.nodeId,
-    bypassed: !props.bypassed,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "set_processing_node_bypassed",
+    {
+      nodeId: props.nodeId,
+      bypassed: !props.bypassed,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -115,14 +129,21 @@ defineExpose({ reset: onReset });
 </script>
 
 <template>
-  <div class="routing-graph-node-eq5band nodrag" :class="{ 'is-bypassed': bypassed }">
+  <div
+    class="routing-graph-node-eq5band nodrag"
+    :class="{ 'is-bypassed': bypassed }"
+  >
     <div class="routing-graph-node-eq5band-actions">
       <button
         type="button"
         class="routing-graph-node-eq5band-bypass"
         :class="{ active: bypassed }"
         :aria-pressed="bypassed"
-        :title="bypassed ? 'Bypassed — passing through unprocessed' : 'Bypass — keep wiring, skip processing'"
+        :title="
+          bypassed
+            ? 'Bypassed — passing through unprocessed'
+            : 'Bypass — keep wiring, skip processing'
+        "
         @click="onToggleBypass"
       >
         {{ bypassed ? "Bypassed" : "Bypass" }}
@@ -132,13 +153,21 @@ defineExpose({ reset: onReset });
         class="routing-graph-node-eq5band-isolate"
         :class="{ active: isIsolated }"
         :aria-pressed="isIsolated"
-        :title="isIsolated ? 'Isolated — click to restore other effects' : 'Isolate — bypass every other effect in this chain'"
+        :title="
+          isIsolated
+            ? 'Isolated — click to restore other effects'
+            : 'Isolate — bypass every other effect in this chain'
+        "
         @click="onToggleIsolate"
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
       </button>
     </div>
-    <div v-for="band in BANDS" :key="band.key" class="routing-graph-node-eq5band-row">
+    <div
+      v-for="band in BANDS"
+      :key="band.key"
+      class="routing-graph-node-eq5band-row"
+    >
       <span class="routing-graph-node-eq5band-label">{{ band.label }}</span>
       <input
         type="range"
@@ -151,7 +180,9 @@ defineExpose({ reset: onReset });
         @input="onBandInput(band.key, $event)"
         @change="onBandChange(band.param, $event)"
       />
-      <span class="routing-graph-node-eq5band-value">{{ valueFor(band.key) }}dB</span>
+      <span class="routing-graph-node-eq5band-value"
+        >{{ valueFor(band.key) }}dB</span
+      >
     </div>
   </div>
 </template>

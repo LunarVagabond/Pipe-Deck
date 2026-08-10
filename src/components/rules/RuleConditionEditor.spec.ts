@@ -3,7 +3,10 @@ import { describe, expect, it } from "vitest";
 import RuleConditionEditor from "./RuleConditionEditor.vue";
 import type { RuleCondition } from "../../types/graph";
 
-function mountEditor(condition: RuleCondition, overrides: Record<string, unknown> = {}) {
+function mountEditor(
+  condition: RuleCondition,
+  overrides: Record<string, unknown> = {},
+) {
   return mount(RuleConditionEditor, {
     props: {
       condition,
@@ -25,7 +28,11 @@ describe("RuleConditionEditor", () => {
   });
 
   it("shows field + pattern inputs for a regex condition", () => {
-    const wrapper = mountEditor({ type: "regex", field: "app_name", pattern: "Disc.*" });
+    const wrapper = mountEditor({
+      type: "regex",
+      field: "app_name",
+      pattern: "Disc.*",
+    });
 
     const selects = wrapper.findAll("select");
     expect(selects).toHaveLength(2);
@@ -58,20 +65,30 @@ describe("RuleConditionEditor", () => {
   });
 
   it("disables the remove button when canRemove is false", () => {
-    const wrapper = mountEditor({ type: "identity", value: "" }, { canRemove: false });
+    const wrapper = mountEditor(
+      { type: "identity", value: "" },
+      { canRemove: false },
+    );
 
-    expect(wrapper.find(".condition-remove").attributes("disabled")).toBeDefined();
+    expect(
+      wrapper.find(".condition-remove").attributes("disabled"),
+    ).toBeDefined();
   });
 
   it("applies the active class when active is true", () => {
-    const wrapper = mountEditor({ type: "identity", value: "" }, { active: true });
+    const wrapper = mountEditor(
+      { type: "identity", value: "" },
+      { active: true },
+    );
 
     expect(wrapper.find(".condition-card").classes()).toContain("active");
   });
 
   it("renders suggestion chips and updates the value when one is clicked", async () => {
     const condition: RuleCondition = { type: "identity", value: "" };
-    const wrapper = mountEditor(condition, { suggestions: ["firefox", "discord"] });
+    const wrapper = mountEditor(condition, {
+      suggestions: ["firefox", "discord"],
+    });
 
     const chips = wrapper.findAll(".condition-suggestion-chip");
     expect(chips.map((chip) => chip.text())).toEqual(["firefox", "discord"]);

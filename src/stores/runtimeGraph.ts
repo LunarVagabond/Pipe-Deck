@@ -2,7 +2,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { onMounted, onUnmounted, ref } from "vue";
 import { createTrailingDebouncer } from "../composables/useThrottledGraphUpdates";
-import type { AppConfig, ProfileIndexEntry, RuntimeGraph } from "../types/graph";
+import type {
+  AppConfig,
+  ProfileIndexEntry,
+  RuntimeGraph,
+} from "../types/graph";
 
 // Backend already coalesces PipeWire monitor events before emitting
 // "graph-updated" (up to ~2-5Hz, see live.rs's MONITOR_DEBOUNCE/

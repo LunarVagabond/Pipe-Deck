@@ -1,4 +1,9 @@
-import type { Device, ProcessingNode, RuntimeGraph, Stream } from "../../types/graph";
+import type {
+  Device,
+  ProcessingNode,
+  RuntimeGraph,
+  Stream,
+} from "../../types/graph";
 import {
   deviceColumn,
   deviceSubtitle,
@@ -8,7 +13,10 @@ import {
   streamDisplayLabel,
   streamSubtitle,
 } from "../../utils/routingLayout";
-import { actionStatusLabel, routeWarningLevel } from "../../utils/routeExplanation";
+import {
+  actionStatusLabel,
+  routeWarningLevel,
+} from "../../utils/routeExplanation";
 import { formatMismatch } from "../../utils/formatMismatch";
 import { streamIdentityKey } from "../../utils/streamIdentity";
 import {
@@ -25,7 +33,13 @@ import type { GraphGroup } from "./groups";
 
 export type { RoutingGraphHandle };
 
-export type RoutingNodeKind = "stream" | "captureStream" | "virtualSink" | "output" | "input" | "processingNode";
+export type RoutingNodeKind =
+  | "stream"
+  | "captureStream"
+  | "virtualSink"
+  | "output"
+  | "input"
+  | "processingNode";
 
 export interface RoutingGraphNodeData {
   label: string;
@@ -190,7 +204,9 @@ function columnXFor(hasIn: boolean, hasOut: boolean): number {
 function loadLayout(): Record<string, { x: number; y: number }> {
   try {
     const raw = localStorage.getItem(LAYOUT_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, { x: number; y: number }>) : {};
+    return raw
+      ? (JSON.parse(raw) as Record<string, { x: number; y: number }>)
+      : {};
   } catch {
     return {};
   }
@@ -251,7 +267,10 @@ export function saveNodePosition(nodeId: string, x: number, y: number) {
 // independent slot pools for what's visually one column, letting an
 // auto-placed input node and an auto-placed stream node both land on slot 0
 // and render exactly on top of each other.
-function nextFreeSlot(x: number, occupiedSlots: Map<number, Set<number>>): number {
+function nextFreeSlot(
+  x: number,
+  occupiedSlots: Map<number, Set<number>>,
+): number {
   let slots = occupiedSlots.get(x);
   if (!slots) {
     slots = new Set();
@@ -280,13 +299,25 @@ function positionFor(
   return position;
 }
 
-export { deviceNodeId, parseGraphNodeId, processingNodeNodeId, streamNodeId } from "./nodeIds";
+export {
+  deviceNodeId,
+  parseGraphNodeId,
+  processingNodeNodeId,
+  streamNodeId,
+} from "./nodeIds";
 
-function streamNodeKind(stream: Stream, devices: Device[]): RoutingGraphNodeData {
+function streamNodeKind(
+  stream: Stream,
+  devices: Device[],
+): RoutingGraphNodeData {
   const playback = stream.direction === "playback";
   const warning = routeWarningLevel(stream.route_explanation);
-  const targetDevice = devices.find((device) => device.id === stream.current_target);
-  const format = targetDevice ? formatMismatch(stream, targetDevice) : { mismatch: false };
+  const targetDevice = devices.find(
+    (device) => device.id === stream.current_target,
+  );
+  const format = targetDevice
+    ? formatMismatch(stream, targetDevice)
+    : { mismatch: false };
   return {
     label: streamDisplayLabel(stream),
     subtitle: streamSubtitle(stream),
@@ -295,13 +326,18 @@ function streamNodeKind(stream: Stream, devices: Device[]): RoutingGraphNodeData
     accent: streamAccent(stream.id),
     handles: handlesForStream(stream),
     nodeClass: playback ? "playback" : "capture",
-    channelType: stream.volume_percent !== undefined && !stream.is_system ? "stream" : undefined,
+    channelType:
+      stream.volume_percent !== undefined && !stream.is_system
+        ? "stream"
+        : undefined,
     volumePercent: stream.volume_percent,
     muted: stream.muted,
     // Streams are always audio sources — always effects-capable.
     supportsEffects: true,
     routeWarning: warning ?? undefined,
-    routeWarningTitle: warning ? actionStatusLabel(stream.route_explanation?.action_status) : undefined,
+    routeWarningTitle: warning
+      ? actionStatusLabel(stream.route_explanation?.action_status)
+      : undefined,
     formatMismatch: format.mismatch || undefined,
     formatMismatchTitle: format.title,
     streamIdentityKey: streamIdentityKey(stream),
@@ -309,7 +345,9 @@ function streamNodeKind(stream: Stream, devices: Device[]): RoutingGraphNodeData
 }
 
 function isManagedVirtualDevice(device: Device): boolean {
-  return device.kind === "virtual" && device.system_name.startsWith("pipe-deck-");
+  return (
+    device.kind === "virtual" && device.system_name.startsWith("pipe-deck-")
+  );
 }
 
 function deviceNodeKind(
@@ -325,7 +363,8 @@ function deviceNodeKind(
     systemName: device.system_name,
     editable: true,
     deletable: managed,
-    channelType: device.volume_percent !== undefined ? ("device" as const) : undefined,
+    channelType:
+      device.volume_percent !== undefined ? ("device" as const) : undefined,
     volumePercent: device.volume_percent,
     muted: device.muted,
     // Hardware (physical) devices keep a plain volume slider only — no
@@ -360,7 +399,8 @@ function deviceNodeKind(
     };
   }
 
-  const isVirtualInput = device.kind === "virtual" && device.direction === "input";
+  const isVirtualInput =
+    device.kind === "virtual" && device.direction === "input";
   return {
     label: device.label,
     subtitle: deviceSubtitle(device),
@@ -372,36 +412,49 @@ function deviceNodeKind(
   };
 }
 
-const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> = {
-  mixer: "Mixer",
-  fan_out: "Fan-Out",
-  group: "Group",
-  eq5band: "5-Band EQ",
-  delay: "Delay",
-  limiter: "Limiter",
-  hpf: "High-Pass Filter",
-  reverb: "Reverb",
-  widener: "Stereo Widener",
-  pan: "Balance/Pan",
-  stub: "Not implemented yet",
-};
+const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
+  {
+    mixer: "Mixer",
+    fan_out: "Fan-Out",
+    group: "Group",
+    eq5band: "5-Band EQ",
+    delay: "Delay",
+    limiter: "Limiter",
+    hpf: "High-Pass Filter",
+    reverb: "Reverb",
+    widener: "Stereo Widener",
+    pan: "Balance/Pan",
+    stub: "Not implemented yet",
+  };
 
-function processingNodeNodeKind(node: ProcessingNode, graph: RuntimeGraph): RoutingGraphNodeData {
-  const memberIds = new Set((node.outputs ?? []).map((port) => port.connected_id).filter(Boolean));
+function processingNodeNodeKind(
+  node: ProcessingNode,
+  graph: RuntimeGraph,
+): RoutingGraphNodeData {
+  const memberIds = new Set(
+    (node.outputs ?? []).map((port) => port.connected_id).filter(Boolean),
+  );
   const groupMembers =
     node.kind.kind === "group"
       ? (node.outputs ?? [])
-          .filter((port): port is typeof port & { connected_id: string } => Boolean(port.connected_id))
+          .filter((port): port is typeof port & { connected_id: string } =>
+            Boolean(port.connected_id),
+          )
           .map((port) => ({
             id: port.connected_id,
-            label: graph.devices.find((device) => device.id === port.connected_id)?.label ?? port.connected_id,
+            label:
+              graph.devices.find((device) => device.id === port.connected_id)
+                ?.label ?? port.connected_id,
             portIndex: port.index,
           }))
       : undefined;
   const groupAvailableDevices =
     node.kind.kind === "group"
       ? graph.devices
-          .filter((device) => deviceColumn(device) === "outputs" && !memberIds.has(device.id))
+          .filter(
+            (device) =>
+              deviceColumn(device) === "outputs" && !memberIds.has(device.id),
+          )
           .map((device) => ({ id: device.id, label: device.label }))
       : undefined;
 
@@ -435,9 +488,15 @@ function slotIndexForY(y: number, rowHeight: number): number {
   return Math.round((y - LANE_Y_OFFSET) / rowHeight);
 }
 
-export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []): BuiltRoutingGraph {
+export function buildRoutingGraph(
+  graph: RuntimeGraph,
+  groups: GraphGroup[] = [],
+): BuiltRoutingGraph {
   const layout = loadLayout();
-  const rowHeight = (graph.processing_nodes ?? []).length > 0 ? LANE_ROW_HEIGHT_TALL : LANE_ROW_HEIGHT_PLAIN;
+  const rowHeight =
+    (graph.processing_nodes ?? []).length > 0
+      ? LANE_ROW_HEIGHT_TALL
+      : LANE_ROW_HEIGHT_PLAIN;
 
   // Saved positions are keyed by node id and never removed when a node disappears
   // (a stream closes, a device is unplugged). Left unpruned, those stale entries
@@ -450,7 +509,8 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   for (const device of graph.devices) {
     if (deviceColumn(device)) liveNodeIds.add(deviceNodeId(device.id));
   }
-  for (const node of graph.processing_nodes ?? []) liveNodeIds.add(processingNodeNodeId(node.id));
+  for (const node of graph.processing_nodes ?? [])
+    liveNodeIds.add(processingNodeNodeId(node.id));
   for (const group of groups) liveNodeIds.add(group.id);
 
   // Count current streams per identity so a departing node's saved position
@@ -464,7 +524,10 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   for (const stream of graph.streams) {
     const identity = streamIdentityKey(stream);
     const id = streamNodeId(stream.id);
-    currentIdentityCounts.set(identity, (currentIdentityCounts.get(identity) ?? 0) + 1);
+    currentIdentityCounts.set(
+      identity,
+      (currentIdentityCounts.get(identity) ?? 0) + 1,
+    );
     currentIdentityToNodeId.set(identity, id);
     currentNodeIdToIdentity.set(id, identity);
   }
@@ -480,7 +543,8 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     if (liveNodeIds.has(staleId)) continue;
     if ((currentIdentityCounts.get(identity) ?? 0) !== 1) continue;
     const newId = currentIdentityToNodeId.get(identity);
-    if (!newId || newId === staleId || layout[newId] || !layout[staleId]) continue;
+    if (!newId || newId === staleId || layout[newId] || !layout[staleId])
+      continue;
     layout[newId] = layout[staleId];
     layoutChanged = true;
   }
@@ -550,13 +614,20 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   // Stable, id-based order: which nodes claim a free auto-layout slot should
   // depend only on the set of node ids present, not on backend array ordering
   // (which can vary between polls and would otherwise reshuffle un-dragged nodes).
-  const sortedStreams = [...graph.streams].sort((a, b) => a.id.localeCompare(b.id));
-  const sortedDevices = [...graph.devices].sort((a, b) => a.id.localeCompare(b.id));
+  const sortedStreams = [...graph.streams].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
+  const sortedDevices = [...graph.devices].sort((a, b) =>
+    a.id.localeCompare(b.id),
+  );
 
   for (const stream of sortedStreams) {
     const data = streamNodeKind(stream, graph.devices);
     const id = streamNodeId(stream.id);
-    const x = columnXFor(stream.direction === "capture", stream.direction === "playback");
+    const x = columnXFor(
+      stream.direction === "capture",
+      stream.direction === "playback",
+    );
     nodes.push({
       id,
       type: "routingNode",
@@ -568,7 +639,10 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
   const deviceConnections = computeDeviceConnections(graph);
 
   for (const device of sortedDevices) {
-    const data = deviceNodeKind(device, deviceConnections.get(device.id) ?? { in: [], out: [] });
+    const data = deviceNodeKind(
+      device,
+      deviceConnections.get(device.id) ?? { in: [], out: [] },
+    );
     if (!data) continue;
     const id = deviceNodeId(device.id);
     const { hasIn, hasOut } = deviceHandleSides(device);
@@ -580,7 +654,9 @@ export function buildRoutingGraph(graph: RuntimeGraph, groups: GraphGroup[] = []
     });
   }
 
-  const sortedProcessingNodes = [...(graph.processing_nodes ?? [])].sort((a, b) => a.id.localeCompare(b.id));
+  const sortedProcessingNodes = [...(graph.processing_nodes ?? [])].sort(
+    (a, b) => a.id.localeCompare(b.id),
+  );
   for (const node of sortedProcessingNodes) {
     const data = processingNodeNodeKind(node, graph);
     const id = processingNodeNodeId(node.id);

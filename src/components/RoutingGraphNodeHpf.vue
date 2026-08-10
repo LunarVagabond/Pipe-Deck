@@ -15,21 +15,39 @@ const props = defineProps<{
 const { handleApplyResult } = useApplyResult();
 const actions = inject(routingGraphActionsKey, null);
 const graphNodeId = computed(() => processingNodeNodeId(props.nodeId));
-const isIsolated = computed(() => actions?.isEffectIsolated(graphNodeId.value) ?? false);
+const isIsolated = computed(
+  () => actions?.isEffectIsolated(graphNodeId.value) ?? false,
+);
 
 function onToggleIsolate() {
   void actions?.isolateEffectNode(graphNodeId.value);
 }
 
 const CONTROLS = [
-  { key: "freqHz", label: "Frequency", param: "freq_hz", min: 20, max: 2000, unit: "Hz" },
-  { key: "resonanceX10", label: "Resonance (Q)", param: "resonance_x10", min: 1, max: 100, unit: "" },
+  {
+    key: "freqHz",
+    label: "Frequency",
+    param: "freq_hz",
+    min: 20,
+    max: 2000,
+    unit: "Hz",
+  },
+  {
+    key: "resonanceX10",
+    label: "Resonance (Q)",
+    param: "resonance_x10",
+    min: 1,
+    max: 100,
+    unit: "",
+  },
 ] as const;
 
 /** Keeps a dragged control's value on screen until the next graph push
  * confirms it — same reasoning as `RoutingGraphNodeDelay.vue`'s `pending`
  * ref. */
-const pending = ref<Partial<Record<(typeof CONTROLS)[number]["key"], number>>>({});
+const pending = ref<Partial<Record<(typeof CONTROLS)[number]["key"], number>>>(
+  {},
+);
 
 function valueFor(key: (typeof CONTROLS)[number]["key"]): number {
   return pending.value[key] ?? props[key];
@@ -51,17 +69,23 @@ function onControlInput(key: (typeof CONTROLS)[number]["key"], event: Event) {
   pending.value[key] = Number((event.target as HTMLInputElement).value);
 }
 
-async function onControlChange(param: (typeof CONTROLS)[number]["param"], event: Event) {
+async function onControlChange(
+  param: (typeof CONTROLS)[number]["param"],
+  event: Event,
+) {
   const value = Number((event.target as HTMLInputElement).value);
   const control = CONTROLS.find((entry) => entry.param === param);
   if (control) {
     pending.value[control.key] = value;
   }
-  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_hpf_params", {
-    nodeId: props.nodeId,
-    freqHz: param === "freq_hz" ? value : props.freqHz,
-    resonanceX10: param === "resonance_x10" ? value : props.resonanceX10,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "update_processing_node_hpf_params",
+    {
+      nodeId: props.nodeId,
+      freqHz: param === "freq_hz" ? value : props.freqHz,
+      resonanceX10: param === "resonance_x10" ? value : props.resonanceX10,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -72,11 +96,14 @@ async function onControlChange(param: (typeof CONTROLS)[number]["param"], event:
  * at once. */
 async function onReset() {
   pending.value = {};
-  const response = await invoke<{ success: boolean; message?: string }>("update_processing_node_hpf_params", {
-    nodeId: props.nodeId,
-    freqHz: 20,
-    resonanceX10: 7,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "update_processing_node_hpf_params",
+    {
+      nodeId: props.nodeId,
+      freqHz: 20,
+      resonanceX10: 7,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -85,10 +112,13 @@ async function onReset() {
 /** Keeps every connection exactly as wired — only whether the signal comes
  * through processed or not changes. */
 async function onToggleBypass() {
-  const response = await invoke<{ success: boolean; message?: string }>("set_processing_node_bypassed", {
-    nodeId: props.nodeId,
-    bypassed: !props.bypassed,
-  });
+  const response = await invoke<{ success: boolean; message?: string }>(
+    "set_processing_node_bypassed",
+    {
+      nodeId: props.nodeId,
+      bypassed: !props.bypassed,
+    },
+  );
   if (!response.success) {
     handleApplyResult(response, "");
   }
@@ -103,14 +133,21 @@ defineExpose({ reset: onReset });
 </script>
 
 <template>
-  <div class="routing-graph-node-hpf nodrag" :class="{ 'is-bypassed': bypassed }">
+  <div
+    class="routing-graph-node-hpf nodrag"
+    :class="{ 'is-bypassed': bypassed }"
+  >
     <div class="routing-graph-node-hpf-actions">
       <button
         type="button"
         class="routing-graph-node-hpf-bypass"
         :class="{ active: bypassed }"
         :aria-pressed="bypassed"
-        :title="bypassed ? 'Bypassed — passing through unprocessed' : 'Bypass — keep wiring, skip processing'"
+        :title="
+          bypassed
+            ? 'Bypassed — passing through unprocessed'
+            : 'Bypass — keep wiring, skip processing'
+        "
         @click="onToggleBypass"
       >
         {{ bypassed ? "Bypassed" : "Bypass" }}
@@ -120,13 +157,21 @@ defineExpose({ reset: onReset });
         class="routing-graph-node-hpf-isolate"
         :class="{ active: isIsolated }"
         :aria-pressed="isIsolated"
-        :title="isIsolated ? 'Isolated — click to restore other effects' : 'Isolate — bypass every other effect in this chain'"
+        :title="
+          isIsolated
+            ? 'Isolated — click to restore other effects'
+            : 'Isolate — bypass every other effect in this chain'
+        "
         @click="onToggleIsolate"
       >
         {{ isIsolated ? "Isolated" : "Isolate" }}
       </button>
     </div>
-    <div v-for="control in CONTROLS" :key="control.key" class="routing-graph-node-hpf-row">
+    <div
+      v-for="control in CONTROLS"
+      :key="control.key"
+      class="routing-graph-node-hpf-row"
+    >
       <span class="routing-graph-node-hpf-label">{{ control.label }}</span>
       <input
         type="range"
@@ -139,7 +184,9 @@ defineExpose({ reset: onReset });
         @input="onControlInput(control.key, $event)"
         @change="onControlChange(control.param, $event)"
       />
-      <span class="routing-graph-node-hpf-value">{{ displayValueFor(control.key) }}{{ control.unit }}</span>
+      <span class="routing-graph-node-hpf-value"
+        >{{ displayValueFor(control.key) }}{{ control.unit }}</span
+      >
     </div>
   </div>
 </template>

@@ -1,6 +1,6 @@
-use crate::core::models::{Profile, RoutingIntent, RuntimeGraph, Stream};
-use crate::backend::{AudioBackend, BackendError};
 use crate::backend::linux::split_sink;
+use crate::backend::{AudioBackend, BackendError};
+use crate::core::models::{Profile, RoutingIntent, RuntimeGraph, Stream};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -41,7 +41,10 @@ pub fn capture_routing_snapshot(graph: &RuntimeGraph) -> RoutingSnapshot {
 /// `graph` right now. The raw id wins when it still matches a live device;
 /// otherwise falls back to `target_system_name` (stable across a BT/USB
 /// reconnect that assigned the device a new PipeWire node id — #13, #14).
-fn resolve_intent_target<'a>(graph: &'a RuntimeGraph, intent: &'a RoutingIntent) -> Option<&'a str> {
+fn resolve_intent_target<'a>(
+    graph: &'a RuntimeGraph,
+    intent: &'a RoutingIntent,
+) -> Option<&'a str> {
     let target = intent
         .target_device_id
         .as_deref()
@@ -67,10 +70,7 @@ pub fn apply_routing_intent(
     Ok(())
 }
 
-pub fn apply_profile_routing(
-    graph: &RuntimeGraph,
-    profile: &Profile,
-) -> Result<(), RoutingError> {
+pub fn apply_profile_routing(graph: &RuntimeGraph, profile: &Profile) -> Result<(), RoutingError> {
     for intent in &profile.routing_intents {
         apply_routing_intent(graph, intent)?;
     }
@@ -168,14 +168,26 @@ mod tests {
         let backend = MockAudioBackend::new();
         // The mock's sample graph seeds "sink-chat" already routed to
         // "sink-headphones" — no need to issue a route first.
-        let result = verify_route_applied(&backend, "sink-chat", "sink-headphones", false, Duration::from_millis(500));
+        let result = verify_route_applied(
+            &backend,
+            "sink-chat",
+            "sink-headphones",
+            false,
+            Duration::from_millis(500),
+        );
         assert!(result.is_ok(), "{result:?}");
     }
 
     #[test]
     fn verify_route_applied_times_out_when_the_route_never_takes() {
         let backend = MockAudioBackend::new();
-        let result = verify_route_applied(&backend, "sink-chat", "sink-speakers", false, Duration::from_millis(200));
+        let result = verify_route_applied(
+            &backend,
+            "sink-chat",
+            "sink-speakers",
+            false,
+            Duration::from_millis(200),
+        );
         assert!(result.is_err());
     }
 
@@ -191,7 +203,10 @@ mod tests {
         };
         // The raw id is still live, so it should win even though a (deliberately
         // mismatched) system_name is also present.
-        assert_eq!(resolve_intent_target(&graph, &intent), Some("sink-headphones"));
+        assert_eq!(
+            resolve_intent_target(&graph, &intent),
+            Some("sink-headphones")
+        );
     }
 
     #[test]
@@ -207,7 +222,10 @@ mod tests {
             target_device_ids: Vec::new(),
             target_system_name: Some("sink-headphones".into()),
         };
-        assert_eq!(resolve_intent_target(&graph, &intent), Some("sink-headphones"));
+        assert_eq!(
+            resolve_intent_target(&graph, &intent),
+            Some("sink-headphones")
+        );
     }
 
     #[test]
@@ -261,7 +279,8 @@ mod tests {
     }
 
     #[test]
-    fn apply_profile_volumes_skips_an_entry_that_cannot_be_resolved_instead_of_failing_the_whole_profile() {
+    fn apply_profile_volumes_skips_an_entry_that_cannot_be_resolved_instead_of_failing_the_whole_profile(
+    ) {
         let backend = MockAudioBackend::new();
         let graph = backend.fetch_graph().unwrap();
         let profile = Profile {
@@ -296,7 +315,8 @@ mod tests {
         };
 
         // A device that's genuinely gone shouldn't abort restoring everything else.
-        apply_profile_volumes(&backend, &graph, &profile).expect("unresolvable entries should be skipped, not error");
+        apply_profile_volumes(&backend, &graph, &profile)
+            .expect("unresolvable entries should be skipped, not error");
 
         let updated = backend.fetch_graph().unwrap();
         let device = updated

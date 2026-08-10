@@ -38,7 +38,9 @@ export function useProfiles() {
   }
 
   async function swapProfile(profileId: string) {
-    return invoke<{ success: boolean; message?: string }>("swap_profile", { profileId });
+    return invoke<{ success: boolean; message?: string }>("swap_profile", {
+      profileId,
+    });
   }
 
   async function importProfile(sourcePath: string) {

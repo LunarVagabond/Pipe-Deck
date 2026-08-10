@@ -110,9 +110,13 @@ impl PodSerialize for EffectProps<'_> {
         &self,
         serializer: PodSerializer<O>,
     ) -> Result<SerializeSuccess<O>, spa::pod::serialize::GenError> {
-        let mut obj_serializer =
-            serializer.serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
-        obj_serializer.serialize_property(spa_sys::SPA_PROP_params, &EffectParams(self.0), PropertyFlags::empty())?;
+        let mut obj_serializer = serializer
+            .serialize_object(spa_sys::SPA_TYPE_OBJECT_Props, spa_sys::SPA_PARAM_Props)?;
+        obj_serializer.serialize_property(
+            spa_sys::SPA_PROP_params,
+            &EffectParams(self.0),
+            PropertyFlags::empty(),
+        )?;
         obj_serializer.end()
     }
 }
@@ -167,8 +171,9 @@ fn host() -> &'static Mutex<NativeHost> {
         PW_INIT.call_once(pw::init);
         // SAFETY: `pw::init()` has just been called above (exactly once,
         // process-wide, via `PW_INIT`).
-        let thread_loop = unsafe { pw::thread_loop::ThreadLoopRc::new(Some("pipe-deck-native-host"), None) }
-            .expect("failed to create PipeWire thread loop");
+        let thread_loop =
+            unsafe { pw::thread_loop::ThreadLoopRc::new(Some("pipe-deck-native-host"), None) }
+                .expect("failed to create PipeWire thread loop");
         thread_loop.start();
 
         let node_ids: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
@@ -180,9 +185,14 @@ fn host() -> &'static Mutex<NativeHost> {
 
         let (context, core, registry, node_listener) = {
             let _lock = thread_loop.lock();
-            let context = pw::context::ContextRc::new(&thread_loop, None).expect("failed to create PipeWire context");
-            let core = context.connect_rc(None).expect("failed to connect to PipeWire core");
-            let registry = core.get_registry_rc().expect("failed to get PipeWire registry");
+            let context = pw::context::ContextRc::new(&thread_loop, None)
+                .expect("failed to create PipeWire context");
+            let core = context
+                .connect_rc(None)
+                .expect("failed to connect to PipeWire core");
+            let registry = core
+                .get_registry_rc()
+                .expect("failed to get PipeWire registry");
 
             let add_node_ids = node_ids.clone();
             let add_id_to_name = id_to_name.clone();
@@ -198,16 +208,26 @@ fn host() -> &'static Mutex<NativeHost> {
                         return;
                     };
                     let name = name.to_string();
-                    add_node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(name.clone(), global.id);
-                    add_id_to_name.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(global.id, name);
+                    add_node_ids
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .insert(name.clone(), global.id);
+                    add_id_to_name
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .insert(global.id, name);
                 })
                 .global_remove(move |id| {
-                    let Some(name) =
-                        remove_id_to_name.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).remove(&id)
+                    let Some(name) = remove_id_to_name
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .remove(&id)
                     else {
                         return;
                     };
-                    let mut node_ids = remove_node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+                    let mut node_ids = remove_node_ids
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
                     // Only remove if this id is still on record for that
                     // name — guards against a rare remove-then-immediately-
                     // recreate-with-a-new-id race clobbering a just-inserted
@@ -240,7 +260,12 @@ fn host() -> &'static Mutex<NativeHost> {
 /// equivalent, since a node created within the last instant may not have
 /// reached the index yet.
 fn find_live_node_id(guard: &NativeHost, node_name: &str) -> Option<u32> {
-    guard.node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get(node_name).copied()
+    guard
+        .node_ids
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .get(node_name)
+        .copied()
 }
 
 /// How long to sleep, lock released, per poll attempt while waiting for the
@@ -300,7 +325,11 @@ pub fn shared_connection() -> (pw::thread_loop::ThreadLoopRc, pw::core::CoreRc) 
 /// downstream-linkable playback node name (`effect_output.*`/
 /// `effect_input.*`, matching the restart-based path's shadow naming
 /// exactly) — the playback side never auto-links, per the spike's findings.
-pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChainConfig) -> Result<String, NativeHostError> {
+pub fn load_chain(
+    device_system_name: &str,
+    is_input: bool,
+    config: &EffectChainConfig,
+) -> Result<String, NativeHostError> {
     if is_loaded(device_system_name) {
         unload_chain(device_system_name)?;
     }
@@ -316,21 +345,30 @@ pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChain
         effect_output_name_for_device(device_system_name)
     };
 
-    let module_name_c = CString::new("libpipewire-module-filter-chain").expect("static string has no NUL");
-    let args_c = CString::new(args).map_err(|_| NativeHostError::InvalidArgs(device_system_name.to_string()))?;
+    let module_name_c =
+        CString::new("libpipewire-module-filter-chain").expect("static string has no NUL");
+    let args_c = CString::new(args)
+        .map_err(|_| NativeHostError::InvalidArgs(device_system_name.to_string()))?;
 
     let mut guard = host().lock().expect("native host mutex poisoned");
     let module_ptr = {
         let _lock = guard.thread_loop.lock();
         unsafe {
-            pw_sys::pw_context_load_module(guard.context.as_raw_ptr(), module_name_c.as_ptr(), args_c.as_ptr(), std::ptr::null_mut())
+            pw_sys::pw_context_load_module(
+                guard.context.as_raw_ptr(),
+                module_name_c.as_ptr(),
+                args_c.as_ptr(),
+                std::ptr::null_mut(),
+            )
         }
     };
     if module_ptr.is_null() {
         return Err(NativeHostError::LoadFailed(device_system_name.to_string()));
     }
 
-    guard.loaded.insert(device_system_name.to_string(), ModuleHandle(module_ptr));
+    guard
+        .loaded
+        .insert(device_system_name.to_string(), ModuleHandle(module_ptr));
     let node_ids = guard.node_ids.clone();
     drop(guard);
 
@@ -345,8 +383,14 @@ pub fn load_chain(device_system_name: &str, is_input: bool, config: &EffectChain
     // connection's own `node_ids` index (#430) first, falling back to the
     // `pw-dump` shellout on a miss.
     for _ in 0..SETTLE_ATTEMPTS {
-        let found = node_ids.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).contains_key(&playback_name)
-            || crate::pipewire::pw_cli::find_node_id_by_name(&playback_name).ok().flatten().is_some();
+        let found = node_ids
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .contains_key(&playback_name)
+            || crate::pipewire::pw_cli::find_node_id_by_name(&playback_name)
+                .ok()
+                .flatten()
+                .is_some();
         if found {
             break;
         }
@@ -375,7 +419,11 @@ pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
 
 /// Whether a chain is currently loaded for `device_system_name`.
 pub fn is_loaded(device_system_name: &str) -> bool {
-    host().lock().expect("native host mutex poisoned").loaded.contains_key(device_system_name)
+    host()
+        .lock()
+        .expect("native host mutex poisoned")
+        .loaded
+        .contains_key(device_system_name)
 }
 
 /// Pushes a live `Props` param update — `(control_name, value)` pairs — to
@@ -395,7 +443,10 @@ pub fn is_loaded(device_system_name: &str) -> bool {
 /// (`host()`), and kept continuously updated for the connection's whole
 /// life — so by the time any given `set_param` call runs, it's very likely
 /// already seen the node's original announcement, whenever that was.
-pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(), NativeHostError> {
+pub fn set_param(
+    device_system_name: &str,
+    params: &[(String, f64)],
+) -> Result<(), NativeHostError> {
     if params.is_empty() {
         return Ok(());
     }
@@ -404,15 +455,20 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
 
     let mut id = None;
     for attempt in 0..SETTLE_ATTEMPTS {
-        id = find_live_node_id(&guard, device_system_name)
-            .or_else(|| crate::pipewire::pw_cli::find_node_id_by_name(device_system_name).ok().flatten());
+        id = find_live_node_id(&guard, device_system_name).or_else(|| {
+            crate::pipewire::pw_cli::find_node_id_by_name(device_system_name)
+                .ok()
+                .flatten()
+        });
         if id.is_some() || attempt + 1 == SETTLE_ATTEMPTS {
             break;
         }
         settle();
     }
     let Some(id) = id else {
-        return Err(NativeHostError::NodeNotFound(device_system_name.to_string()));
+        return Err(NativeHostError::NodeNotFound(
+            device_system_name.to_string(),
+        ));
     };
 
     // `bind()` only reads `id` and (via `type_.client_version()`) `type_` —
@@ -431,8 +487,9 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
     let mut bytes = Vec::new();
     PodSerializer::serialize(Cursor::new(&mut bytes), &EffectProps(params))
         .map_err(|error| NativeHostError::PodBuildFailed(format!("{error:?}")))?;
-    let pod = Pod::from_bytes(&bytes)
-        .ok_or_else(|| NativeHostError::PodBuildFailed("serialized pod bytes were malformed".into()))?;
+    let pod = Pod::from_bytes(&bytes).ok_or_else(|| {
+        NativeHostError::PodBuildFailed("serialized pod bytes were malformed".into())
+    })?;
 
     {
         let _lock = guard.thread_loop.lock();
@@ -447,9 +504,15 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
         // and locking`), since destroying a proxy is exactly the kind of
         // "touches an object associated with this loop" operation the lock
         // contract requires.
-        let node: pw::node::Node =
-            guard.registry.bind(&global).map_err(|_| NativeHostError::BindFailed(device_system_name.to_string()))?;
-        node.set_param(spa::param::ParamType::from_raw(spa_sys::SPA_PARAM_Props), 0, pod);
+        let node: pw::node::Node = guard
+            .registry
+            .bind(&global)
+            .map_err(|_| NativeHostError::BindFailed(device_system_name.to_string()))?;
+        node.set_param(
+            spa::param::ParamType::from_raw(spa_sys::SPA_PARAM_Props),
+            0,
+            pod,
+        );
         drop(node);
     }
     drop(guard);
@@ -465,7 +528,11 @@ pub fn set_param(device_system_name: &str, params: &[(String, f64)]) -> Result<(
 /// couldn't distinguish (both paths produce the same success either way).
 #[cfg(test)]
 fn is_indexed(node_name: &str) -> bool {
-    find_live_node_id(&host().lock().expect("native host mutex poisoned"), node_name).is_some()
+    find_live_node_id(
+        &host().lock().expect("native host mutex poisoned"),
+        node_name,
+    )
+    .is_some()
 }
 
 #[cfg(test)]

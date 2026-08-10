@@ -50,7 +50,9 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         let peer_system_name = resolve_system_name_for_id(&self.graph, peer_id)
             .ok_or_else(|| EngineError::InvalidInput(format!("peer not found: {peer_id}")))?;
@@ -61,7 +63,11 @@ impl CoreEngine {
         };
         let is_growable = processing_node_port_growable(direction, &node.kind);
         if !is_growable && ports.iter().any(|port| port.connected_id.is_some()) {
-            let side = if direction == PortDirection::Input { "input" } else { "output" };
+            let side = if direction == PortDirection::Input {
+                "input"
+            } else {
+                "output"
+            };
             return Err(EngineError::InvalidInput(format!(
                 "{node_id} accepts only one {side} - disconnect the existing one first"
             )));
@@ -83,9 +89,16 @@ impl CoreEngine {
                 PortDirection::Output => &peer_node.outputs,
             };
             let peer_growable = processing_node_port_growable(peer_direction, &peer_node.kind);
-            if !peer_growable && peer_ports.iter().any(|port| port.connected_id.as_deref() != Some(node_id) && port.connected_id.is_some())
+            if !peer_growable
+                && peer_ports.iter().any(|port| {
+                    port.connected_id.as_deref() != Some(node_id) && port.connected_id.is_some()
+                })
             {
-                let side = if peer_direction == PortDirection::Input { "input" } else { "output" };
+                let side = if peer_direction == PortDirection::Input {
+                    "input"
+                } else {
+                    "output"
+                };
                 return Err(EngineError::InvalidInput(format!(
                     "{peer_id} accepts only one {side} - disconnect the existing one first"
                 )));
@@ -108,7 +121,13 @@ impl CoreEngine {
         // output-side capacity is already enforced by the peer-capacity
         // check above (non-growable single-output kinds reject a second
         // connect outright).
-        if self.graph.processing_nodes.iter().find(|n| n.id == peer_id).is_none() {
+        if self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|n| n.id == peer_id)
+            .is_none()
+        {
             let stale: Vec<(String, u32)> = self
                 .graph
                 .processing_nodes
@@ -142,7 +161,9 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
         let ports = match direction {
             PortDirection::Input => &node.inputs,
             PortDirection::Output => &node.outputs,
@@ -159,16 +180,32 @@ impl CoreEngine {
         // creates a brand-new PipeWire stream node with the same app
         // identity). Only meaningful for `PortDirection::Input`; an output
         // peer is never a stream (streams have no input ports to feed).
-        let peer_stream_identity =
-            self.graph.streams.iter().find(|stream| stream.id == peer_id).map(stream_identity_key);
+        let peer_stream_identity = self
+            .graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == peer_id)
+            .map(stream_identity_key);
 
         self.adapter
-            .relink_processing_node_port(&self.graph, &node.system_name, port_index, direction, Some(peer_id))
+            .relink_processing_node_port(
+                &self.graph,
+                &node.system_name,
+                port_index,
+                direction,
+                Some(peer_id),
+            )
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
-                .upsert_processing_node_port(node_id, direction, port_index, &peer_system_name, peer_stream_identity)
+                .upsert_processing_node_port(
+                    node_id,
+                    direction,
+                    port_index,
+                    &peer_system_name,
+                    peer_stream_identity,
+                )
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
@@ -182,7 +219,10 @@ impl CoreEngine {
         self.mirror_peer_processing_node_port_connect(node_id, direction, peer_id)?;
 
         self.refresh_graph()?;
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     pub fn disconnect_processing_node_port(
@@ -197,7 +237,9 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         let peer_id = match direction {
             PortDirection::Input => &node.inputs,
@@ -208,7 +250,13 @@ impl CoreEngine {
         .and_then(|port| port.connected_id.clone());
 
         self.adapter
-            .relink_processing_node_port(&self.graph, &node.system_name, port_index, direction, None)
+            .relink_processing_node_port(
+                &self.graph,
+                &node.system_name,
+                port_index,
+                direction,
+                None,
+            )
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
 
         if self.graph.data_source != "mock" {
@@ -230,7 +278,9 @@ impl CoreEngine {
         // mid-edit step, a Group with zero remaining members is meaningless.
         // Disconnecting the last one removes the group outright rather than
         // leaving an empty husk on the canvas.
-        if direction == PortDirection::Output && matches!(node.kind, ProcessingNodeKind::Group { .. }) {
+        if direction == PortDirection::Output
+            && matches!(node.kind, ProcessingNodeKind::Group { .. })
+        {
             let still_has_outputs = self
                 .graph
                 .processing_nodes
@@ -242,7 +292,10 @@ impl CoreEngine {
             }
         }
 
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Keeps a chained peer's own port list in sync with a connect on
@@ -260,7 +313,13 @@ impl CoreEngine {
         direction: PortDirection,
         peer_id: &str,
     ) -> Result<(), EngineError> {
-        let Some(peer_node) = self.graph.processing_nodes.iter().find(|node| node.id == peer_id).cloned() else {
+        let Some(peer_node) = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == peer_id)
+            .cloned()
+        else {
             return Ok(());
         };
         let peer_direction = match direction {
@@ -292,7 +351,13 @@ impl CoreEngine {
 
         if self.graph.data_source == "mock" {
             self.adapter
-                .relink_processing_node_port(&self.graph, &peer_node.system_name, peer_port_index, peer_direction, Some(node_id))
+                .relink_processing_node_port(
+                    &self.graph,
+                    &peer_node.system_name,
+                    peer_port_index,
+                    peer_direction,
+                    Some(node_id),
+                )
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
         } else {
             let node_system_name = resolve_system_name_for_id(&self.graph, node_id)
@@ -300,7 +365,13 @@ impl CoreEngine {
             ConfigStore::new()
                 // `node_id` here is always another processing node, never a
                 // stream, so there's no app identity to persist.
-                .upsert_processing_node_port(peer_id, peer_direction, peer_port_index, &node_system_name, None)
+                .upsert_processing_node_port(
+                    peer_id,
+                    peer_direction,
+                    peer_port_index,
+                    &node_system_name,
+                    None,
+                )
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
         Ok(())
@@ -315,7 +386,13 @@ impl CoreEngine {
         direction: PortDirection,
         peer_id: &str,
     ) -> Result<(), EngineError> {
-        let Some(peer_node) = self.graph.processing_nodes.iter().find(|node| node.id == peer_id).cloned() else {
+        let Some(peer_node) = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == peer_id)
+            .cloned()
+        else {
             return Ok(());
         };
         let peer_direction = match direction {
@@ -336,7 +413,13 @@ impl CoreEngine {
 
         if self.graph.data_source == "mock" {
             self.adapter
-                .relink_processing_node_port(&self.graph, &peer_node.system_name, peer_port_index, peer_direction, None)
+                .relink_processing_node_port(
+                    &self.graph,
+                    &peer_node.system_name,
+                    peer_port_index,
+                    peer_direction,
+                    None,
+                )
                 .map_err(|error| EngineError::Adapter(error.to_string()))?;
         } else {
             ConfigStore::new()
@@ -363,17 +446,25 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Mixer { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no per-input gain to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no per-input gain to update"
+            )));
         }
         let port = node
             .inputs
             .iter()
             .find(|port| port.index == port_index)
             .filter(|port| port.connected_id.is_some())
-            .ok_or_else(|| EngineError::InvalidInput(format!("input {port_index} on {node_id} isn't connected")))?;
+            .ok_or_else(|| {
+                EngineError::InvalidInput(format!(
+                    "input {port_index} on {node_id} isn't connected"
+                ))
+            })?;
         // Must match whatever `relink_processing_node_port`'s Mixer-input arm
         // (`live.rs`) actually named the feed sink at connect time. For a
         // stream peer, that's `feed_key` — the raw graph `id` of the stream
@@ -406,7 +497,10 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a Fan-Out/Group node's own output volume/mute — a plain
@@ -426,10 +520,17 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
-        if !matches!(node.kind, ProcessingNodeKind::FanOut { .. } | ProcessingNodeKind::Group { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no volume to update")));
+        if !matches!(
+            node.kind,
+            ProcessingNodeKind::FanOut { .. } | ProcessingNodeKind::Group { .. }
+        ) {
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no volume to update"
+            )));
         }
 
         self.adapter
@@ -443,7 +544,10 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a 5-Band EQ node's band gains — the PD-017 two-speed
@@ -466,10 +570,14 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Eq5Band { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no EQ params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no EQ params to update"
+            )));
         }
 
         // Unlike the device-attached EQ's Live Params fast path
@@ -499,16 +607,30 @@ impl CoreEngine {
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
-                .update_processing_node_eq(node_id, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
+                .update_processing_node_eq(
+                    node_id,
+                    eq_sub,
+                    eq_bass,
+                    eq_mid,
+                    eq_treble,
+                    eq_air,
+                    output_gain,
+                )
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a Delay node's Delay/Feedback/Feedforward controls — same
@@ -529,29 +651,50 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Delay { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no delay params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no delay params to update"
+            )));
         }
 
         let live_apply_error = self
             .adapter
-            .set_processing_node_delay_params(&node.system_name, delay_ms, feedback_percent, feedforward_percent, node.bypassed)
+            .set_processing_node_delay_params(
+                &node.system_name,
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+                node.bypassed,
+            )
             .err();
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
-                .update_processing_node_delay(node_id, delay_ms, feedback_percent, feedforward_percent)
+                .update_processing_node_delay(
+                    node_id,
+                    delay_ms,
+                    feedback_percent,
+                    feedforward_percent,
+                )
                 .map_err(|error| EngineError::Config(error.to_string()))?;
         }
 
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a Limiter node's ceiling/floor/symmetric — same PD-017
@@ -574,15 +717,25 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Limiter { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no limiter params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no limiter params to update"
+            )));
         }
 
         let live_apply_error = self
             .adapter
-            .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, node.bypassed)
+            .set_processing_node_limiter_params(
+                &node.system_name,
+                ceiling_db,
+                floor_db,
+                symmetric,
+                node.bypassed,
+            )
             .err();
 
         if self.graph.data_source != "mock" {
@@ -594,9 +747,15 @@ impl CoreEngine {
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates an HPF node's Freq/Resonance — same PD-017 fast path and
@@ -614,15 +773,24 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Hpf { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no HPF params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no HPF params to update"
+            )));
         }
 
         let live_apply_error = self
             .adapter
-            .set_processing_node_hpf_params(&node.system_name, freq_hz, resonance_x10, node.bypassed)
+            .set_processing_node_hpf_params(
+                &node.system_name,
+                freq_hz,
+                resonance_x10,
+                node.bypassed,
+            )
             .err();
 
         if self.graph.data_source != "mock" {
@@ -634,27 +802,44 @@ impl CoreEngine {
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a Reverb node's Mix — same PD-017 fast path and bypass
     /// mechanism as `update_processing_node_limiter_params` (issue #327).
-    pub fn update_processing_node_reverb_params(&mut self, node_id: &str, mix_percent: i32) -> Result<ApplyResult, EngineError> {
+    pub fn update_processing_node_reverb_params(
+        &mut self,
+        node_id: &str,
+        mix_percent: i32,
+    ) -> Result<ApplyResult, EngineError> {
         let node = self
             .graph
             .processing_nodes
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Reverb { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no reverb params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no reverb params to update"
+            )));
         }
 
-        let live_apply_error = self.adapter.set_processing_node_reverb_params(&node.system_name, mix_percent, node.bypassed).err();
+        let live_apply_error = self
+            .adapter
+            .set_processing_node_reverb_params(&node.system_name, mix_percent, node.bypassed)
+            .err();
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
@@ -665,28 +850,45 @@ impl CoreEngine {
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a Widener node's Width — same PD-017 fast path and
     /// bypass mechanism as `update_processing_node_limiter_params` (issue
     /// #314).
-    pub fn update_processing_node_widener_params(&mut self, node_id: &str, width_percent: i32) -> Result<ApplyResult, EngineError> {
+    pub fn update_processing_node_widener_params(
+        &mut self,
+        node_id: &str,
+        width_percent: i32,
+    ) -> Result<ApplyResult, EngineError> {
         let node = self
             .graph
             .processing_nodes
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Widener { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no widener params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no widener params to update"
+            )));
         }
 
-        let live_apply_error = self.adapter.set_processing_node_widener_params(&node.system_name, width_percent, node.bypassed).err();
+        let live_apply_error = self
+            .adapter
+            .set_processing_node_widener_params(&node.system_name, width_percent, node.bypassed)
+            .err();
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
@@ -697,27 +899,44 @@ impl CoreEngine {
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Live-updates a Pan node's Balance — same PD-017 fast path and bypass
     /// mechanism as `update_processing_node_limiter_params` (issue #16).
-    pub fn update_processing_node_pan_params(&mut self, node_id: &str, balance_percent: i32) -> Result<ApplyResult, EngineError> {
+    pub fn update_processing_node_pan_params(
+        &mut self,
+        node_id: &str,
+        balance_percent: i32,
+    ) -> Result<ApplyResult, EngineError> {
         let node = self
             .graph
             .processing_nodes
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         if !matches!(node.kind, ProcessingNodeKind::Pan { .. }) {
-            return Err(EngineError::InvalidInput(format!("{node_id} has no pan params to update")));
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no pan params to update"
+            )));
         }
 
-        let live_apply_error = self.adapter.set_processing_node_pan_params(&node.system_name, balance_percent, node.bypassed).err();
+        let live_apply_error = self
+            .adapter
+            .set_processing_node_pan_params(&node.system_name, balance_percent, node.bypassed)
+            .err();
 
         if self.graph.data_source != "mock" {
             ConfigStore::new()
@@ -728,9 +947,15 @@ impl CoreEngine {
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Keeps a node wired exactly as-is but toggles whether audio passes
@@ -741,14 +966,20 @@ impl CoreEngine {
     /// persists the flag without a behavior change yet, since there's no
     /// "unprocessed" state for a node that only routes/sums rather than
     /// shaping the signal itself.
-    pub fn set_processing_node_bypassed(&mut self, node_id: &str, bypassed: bool) -> Result<ApplyResult, EngineError> {
+    pub fn set_processing_node_bypassed(
+        &mut self,
+        node_id: &str,
+        bypassed: bool,
+    ) -> Result<ApplyResult, EngineError> {
         let node = self
             .graph
             .processing_nodes
             .iter()
             .find(|node| node.id == node_id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {node_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
 
         // Real backend: only Eq5Band has anything to actually push live (the
         // real DSP node exists to receive it). Mock: always push regardless
@@ -773,25 +1004,46 @@ impl CoreEngine {
         let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
         let live_apply_error = if is_delay {
             let (delay_ms, feedback_percent, feedforward_percent) = match node.kind {
-                ProcessingNodeKind::Delay { delay_ms, feedback_percent, feedforward_percent } => {
-                    (delay_ms, feedback_percent, feedforward_percent)
-                }
+                ProcessingNodeKind::Delay {
+                    delay_ms,
+                    feedback_percent,
+                    feedforward_percent,
+                } => (delay_ms, feedback_percent, feedforward_percent),
                 _ => (0, 0, 0),
             };
             self.adapter
-                .set_processing_node_delay_params(&node.system_name, delay_ms, feedback_percent, feedforward_percent, bypassed)
+                .set_processing_node_delay_params(
+                    &node.system_name,
+                    delay_ms,
+                    feedback_percent,
+                    feedforward_percent,
+                    bypassed,
+                )
                 .err()
         } else if is_limiter {
             let (ceiling_db, floor_db, symmetric) = match node.kind {
-                ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric } => (ceiling_db, floor_db, symmetric),
+                ProcessingNodeKind::Limiter {
+                    ceiling_db,
+                    floor_db,
+                    symmetric,
+                } => (ceiling_db, floor_db, symmetric),
                 _ => (0, 0, true),
             };
             self.adapter
-                .set_processing_node_limiter_params(&node.system_name, ceiling_db, floor_db, symmetric, bypassed)
+                .set_processing_node_limiter_params(
+                    &node.system_name,
+                    ceiling_db,
+                    floor_db,
+                    symmetric,
+                    bypassed,
+                )
                 .err()
         } else if is_hpf {
             let (freq_hz, resonance_x10) = match node.kind {
-                ProcessingNodeKind::Hpf { freq_hz, resonance_x10 } => (freq_hz, resonance_x10),
+                ProcessingNodeKind::Hpf {
+                    freq_hz,
+                    resonance_x10,
+                } => (freq_hz, resonance_x10),
                 _ => (20, 7),
             };
             self.adapter
@@ -802,28 +1054,48 @@ impl CoreEngine {
                 ProcessingNodeKind::Reverb { mix_percent } => mix_percent,
                 _ => 0,
             };
-            self.adapter.set_processing_node_reverb_params(&node.system_name, mix_percent, bypassed).err()
+            self.adapter
+                .set_processing_node_reverb_params(&node.system_name, mix_percent, bypassed)
+                .err()
         } else if is_widener {
             let width_percent = match node.kind {
                 ProcessingNodeKind::Widener { width_percent } => width_percent,
                 _ => 100,
             };
-            self.adapter.set_processing_node_widener_params(&node.system_name, width_percent, bypassed).err()
+            self.adapter
+                .set_processing_node_widener_params(&node.system_name, width_percent, bypassed)
+                .err()
         } else if is_pan {
             let balance_percent = match node.kind {
                 ProcessingNodeKind::Pan { balance_percent } => balance_percent,
                 _ => 0,
             };
-            self.adapter.set_processing_node_pan_params(&node.system_name, balance_percent, bypassed).err()
+            self.adapter
+                .set_processing_node_pan_params(&node.system_name, balance_percent, bypassed)
+                .err()
         } else if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
-                ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain } => {
-                    (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain)
-                }
+                ProcessingNodeKind::Eq5Band {
+                    eq_sub,
+                    eq_bass,
+                    eq_mid,
+                    eq_treble,
+                    eq_air,
+                    output_gain,
+                } => (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain),
                 _ => (0, 0, 0, 0, 0, 0),
             };
             self.adapter
-                .set_processing_node_eq_params(&node.system_name, eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain, bypassed)
+                .set_processing_node_eq_params(
+                    &node.system_name,
+                    eq_sub,
+                    eq_bass,
+                    eq_mid,
+                    eq_treble,
+                    eq_air,
+                    output_gain,
+                    bypassed,
+                )
                 .err()
         } else {
             None
@@ -838,9 +1110,15 @@ impl CoreEngine {
         self.refresh_graph()?;
 
         if let Some(error) = live_apply_error {
-            return Ok(ApplyResult { success: false, message: Some(error.to_string()) });
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
         }
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 
     /// Creates a Mixer/Fan-out/EQ/stub processing node (PD-032). Freshly
@@ -896,7 +1174,9 @@ impl CoreEngine {
             .iter()
             .find(|node| node.id == id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found after create: {id}")))
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found after create: {id}"))
+            })
     }
 
     /// Creates a Group node (issue #80, PD-035) and wires every member
@@ -912,13 +1192,23 @@ impl CoreEngine {
         member_device_ids: &[String],
     ) -> Result<ProcessingNode, EngineError> {
         if member_device_ids.len() < 2 {
-            return Err(EngineError::InvalidInput("a group needs at least 2 members".into()));
+            return Err(EngineError::InvalidInput(
+                "a group needs at least 2 members".into(),
+            ));
         }
 
-        let node = self.create_processing_node(label, ProcessingNodeSpecKind::Group { volume_percent: 100, muted: false })?;
+        let node = self.create_processing_node(
+            label,
+            ProcessingNodeSpecKind::Group {
+                volume_percent: 100,
+                muted: false,
+            },
+        )?;
 
         for member_id in member_device_ids {
-            if let Err(error) = self.connect_processing_node_port(&node.id, PortDirection::Output, member_id) {
+            if let Err(error) =
+                self.connect_processing_node_port(&node.id, PortDirection::Output, member_id)
+            {
                 let _ = self.remove_processing_node(&node.id);
                 return Err(error);
             }
@@ -929,7 +1219,12 @@ impl CoreEngine {
             .iter()
             .find(|n| n.id == node.id)
             .cloned()
-            .ok_or_else(|| EngineError::NotFound(format!("processing node not found after group create: {}", node.id)))
+            .ok_or_else(|| {
+                EngineError::NotFound(format!(
+                    "processing node not found after group create: {}",
+                    node.id
+                ))
+            })
     }
 
     /// Removes a processing node. Rejects removal outright (rather than
@@ -958,15 +1253,20 @@ impl CoreEngine {
             .ok_or_else(|| EngineError::NotFound(format!("processing node not found: {id}")))?;
 
         let is_exempt_growable_output = |direction: PortDirection| {
-            direction == PortDirection::Output && processing_node_port_growable(direction, &node.kind)
+            direction == PortDirection::Output
+                && processing_node_port_growable(direction, &node.kind)
         };
-        let ambiguous_connected = |direction: PortDirection, ports: &[ProcessingNodePort]| -> usize {
-            if is_exempt_growable_output(direction) {
-                0
-            } else {
-                ports.iter().filter(|port| port.connected_id.is_some()).count()
-            }
-        };
+        let ambiguous_connected =
+            |direction: PortDirection, ports: &[ProcessingNodePort]| -> usize {
+                if is_exempt_growable_output(direction) {
+                    0
+                } else {
+                    ports
+                        .iter()
+                        .filter(|port| port.connected_id.is_some())
+                        .count()
+                }
+            };
         let ambiguous_inputs = ambiguous_connected(PortDirection::Input, &node.inputs);
         let ambiguous_outputs = ambiguous_connected(PortDirection::Output, &node.outputs);
         if ambiguous_inputs > 1 || ambiguous_outputs > 1 {
@@ -999,7 +1299,10 @@ impl CoreEngine {
         }
 
         self.refresh_graph()?;
-        Ok(ApplyResult { success: true, message: None })
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
     }
 }
 
@@ -1026,7 +1329,10 @@ impl CoreEngine {
 /// itself, `ConfigStore`, or a real `AudioBackend`. Any future change here
 /// needs a live/manual check; nothing automated will catch a regression in
 /// this function's own batching logic.
-pub(super) fn merge_processing_nodes(graph: &mut RuntimeGraph, adapter: &dyn crate::backend::AudioBackend) {
+pub(super) fn merge_processing_nodes(
+    graph: &mut RuntimeGraph,
+    adapter: &dyn crate::backend::AudioBackend,
+) {
     if graph.data_source == "mock" {
         return;
     }
@@ -1061,7 +1367,11 @@ pub(super) fn merge_processing_nodes(graph: &mut RuntimeGraph, adapter: &dyn cra
 }
 
 fn processing_node_system_name(spec: &ProcessingNodeSpec) -> String {
-    format!("pipe-deck-proc-{}-{}", spec_kind_slug(&spec.kind), spec.slug)
+    format!(
+        "pipe-deck-proc-{}-{}",
+        spec_kind_slug(&spec.kind),
+        spec.slug
+    )
 }
 
 fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
@@ -1172,18 +1482,23 @@ fn resolve_input_port_peer(
 ) -> (Option<String>, Option<String>) {
     let system_name = &port.source_system_name;
     let Some(stream_id) = system_name.strip_prefix(STREAM_PEER_PREFIX) else {
-        return (resolve_id_for_system_name(graph, system_name, siblings), None);
+        return (
+            resolve_id_for_system_name(graph, system_name, siblings),
+            None,
+        );
     };
 
-    if graph.streams.iter().any(|stream| stream.id == stream_id) && claimed_stream_ids.insert(stream_id.to_string()) {
+    if graph.streams.iter().any(|stream| stream.id == stream_id)
+        && claimed_stream_ids.insert(stream_id.to_string())
+    {
         return (Some(stream_id.to_string()), Some(stream_id.to_string()));
     }
 
     let replacement = port.source_stream_identity.as_ref().and_then(|identity| {
-        graph
-            .streams
-            .iter()
-            .find(|stream| !claimed_stream_ids.contains(&stream.id) && identity_matches(&stream_identity_key(stream), identity))
+        graph.streams.iter().find(|stream| {
+            !claimed_stream_ids.contains(&stream.id)
+                && identity_matches(&stream_identity_key(stream), identity)
+        })
     });
     if let Some(stream) = replacement {
         claimed_stream_ids.insert(stream.id.clone());
@@ -1202,7 +1517,10 @@ fn resolve_input_port_peer(
 /// currently wearing that system name (may be `None` if nothing live answers
 /// to it right now — same "unresolved is not an error" reasoning as
 /// `Device.current_target`).
-pub(super) fn processing_node_from_spec(spec: &ProcessingNodeSpec, graph: &RuntimeGraph) -> ProcessingNode {
+pub(super) fn processing_node_from_spec(
+    spec: &ProcessingNodeSpec,
+    graph: &RuntimeGraph,
+) -> ProcessingNode {
     processing_node_from_spec_with_siblings(spec, graph, &std::collections::HashMap::new())
 }
 
@@ -1221,14 +1539,26 @@ fn processing_node_from_spec_with_siblings(
 
     let kind = match &spec.kind {
         ProcessingNodeSpecKind::Mixer => ProcessingNodeKind::Mixer {
-            input_gains_percent: spec.input_sources.iter().map(|port| port.gain_percent).collect(),
+            input_gains_percent: spec
+                .input_sources
+                .iter()
+                .map(|port| port.gain_percent)
+                .collect(),
         },
-        ProcessingNodeSpecKind::FanOut { volume_percent, muted } => {
-            ProcessingNodeKind::FanOut { volume_percent: *volume_percent, muted: *muted }
-        }
-        ProcessingNodeSpecKind::Group { volume_percent, muted } => {
-            ProcessingNodeKind::Group { volume_percent: *volume_percent, muted: *muted }
-        }
+        ProcessingNodeSpecKind::FanOut {
+            volume_percent,
+            muted,
+        } => ProcessingNodeKind::FanOut {
+            volume_percent: *volume_percent,
+            muted: *muted,
+        },
+        ProcessingNodeSpecKind::Group {
+            volume_percent,
+            muted,
+        } => ProcessingNodeKind::Group {
+            volume_percent: *volume_percent,
+            muted: *muted,
+        },
         ProcessingNodeSpecKind::Eq5Band {
             eq_sub,
             eq_bass,
@@ -1244,31 +1574,59 @@ fn processing_node_from_spec_with_siblings(
             eq_air: *eq_air,
             output_gain: *output_gain,
         },
-        ProcessingNodeSpecKind::Delay { delay_ms, feedback_percent, feedforward_percent } => ProcessingNodeKind::Delay {
+        ProcessingNodeSpecKind::Delay {
+            delay_ms,
+            feedback_percent,
+            feedforward_percent,
+        } => ProcessingNodeKind::Delay {
             delay_ms: *delay_ms,
             feedback_percent: *feedback_percent,
             feedforward_percent: *feedforward_percent,
         },
-        ProcessingNodeSpecKind::Limiter { ceiling_db, floor_db, symmetric } => {
-            ProcessingNodeKind::Limiter { ceiling_db: *ceiling_db, floor_db: *floor_db, symmetric: *symmetric }
-        }
-        ProcessingNodeSpecKind::Hpf { freq_hz, resonance_x10 } => {
-            ProcessingNodeKind::Hpf { freq_hz: *freq_hz, resonance_x10: *resonance_x10 }
-        }
-        ProcessingNodeSpecKind::Reverb { mix_percent } => ProcessingNodeKind::Reverb { mix_percent: *mix_percent },
-        ProcessingNodeSpecKind::Widener { width_percent } => ProcessingNodeKind::Widener { width_percent: *width_percent },
-        ProcessingNodeSpecKind::Pan { balance_percent } => ProcessingNodeKind::Pan { balance_percent: *balance_percent },
-        ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub { stub_kind: *stub_kind },
+        ProcessingNodeSpecKind::Limiter {
+            ceiling_db,
+            floor_db,
+            symmetric,
+        } => ProcessingNodeKind::Limiter {
+            ceiling_db: *ceiling_db,
+            floor_db: *floor_db,
+            symmetric: *symmetric,
+        },
+        ProcessingNodeSpecKind::Hpf {
+            freq_hz,
+            resonance_x10,
+        } => ProcessingNodeKind::Hpf {
+            freq_hz: *freq_hz,
+            resonance_x10: *resonance_x10,
+        },
+        ProcessingNodeSpecKind::Reverb { mix_percent } => ProcessingNodeKind::Reverb {
+            mix_percent: *mix_percent,
+        },
+        ProcessingNodeSpecKind::Widener { width_percent } => ProcessingNodeKind::Widener {
+            width_percent: *width_percent,
+        },
+        ProcessingNodeSpecKind::Pan { balance_percent } => ProcessingNodeKind::Pan {
+            balance_percent: *balance_percent,
+        },
+        ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub {
+            stub_kind: *stub_kind,
+        },
     };
 
-    let mut claimed_stream_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut claimed_stream_ids: std::collections::HashSet<String> =
+        std::collections::HashSet::new();
     let inputs = spec
         .input_sources
         .iter()
         .enumerate()
         .map(|(index, port)| {
-            let (connected_id, feed_key) = resolve_input_port_peer(graph, port, siblings, &mut claimed_stream_ids);
-            ProcessingNodePort { index: index as u32, connected_id, feed_key }
+            let (connected_id, feed_key) =
+                resolve_input_port_peer(graph, port, siblings, &mut claimed_stream_ids);
+            ProcessingNodePort {
+                index: index as u32,
+                connected_id,
+                feed_key,
+            }
         })
         .collect();
     let outputs = spec
@@ -1313,8 +1671,12 @@ mod live_tests {
         let mut engine = CoreEngine::new();
         engine.refresh_graph().expect("initial graph refresh");
 
-        let output_a = engine.create_virtual_output("Pipe Deck Live Fan A").expect("create target a");
-        let output_b = engine.create_virtual_output("Pipe Deck Live Fan B").expect("create target b");
+        let output_a = engine
+            .create_virtual_output("Pipe Deck Live Fan A")
+            .expect("create target a");
+        let output_b = engine
+            .create_virtual_output("Pipe Deck Live Fan B")
+            .expect("create target b");
 
         let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
             if let Some(id) = node_id {
@@ -1326,7 +1688,10 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live Fan-out",
-            ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1340,22 +1705,33 @@ mod live_tests {
             panic!("fan-out sink did not appear after create_processing_node");
         }
 
-        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id) {
+        if let Err(error) = engine.connect_processing_node_port(
+            &node.id,
+            PortDirection::Output,
+            &output_a.device_id,
+        ) {
             cleanup(&mut engine, Some(&node.id));
             panic!("connect output a failed: {error}");
         }
-        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id) {
+        if let Err(error) = engine.connect_processing_node_port(
+            &node.id,
+            PortDirection::Output,
+            &output_b.device_id,
+        ) {
             cleanup(&mut engine, Some(&node.id));
             panic!("connect output b failed: {error}");
         }
 
-        let linked_a = pw_link::is_sink_monitor_routed_to(&node.system_name, &output_a.system_name, false);
-        let linked_b = pw_link::is_sink_monitor_routed_to(&node.system_name, &output_b.system_name, false);
+        let linked_a =
+            pw_link::is_sink_monitor_routed_to(&node.system_name, &output_a.system_name, false);
+        let linked_b =
+            pw_link::is_sink_monitor_routed_to(&node.system_name, &output_b.system_name, false);
 
         // Disconnecting output a must tear down only that leg, not b's —
         // the #105 lesson (incomplete/incorrect teardown) applied to a real
         // session rather than the mock's in-memory bookkeeping.
-        let disconnect_result = engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0);
+        let disconnect_result =
+            engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0);
         let still_linked_b_after_disconnect =
             pw_link::is_sink_monitor_routed_to(&node.system_name, &output_b.system_name, false);
         let unlinked_a_after_disconnect =
@@ -1366,8 +1742,14 @@ mod live_tests {
         assert!(linked_a, "fan-out node did not link to output a");
         assert!(linked_b, "fan-out node did not link to output b");
         disconnect_result.expect("disconnect output a");
-        assert!(unlinked_a_after_disconnect, "output a link should be torn down");
-        assert!(still_linked_b_after_disconnect, "output b link should survive disconnecting a");
+        assert!(
+            unlinked_a_after_disconnect,
+            "output a link should be torn down"
+        );
+        assert!(
+            still_linked_b_after_disconnect,
+            "output b link should survive disconnecting a"
+        );
     }
 
     #[test]
@@ -1378,8 +1760,12 @@ mod live_tests {
         let mut engine = CoreEngine::new();
         engine.refresh_graph().expect("initial graph refresh");
 
-        let source_a = engine.create_virtual_output("Pipe Deck Live Mixer Src A").expect("create source a");
-        let source_b = engine.create_virtual_output("Pipe Deck Live Mixer Src B").expect("create source b");
+        let source_a = engine
+            .create_virtual_output("Pipe Deck Live Mixer Src A")
+            .expect("create source a");
+        let source_b = engine
+            .create_virtual_output("Pipe Deck Live Mixer Src B")
+            .expect("create source b");
 
         let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
             if let Some(id) = node_id {
@@ -1389,7 +1775,9 @@ mod live_tests {
             let _ = engine.remove_virtual_device(&source_b.system_name);
         };
 
-        let node = match engine.create_processing_node("Pipe Deck Live Mixer", ProcessingNodeSpecKind::Mixer) {
+        let node = match engine
+            .create_processing_node("Pipe Deck Live Mixer", ProcessingNodeSpecKind::Mixer)
+        {
             Ok(node) => node,
             Err(error) => {
                 cleanup(&mut engine, None);
@@ -1397,18 +1785,23 @@ mod live_tests {
             }
         };
 
-        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id) {
+        if let Err(error) =
+            engine.connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
+        {
             cleanup(&mut engine, Some(&node.id));
             panic!("connect input a failed: {error}");
         }
-        if let Err(error) = engine.connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id) {
+        if let Err(error) =
+            engine.connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
+        {
             cleanup(&mut engine, Some(&node.id));
             panic!("connect input b failed: {error}");
         }
 
         let feed_a = pactl::feed_sink_name_for_mix_pair(&node.system_name, &source_a.system_name);
         let feed_b = pactl::feed_sink_name_for_mix_pair(&node.system_name, &source_b.system_name);
-        let both_feeds_live = pactl::sink_exists(&feed_a).unwrap_or(false) && pactl::sink_exists(&feed_b).unwrap_or(false);
+        let both_feeds_live = pactl::sink_exists(&feed_a).unwrap_or(false)
+            && pactl::sink_exists(&feed_b).unwrap_or(false);
 
         if let Err(error) = engine.update_processing_node_input_gain(&node.id, 0, 55, false) {
             cleanup(&mut engine, Some(&node.id));
@@ -1420,19 +1813,35 @@ mod live_tests {
         // input b's — the #105 lesson (incomplete/incorrect teardown)
         // applied to the per-pair-feed-sink mechanism this generalizes from
         // mic-mix, on a real session rather than the mock's bookkeeping.
-        let disconnect_result = engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0);
+        let disconnect_result =
+            engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0);
         let feed_a_gone_after_disconnect = !pactl::sink_exists(&feed_a).unwrap_or(true);
         let feed_b_survives_disconnect = pactl::sink_exists(&feed_b).unwrap_or(false);
 
         cleanup(&mut engine, Some(&node.id));
         let feed_b_gone_after_node_removal = !pactl::sink_exists(&feed_b).unwrap_or(true);
 
-        assert!(both_feeds_live, "both mixer input feed sinks should exist after connecting");
-        assert!(gain_applied, "gain update should be reflected on the feed sink's own volume");
+        assert!(
+            both_feeds_live,
+            "both mixer input feed sinks should exist after connecting"
+        );
+        assert!(
+            gain_applied,
+            "gain update should be reflected on the feed sink's own volume"
+        );
         disconnect_result.expect("disconnect input a");
-        assert!(feed_a_gone_after_disconnect, "input a's feed sink should be torn down on disconnect");
-        assert!(feed_b_survives_disconnect, "input b's feed sink should survive disconnecting a");
-        assert!(feed_b_gone_after_node_removal, "removing the mixer node should GC its remaining feed sink");
+        assert!(
+            feed_a_gone_after_disconnect,
+            "input a's feed sink should be torn down on disconnect"
+        );
+        assert!(
+            feed_b_survives_disconnect,
+            "input b's feed sink should survive disconnecting a"
+        );
+        assert!(
+            feed_b_gone_after_node_removal,
+            "removing the mixer node should GC its remaining feed sink"
+        );
     }
 
     #[test]
@@ -1463,7 +1872,14 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live EQ",
-            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+            ProcessingNodeSpecKind::Eq5Band {
+                eq_sub: 0,
+                eq_bass: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1501,8 +1917,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "EQ node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the EQ node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "EQ node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the EQ node should unload its native chain"
+        );
     }
 
     /// Delay Node round-trip (issue #313) against a real PipeWire session —
@@ -1531,7 +1953,11 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live Delay",
-            ProcessingNodeSpecKind::Delay { delay_ms: 0, feedback_percent: 0, feedforward_percent: 0 },
+            ProcessingNodeSpecKind::Delay {
+                delay_ms: 0,
+                feedback_percent: 0,
+                feedforward_percent: 0,
+            },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1561,8 +1987,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "Delay node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the Delay node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "Delay node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the Delay node should unload its native chain"
+        );
     }
 
     /// Limiter Node round-trip (issue #311) against a real PipeWire session —
@@ -1591,7 +2023,11 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live Limiter",
-            ProcessingNodeSpecKind::Limiter { ceiling_db: 0, floor_db: 0, symmetric: true },
+            ProcessingNodeSpecKind::Limiter {
+                ceiling_db: 0,
+                floor_db: 0,
+                symmetric: true,
+            },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1622,8 +2058,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "Limiter node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the Limiter node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "Limiter node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the Limiter node should unload its native chain"
+        );
     }
 
     /// HPF Node round-trip (issue #312) against a real PipeWire session —
@@ -1652,7 +2094,10 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live HPF",
-            ProcessingNodeSpecKind::Hpf { freq_hz: 20, resonance_x10: 7 },
+            ProcessingNodeSpecKind::Hpf {
+                freq_hz: 20,
+                resonance_x10: 7,
+            },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1683,8 +2128,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "HPF node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the HPF node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "HPF node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the HPF node should unload its native chain"
+        );
     }
 
     /// Reverb Node round-trip (issue #327) against a real PipeWire session —
@@ -1711,7 +2162,10 @@ mod live_tests {
             }
         };
 
-        let node = match engine.create_processing_node("Pipe Deck Live Reverb", ProcessingNodeSpecKind::Reverb { mix_percent: 0 }) {
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Reverb",
+            ProcessingNodeSpecKind::Reverb { mix_percent: 0 },
+        ) {
             Ok(node) => node,
             Err(error) => {
                 cleanup(&mut engine, None);
@@ -1741,8 +2195,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "Reverb node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the Reverb node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "Reverb node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the Reverb node should unload its native chain"
+        );
     }
 
     /// Widener Node round-trip (issue #314) against a real PipeWire session —
@@ -1775,7 +2235,10 @@ mod live_tests {
             }
         };
 
-        let node = match engine.create_processing_node("Pipe Deck Live Widener", ProcessingNodeSpecKind::Widener { width_percent: 100 }) {
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Widener",
+            ProcessingNodeSpecKind::Widener { width_percent: 100 },
+        ) {
             Ok(node) => node,
             Err(error) => {
                 cleanup(&mut engine, None);
@@ -1805,8 +2268,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "Widener node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the Widener node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "Widener node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the Widener node should unload its native chain"
+        );
     }
 
     /// Pan Node round-trip (issue #16) against a real PipeWire session —
@@ -1833,7 +2302,10 @@ mod live_tests {
             }
         };
 
-        let node = match engine.create_processing_node("Pipe Deck Live Pan", ProcessingNodeSpecKind::Pan { balance_percent: 0 }) {
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Pan",
+            ProcessingNodeSpecKind::Pan { balance_percent: 0 },
+        ) {
             Ok(node) => node,
             Err(error) => {
                 cleanup(&mut engine, None);
@@ -1863,8 +2335,14 @@ mod live_tests {
             let _ = child.wait();
         }
 
-        assert!(sink_live_after_create, "Pan node's native-hosted sink did not appear after creation");
-        assert!(sink_gone_after_removal, "removing the Pan node should unload its native chain");
+        assert!(
+            sink_live_after_create,
+            "Pan node's native-hosted sink did not appear after creation"
+        );
+        assert!(
+            sink_gone_after_removal,
+            "removing the Pan node should unload its native chain"
+        );
     }
 
     /// A Stub node never creates a real PipeWire sink (see
@@ -1883,8 +2361,12 @@ mod live_tests {
         let mut engine = CoreEngine::new();
         engine.refresh_graph().expect("initial graph refresh");
 
-        let upstream = engine.create_virtual_output("Pipe Deck Live Stub Upstream").expect("create upstream");
-        let downstream = engine.create_virtual_output("Pipe Deck Live Stub Downstream").expect("create downstream");
+        let upstream = engine
+            .create_virtual_output("Pipe Deck Live Stub Upstream")
+            .expect("create upstream");
+        let downstream = engine
+            .create_virtual_output("Pipe Deck Live Stub Downstream")
+            .expect("create downstream");
 
         let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
             if let Some(id) = node_id {
@@ -1896,7 +2378,9 @@ mod live_tests {
 
         let node = match engine.create_processing_node(
             "Pipe Deck Live Stub",
-            ProcessingNodeSpecKind::Stub { stub_kind: crate::core::models::StubEffectKind::Saturation },
+            ProcessingNodeSpecKind::Stub {
+                stub_kind: crate::core::models::StubEffectKind::Saturation,
+            },
         ) {
             Ok(node) => node,
             Err(error) => {
@@ -1906,14 +2390,26 @@ mod live_tests {
         };
         let no_sink_created = !pactl::sink_exists(&node.system_name).unwrap_or(true);
 
-        let connect_input = engine.connect_processing_node_port(&node.id, PortDirection::Input, &upstream.device_id);
-        let connect_output = engine.connect_processing_node_port(&node.id, PortDirection::Output, &downstream.device_id);
-        let disconnect_input = engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0);
+        let connect_input = engine.connect_processing_node_port(
+            &node.id,
+            PortDirection::Input,
+            &upstream.device_id,
+        );
+        let connect_output = engine.connect_processing_node_port(
+            &node.id,
+            PortDirection::Output,
+            &downstream.device_id,
+        );
+        let disconnect_input =
+            engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0);
         let remove_result = engine.remove_processing_node(&node.id);
 
         cleanup(&mut engine, None);
 
-        assert!(no_sink_created, "a stub node must never create a real PipeWire sink");
+        assert!(
+            no_sink_created,
+            "a stub node must never create a real PipeWire sink"
+        );
         connect_input.expect("connecting a stub's input should be a no-op, not an error");
         connect_output.expect("connecting a stub's output should be a no-op, not an error");
         disconnect_input.expect("disconnecting a stub's input should be a no-op, not an error");
@@ -1986,7 +2482,10 @@ mod tests {
         };
         let node = processing_node_from_spec(&spec, &graph);
         assert_eq!(node.inputs.len(), 1);
-        assert_eq!(node.inputs[0].connected_id.as_deref(), Some("device-headset"));
+        assert_eq!(
+            node.inputs[0].connected_id.as_deref(),
+            Some("device-headset")
+        );
         assert!(matches!(
             node.kind,
             ProcessingNodeKind::Mixer { ref input_gains_percent } if input_gains_percent == &vec![80]
@@ -2024,7 +2523,9 @@ mod tests {
     #[test]
     fn spec_to_node_reconciles_a_stale_stream_port_onto_a_same_app_replacement() {
         let mut graph = empty_graph();
-        graph.streams.push(firefox_stream("node-200", "A new video"));
+        graph
+            .streams
+            .push(firefox_stream("node-200", "A new video"));
 
         let spec = ProcessingNodeSpec {
             id: "processing-mixer-stream-mix".into(),
@@ -2036,10 +2537,9 @@ mod tests {
                 source_system_name: "pipe-deck-stream-node-99".into(),
                 gain_percent: 80,
                 muted: false,
-                source_stream_identity: Some(crate::core::stream_identity::stream_identity_key(&firefox_stream(
-                    "node-99",
-                    "The old video",
-                ))),
+                source_stream_identity: Some(crate::core::stream_identity::stream_identity_key(
+                    &firefox_stream("node-99", "The old video"),
+                )),
             }],
             output_targets: Vec::new(),
             bypassed: false,
@@ -2058,7 +2558,9 @@ mod tests {
     #[test]
     fn spec_to_node_prefers_the_original_stream_id_when_it_is_still_live() {
         let mut graph = empty_graph();
-        graph.streams.push(firefox_stream("node-99", "Still playing"));
+        graph
+            .streams
+            .push(firefox_stream("node-99", "Still playing"));
 
         let spec = ProcessingNodeSpec {
             id: "processing-mixer-stream-mix".into(),
@@ -2070,10 +2572,9 @@ mod tests {
                 source_system_name: "pipe-deck-stream-node-99".into(),
                 gain_percent: 80,
                 muted: false,
-                source_stream_identity: Some(crate::core::stream_identity::stream_identity_key(&firefox_stream(
-                    "node-99",
-                    "Still playing",
-                ))),
+                source_stream_identity: Some(crate::core::stream_identity::stream_identity_key(
+                    &firefox_stream("node-99", "Still playing"),
+                )),
             }],
             output_targets: Vec::new(),
             bypassed: false,
@@ -2091,9 +2592,12 @@ mod tests {
     #[test]
     fn spec_to_node_does_not_double_claim_a_replacement_stream_across_stale_ports() {
         let mut graph = empty_graph();
-        graph.streams.push(firefox_stream("node-300", "Replacement"));
+        graph
+            .streams
+            .push(firefox_stream("node-300", "Replacement"));
 
-        let identity = crate::core::stream_identity::stream_identity_key(&firefox_stream("node-99", "Gone"));
+        let identity =
+            crate::core::stream_identity::stream_identity_key(&firefox_stream("node-99", "Gone"));
         let stale_port = ProcessingNodePortSpec {
             source_system_name: "pipe-deck-stream-node-99".into(),
             gain_percent: 80,
@@ -2152,7 +2656,10 @@ mod tests {
             slug: "fan-out".into(),
             label: "Fan-Out".into(),
             created_at: "2026-07-26T00:00:00Z".into(),
-            kind: ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+            kind: ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
             input_sources: vec![ProcessingNodePortSpec {
                 source_system_name: "pipe-deck-proc-mixer-mixer".into(),
                 gain_percent: 100,
@@ -2180,7 +2687,8 @@ mod tests {
             "Mixer's output must resolve to the Fan-Out node, not come back unresolved"
         );
 
-        let fan_out_node = processing_node_from_spec_with_siblings(&fan_out_spec, &graph, &siblings);
+        let fan_out_node =
+            processing_node_from_spec_with_siblings(&fan_out_spec, &graph, &siblings);
         assert_eq!(fan_out_node.inputs.len(), 1);
         assert_eq!(
             fan_out_node.inputs[0].connected_id.as_deref(),

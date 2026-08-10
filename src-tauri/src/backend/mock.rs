@@ -1,11 +1,12 @@
+use crate::backend::{AudioBackend, BackendError, GraphListener};
 use crate::core::models::{
-    Device, DeviceDirection, DeviceKind, EffectChainConfig, LatencyHop, LatencyPathNode, LatencyPingResult, Link,
-    MixSource, MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind, RuntimeGraph, SinkMode, Stream,
-    StreamDirection, VirtualDeviceInfo, VirtualDeviceResult,
+    Device, DeviceDirection, DeviceKind, EffectChainConfig, LatencyHop, LatencyPathNode,
+    LatencyPingResult, Link, MixSource, MixSourceSpec, PortDirection, ProcessingNode,
+    ProcessingNodeKind, RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo,
+    VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
-use crate::backend::{BackendError, GraphListener, AudioBackend};
 use std::collections::HashSet;
 use std::sync::Mutex;
 
@@ -86,7 +87,10 @@ impl MockAudioBackend {
             .iter()
             .find(|device| {
                 device.kind != DeviceKind::Virtual
-                    && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+                    && matches!(
+                        device.direction,
+                        DeviceDirection::Output | DeviceDirection::Duplex
+                    )
             })
             .map(|device| device.system_name.clone());
         Self {
@@ -100,7 +104,9 @@ impl MockAudioBackend {
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, RuntimeGraph> {
-        self.graph.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.graph
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn push_virtual_device(
@@ -120,9 +126,11 @@ impl MockAudioBackend {
             kind: DeviceKind::Virtual,
             direction: direction.clone(),
             sink_mode: match direction {
-                DeviceDirection::Output | DeviceDirection::Duplex => {
-                    Some(if multi { SinkMode::Multi } else { SinkMode::Single })
-                }
+                DeviceDirection::Output | DeviceDirection::Duplex => Some(if multi {
+                    SinkMode::Multi
+                } else {
+                    SinkMode::Single
+                }),
                 DeviceDirection::Input => None,
             },
             volume_percent: Some(100),
@@ -188,10 +196,30 @@ impl MockAudioBackend {
                     DeviceDirection::Output,
                     &["sink-stream-output"],
                 ),
-                mock_device("sink-headphones", "Headphones", DeviceKind::Physical, DeviceDirection::Output),
-                mock_device("sink-speakers", "Speakers", DeviceKind::Physical, DeviceDirection::Output),
-                mock_device("sink-stream-output", "Stream Output", DeviceKind::Virtual, DeviceDirection::Output),
-                mock_device("source-mic", "Microphone", DeviceKind::Physical, DeviceDirection::Input),
+                mock_device(
+                    "sink-headphones",
+                    "Headphones",
+                    DeviceKind::Physical,
+                    DeviceDirection::Output,
+                ),
+                mock_device(
+                    "sink-speakers",
+                    "Speakers",
+                    DeviceKind::Physical,
+                    DeviceDirection::Output,
+                ),
+                mock_device(
+                    "sink-stream-output",
+                    "Stream Output",
+                    DeviceKind::Virtual,
+                    DeviceDirection::Output,
+                ),
+                mock_device(
+                    "source-mic",
+                    "Microphone",
+                    DeviceKind::Physical,
+                    DeviceDirection::Input,
+                ),
                 mock_device_with_mix_sources(
                     "source-mic-filtered",
                     "Mic (Filtered)",
@@ -365,21 +393,14 @@ impl MockAudioBackend {
                 },
             ],
             data_source: "mock".into(),
-            notice: Some(
-                "Sample data only. Unset PIPE_DECK_USE_MOCK to use live PipeWire.".into(),
-            ),
+            notice: Some("Sample data only. Unset PIPE_DECK_USE_MOCK to use live PipeWire.".into()),
             default_output_system_name: Some("sink-headphones".into()),
             ..Default::default()
         }
     }
 }
 
-fn mock_device(
-    id: &str,
-    label: &str,
-    kind: DeviceKind,
-    direction: DeviceDirection,
-) -> Device {
+fn mock_device(id: &str, label: &str, kind: DeviceKind, direction: DeviceDirection) -> Device {
     Device {
         id: id.into(),
         system_name: id.into(),
@@ -446,7 +467,12 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_device_volume(&self, _graph: &RuntimeGraph, device_id: &str, percent: u8) -> Result<(), BackendError> {
+    fn set_device_volume(
+        &self,
+        _graph: &RuntimeGraph,
+        device_id: &str,
+        percent: u8,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let device = graph
             .devices
@@ -457,7 +483,12 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_device_mute(&self, _graph: &RuntimeGraph, device_id: &str, muted: bool) -> Result<(), BackendError> {
+    fn set_device_mute(
+        &self,
+        _graph: &RuntimeGraph,
+        device_id: &str,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let device = graph
             .devices
@@ -468,7 +499,12 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_stream_volume(&self, _graph: &RuntimeGraph, stream_id: &str, percent: u8) -> Result<(), BackendError> {
+    fn set_stream_volume(
+        &self,
+        _graph: &RuntimeGraph,
+        stream_id: &str,
+        percent: u8,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let stream = graph
             .streams
@@ -479,7 +515,12 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_stream_mute(&self, _graph: &RuntimeGraph, stream_id: &str, muted: bool) -> Result<(), BackendError> {
+    fn set_stream_mute(
+        &self,
+        _graph: &RuntimeGraph,
+        stream_id: &str,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let stream = graph
             .streams
@@ -491,14 +532,20 @@ impl AudioBackend for MockAudioBackend {
     }
 
     fn default_output_device_name(&self) -> Option<String> {
-        self.default_output.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone()
+        self.default_output
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     fn set_default_output_device(&self, system_name: &str) -> Result<(), BackendError> {
         let graph = self.lock();
         let exists = graph.devices.iter().any(|device| {
             device.system_name == system_name
-                && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+                && matches!(
+                    device.direction,
+                    DeviceDirection::Output | DeviceDirection::Duplex
+                )
         });
         if !exists {
             return Err(BackendError::Message(format!(
@@ -506,7 +553,10 @@ impl AudioBackend for MockAudioBackend {
             )));
         }
         drop(graph);
-        *self.default_output.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(system_name.to_string());
+        *self
+            .default_output
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(system_name.to_string());
         Ok(())
     }
 
@@ -539,11 +589,18 @@ impl AudioBackend for MockAudioBackend {
                 }
                 match direction {
                     StreamDirection::Playback => {
-                        !(device.kind == DeviceKind::Virtual && device.direction == DeviceDirection::Input)
-                            && matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex)
+                        !(device.kind == DeviceKind::Virtual
+                            && device.direction == DeviceDirection::Input)
+                            && matches!(
+                                device.direction,
+                                DeviceDirection::Output | DeviceDirection::Duplex
+                            )
                     }
                     StreamDirection::Capture => {
-                        matches!(device.direction, DeviceDirection::Input | DeviceDirection::Duplex)
+                        matches!(
+                            device.direction,
+                            DeviceDirection::Input | DeviceDirection::Duplex
+                        )
                     }
                 }
             })
@@ -558,10 +615,21 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn route_stream(&self, _graph: &RuntimeGraph, stream_id: &str, target_device_id: &str) -> Result<(), BackendError> {
+    fn route_stream(
+        &self,
+        _graph: &RuntimeGraph,
+        stream_id: &str,
+        target_device_id: &str,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        if !graph.devices.iter().any(|device| device.id == target_device_id) {
-            return Err(BackendError::Message(format!("target device not found: {target_device_id}")));
+        if !graph
+            .devices
+            .iter()
+            .any(|device| device.id == target_device_id)
+        {
+            return Err(BackendError::Message(format!(
+                "target device not found: {target_device_id}"
+            )));
         }
         let stream = graph
             .streams
@@ -580,7 +648,12 @@ impl AudioBackend for MockAudioBackend {
     /// on the fly since `current_target`/`current_targets` store the former
     /// but this trait method (like the live backend) is addressed by the
     /// latter.
-    fn is_routed_to(&self, source_system_name: &str, target_system_name: &str, _target_is_input: bool) -> bool {
+    fn is_routed_to(
+        &self,
+        source_system_name: &str,
+        target_system_name: &str,
+        _target_is_input: bool,
+    ) -> bool {
         let graph = self.lock();
         let target_ids: Vec<&str> = graph
             .devices
@@ -592,8 +665,10 @@ impl AudioBackend for MockAudioBackend {
             return false;
         }
 
-        let source_targets: Vec<String> = if let Some(device) =
-            graph.devices.iter().find(|device| device.system_name == source_system_name)
+        let source_targets: Vec<String> = if let Some(device) = graph
+            .devices
+            .iter()
+            .find(|device| device.system_name == source_system_name)
         {
             if !device.current_targets.is_empty() {
                 device.current_targets.clone()
@@ -610,7 +685,9 @@ impl AudioBackend for MockAudioBackend {
             Vec::new()
         };
 
-        source_targets.iter().any(|target_id| target_ids.contains(&target_id.as_str()))
+        source_targets
+            .iter()
+            .any(|target_id| target_ids.contains(&target_id.as_str()))
     }
 
     // The mock sample graph has no real pactl/pw-link session behind it, so
@@ -634,7 +711,11 @@ impl AudioBackend for MockAudioBackend {
 
     fn apply_graph_routing(&self, _graph: &mut RuntimeGraph, _ctx: &ApplyRulesContext<'_>) {}
 
-    fn apply_virtual_mic_mix(&self, virtual_input: &Device, mix_sources: &[MixSourceSpec]) -> Result<(), BackendError> {
+    fn apply_virtual_mic_mix(
+        &self,
+        virtual_input: &Device,
+        mix_sources: &[MixSourceSpec],
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let resolved: Vec<MixSource> = mix_sources
             .iter()
@@ -650,13 +731,22 @@ impl AudioBackend for MockAudioBackend {
                     })
             })
             .collect();
-        if let Some(device) = graph.devices.iter_mut().find(|device| device.id == virtual_input.id) {
+        if let Some(device) = graph
+            .devices
+            .iter_mut()
+            .find(|device| device.id == virtual_input.id)
+        {
             device.mix_sources = resolved;
         }
         Ok(())
     }
 
-    fn set_mix_source_volume(&self, virtual_input_system_name: &str, source_system_name: &str, percent: u8) -> Result<(), BackendError> {
+    fn set_mix_source_volume(
+        &self,
+        virtual_input_system_name: &str,
+        source_system_name: &str,
+        percent: u8,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let source_device_id = graph
             .devices
@@ -681,7 +771,12 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_mix_source_mute(&self, virtual_input_system_name: &str, source_system_name: &str, muted: bool) -> Result<(), BackendError> {
+    fn set_mix_source_mute(
+        &self,
+        virtual_input_system_name: &str,
+        source_system_name: &str,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         let source_device_id = graph
             .devices
@@ -706,7 +801,10 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn disconnect_all_virtual_mic_mixes(&self, virtual_input_system_name: &str) -> Result<(), BackendError> {
+    fn disconnect_all_virtual_mic_mixes(
+        &self,
+        virtual_input_system_name: &str,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
         if let Some(device) = graph
             .devices
@@ -750,9 +848,11 @@ impl AudioBackend for MockAudioBackend {
             kind: DeviceKind::Virtual,
             direction: direction.clone(),
             sink_mode: match direction {
-                DeviceDirection::Output | DeviceDirection::Duplex => {
-                    Some(if multi { SinkMode::Multi } else { SinkMode::Single })
-                }
+                DeviceDirection::Output | DeviceDirection::Duplex => Some(if multi {
+                    SinkMode::Multi
+                } else {
+                    SinkMode::Single
+                }),
                 DeviceDirection::Input => None,
             },
             volume_percent: Some(100),
@@ -767,7 +867,9 @@ impl AudioBackend for MockAudioBackend {
     }
 
     fn remove_virtual_device(&self, system_name: &str) -> Result<(), BackendError> {
-        self.lock().devices.retain(|device| device.system_name != system_name);
+        self.lock()
+            .devices
+            .retain(|device| device.system_name != system_name);
         Ok(())
     }
 
@@ -787,22 +889,39 @@ impl AudioBackend for MockAudioBackend {
     }
 
     fn set_virtual_device_alias(&self, system_name: &str, alias: &str) -> Result<(), BackendError> {
-        if let Some(device) = self.lock().devices.iter_mut().find(|device| device.system_name == system_name) {
+        if let Some(device) = self
+            .lock()
+            .devices
+            .iter_mut()
+            .find(|device| device.system_name == system_name)
+        {
             device.label = alias.to_string();
         }
         Ok(())
     }
 
-    fn play_sound(&self, path: &std::path::Path, target_system_name: &str, volume_percent: u8) -> Result<(), BackendError> {
+    fn play_sound(
+        &self,
+        path: &std::path::Path,
+        target_system_name: &str,
+        volume_percent: u8,
+    ) -> Result<(), BackendError> {
         self.played_sounds
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .push((path.to_path_buf(), target_system_name.to_string(), volume_percent));
+            .push((
+                path.to_path_buf(),
+                target_system_name.to_string(),
+                volume_percent,
+            ));
         Ok(())
     }
 
     fn stop_sound(&self) -> Result<(), BackendError> {
-        *self.soundboard_stop_calls.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
+        *self
+            .soundboard_stop_calls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) += 1;
         Ok(())
     }
 
@@ -816,7 +935,10 @@ impl AudioBackend for MockAudioBackend {
     /// non-zero data without shelling out to a real `pw-top`. A path node
     /// that isn't in the current graph reports no data, exercising the same
     /// "gap in the path" case a real backend would hit for a suspended node.
-    fn measure_latency_ping(&self, path: &[LatencyPathNode]) -> Result<LatencyPingResult, BackendError> {
+    fn measure_latency_ping(
+        &self,
+        path: &[LatencyPathNode],
+    ) -> Result<LatencyPingResult, BackendError> {
         const MOCK_QUANTUM: u32 = 1024;
         const MOCK_RATE: u32 = 48000;
 
@@ -856,7 +978,10 @@ impl AudioBackend for MockAudioBackend {
             });
         }
 
-        Ok(LatencyPingResult { hops, total_latency_ms })
+        Ok(LatencyPingResult {
+            hops,
+            total_latency_ms,
+        })
     }
 
     fn load_effect_chain(
@@ -899,7 +1024,11 @@ impl AudioBackend for MockAudioBackend {
         // directly, the same way `push_virtual_device` is how a mock device
         // comes to exist at all.
         let mut graph = self.lock();
-        if let Some(existing) = graph.processing_nodes.iter_mut().find(|existing| existing.system_name == node.system_name) {
+        if let Some(existing) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|existing| existing.system_name == node.system_name)
+        {
             *existing = node.clone();
         } else {
             graph.processing_nodes.push(node.clone());
@@ -912,7 +1041,9 @@ impl AudioBackend for MockAudioBackend {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .remove(system_name);
-        self.lock().processing_nodes.retain(|node| node.system_name != system_name);
+        self.lock()
+            .processing_nodes
+            .retain(|node| node.system_name != system_name);
         Ok(())
     }
 
@@ -932,8 +1063,14 @@ impl AudioBackend for MockAudioBackend {
         peer_id: Option<&str>,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         let ports = match direction {
             PortDirection::Input => &mut node.inputs,
@@ -986,7 +1123,10 @@ impl AudioBackend for MockAudioBackend {
             },
         };
         if direction == PortDirection::Input {
-            if let ProcessingNodeKind::Mixer { input_gains_percent } = &mut node.kind {
+            if let ProcessingNodeKind::Mixer {
+                input_gains_percent,
+            } = &mut node.kind
+            {
                 match edit {
                     PortEdit::Grew => input_gains_percent.push(100),
                     PortEdit::RemovedAt(position) => {
@@ -1018,16 +1158,32 @@ impl AudioBackend for MockAudioBackend {
             .iter()
             .find(|device| device.system_name == peer_system_name)
             .map(|device| device.id.clone());
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         let Some(port_index) = peer_id
-            .and_then(|id| node.inputs.iter().find(|port| port.connected_id.as_deref() == Some(id.as_str())).map(|port| port.index))
+            .and_then(|id| {
+                node.inputs
+                    .iter()
+                    .find(|port| port.connected_id.as_deref() == Some(id.as_str()))
+                    .map(|port| port.index)
+            })
             .map(|index| index as usize)
         else {
-            return Err(BackendError::Message(format!("input not connected: {peer_system_name}")));
+            return Err(BackendError::Message(format!(
+                "input not connected: {peer_system_name}"
+            )));
         };
-        if let ProcessingNodeKind::Mixer { input_gains_percent } = &mut node.kind {
+        if let ProcessingNodeKind::Mixer {
+            input_gains_percent,
+        } = &mut node.kind
+        {
             if let Some(slot) = input_gains_percent.get_mut(port_index) {
                 *slot = gain_percent;
             }
@@ -1035,17 +1191,34 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_processing_node_volume(&self, system_name: &str, volume_percent: u8, muted: bool) -> Result<(), BackendError> {
+    fn set_processing_node_volume(
+        &self,
+        system_name: &str,
+        volume_percent: u8,
+        muted: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         match &node.kind {
             ProcessingNodeKind::FanOut { .. } => {
-                node.kind = ProcessingNodeKind::FanOut { volume_percent, muted };
+                node.kind = ProcessingNodeKind::FanOut {
+                    volume_percent,
+                    muted,
+                };
             }
             ProcessingNodeKind::Group { .. } => {
-                node.kind = ProcessingNodeKind::Group { volume_percent, muted };
+                node.kind = ProcessingNodeKind::Group {
+                    volume_percent,
+                    muted,
+                };
             }
             _ => {}
         }
@@ -1064,11 +1237,24 @@ impl AudioBackend for MockAudioBackend {
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Eq5Band { .. } = &node.kind {
-            node.kind = ProcessingNodeKind::Eq5Band { eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain };
+            node.kind = ProcessingNodeKind::Eq5Band {
+                eq_sub,
+                eq_bass,
+                eq_mid,
+                eq_treble,
+                eq_air,
+                output_gain,
+            };
         }
         node.bypassed = bypassed;
         Ok(())
@@ -1083,11 +1269,21 @@ impl AudioBackend for MockAudioBackend {
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Delay { .. } = &node.kind {
-            node.kind = ProcessingNodeKind::Delay { delay_ms, feedback_percent, feedforward_percent };
+            node.kind = ProcessingNodeKind::Delay {
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+            };
         }
         node.bypassed = bypassed;
         Ok(())
@@ -1102,11 +1298,21 @@ impl AudioBackend for MockAudioBackend {
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Limiter { .. } = &node.kind {
-            node.kind = ProcessingNodeKind::Limiter { ceiling_db, floor_db, symmetric };
+            node.kind = ProcessingNodeKind::Limiter {
+                ceiling_db,
+                floor_db,
+                symmetric,
+            };
         }
         node.bypassed = bypassed;
         Ok(())
@@ -1120,20 +1326,40 @@ impl AudioBackend for MockAudioBackend {
         bypassed: bool,
     ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Hpf { .. } = &node.kind {
-            node.kind = ProcessingNodeKind::Hpf { freq_hz, resonance_x10 };
+            node.kind = ProcessingNodeKind::Hpf {
+                freq_hz,
+                resonance_x10,
+            };
         }
         node.bypassed = bypassed;
         Ok(())
     }
 
-    fn set_processing_node_reverb_params(&self, system_name: &str, mix_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+    fn set_processing_node_reverb_params(
+        &self,
+        system_name: &str,
+        mix_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Reverb { .. } = &node.kind {
             node.kind = ProcessingNodeKind::Reverb { mix_percent };
@@ -1142,10 +1368,21 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_processing_node_widener_params(&self, system_name: &str, width_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+    fn set_processing_node_widener_params(
+        &self,
+        system_name: &str,
+        width_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Widener { .. } = &node.kind {
             node.kind = ProcessingNodeKind::Widener { width_percent };
@@ -1154,10 +1391,21 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn set_processing_node_pan_params(&self, system_name: &str, balance_percent: i32, bypassed: bool) -> Result<(), BackendError> {
+    fn set_processing_node_pan_params(
+        &self,
+        system_name: &str,
+        balance_percent: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
         let mut graph = self.lock();
-        let Some(node) = graph.processing_nodes.iter_mut().find(|node| node.system_name == system_name) else {
-            return Err(BackendError::Message(format!("processing node not found: {system_name}")));
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
         };
         if let ProcessingNodeKind::Pan { .. } = &node.kind {
             node.kind = ProcessingNodeKind::Pan { balance_percent };
@@ -1166,19 +1414,34 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
-    fn revert_to_plain_device(&self, _device: &Device, _wait_for_node: bool) -> Result<(), BackendError> {
+    fn revert_to_plain_device(
+        &self,
+        _device: &Device,
+        _wait_for_node: bool,
+    ) -> Result<(), BackendError> {
         Ok(())
     }
 
-    fn hold_sink_inputs_for_swap(&self, _device_system_name: &str) -> Result<Vec<String>, BackendError> {
+    fn hold_sink_inputs_for_swap(
+        &self,
+        _device_system_name: &str,
+    ) -> Result<Vec<String>, BackendError> {
         Ok(Vec::new())
     }
 
-    fn release_held_sink_inputs(&self, _held_streams: &[String], _target_system_name: &str) -> Result<(), BackendError> {
+    fn release_held_sink_inputs(
+        &self,
+        _held_streams: &[String],
+        _target_system_name: &str,
+    ) -> Result<(), BackendError> {
         Ok(())
     }
 
-    fn list_mic_feeds(&self, _target_system_name: &str, _target_is_virtual_source: bool) -> Vec<String> {
+    fn list_mic_feeds(
+        &self,
+        _target_system_name: &str,
+        _target_is_virtual_source: bool,
+    ) -> Vec<String> {
         Vec::new()
     }
 
@@ -1204,13 +1467,18 @@ mod tests {
     /// added here later can't race this one.
     fn lock_mock_scenario_env() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-        LOCK.get_or_init(|| std::sync::Mutex::new(())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+        LOCK.get_or_init(|| std::sync::Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     #[test]
     fn from_env_loads_a_scenario_file_when_set() {
         let _guard = lock_mock_scenario_env();
-        let dir = std::env::temp_dir().join(format!("pipe-deck-mock-scenario-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!(
+            "pipe-deck-mock-scenario-test-{}",
+            std::process::id()
+        ));
         std::fs::create_dir_all(&dir).unwrap();
         let scenario_path = dir.join("test-scenario.yaml");
         std::fs::write(
@@ -1248,36 +1516,53 @@ routes: []
 
         let backend = MockAudioBackend::from_env();
         let graph = backend.fetch_graph().unwrap();
-        assert_eq!(graph.devices.len(), MockAudioBackend::sample_graph().devices.len());
+        assert_eq!(
+            graph.devices.len(),
+            MockAudioBackend::sample_graph().devices.len()
+        );
     }
 
     #[test]
     fn from_env_falls_back_to_sample_graph_on_invalid_path() {
         let _guard = lock_mock_scenario_env();
-        std::env::set_var("PIPE_DECK_MOCK_SCENARIO", "/nonexistent/pipe-deck-scenario.yaml");
+        std::env::set_var(
+            "PIPE_DECK_MOCK_SCENARIO",
+            "/nonexistent/pipe-deck-scenario.yaml",
+        );
         let backend = MockAudioBackend::from_env();
         std::env::remove_var("PIPE_DECK_MOCK_SCENARIO");
 
         let graph = backend.fetch_graph().unwrap();
-        assert_eq!(graph.devices.len(), MockAudioBackend::sample_graph().devices.len());
+        assert_eq!(
+            graph.devices.len(),
+            MockAudioBackend::sample_graph().devices.len()
+        );
     }
 
     #[test]
     fn play_sound_records_the_call() {
         let backend = MockAudioBackend::new();
-        let dir = std::env::temp_dir().join(format!("pipe-deck-play-sound-test-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("pipe-deck-play-sound-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let clip = dir.join("clip.wav");
         std::fs::write(&clip, b"not real audio, just needs to exist").unwrap();
 
-        backend.play_sound(&clip, "pipe-deck-virtual-mic", 100).unwrap();
-        backend.play_sound(&clip, "pipe-deck-virtual-mic", 40).unwrap();
+        backend
+            .play_sound(&clip, "pipe-deck-virtual-mic", 100)
+            .unwrap();
+        backend
+            .play_sound(&clip, "pipe-deck-virtual-mic", 40)
+            .unwrap();
 
         let _ = std::fs::remove_dir_all(&dir);
 
         let played = backend.played_sounds.lock().unwrap();
         assert_eq!(played.len(), 2);
-        assert_eq!(played[0], (clip.clone(), "pipe-deck-virtual-mic".to_string(), 100));
+        assert_eq!(
+            played[0],
+            (clip.clone(), "pipe-deck-virtual-mic".to_string(), 100)
+        );
         assert_eq!(played[1], (clip, "pipe-deck-virtual-mic".to_string(), 40));
     }
 

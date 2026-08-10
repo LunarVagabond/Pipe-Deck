@@ -25,23 +25,75 @@ interface AvailableEffect {
 }
 
 const EFFECT_CATALOG: AvailableEffect[] = [
-  { kind: "eq5band", label: "5-Band EQ", description: "Shape tone across five adjustable frequency bands — boost bass, cut harshness, etc." },
+  {
+    kind: "eq5band",
+    label: "5-Band EQ",
+    description:
+      "Shape tone across five adjustable frequency bands — boost bass, cut harshness, etc.",
+  },
 ];
 
 /** Human-readable use-case blurb for each General-category processing node
  * kind, shown as a hover tooltip (issue: node descriptions in context menu)
  * so a user unfamiliar with terms like "Fan-Out" or "HPF" can see what a
  * node is actually for before adding it. */
-const GENERAL_NODE_CATALOG: { type: AddNodeType; label: string; description: string }[] = [
-  { type: "fan_out", label: "Fan-Out Node", description: "Duplicate one input to multiple destinations at once — e.g. play a track to your speakers and your recording software simultaneously." },
-  { type: "mixer", label: "Mixer Node", description: "Combine multiple sources into one signal with independent volume per input — e.g. blend your mic and game audio into a single stream for Discord." },
-  { type: "eq5band", label: "5-Band EQ Node", description: "Shape tone across five adjustable frequency bands — boost bass, cut harshness, etc." },
-  { type: "delay", label: "Delay Node", description: "Add an adjustable echo/delay repeat to a signal." },
-  { type: "limiter", label: "Limiter Node", description: "Cap peak loudness so a signal never exceeds a ceiling you set — prevents clipping on loud moments." },
-  { type: "hpf", label: "High-Pass Filter Node", description: "Cut low-frequency rumble below a chosen cutoff — e.g. remove mic handling noise or desk thumps." },
-  { type: "reverb", label: "Reverb Node", description: "Add spatial ambience/echo to a signal, like a room or hall." },
-  { type: "widener", label: "Stereo Widener Node", description: "Widen the perceived stereo image of a signal for a bigger, more spacious sound." },
-  { type: "pan", label: "Balance/Pan Node", description: "Shift a signal's balance between the left and right channels." },
+const GENERAL_NODE_CATALOG: {
+  type: AddNodeType;
+  label: string;
+  description: string;
+}[] = [
+  {
+    type: "fan_out",
+    label: "Fan-Out Node",
+    description:
+      "Duplicate one input to multiple destinations at once — e.g. play a track to your speakers and your recording software simultaneously.",
+  },
+  {
+    type: "mixer",
+    label: "Mixer Node",
+    description:
+      "Combine multiple sources into one signal with independent volume per input — e.g. blend your mic and game audio into a single stream for Discord.",
+  },
+  {
+    type: "eq5band",
+    label: "5-Band EQ Node",
+    description:
+      "Shape tone across five adjustable frequency bands — boost bass, cut harshness, etc.",
+  },
+  {
+    type: "delay",
+    label: "Delay Node",
+    description: "Add an adjustable echo/delay repeat to a signal.",
+  },
+  {
+    type: "limiter",
+    label: "Limiter Node",
+    description:
+      "Cap peak loudness so a signal never exceeds a ceiling you set — prevents clipping on loud moments.",
+  },
+  {
+    type: "hpf",
+    label: "High-Pass Filter Node",
+    description:
+      "Cut low-frequency rumble below a chosen cutoff — e.g. remove mic handling noise or desk thumps.",
+  },
+  {
+    type: "reverb",
+    label: "Reverb Node",
+    description: "Add spatial ambience/echo to a signal, like a room or hall.",
+  },
+  {
+    type: "widener",
+    label: "Stereo Widener Node",
+    description:
+      "Widen the perceived stereo image of a signal for a bigger, more spacious sound.",
+  },
+  {
+    type: "pan",
+    label: "Balance/Pan Node",
+    description:
+      "Shift a signal's balance between the left and right channels.",
+  },
 ];
 
 /** issue #293's non-DSP effect kinds — addable to the graph as visibly "Not
@@ -49,20 +101,62 @@ const GENERAL_NODE_CATALOG: { type: AddNodeType; label: string; description: str
  * DSP landing for each in follow-up tickets. Originally 11; `reverb_delay`,
  * `limiter`, `hpf`, and `stereo_widener` graduated to real node buttons in
  * the General category below (issues #313/#311/#312/#314). */
-const STUB_EFFECT_CATALOG: { kind: string; label: string; description: string }[] = [
-  { kind: "compressor", label: "Compressor", description: "Automatically reduce the difference between loud and quiet parts of a signal." },
-  { kind: "noise_gate", label: "Noise Gate", description: "Mute a signal below a volume threshold — e.g. silence a mic between sentences to cut background noise." },
-  { kind: "denoise", label: "Noise Suppression", description: "Suppress steady background noise in a signal — e.g. a fan or hum bleeding into a mic." },
-  { kind: "de_esser", label: "De-esser", description: "Tame harsh sibilant \"s\"/\"sh\" sounds in vocals." },
-  { kind: "auto_gain_leveler", label: "Auto Gain/Leveler", description: "Automatically adjust a signal's overall volume to stay consistent over time." },
-  { kind: "pitch_shift", label: "Pitch Shift/Voice Changer", description: "Shift a signal's pitch up or down." },
-  { kind: "loudness_normalizer", label: "Loudness Normalizer", description: "Normalize a signal to a consistent perceived loudness." },
-  { kind: "saturation", label: "Saturation/Distortion", description: "Add warmth or grit by driving a signal into soft distortion." },
+const STUB_EFFECT_CATALOG: {
+  kind: string;
+  label: string;
+  description: string;
+}[] = [
+  {
+    kind: "compressor",
+    label: "Compressor",
+    description:
+      "Automatically reduce the difference between loud and quiet parts of a signal.",
+  },
+  {
+    kind: "noise_gate",
+    label: "Noise Gate",
+    description:
+      "Mute a signal below a volume threshold — e.g. silence a mic between sentences to cut background noise.",
+  },
+  {
+    kind: "denoise",
+    label: "Noise Suppression",
+    description:
+      "Suppress steady background noise in a signal — e.g. a fan or hum bleeding into a mic.",
+  },
+  {
+    kind: "de_esser",
+    label: "De-esser",
+    description: 'Tame harsh sibilant "s"/"sh" sounds in vocals.',
+  },
+  {
+    kind: "auto_gain_leveler",
+    label: "Auto Gain/Leveler",
+    description:
+      "Automatically adjust a signal's overall volume to stay consistent over time.",
+  },
+  {
+    kind: "pitch_shift",
+    label: "Pitch Shift/Voice Changer",
+    description: "Shift a signal's pitch up or down.",
+  },
+  {
+    kind: "loudness_normalizer",
+    label: "Loudness Normalizer",
+    description: "Normalize a signal to a consistent perceived loudness.",
+  },
+  {
+    kind: "saturation",
+    label: "Saturation/Distortion",
+    description: "Add warmth or grit by driving a signal into soft distortion.",
+  },
 ];
 
 const IO_NODE_DESCRIPTIONS: Record<"input" | "output", string> = {
-  input: "A virtual microphone-like device other apps can select as an input — e.g. combine sources to send into Discord.",
-  output: "A virtual speaker-like device other apps can play to — e.g. route one app's audio through Pipe Deck before it reaches your speakers.",
+  input:
+    "A virtual microphone-like device other apps can select as an input — e.g. combine sources to send into Discord.",
+  output:
+    "A virtual speaker-like device other apps can play to — e.g. route one app's audio through Pipe Deck before it reaches your speakers.",
 };
 
 const props = defineProps<{
@@ -86,7 +180,12 @@ const emit = defineEmits<{
 
 const availableEffects = computed<AvailableEffect[]>(() => {
   const target = props.target;
-  if (!target || target.kind !== "node" || !target.supportsEffects || !target.deviceId) {
+  if (
+    !target ||
+    target.kind !== "node" ||
+    !target.supportsEffects ||
+    !target.deviceId
+  ) {
     return [];
   }
   const existing = target.existingStageKinds ?? [];
@@ -178,7 +277,8 @@ function onSearchKeydown(event: KeyboardEvent) {
   } else if (event.key === "ArrowUp") {
     event.preventDefault();
     if (matches.length > 0) {
-      highlightedIndex.value = (highlightedIndex.value - 1 + matches.length) % matches.length;
+      highlightedIndex.value =
+        (highlightedIndex.value - 1 + matches.length) % matches.length;
     }
   } else if (event.key === "Enter") {
     event.preventDefault();
@@ -282,13 +382,18 @@ function onPickStubEffect(stubKind: string, label: string) {
     <template v-if="target.kind === 'node'">
       <button type="button" @click="emit('copy-id')">Copy ID</button>
       <hr
-        v-if="target.editable || availableEffects.length > 0 || target.deletable"
+        v-if="
+          target.editable || availableEffects.length > 0 || target.deletable
+        "
         class="routing-graph-context-menu-separator"
       />
 
       <template v-if="target.editable">
         <button type="button" @click="emit('rename')">Rename</button>
-        <hr v-if="availableEffects.length > 0 || target.deletable" class="routing-graph-context-menu-separator" />
+        <hr
+          v-if="availableEffects.length > 0 || target.deletable"
+          class="routing-graph-context-menu-separator"
+        />
       </template>
 
       <template v-if="availableEffects.length > 0">
@@ -302,7 +407,10 @@ function onPickStubEffect(stubKind: string, label: string) {
         >
           + {{ effect.label }}
         </button>
-        <hr v-if="target.deletable" class="routing-graph-context-menu-separator" />
+        <hr
+          v-if="target.deletable"
+          class="routing-graph-context-menu-separator"
+        />
       </template>
 
       <button
@@ -315,8 +423,12 @@ function onPickStubEffect(stubKind: string, label: string) {
       </button>
     </template>
     <template v-else-if="target.kind === 'multi-node'">
-      <p class="routing-graph-context-menu-label">{{ target.memberLabels.length }} outputs selected</p>
-      <button type="button" @click="emit('group-outputs')">Group Selected Outputs</button>
+      <p class="routing-graph-context-menu-label">
+        {{ target.memberLabels.length }} outputs selected
+      </p>
+      <button type="button" @click="emit('group-outputs')">
+        Group Selected Outputs
+      </button>
     </template>
     <template v-else>
       <input
@@ -339,13 +451,23 @@ function onPickStubEffect(stubKind: string, label: string) {
         >
           {{ action.label }}
         </button>
-        <p v-if="!filteredSearchActions.length" class="routing-graph-context-menu-label">No matches</p>
+        <p
+          v-if="!filteredSearchActions.length"
+          class="routing-graph-context-menu-label"
+        >
+          No matches
+        </p>
       </template>
       <template v-else>
         <p class="routing-graph-context-menu-label">Add node</p>
         <div class="routing-graph-node-picker-anchor">
-          <button type="button" @click="toggleCategory('general')">General ▸</button>
-          <div v-if="openCategory === 'general'" class="routing-graph-node-category-flyout">
+          <button type="button" @click="toggleCategory('general')">
+            General ▸
+          </button>
+          <div
+            v-if="openCategory === 'general'"
+            class="routing-graph-node-category-flyout"
+          >
             <button
               v-for="node in GENERAL_NODE_CATALOG"
               :key="node.type"
@@ -369,21 +491,45 @@ function onPickStubEffect(stubKind: string, label: string) {
           </div>
         </div>
         <div class="routing-graph-node-picker-anchor">
-          <button type="button" @click="toggleCategory('input')">Input ▸</button>
-          <div v-if="openCategory === 'input'" class="routing-graph-node-category-flyout">
-            <button type="button" :title="IO_NODE_DESCRIPTIONS.input" @click="onPickNodeType('input')">+ Virtual Input</button>
+          <button type="button" @click="toggleCategory('input')">
+            Input ▸
+          </button>
+          <div
+            v-if="openCategory === 'input'"
+            class="routing-graph-node-category-flyout"
+          >
+            <button
+              type="button"
+              :title="IO_NODE_DESCRIPTIONS.input"
+              @click="onPickNodeType('input')"
+            >
+              + Virtual Input
+            </button>
           </div>
         </div>
         <div class="routing-graph-node-picker-anchor">
-          <button type="button" @click="toggleCategory('output')">Output ▸</button>
-          <div v-if="openCategory === 'output'" class="routing-graph-node-category-flyout">
-            <button type="button" :title="IO_NODE_DESCRIPTIONS.output" @click="onPickNodeType('output')">+ Virtual Output</button>
+          <button type="button" @click="toggleCategory('output')">
+            Output ▸
+          </button>
+          <div
+            v-if="openCategory === 'output'"
+            class="routing-graph-node-category-flyout"
+          >
+            <button
+              type="button"
+              :title="IO_NODE_DESCRIPTIONS.output"
+              @click="onPickNodeType('output')"
+            >
+              + Virtual Output
+            </button>
           </div>
         </div>
 
         <hr class="routing-graph-context-menu-separator" />
         <div class="routing-graph-node-picker-anchor">
-          <button type="button" @click="nodePickerOpen = !nodePickerOpen">Bring node here…</button>
+          <button type="button" @click="nodePickerOpen = !nodePickerOpen">
+            Bring node here…
+          </button>
           <div v-if="nodePickerOpen" class="routing-graph-node-picker">
             <button
               v-for="node in nodes ?? []"
@@ -393,7 +539,9 @@ function onPickStubEffect(stubKind: string, label: string) {
             >
               {{ node.label }}
             </button>
-            <p v-if="!nodes?.length" class="routing-graph-context-menu-label">No nodes on the board</p>
+            <p v-if="!nodes?.length" class="routing-graph-context-menu-label">
+              No nodes on the board
+            </p>
           </div>
         </div>
       </template>

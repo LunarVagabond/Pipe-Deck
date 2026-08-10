@@ -41,25 +41,37 @@ describe("setDeviceVolume / setStreamVolume / setDeviceMute / setStreamMute", ()
   it("setDeviceVolume invokes set_device_volume with the right args", async () => {
     const { setDeviceVolume } = useMixerControls();
     await setDeviceVolume("dev-1", 80);
-    expect(invokeMock).toHaveBeenCalledWith("set_device_volume", { deviceId: "dev-1", percent: 80 });
+    expect(invokeMock).toHaveBeenCalledWith("set_device_volume", {
+      deviceId: "dev-1",
+      percent: 80,
+    });
   });
 
   it("setStreamVolume invokes set_stream_volume with the right args", async () => {
     const { setStreamVolume } = useMixerControls();
     await setStreamVolume("stream-1", 40);
-    expect(invokeMock).toHaveBeenCalledWith("set_stream_volume", { streamId: "stream-1", percent: 40 });
+    expect(invokeMock).toHaveBeenCalledWith("set_stream_volume", {
+      streamId: "stream-1",
+      percent: 40,
+    });
   });
 
   it("setDeviceMute invokes set_device_mute with the right args", async () => {
     const { setDeviceMute } = useMixerControls();
     await setDeviceMute("dev-1", true);
-    expect(invokeMock).toHaveBeenCalledWith("set_device_mute", { deviceId: "dev-1", muted: true });
+    expect(invokeMock).toHaveBeenCalledWith("set_device_mute", {
+      deviceId: "dev-1",
+      muted: true,
+    });
   });
 
   it("setStreamMute invokes set_stream_mute with the right args", async () => {
     const { setStreamMute } = useMixerControls();
     await setStreamMute("stream-1", false);
-    expect(invokeMock).toHaveBeenCalledWith("set_stream_mute", { streamId: "stream-1", muted: false });
+    expect(invokeMock).toHaveBeenCalledWith("set_stream_mute", {
+      streamId: "stream-1",
+      muted: false,
+    });
   });
 });
 
@@ -67,13 +79,19 @@ describe("applyChannelVolume", () => {
   it("calls setStreamVolume for a stream channel", async () => {
     const { applyChannelVolume } = useMixerControls();
     await applyChannelVolume("stream", "s1", 60);
-    expect(invokeMock).toHaveBeenCalledWith("set_stream_volume", { streamId: "s1", percent: 60 });
+    expect(invokeMock).toHaveBeenCalledWith("set_stream_volume", {
+      streamId: "s1",
+      percent: 60,
+    });
   });
 
   it("calls setDeviceVolume for a device channel", async () => {
     const { applyChannelVolume } = useMixerControls();
     await applyChannelVolume("device", "d1", 60);
-    expect(invokeMock).toHaveBeenCalledWith("set_device_volume", { deviceId: "d1", percent: 60 });
+    expect(invokeMock).toHaveBeenCalledWith("set_device_volume", {
+      deviceId: "d1",
+      percent: 60,
+    });
   });
 
   it("routes a failure to the provided onError instead of the notice store", async () => {
@@ -89,7 +107,10 @@ describe("applyChannelVolume", () => {
     invokeMock.mockRejectedValueOnce(new Error("boom"));
     const { applyChannelVolume } = useMixerControls();
     await applyChannelVolume("device", "d1", 60);
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "boom" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "boom" },
+      "",
+    );
   });
 });
 
@@ -97,28 +118,46 @@ describe("toggleChannelMute", () => {
   it("un-mutes (invokes with the opposite of the current muted state) and reports success", async () => {
     const { toggleChannelMute } = useMixerControls();
     await toggleChannelMute("device", "d1", true);
-    expect(invokeMock).toHaveBeenCalledWith("set_device_mute", { deviceId: "d1", muted: false });
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: true }, "Unmuted");
+    expect(invokeMock).toHaveBeenCalledWith("set_device_mute", {
+      deviceId: "d1",
+      muted: false,
+    });
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: true },
+      "Unmuted",
+    );
   });
 
   it("mutes and reports success with the default message", async () => {
     const { toggleChannelMute } = useMixerControls();
     await toggleChannelMute("stream", "s1", false);
-    expect(invokeMock).toHaveBeenCalledWith("set_stream_mute", { streamId: "s1", muted: true });
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: true }, "Muted");
+    expect(invokeMock).toHaveBeenCalledWith("set_stream_mute", {
+      streamId: "s1",
+      muted: true,
+    });
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: true },
+      "Muted",
+    );
   });
 
   it("uses a custom success message when provided", async () => {
     const { toggleChannelMute } = useMixerControls();
     await toggleChannelMute("device", "d1", true, "Custom message");
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: true }, "Custom message");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: true },
+      "Custom message",
+    );
   });
 
   it("reports failure through the notice store on error", async () => {
     invokeMock.mockRejectedValueOnce(new Error("nope"));
     const { toggleChannelMute } = useMixerControls();
     await toggleChannelMute("device", "d1", true);
-    expect(handleApplyResultMock).toHaveBeenCalledWith({ success: false, message: "nope" }, "");
+    expect(handleApplyResultMock).toHaveBeenCalledWith(
+      { success: false, message: "nope" },
+      "",
+    );
   });
 });
 
@@ -147,7 +186,10 @@ describe("scheduleChannelVolume", () => {
     await vi.advanceTimersByTimeAsync(120);
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith("set_device_volume", { deviceId: "d1", percent: 30 });
+    expect(invokeMock).toHaveBeenCalledWith("set_device_volume", {
+      deviceId: "d1",
+      percent: 30,
+    });
   });
 
   it("clamps the scheduled value", async () => {
@@ -156,6 +198,9 @@ describe("scheduleChannelVolume", () => {
 
     await vi.advanceTimersByTimeAsync(120);
 
-    expect(invokeMock).toHaveBeenCalledWith("set_stream_volume", { streamId: "s1", percent: 100 });
+    expect(invokeMock).toHaveBeenCalledWith("set_stream_volume", {
+      streamId: "s1",
+      percent: 100,
+    });
   });
 });

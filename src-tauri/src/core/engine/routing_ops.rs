@@ -1,7 +1,7 @@
 use crate::config::ConfigStore;
 use crate::core::models::ApplyResult;
-use crate::core::rules;
 use crate::core::routing::capture_routing_snapshot;
+use crate::core::rules;
 
 use super::{CoreEngine, EngineError};
 
@@ -12,7 +12,12 @@ impl CoreEngine {
         target_device_id: &str,
     ) -> Result<ApplyResult, EngineError> {
         self.clear_last_error();
-        if let Some(stream) = self.graph.streams.iter().find(|stream| stream.id == stream_id) {
+        if let Some(stream) = self
+            .graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == stream_id)
+        {
             self.cleared_stream_routes
                 .remove(&crate::core::stream_identity::stream_identity_key(stream));
         }
@@ -83,7 +88,9 @@ impl CoreEngine {
             .find(|stream| stream.id == stream_id)
             .map(crate::core::stream_identity::stream_identity_key);
         let Some(stream_identity) = stream_identity else {
-            return Err(EngineError::Routing(format!("stream not found: {stream_id}")));
+            return Err(EngineError::Routing(format!(
+                "stream not found: {stream_id}"
+            )));
         };
 
         let apply_result: Result<(), EngineError> = self
@@ -102,11 +109,21 @@ impl CoreEngine {
 
         self.cleared_stream_routes.insert(stream_identity);
 
-        if let Some(stream) = self.graph.streams.iter_mut().find(|stream| stream.id == stream_id) {
+        if let Some(stream) = self
+            .graph
+            .streams
+            .iter_mut()
+            .find(|stream| stream.id == stream_id)
+        {
             stream.current_target = None;
         }
 
-        if let Some(stream) = self.graph.streams.iter().find(|stream| stream.id == stream_id) {
+        if let Some(stream) = self
+            .graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == stream_id)
+        {
             let _ = crate::core::routing_rules::clear_stream_route_rule(stream);
             self.manual_overrides
                 .remove(&crate::core::stream_identity::stream_identity_key(stream));

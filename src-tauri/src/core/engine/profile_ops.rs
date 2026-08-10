@@ -1,15 +1,13 @@
+use crate::config::profile_store::{import_profile_archive, ProfileStore};
 use crate::config::ConfigStore;
-use crate::core::models::{
-    ApplyResult, Profile, ProfileIndexEntry, RoutingDrift,
-};
+use crate::core::models::{ApplyResult, Profile, ProfileIndexEntry, RoutingDrift};
 use crate::core::profile::{capture_profile_from_graph, update_profile_timestamp};
 use crate::core::profile_drift::compare_profile_to_graph;
+use crate::core::restore;
 use crate::core::routing::{
     apply_profile_routing, apply_profile_volumes, capture_routing_snapshot,
     restore_routing_snapshot,
 };
-use crate::config::profile_store::{import_profile_archive, ProfileStore};
-use crate::core::restore;
 use std::path::Path;
 
 use super::mock::{apply_mock_profile, apply_mock_profile_volumes, apply_mock_snapshot};
@@ -143,7 +141,10 @@ impl CoreEngine {
         Ok(entry)
     }
 
-    pub fn import_profile_archive(&self, source_path: &str) -> Result<ProfileIndexEntry, EngineError> {
+    pub fn import_profile_archive(
+        &self,
+        source_path: &str,
+    ) -> Result<ProfileIndexEntry, EngineError> {
         let store = ConfigStore::new();
         let profiles_dir = store.config_dir().join("profiles");
         let entry = import_profile_archive(Path::new(source_path), &profiles_dir)
@@ -186,11 +187,9 @@ impl CoreEngine {
         let snapshot = capture_routing_snapshot(&self.graph);
 
         if self.graph.data_source != "mock" {
-            let restore_result = restore::restore_profile_virtual_devices(
-                self.adapter.as_ref(),
-                &profile,
-            )
-            .map_err(|error| EngineError::Adapter(error.to_string()))?;
+            let restore_result =
+                restore::restore_profile_virtual_devices(self.adapter.as_ref(), &profile)
+                    .map_err(|error| EngineError::Adapter(error.to_string()))?;
             if !restore_result.errors.is_empty() {
                 let message = restore_result.errors.join("; ");
                 self.last_error = Some(message.clone());
@@ -228,7 +227,8 @@ impl CoreEngine {
         }
 
         if self.graph.data_source != "mock" {
-            if let Err(error) = apply_profile_volumes(self.adapter.as_ref(), &self.graph, &profile) {
+            if let Err(error) = apply_profile_volumes(self.adapter.as_ref(), &self.graph, &profile)
+            {
                 let message = error.to_string();
                 self.last_error = Some(message.clone());
                 let _ = restore_routing_snapshot(&self.graph, &snapshot);

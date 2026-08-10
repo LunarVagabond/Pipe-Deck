@@ -619,18 +619,48 @@ impl ThemeColorOverrides {
     /// Merges these overrides on top of `base`, keeping `base`'s value for anything unset.
     pub fn resolve(&self, base: &ThemeColors) -> ThemeColors {
         ThemeColors {
-            background: self.background.clone().unwrap_or_else(|| base.background.clone()),
-            surface_1: self.surface_1.clone().unwrap_or_else(|| base.surface_1.clone()),
-            surface_2: self.surface_2.clone().unwrap_or_else(|| base.surface_2.clone()),
+            background: self
+                .background
+                .clone()
+                .unwrap_or_else(|| base.background.clone()),
+            surface_1: self
+                .surface_1
+                .clone()
+                .unwrap_or_else(|| base.surface_1.clone()),
+            surface_2: self
+                .surface_2
+                .clone()
+                .unwrap_or_else(|| base.surface_2.clone()),
             border: self.border.clone().unwrap_or_else(|| base.border.clone()),
             text: self.text.clone().unwrap_or_else(|| base.text.clone()),
-            text_muted: self.text_muted.clone().unwrap_or_else(|| base.text_muted.clone()),
-            accent_purple: self.accent_purple.clone().unwrap_or_else(|| base.accent_purple.clone()),
-            accent_teal: self.accent_teal.clone().unwrap_or_else(|| base.accent_teal.clone()),
-            accent_amber: self.accent_amber.clone().unwrap_or_else(|| base.accent_amber.clone()),
-            status_success: self.status_success.clone().unwrap_or_else(|| base.status_success.clone()),
-            status_warning: self.status_warning.clone().unwrap_or_else(|| base.status_warning.clone()),
-            status_danger: self.status_danger.clone().unwrap_or_else(|| base.status_danger.clone()),
+            text_muted: self
+                .text_muted
+                .clone()
+                .unwrap_or_else(|| base.text_muted.clone()),
+            accent_purple: self
+                .accent_purple
+                .clone()
+                .unwrap_or_else(|| base.accent_purple.clone()),
+            accent_teal: self
+                .accent_teal
+                .clone()
+                .unwrap_or_else(|| base.accent_teal.clone()),
+            accent_amber: self
+                .accent_amber
+                .clone()
+                .unwrap_or_else(|| base.accent_amber.clone()),
+            status_success: self
+                .status_success
+                .clone()
+                .unwrap_or_else(|| base.status_success.clone()),
+            status_warning: self
+                .status_warning
+                .clone()
+                .unwrap_or_else(|| base.status_warning.clone()),
+            status_danger: self
+                .status_danger
+                .clone()
+                .unwrap_or_else(|| base.status_danger.clone()),
         }
     }
 }
@@ -672,7 +702,11 @@ pub struct VirtualDeviceSpec {
     pub multi: bool,
     /// Physical capture device system names mixed into this virtual input (e.g. headset mic),
     /// each with its own gain (applied via a per-pair feed sink, not the source's own volume).
-    #[serde(default, deserialize_with = "deserialize_mix_source_specs", skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        default,
+        deserialize_with = "deserialize_mix_source_specs",
+        skip_serializing_if = "Vec::is_empty"
+    )]
     pub mix_sources: Vec<MixSourceSpec>,
 }
 
@@ -988,15 +1022,32 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum RuleCondition {
-    AppName { value: String },
-    Executable { value: String },
-    WindowClass { value: String },
-    MediaName { value: String },
-    Direction { value: StreamDirection },
-    Category { value: String },
+    AppName {
+        value: String,
+    },
+    Executable {
+        value: String,
+    },
+    WindowClass {
+        value: String,
+    },
+    MediaName {
+        value: String,
+    },
+    Direction {
+        value: StreamDirection,
+    },
+    Category {
+        value: String,
+    },
     /// Matches when app name, executable, or PipeWire node name equals `value` (case-insensitive).
-    Identity { value: String },
-    Regex { field: String, pattern: String },
+    Identity {
+        value: String,
+    },
+    Regex {
+        field: String,
+        pattern: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1473,7 +1524,10 @@ impl EffectChainConfig {
     /// effect on audio without discarding its configured settings, so a
     /// bypassed-but-configured chain still counts as active here.
     pub fn is_active(&self) -> bool {
-        self.compressor.enabled || self.limiter.enabled || self.noise_gate.enabled || !self.stages.is_empty()
+        self.compressor.enabled
+            || self.limiter.enabled
+            || self.noise_gate.enabled
+            || !self.stages.is_empty()
     }
 
     /// The chain's `Eq5Band` stage, flattened — "no stage" is treated the
@@ -1487,7 +1541,13 @@ impl EffectChainConfig {
             .iter()
             .find_map(|stage| match stage {
                 EffectStage::Eq5Band {
-                    eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain, ..
+                    eq_sub,
+                    eq_bass,
+                    eq_mid,
+                    eq_treble,
+                    eq_air,
+                    output_gain,
+                    ..
                 } => Some(EqStageParams {
                     eq_sub: *eq_sub,
                     eq_bass: *eq_bass,
@@ -1512,7 +1572,12 @@ impl EffectChainConfig {
     /// since a config only ever carries one processing-node stage kind.
     pub fn delay_stage(&self) -> Option<DelayStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Delay { delay_ms, feedback_percent, feedforward_percent, .. } => Some(DelayStageParams {
+            EffectStage::Delay {
+                delay_ms,
+                feedback_percent,
+                feedforward_percent,
+                ..
+            } => Some(DelayStageParams {
                 delay_ms: *delay_ms,
                 feedback_percent: *feedback_percent,
                 feedforward_percent: *feedforward_percent,
@@ -1531,7 +1596,11 @@ impl EffectChainConfig {
     /// which this method does not read at all.
     pub fn limiter_stage(&self) -> Option<LimiterStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Limiter { ceiling_db, floor_db, .. } => Some(LimiterStageParams {
+            EffectStage::Limiter {
+                ceiling_db,
+                floor_db,
+                ..
+            } => Some(LimiterStageParams {
                 ceiling_db: *ceiling_db,
                 floor_db: *floor_db,
             }),
@@ -1547,7 +1616,11 @@ impl EffectChainConfig {
     /// The chain's `Hpf` stage, flattened — mirrors `limiter_stage()`.
     pub fn hpf_stage(&self) -> Option<HpfStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Hpf { freq_hz, resonance_x10, .. } => Some(HpfStageParams {
+            EffectStage::Hpf {
+                freq_hz,
+                resonance_x10,
+                ..
+            } => Some(HpfStageParams {
                 freq_hz: *freq_hz,
                 resonance_x10: *resonance_x10,
             }),
@@ -1563,7 +1636,9 @@ impl EffectChainConfig {
     /// The chain's `Reverb` stage, flattened — mirrors `limiter_stage()`.
     pub fn reverb_stage(&self) -> Option<ReverbStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Reverb { mix_percent, .. } => Some(ReverbStageParams { mix_percent: *mix_percent }),
+            EffectStage::Reverb { mix_percent, .. } => Some(ReverbStageParams {
+                mix_percent: *mix_percent,
+            }),
             EffectStage::Eq5Band { .. }
             | EffectStage::Delay { .. }
             | EffectStage::Limiter { .. }
@@ -1576,7 +1651,9 @@ impl EffectChainConfig {
     /// The chain's `Widener` stage, flattened — mirrors `limiter_stage()`.
     pub fn widener_stage(&self) -> Option<WidenerStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Widener { width_percent, .. } => Some(WidenerStageParams { width_percent: *width_percent }),
+            EffectStage::Widener { width_percent, .. } => Some(WidenerStageParams {
+                width_percent: *width_percent,
+            }),
             EffectStage::Eq5Band { .. }
             | EffectStage::Delay { .. }
             | EffectStage::Limiter { .. }
@@ -1589,7 +1666,11 @@ impl EffectChainConfig {
     /// The chain's `Pan` stage, flattened — mirrors `limiter_stage()`.
     pub fn pan_stage(&self) -> Option<PanStageParams> {
         self.stages.iter().find_map(|stage| match stage {
-            EffectStage::Pan { balance_percent, .. } => Some(PanStageParams { balance_percent: *balance_percent }),
+            EffectStage::Pan {
+                balance_percent, ..
+            } => Some(PanStageParams {
+                balance_percent: *balance_percent,
+            }),
             EffectStage::Eq5Band { .. }
             | EffectStage::Delay { .. }
             | EffectStage::Limiter { .. }
@@ -1887,7 +1968,13 @@ mod naming_tests {
 
     #[test]
     fn derives_effect_node_names() {
-        assert_eq!(effect_output_name_for_device("pipe-deck-game-mix"), "effect_output.pipe-deck-game-mix");
-        assert_eq!(effect_input_name_for_device("pipe-deck-mic"), "effect_input.pipe-deck-mic");
+        assert_eq!(
+            effect_output_name_for_device("pipe-deck-game-mix"),
+            "effect_output.pipe-deck-game-mix"
+        );
+        assert_eq!(
+            effect_input_name_for_device("pipe-deck-mic"),
+            "effect_input.pipe-deck-mic"
+        );
     }
 }

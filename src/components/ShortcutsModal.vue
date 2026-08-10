@@ -37,8 +37,15 @@ const groups: ShortcutGroup[] = [
           "From an output port to an input port to connect — a new empty slot appears after each connection. Drag a wire off its slot to disconnect.",
       },
       { keys: ["Tab"], description: "Move focus between node ports" },
-      { keys: ["Enter", "Space"], description: "Start or complete a connection at the focused port" },
-      { keys: ["Delete", "Backspace"], description: "Disconnect the focused port, or delete the selected node/edge" },
+      {
+        keys: ["Enter", "Space"],
+        description: "Start or complete a connection at the focused port",
+      },
+      {
+        keys: ["Delete", "Backspace"],
+        description:
+          "Disconnect the focused port, or delete the selected node/edge",
+      },
       { keys: ["Esc"], description: "Cancel an in-progress connection" },
       { keys: ["G"], description: "Group two or more selected nodes" },
     ],
@@ -59,7 +66,12 @@ const groups: ShortcutGroup[] = [
     class="shortcuts-modal-overlay"
     @click.self="closeShortcutsModal"
   >
-    <div class="shortcuts-modal" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+    <div
+      class="shortcuts-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Keyboard shortcuts"
+    >
       <div class="shortcuts-modal-header">
         <h2>Keyboard shortcuts</h2>
         <button
@@ -80,25 +92,46 @@ const groups: ShortcutGroup[] = [
         </button>
       </div>
       <div class="shortcuts-modal-body">
-        <section v-for="group in groups" :key="group.title" class="shortcuts-group">
+        <section
+          v-for="group in groups"
+          :key="group.title"
+          class="shortcuts-group"
+        >
           <h3>{{ group.title }}</h3>
           <ul>
-            <li v-for="shortcut in group.shortcuts" :key="shortcut.description" class="shortcuts-row">
+            <li
+              v-for="shortcut in group.shortcuts"
+              :key="shortcut.description"
+              class="shortcuts-row"
+            >
               <span class="shortcuts-keys">
                 <template v-for="(key, index) in shortcut.keys" :key="key">
                   <kbd>{{ key }}</kbd>
-                  <span v-if="index < shortcut.keys.length - 1" class="shortcuts-keys-sep">or</span>
+                  <span
+                    v-if="index < shortcut.keys.length - 1"
+                    class="shortcuts-keys-sep"
+                    >or</span
+                  >
                 </template>
               </span>
-              <span class="shortcuts-description">{{ shortcut.description }}</span>
+              <span class="shortcuts-description">{{
+                shortcut.description
+              }}</span>
             </li>
           </ul>
         </section>
         <section class="shortcuts-group">
           <h3>Connection colors</h3>
           <ul>
-            <li v-for="entry in legend" :key="entry.key" class="shortcuts-row shortcuts-row--legend">
-              <span class="shortcuts-legend-swatch" :style="{ background: entry.color }" />
+            <li
+              v-for="entry in legend"
+              :key="entry.key"
+              class="shortcuts-row shortcuts-row--legend"
+            >
+              <span
+                class="shortcuts-legend-swatch"
+                :style="{ background: entry.color }"
+              />
               <span class="shortcuts-description">{{ entry.label }}</span>
             </li>
           </ul>

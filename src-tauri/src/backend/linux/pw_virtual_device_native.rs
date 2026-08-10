@@ -119,7 +119,10 @@ struct Index {
 
 impl Index {
     fn new() -> Self {
-        Self { nodes: HashMap::new(), node_names: HashMap::new() }
+        Self {
+            nodes: HashMap::new(),
+            node_names: HashMap::new(),
+        }
     }
 
     fn apply(&mut self, event: RegistryEvent) {
@@ -169,7 +172,8 @@ impl Connection {
 
         // SAFETY: `pw::init()` has just been called above (exactly once,
         // process-wide, via `PW_INIT`).
-        let thread_loop = unsafe { ThreadLoopRc::new(Some("pipe-deck-virtual-device"), None) }.ok()?;
+        let thread_loop =
+            unsafe { ThreadLoopRc::new(Some("pipe-deck-virtual-device"), None) }.ok()?;
         thread_loop.start();
 
         let (tx, rx) = mpsc::channel::<RegistryEvent>();
@@ -191,11 +195,21 @@ impl Connection {
                     let Some(name) = global.props.and_then(|props| props.get("node.name")) else {
                         return;
                     };
-                    let media_class = global.props.and_then(|props| props.get("media.class")).map(str::to_string);
-                    let description = global.props.and_then(|props| props.get("node.description")).map(str::to_string);
+                    let media_class = global
+                        .props
+                        .and_then(|props| props.get("media.class"))
+                        .map(str::to_string);
+                    let description = global
+                        .props
+                        .and_then(|props| props.get("node.description"))
+                        .map(str::to_string);
                     let _ = tx_global.send(RegistryEvent::Added {
                         name: name.to_string(),
-                        record: NodeRecord { id: global.id, media_class, description },
+                        record: NodeRecord {
+                            id: global.id,
+                            media_class,
+                            description,
+                        },
                     });
                 })
                 .global_remove(move |id| {
@@ -223,7 +237,12 @@ impl Connection {
     }
 
     fn node_id(&self, name: &str) -> Option<u32> {
-        self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).nodes.get(name).map(|record| record.id)
+        self.index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .nodes
+            .get(name)
+            .map(|record| record.id)
     }
 
     /// True if a node named `name` is currently indexed and — when
@@ -233,10 +252,17 @@ impl Connection {
     /// own direction split (a virtual input's `media.class` is
     /// `Audio/Source/Virtual`, which still starts with `"Audio/Source"`).
     fn exists(&self, name: &str, media_class_prefix: Option<&str>) -> bool {
-        let index = self.index.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let index = self
+            .index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         match index.nodes.get(name) {
-            Some(record) => media_class_prefix
-                .is_none_or(|prefix| record.media_class.as_deref().is_some_and(|class| class.starts_with(prefix))),
+            Some(record) => media_class_prefix.is_none_or(|prefix| {
+                record
+                    .media_class
+                    .as_deref()
+                    .is_some_and(|class| class.starts_with(prefix))
+            }),
             None => false,
         }
     }
@@ -255,7 +281,12 @@ impl Connection {
             .collect()
     }
 
-    fn create_null_audio_sink(&self, system_name: &str, description: &str, media_class: &str) -> Result<(), BackendError> {
+    fn create_null_audio_sink(
+        &self,
+        system_name: &str,
+        description: &str,
+        media_class: &str,
+    ) -> Result<(), BackendError> {
         let _lock = self._thread_loop.lock();
         self.core
             .create_object::<pw::node::Node>(
@@ -271,7 +302,11 @@ impl Connection {
                 },
             )
             .map(|_node: pw::node::Node| ())
-            .map_err(|error| BackendError::Message(format!("failed to create native virtual device {system_name}: {error}")))
+            .map_err(|error| {
+                BackendError::Message(format!(
+                    "failed to create native virtual device {system_name}: {error}"
+                ))
+            })
     }
 
     fn destroy_node(&self, node_id: u32) -> Result<(), BackendError> {
@@ -280,7 +315,9 @@ impl Connection {
             .destroy_global(node_id)
             .into_result()
             .map(|_| ())
-            .map_err(|error| BackendError::Message(format!("failed to destroy native node {node_id}: {error}")))
+            .map_err(|error| {
+                BackendError::Message(format!("failed to destroy native node {node_id}: {error}"))
+            })
     }
 }
 
@@ -290,12 +327,19 @@ fn connection() -> Option<&'static Connection> {
     CONNECTION.get_or_init(Connection::start).as_ref()
 }
 
-fn run_assembler(rx: mpsc::Receiver<RegistryEvent>, index: Arc<Mutex<Index>>, ready_tx: mpsc::Sender<()>) {
+fn run_assembler(
+    rx: mpsc::Receiver<RegistryEvent>,
+    index: Arc<Mutex<Index>>,
+    ready_tx: mpsc::Sender<()>,
+) {
     let mut ready_tx = Some(ready_tx);
     loop {
         match rx.recv_timeout(Duration::from_millis(200)) {
             Ok(event) => {
-                index.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).apply(event);
+                index
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .apply(event);
             }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
@@ -371,22 +415,36 @@ mod live_tests {
     //! `playback_*`/`monitor_*` split this module's own doc comment is about)
     //! and Pulse-compat visibility independently via `pactl`, not this
     //! module's own index.
-    use crate::backend::AudioBackend;
     use crate::backend::linux::live::LinuxPipeWireBackend;
     use crate::backend::linux::pactl::sink_exists;
+    use crate::backend::AudioBackend;
     use std::thread;
     use std::time::Duration;
 
     fn output_ports(system_name: &str) -> Vec<String> {
-        let output = crate::sysproc::command("pw-link").arg("-o").output().expect("failed to run pw-link -o");
+        let output = crate::sysproc::command("pw-link")
+            .arg("-o")
+            .output()
+            .expect("failed to run pw-link -o");
         let prefix = format!("{system_name}:");
-        String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with(&prefix)).map(str::to_string).collect()
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| line.starts_with(&prefix))
+            .map(str::to_string)
+            .collect()
     }
 
     fn input_ports(system_name: &str) -> Vec<String> {
-        let output = crate::sysproc::command("pw-link").arg("-i").output().expect("failed to run pw-link -i");
+        let output = crate::sysproc::command("pw-link")
+            .arg("-i")
+            .output()
+            .expect("failed to run pw-link -i");
         let prefix = format!("{system_name}:");
-        String::from_utf8_lossy(&output.stdout).lines().filter(|line| line.starts_with(&prefix)).map(str::to_string).collect()
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .filter(|line| line.starts_with(&prefix))
+            .map(str::to_string)
+            .collect()
     }
 
     #[test]
@@ -394,8 +452,11 @@ mod live_tests {
     fn creates_a_virtual_output_natively_with_playback_and_monitor_ports() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_output("Pipe Deck Native Output Test", false).expect("create should succeed");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_output("Pipe Deck Native Output Test", false)
+            .expect("create should succeed");
 
         assert!(
             (0..20).any(|_| {
@@ -409,11 +470,19 @@ mod live_tests {
         );
 
         let outputs = output_ports(&device.system_name);
-        assert!(outputs.iter().any(|p| p.contains(":monitor_")), "expected monitor_* output ports, got {outputs:?}");
+        assert!(
+            outputs.iter().any(|p| p.contains(":monitor_")),
+            "expected monitor_* output ports, got {outputs:?}"
+        );
         let inputs = input_ports(&device.system_name);
-        assert!(inputs.iter().any(|p| p.contains(":playback_")), "expected playback_* input ports, got {inputs:?}");
+        assert!(
+            inputs.iter().any(|p| p.contains(":playback_")),
+            "expected playback_* input ports, got {inputs:?}"
+        );
 
-        backend.remove_virtual_device(&device.system_name).expect("remove should succeed");
+        backend
+            .remove_virtual_device(&device.system_name)
+            .expect("remove should succeed");
 
         let removed = (0..20).any(|_| {
             if !sink_exists(&device.system_name).unwrap_or(true) {
@@ -422,7 +491,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(removed, "expected pactl's own sink listing to no longer see the device after removal");
+        assert!(
+            removed,
+            "expected pactl's own sink listing to no longer see the device after removal"
+        );
     }
 
     #[test]
@@ -430,15 +502,26 @@ mod live_tests {
     fn creates_a_virtual_input_natively_with_capture_and_input_ports() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_input("Pipe Deck Native Input Test").expect("create should succeed");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_input("Pipe Deck Native Input Test")
+            .expect("create should succeed");
 
         let outputs = output_ports(&device.system_name);
-        assert!(outputs.iter().any(|p| p.contains(":capture_")), "expected capture_* output ports, got {outputs:?}");
+        assert!(
+            outputs.iter().any(|p| p.contains(":capture_")),
+            "expected capture_* output ports, got {outputs:?}"
+        );
         let inputs = input_ports(&device.system_name);
-        assert!(inputs.iter().any(|p| p.contains(":input_")), "expected input_* input ports, got {inputs:?}");
+        assert!(
+            inputs.iter().any(|p| p.contains(":input_")),
+            "expected input_* input ports, got {inputs:?}"
+        );
 
-        backend.remove_virtual_device(&device.system_name).expect("remove should succeed");
+        backend
+            .remove_virtual_device(&device.system_name)
+            .expect("remove should succeed");
     }
 
     /// Covers `list_nodes` specifically (#432, Gap 2's discovery half) —
@@ -456,12 +539,18 @@ mod live_tests {
     fn list_nodes_discovers_a_natively_created_device_with_its_description() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_output("Pipe Deck Native List Test", false).expect("create should succeed");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_output("Pipe Deck Native List Test", false)
+            .expect("create should succeed");
 
         let found = (0..20).find_map(|_| {
-            let nodes = super::list_nodes().expect("expected the native path to run, not fall back to pactl");
-            let record = nodes.into_iter().find(|node| node.system_name == device.system_name);
+            let nodes = super::list_nodes()
+                .expect("expected the native path to run, not fall back to pactl");
+            let record = nodes
+                .into_iter()
+                .find(|node| node.system_name == device.system_name);
             if record.is_some() {
                 return record;
             }
@@ -470,9 +559,14 @@ mod live_tests {
         });
         let record = found.expect("expected list_nodes to discover the natively-created device");
         assert_eq!(record.media_class.as_deref(), Some("Audio/Sink"));
-        assert_eq!(record.description.as_deref(), Some("Pipe Deck Native List Test"));
+        assert_eq!(
+            record.description.as_deref(),
+            Some("Pipe Deck Native List Test")
+        );
 
-        backend.remove_virtual_device(&device.system_name).expect("remove should succeed");
+        backend
+            .remove_virtual_device(&device.system_name)
+            .expect("remove should succeed");
 
         let removed = (0..20).any(|_| {
             let still_present = super::list_nodes()
@@ -485,6 +579,9 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(removed, "expected list_nodes to no longer report the device after removal");
+        assert!(
+            removed,
+            "expected list_nodes to no longer report the device after removal"
+        );
     }
 }

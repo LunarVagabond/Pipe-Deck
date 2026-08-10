@@ -38,7 +38,9 @@ const DEFAULT_LABELS: Record<ProcessingNodeType, string> = {
   pan: "Balance/Pan",
 };
 
-export function defaultLabelForProcessingNodeType(type: ProcessingNodeType): string {
+export function defaultLabelForProcessingNodeType(
+  type: ProcessingNodeType,
+): string {
   return DEFAULT_LABELS[type];
 }
 

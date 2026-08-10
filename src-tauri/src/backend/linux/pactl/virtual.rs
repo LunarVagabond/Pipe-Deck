@@ -1,9 +1,9 @@
-use crate::config::store::ConfigStore;
-use crate::core::models::DeviceDirection;
-use crate::backend::BackendError;
 use crate::backend::linux::pactl::run_pactl;
 use crate::backend::linux::pw_link;
 use crate::backend::linux::pw_virtual_device_native as native;
+use crate::backend::BackendError;
+use crate::config::store::ConfigStore;
+use crate::core::models::DeviceDirection;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -133,13 +133,17 @@ pub fn feed_sink_name_for_virtual_input(virtual_input_system_name: &str) -> Stri
     format!("pipe-deck-feed-{slug}")
 }
 
-pub fn remove_feed_sink_for_virtual_input(virtual_input_system_name: &str) -> Result<(), BackendError> {
+pub fn remove_feed_sink_for_virtual_input(
+    virtual_input_system_name: &str,
+) -> Result<(), BackendError> {
     let feed_name = feed_sink_name_for_virtual_input(virtual_input_system_name);
     let _ = pw_link::disconnect_sink_monitor(&feed_name);
     remove_sink_by_name(&feed_name)
 }
 
-pub fn gc_feed_sinks(known_virtual_inputs: &std::collections::HashSet<String>) -> Result<(), BackendError> {
+pub fn gc_feed_sinks(
+    known_virtual_inputs: &std::collections::HashSet<String>,
+) -> Result<(), BackendError> {
     let known_slugs: std::collections::HashSet<&str> = known_virtual_inputs
         .iter()
         .filter_map(|name| name.strip_prefix("pipe-deck-"))
@@ -189,13 +193,21 @@ fn list_sink_names_for_prefix(prefix: &str) -> Result<Vec<(String, String)>, Bac
         return Ok(nodes
             .into_iter()
             .filter(|node| node.system_name.starts_with(prefix))
-            .map(|node| (format!("{NATIVE_MODULE_ID_PREFIX}{}", node.system_name), node.system_name))
+            .map(|node| {
+                (
+                    format!("{NATIVE_MODULE_ID_PREFIX}{}", node.system_name),
+                    node.system_name,
+                )
+            })
             .collect());
     }
     list_modules_for_sink_prefix(prefix)
 }
 
-fn is_per_pair_mix_feed_sink(feed_sink_rest: &str, known_slugs: &std::collections::HashSet<&str>) -> bool {
+fn is_per_pair_mix_feed_sink(
+    feed_sink_rest: &str,
+    known_slugs: &std::collections::HashSet<&str>,
+) -> bool {
     known_slugs
         .iter()
         .any(|slug| feed_sink_rest.starts_with(&format!("{slug}-")))
@@ -227,7 +239,9 @@ pub fn sink_exists(name: &str) -> Result<bool, BackendError> {
         return Ok(exists);
     }
     let output = run_pactl(&["list", "sinks", "short"])?;
-    Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
+    Ok(output
+        .lines()
+        .any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
 
 /// The source-direction counterpart to `sink_exists` — used to confirm a
@@ -239,7 +253,9 @@ pub fn source_exists(name: &str) -> Result<bool, BackendError> {
         return Ok(exists);
     }
     let output = run_pactl(&["list", "sources", "short"])?;
-    Ok(output.lines().any(|line| line.split_whitespace().nth(1) == Some(name)))
+    Ok(output
+        .lines()
+        .any(|line| line.split_whitespace().nth(1) == Some(name)))
 }
 
 /// Prefix marking a `module_id` as backed by a natively-created node (#422)
@@ -331,7 +347,9 @@ pub fn list_pipe_deck_modules() -> Result<Vec<PactlVirtualModule>, BackendError>
     list_pipe_deck_modules_from_pactl()
 }
 
-fn list_pipe_deck_modules_from_native(nodes: Vec<crate::backend::linux::pw_virtual_device_native::NodeInfo>) -> Vec<PactlVirtualModule> {
+fn list_pipe_deck_modules_from_native(
+    nodes: Vec<crate::backend::linux::pw_virtual_device_native::NodeInfo>,
+) -> Vec<PactlVirtualModule> {
     let config_labels = configured_virtual_labels();
     let mut entries = Vec::new();
 
@@ -339,9 +357,16 @@ fn list_pipe_deck_modules_from_native(nodes: Vec<crate::backend::linux::pw_virtu
         if !belongs_in_virtual_device_registry(&node.system_name) {
             continue;
         }
-        let slug = node.system_name.strip_prefix("pipe-deck-").unwrap_or(&node.system_name);
+        let slug = node
+            .system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(&node.system_name);
         let multi = node.system_name.starts_with("pipe-deck-split-");
-        let direction = if node.media_class.as_deref().is_some_and(|class| class.starts_with("Audio/Source")) {
+        let direction = if node
+            .media_class
+            .as_deref()
+            .is_some_and(|class| class.starts_with("Audio/Source"))
+        {
             DeviceDirection::Input
         } else {
             DeviceDirection::Output
@@ -378,7 +403,9 @@ fn list_pipe_deck_modules_from_pactl() -> Result<Vec<PactlVirtualModule>, Backen
         if !belongs_in_virtual_device_registry(&system_name) {
             continue;
         }
-        let slug = system_name.strip_prefix("pipe-deck-").unwrap_or(&system_name);
+        let slug = system_name
+            .strip_prefix("pipe-deck-")
+            .unwrap_or(&system_name);
         let multi = system_name.starts_with("pipe-deck-split-");
         let direction = if args.contains("media.class=Audio/Source/Virtual") {
             DeviceDirection::Input
@@ -435,7 +462,13 @@ pub fn feed_sink_name_for_mix_pair(mic_system_name: &str, source_system_name: &s
 fn slugify_for_feed_name(system_name: &str) -> String {
     system_name
         .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch.to_ascii_lowercase() } else { '-' })
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect()
 }
 
@@ -703,7 +736,10 @@ mod tests {
         // "does this look like a bare mic feed sink" check matched the
         // mix-pair naming scheme too, silently tearing mixed sources down
         // moments after they were created.
-        assert!(is_per_pair_mix_feed_sink("mic-alsa_input.headset", &known_slugs));
+        assert!(is_per_pair_mix_feed_sink(
+            "mic-alsa_input.headset",
+            &known_slugs
+        ));
         assert!(!is_per_pair_mix_feed_sink("mic", &known_slugs));
         assert!(!is_per_pair_mix_feed_sink("some-other-thing", &known_slugs));
     }
@@ -770,8 +806,8 @@ mod live_tests {
     //! `unload_module` — the actual integration point #432's Gap 2 changes,
     //! not just the lower-level index.
     use super::*;
-    use crate::backend::AudioBackend;
     use crate::backend::linux::live::LinuxPipeWireBackend;
+    use crate::backend::AudioBackend;
     use std::thread;
     use std::time::Duration;
 
@@ -780,23 +816,30 @@ mod live_tests {
     fn list_pipe_deck_modules_discovers_a_natively_created_device_and_can_unload_it() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let device = backend.create_virtual_output("Pipe Deck List Modules Test", false).expect("create should succeed");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let device = backend
+            .create_virtual_output("Pipe Deck List Modules Test", false)
+            .expect("create should succeed");
 
         let found = (0..20).find_map(|_| {
             let entries = list_pipe_deck_modules().expect("list_pipe_deck_modules should succeed");
-            let entry = entries.into_iter().find(|entry| entry.system_name == device.system_name);
+            let entry = entries
+                .into_iter()
+                .find(|entry| entry.system_name == device.system_name);
             if entry.is_some() {
                 return entry;
             }
             thread::sleep(Duration::from_millis(100));
             None
         });
-        let entry = found.expect("expected list_pipe_deck_modules to discover the natively-created device");
+        let entry =
+            found.expect("expected list_pipe_deck_modules to discover the natively-created device");
         assert_eq!(entry.direction, DeviceDirection::Output);
         assert_eq!(entry.label, "Pipe Deck List Modules Test");
 
-        unload_module(&entry.module_id).expect("unload_module should succeed via the entry's own module_id");
+        unload_module(&entry.module_id)
+            .expect("unload_module should succeed via the entry's own module_id");
 
         let removed = (0..20).any(|_| {
             let still_present = list_pipe_deck_modules()
@@ -809,7 +852,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(removed, "expected list_pipe_deck_modules to no longer report the device after unload_module");
+        assert!(
+            removed,
+            "expected list_pipe_deck_modules to no longer report the device after unload_module"
+        );
     }
 
     /// Regression test for the removal bug #432's Gap 2 fixed: before
@@ -825,11 +871,17 @@ mod live_tests {
     fn removes_a_natively_created_feed_sink() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let mic = backend.create_virtual_input("Pipe Deck Feed Sink Removal Test").expect("create should succeed");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let mic = backend
+            .create_virtual_input("Pipe Deck Feed Sink Removal Test")
+            .expect("create should succeed");
 
-        let feed_name = ensure_feed_sink_for_virtual_input(&mic.system_name, "Pipe Deck Feed Sink Removal Test")
-            .expect("ensure_feed_sink_for_virtual_input should succeed");
+        let feed_name = ensure_feed_sink_for_virtual_input(
+            &mic.system_name,
+            "Pipe Deck Feed Sink Removal Test",
+        )
+        .expect("ensure_feed_sink_for_virtual_input should succeed");
 
         let created = (0..20).any(|_| {
             if sink_exists(&feed_name).unwrap_or(false) {
@@ -838,9 +890,13 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(created, "expected the feed sink to be visible via pactl after creation");
+        assert!(
+            created,
+            "expected the feed sink to be visible via pactl after creation"
+        );
 
-        remove_feed_sink_for_virtual_input(&mic.system_name).expect("remove_feed_sink_for_virtual_input should succeed");
+        remove_feed_sink_for_virtual_input(&mic.system_name)
+            .expect("remove_feed_sink_for_virtual_input should succeed");
 
         let removed = (0..20).any(|_| {
             if !sink_exists(&feed_name).unwrap_or(true) {
@@ -849,7 +905,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(removed, "expected the feed sink to be gone from pactl's own listing after removal");
+        assert!(
+            removed,
+            "expected the feed sink to be gone from pactl's own listing after removal"
+        );
 
         let _ = backend.remove_virtual_device(&mic.system_name);
     }
@@ -867,11 +926,15 @@ mod live_tests {
     fn gc_feed_sinks_collects_an_orphaned_natively_created_feed_sink() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        let backend = LinuxPipeWireBackend::new().expect("backend should start against a real session");
-        let mic = backend.create_virtual_input("Pipe Deck GC Feed Sink Test").expect("create should succeed");
+        let backend =
+            LinuxPipeWireBackend::new().expect("backend should start against a real session");
+        let mic = backend
+            .create_virtual_input("Pipe Deck GC Feed Sink Test")
+            .expect("create should succeed");
 
-        let feed_name = ensure_feed_sink_for_virtual_input(&mic.system_name, "Pipe Deck GC Feed Sink Test")
-            .expect("ensure_feed_sink_for_virtual_input should succeed");
+        let feed_name =
+            ensure_feed_sink_for_virtual_input(&mic.system_name, "Pipe Deck GC Feed Sink Test")
+                .expect("ensure_feed_sink_for_virtual_input should succeed");
         let created = (0..20).any(|_| {
             if sink_exists(&feed_name).unwrap_or(false) {
                 return true;
@@ -879,7 +942,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(created, "expected the feed sink to be visible via pactl after creation");
+        assert!(
+            created,
+            "expected the feed sink to be visible via pactl after creation"
+        );
 
         // Empty `known_virtual_inputs` marks every feed sink as orphaned
         // (its owning virtual input is "gone" as far as this call is
@@ -894,7 +960,10 @@ mod live_tests {
             thread::sleep(Duration::from_millis(100));
             false
         });
-        assert!(removed, "expected gc_feed_sinks to collect the orphaned natively-created feed sink");
+        assert!(
+            removed,
+            "expected gc_feed_sinks to collect the orphaned natively-created feed sink"
+        );
 
         let _ = backend.remove_virtual_device(&mic.system_name);
     }

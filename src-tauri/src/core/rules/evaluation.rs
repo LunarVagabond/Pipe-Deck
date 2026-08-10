@@ -1,14 +1,14 @@
+use crate::backend::BackendError;
 use crate::config::store::ConfigStore;
 use crate::core::models::{
-    ActionStatus, RouteExplanation,
-    RouteSource, Rule, RuntimeGraph, SimulationResult, Stream, StreamRouteRule,
+    ActionStatus, RouteExplanation, RouteSource, Rule, RuntimeGraph, SimulationResult, Stream,
+    StreamRouteRule,
 };
 use crate::core::rules::matching::{
     collect_missing_metadata_skips, collect_stream_candidates, resolve_target_device,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::{stream_display_label, stream_identity_key};
-use crate::backend::BackendError;
 use std::collections::HashSet;
 
 pub fn evaluate_stream_route(
@@ -18,9 +18,9 @@ pub fn evaluate_stream_route(
     manual_overrides: &HashSet<crate::core::stream_identity::StreamIdentityKey>,
 ) -> RouteExplanation {
     let stream_key = stream_identity_key(stream);
-    let overridden = manual_overrides
-        .iter()
-        .any(|override_key| crate::core::stream_identity::identity_matches(&stream_key, override_key));
+    let overridden = manual_overrides.iter().any(|override_key| {
+        crate::core::stream_identity::identity_matches(&stream_key, override_key)
+    });
 
     let candidates = collect_stream_candidates(stream, authored_rules, persisted_rules);
 
@@ -97,8 +97,18 @@ pub fn apply_routing_rules_with_explanations(
     let authored_rules = config.rules;
     let persisted_rules = config.routing_rules.stream_rules;
 
-    for stream_id in graph.streams.iter().map(|stream| stream.id.clone()).collect::<Vec<_>>() {
-        let Some(stream) = graph.streams.iter().find(|stream| stream.id == stream_id).cloned() else {
+    for stream_id in graph
+        .streams
+        .iter()
+        .map(|stream| stream.id.clone())
+        .collect::<Vec<_>>()
+    {
+        let Some(stream) = graph
+            .streams
+            .iter()
+            .find(|stream| stream.id == stream_id)
+            .cloned()
+        else {
             continue;
         };
 
@@ -108,8 +118,12 @@ pub fn apply_routing_rules_with_explanations(
             }
         }
 
-        let mut explanation =
-            evaluate_stream_route(&stream, &authored_rules, &persisted_rules, ctx.manual_overrides);
+        let mut explanation = evaluate_stream_route(
+            &stream,
+            &authored_rules,
+            &persisted_rules,
+            ctx.manual_overrides,
+        );
 
         if explanation.source == RouteSource::ManualOverride {
             if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
@@ -127,7 +141,8 @@ pub fn apply_routing_rules_with_explanations(
             continue;
         };
 
-        let Some((target_device, fallback_note)) = resolve_target_device(graph, &stream, winner) else {
+        let Some((target_device, fallback_note)) = resolve_target_device(graph, &stream, winner)
+        else {
             explanation.action_status = ActionStatus::TargetUnavailable;
             if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
                 stream_mut.route_explanation = Some(explanation);
@@ -168,7 +183,8 @@ pub fn apply_routing_rules_with_explanations(
         match apply_result {
             Ok(()) => {
                 explanation.action_status = ActionStatus::Applied;
-                if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
+                if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id)
+                {
                     stream_mut.current_target = Some(target_device.id.clone());
                     stream_mut.route_explanation = Some(explanation);
                 }
@@ -178,7 +194,8 @@ pub fn apply_routing_rules_with_explanations(
                 explanation
                     .match_reasons
                     .push(format!("Apply failed: {error}"));
-                if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id) {
+                if let Some(stream_mut) = graph.streams.iter_mut().find(|item| item.id == stream_id)
+                {
                     stream_mut.route_explanation = Some(explanation);
                 }
             }
@@ -299,7 +316,10 @@ mod tests {
         );
 
         assert_eq!(explanation.source, RouteSource::ManualOverride);
-        assert_eq!(explanation.action_status, ActionStatus::SkippedManualOverride);
+        assert_eq!(
+            explanation.action_status,
+            ActionStatus::SkippedManualOverride
+        );
     }
 
     #[test]
@@ -324,7 +344,10 @@ mod tests {
 
         assert_eq!(explanation.source, RouteSource::NoRule);
         assert_eq!(explanation.skipped_candidates.len(), 1);
-        assert_eq!(explanation.skipped_candidates[0].rule_key, "Window class rule");
+        assert_eq!(
+            explanation.skipped_candidates[0].rule_key,
+            "Window class rule"
+        );
         assert!(explanation.skipped_candidates[0]
             .reason
             .contains("window_class"));
@@ -445,10 +468,7 @@ mod tests {
 
         let explanation = evaluate_stream_route(&stream, &authored, &persisted, &HashSet::new());
         assert_eq!(explanation.source, RouteSource::AuthoredRule);
-        assert_eq!(
-            explanation.target_system_name.as_deref(),
-            Some("chat-sink")
-        );
+        assert_eq!(explanation.target_system_name.as_deref(), Some("chat-sink"));
     }
 
     #[test]
@@ -565,10 +585,8 @@ mod tests {
         use std::fs;
 
         let _guard = crate::config::store::lock_config_dir_env();
-        let temp_dir = std::env::temp_dir().join(format!(
-            "pipe-deck-rules-test-{}",
-            std::process::id()
-        ));
+        let temp_dir =
+            std::env::temp_dir().join(format!("pipe-deck-rules-test-{}", std::process::id()));
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::set_var("PIPE_DECK_CONFIG_DIR", &temp_dir);
 
@@ -609,7 +627,11 @@ mod tests {
             backend: &backend,
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("simulate");
-        let discord = graph.streams.iter().find(|s| s.app_name == "Discord").unwrap();
+        let discord = graph
+            .streams
+            .iter()
+            .find(|s| s.app_name == "Discord")
+            .unwrap();
         assert_eq!(
             discord
                 .route_explanation
@@ -617,7 +639,11 @@ mod tests {
                 .and_then(|e| e.matched_rule_key.as_deref()),
             Some("Discord"),
         );
-        let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
+        let firefox = graph
+            .streams
+            .iter()
+            .find(|s| s.app_name == "Firefox")
+            .unwrap();
         assert!(firefox.route_explanation.is_none());
 
         let _ = fs::remove_dir_all(&temp_dir);
@@ -659,7 +685,9 @@ mod tests {
         store.save_config(&config).expect("save config");
 
         let mut graph = graph_with_outputs();
-        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
+        graph
+            .streams
+            .push(sample_stream("Firefox", Some("firefox"), None));
         let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
@@ -670,8 +698,15 @@ mod tests {
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("apply");
 
-        let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
-        let explanation = firefox.route_explanation.as_ref().expect("explanation present");
+        let firefox = graph
+            .streams
+            .iter()
+            .find(|s| s.app_name == "Firefox")
+            .unwrap();
+        let explanation = firefox
+            .route_explanation
+            .as_ref()
+            .expect("explanation present");
         assert!(explanation.fallback_applied);
 
         let _ = fs::remove_dir_all(&temp_dir);
@@ -711,7 +746,9 @@ mod tests {
         store.save_config(&config).expect("save config");
 
         let mut graph = graph_with_outputs();
-        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
+        graph
+            .streams
+            .push(sample_stream("Firefox", Some("firefox"), None));
         let backend = crate::backend::mock::MockAudioBackend::new();
         let ctx = ApplyRulesContext {
             manual_overrides: &HashSet::new(),
@@ -722,8 +759,15 @@ mod tests {
         };
         apply_routing_rules_with_explanations(&mut graph, &ctx).expect("apply");
 
-        let firefox = graph.streams.iter().find(|s| s.app_name == "Firefox").unwrap();
-        let explanation = firefox.route_explanation.as_ref().expect("explanation present");
+        let firefox = graph
+            .streams
+            .iter()
+            .find(|s| s.app_name == "Firefox")
+            .unwrap();
+        let explanation = firefox
+            .route_explanation
+            .as_ref()
+            .expect("explanation present");
         assert!(!explanation.fallback_applied);
 
         let _ = fs::remove_dir_all(&temp_dir);
@@ -779,7 +823,9 @@ mod tests {
         store.save_config(&config).expect("save config");
 
         let mut graph = graph_with_outputs();
-        graph.streams.push(sample_stream("Firefox", Some("firefox"), None));
+        graph
+            .streams
+            .push(sample_stream("Firefox", Some("firefox"), None));
         let recent_cache = crate::core::recent_streams::RecentStreamCache::default();
 
         let baseline = simulate_rules(&graph, &recent_cache, &std::collections::HashMap::new());
@@ -892,5 +938,4 @@ mod tests {
         let explanation = evaluate_stream_route(&stream, &authored, &[], &HashSet::new());
         assert_eq!(explanation.source, RouteSource::NoRule);
     }
-
 }

@@ -2,7 +2,12 @@ import { mount, flushPromises } from "@vue/test-utils";
 import { ref } from "vue";
 import { describe, expect, it, vi } from "vitest";
 import Soundboard from "./Soundboard.vue";
-import type { Device, RuntimeGraph, SoundboardBoard, SoundboardClip } from "../types/graph";
+import type {
+  Device,
+  RuntimeGraph,
+  SoundboardBoard,
+  SoundboardClip,
+} from "../types/graph";
 
 const invokeMock = vi.hoisted(() => vi.fn());
 vi.mock("@tauri-apps/api/core", () => ({ invoke: invokeMock }));
@@ -13,8 +18,14 @@ vi.mock("@tauri-apps/plugin-dialog", () => ({ open: openDialogMock }));
 const pushNoticeMock = vi.hoisted(() => vi.fn());
 vi.mock("../stores/notices", () => ({
   useApplyResult: () => ({
-    handleApplyResult: (result: { success: boolean; message?: string }, successMessage: string) => {
-      pushNoticeMock(result.success ? "success" : "error", result.success ? successMessage : result.message);
+    handleApplyResult: (
+      result: { success: boolean; message?: string },
+      successMessage: string,
+    ) => {
+      pushNoticeMock(
+        result.success ? "success" : "error",
+        result.success ? successMessage : result.message,
+      );
     },
   }),
 }));
@@ -54,8 +65,18 @@ function makeDevice(overrides: Partial<Device> = {}): Device {
 
 const graph = ref<RuntimeGraph>({
   devices: [
-    makeDevice({ id: "mic", system_name: "pipe-deck-stream-mic", label: "Stream Mic", direction: "input" }),
-    makeDevice({ id: "hdmi", system_name: "alsa_output.pci-hdmi", label: "HDMI Speakers", direction: "output" }),
+    makeDevice({
+      id: "mic",
+      system_name: "pipe-deck-stream-mic",
+      label: "Stream Mic",
+      direction: "input",
+    }),
+    makeDevice({
+      id: "hdmi",
+      system_name: "alsa_output.pci-hdmi",
+      label: "HDMI Speakers",
+      direction: "output",
+    }),
   ],
   streams: [],
   links: [],
@@ -91,13 +112,21 @@ describe("Soundboard", () => {
     const wrapper = mount(Soundboard);
     await flushPromises();
 
-    expect(wrapper.find(".soundboard-empty-state").text()).toContain("No soundboard tabs yet.");
+    expect(wrapper.find(".soundboard-empty-state").text()).toContain(
+      "No soundboard tabs yet.",
+    );
   });
 
   it("lists clips for the active tab", async () => {
     const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
+      {
+        id: "air-horn.wav",
+        file_name: "air-horn.wav",
+        label: "air-horn",
+        path: "/sounds/sfx/air-horn.wav",
+        duration_seconds: 3,
+      },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -125,8 +154,18 @@ describe("Soundboard", () => {
     await flushPromises();
     expect(wrapper.text()).not.toContain("air-horn");
 
-    clips = [{ id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 }];
-    const refreshButton = wrapper.findAll("button").find((btn) => btn.text() === "Refresh");
+    clips = [
+      {
+        id: "air-horn.wav",
+        file_name: "air-horn.wav",
+        label: "air-horn",
+        path: "/sounds/sfx/air-horn.wav",
+        duration_seconds: 3,
+      },
+    ];
+    const refreshButton = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "Refresh");
     await refreshButton?.trigger("click");
     await flushPromises();
 
@@ -148,14 +187,23 @@ describe("Soundboard", () => {
     const wrapper = mount(Soundboard);
     await flushPromises();
 
-    const addButton = wrapper.findAll("button").find((btn) => btn.text() === "+ Add tab");
+    const addButton = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "+ Add tab");
     await addButton?.trigger("click");
     await flushPromises();
 
-    expect(openDialogMock).toHaveBeenCalledWith(expect.objectContaining({ directory: true }));
+    expect(openDialogMock).toHaveBeenCalledWith(
+      expect.objectContaining({ directory: true }),
+    );
     expect(invokeMock).toHaveBeenCalledWith(
       "save_soundboard_board",
-      expect.objectContaining({ board: expect.objectContaining({ name: "Music", folder: "/home/user/Music" }) }),
+      expect.objectContaining({
+        board: expect.objectContaining({
+          name: "Music",
+          folder: "/home/user/Music",
+        }),
+      }),
     );
     expect(pushNoticeMock).toHaveBeenCalledWith("success", 'Added "Music" tab');
   });
@@ -171,7 +219,9 @@ describe("Soundboard", () => {
     const wrapper = mount(Soundboard);
     await flushPromises();
 
-    expect(wrapper.find(".status.error").text()).toContain("soundboard folder not found");
+    expect(wrapper.find(".status.error").text()).toContain(
+      "soundboard folder not found",
+    );
   });
 
   it("deletes the active tab after confirmation", async () => {
@@ -180,24 +230,38 @@ describe("Soundboard", () => {
       list_soundboard_boards: () => boards,
       list_soundboard_sounds: () => [],
       delete_soundboard_board: (args) => {
-        boards = boards.filter((board) => board.id !== (args as { boardId: string }).boardId);
+        boards = boards.filter(
+          (board) => board.id !== (args as { boardId: string }).boardId,
+        );
       },
     });
     const wrapper = mount(Soundboard);
     await flushPromises();
 
-    const deleteButton = wrapper.findAll("button").find((btn) => btn.text() === "Delete tab");
+    const deleteButton = wrapper
+      .findAll("button")
+      .find((btn) => btn.text() === "Delete tab");
     await deleteButton?.trigger("click");
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith("delete_soundboard_board", { boardId: "b1" });
+    expect(invokeMock).toHaveBeenCalledWith("delete_soundboard_board", {
+      boardId: "b1",
+    });
     expect(pushNoticeMock).toHaveBeenCalledWith("success", "Tab deleted");
   });
 
   it("clicking a tile plays it when the tab has a destination configured", async () => {
-    const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
+    const boards: SoundboardBoard[] = [
+      makeBoard({ target_system_name: "pipe-deck-stream-mic" }),
+    ];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
+      {
+        id: "air-horn.wav",
+        file_name: "air-horn.wav",
+        label: "air-horn",
+        path: "/sounds/sfx/air-horn.wav",
+        duration_seconds: 3,
+      },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -212,15 +276,26 @@ describe("Soundboard", () => {
     await tile.trigger("click");
     await flushPromises();
 
-    expect(invokeMock).toHaveBeenCalledWith("play_soundboard_clip", { boardId: "b1", clipId: "air-horn.wav" });
+    expect(invokeMock).toHaveBeenCalledWith("play_soundboard_clip", {
+      boardId: "b1",
+      clipId: "air-horn.wav",
+    });
   });
 
   it("shows a progress bar with elapsed/remaining time while a clip plays, and stops it on a second click", async () => {
     vi.useFakeTimers();
     try {
-      const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
+      const boards: SoundboardBoard[] = [
+        makeBoard({ target_system_name: "pipe-deck-stream-mic" }),
+      ];
       const clips: SoundboardClip[] = [
-        { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 4 },
+        {
+          id: "air-horn.wav",
+          file_name: "air-horn.wav",
+          label: "air-horn",
+          path: "/sounds/sfx/air-horn.wav",
+          duration_seconds: 4,
+        },
       ];
       mockInvoke({
         list_soundboard_boards: () => boards,
@@ -237,14 +312,22 @@ describe("Soundboard", () => {
 
       expect(tile.classes()).toContain("playing");
       expect(wrapper.find(".soundboard-tile-progress").exists()).toBe(true);
-      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:00");
-      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:04");
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:00",
+      );
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:04",
+      );
 
       await vi.advanceTimersByTimeAsync(2000);
       await flushPromises();
-      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:02");
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:02",
+      );
       // The right-hand number is the clip's static length, not a countdown.
-      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain("0:04");
+      expect(wrapper.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:04",
+      );
 
       await tile.trigger("click");
       await flushPromises();
@@ -260,9 +343,17 @@ describe("Soundboard", () => {
   it("clears playback state on its own once elapsed time reaches the clip's duration", async () => {
     vi.useFakeTimers();
     try {
-      const boards: SoundboardBoard[] = [makeBoard({ target_system_name: "pipe-deck-stream-mic" })];
+      const boards: SoundboardBoard[] = [
+        makeBoard({ target_system_name: "pipe-deck-stream-mic" }),
+      ];
       const clips: SoundboardClip[] = [
-        { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 1 },
+        {
+          id: "air-horn.wav",
+          file_name: "air-horn.wav",
+          label: "air-horn",
+          path: "/sounds/sfx/air-horn.wav",
+          duration_seconds: 1,
+        },
       ];
       mockInvoke({
         list_soundboard_boards: () => boards,
@@ -290,7 +381,13 @@ describe("Soundboard", () => {
   it("switches between cards and list layout, and adjusts card size", async () => {
     const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
+      {
+        id: "air-horn.wav",
+        file_name: "air-horn.wav",
+        label: "air-horn",
+        path: "/sounds/sfx/air-horn.wav",
+        duration_seconds: 3,
+      },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -303,28 +400,42 @@ describe("Soundboard", () => {
     expect(wrapper.find(".soundboard-grid").exists()).toBe(true);
     expect(wrapper.find(".soundboard-grid--medium").exists()).toBe(true);
 
-    const sizeButtons = wrapper.findAll(".soundboard-layout-toolbar .segmented-control-option");
+    const sizeButtons = wrapper.findAll(
+      ".soundboard-layout-toolbar .segmented-control-option",
+    );
     await sizeButtons[2].trigger("click"); // large
     await flushPromises();
     expect(wrapper.find(".soundboard-grid--large").exists()).toBe(true);
 
-    const listButton = wrapper.findAll(".soundboard-layout-toolbar .segmented-control-option").at(-1);
+    const listButton = wrapper
+      .findAll(".soundboard-layout-toolbar .segmented-control-option")
+      .at(-1);
     await listButton?.trigger("click");
     await flushPromises();
 
     expect(wrapper.find(".soundboard-list").exists()).toBe(true);
     expect(wrapper.find(".soundboard-grid").exists()).toBe(false);
-    expect(wrapper.find(".soundboard-tile").classes()).toContain("soundboard-tile--list");
+    expect(wrapper.find(".soundboard-tile").classes()).toContain(
+      "soundboard-tile--list",
+    );
     // The size selector stays mounted (not removed) so the toolbar doesn't
     // jump around when toggling layout, just disabled while in list mode.
-    const [smallButton] = wrapper.findAll(".soundboard-layout-toolbar .segmented-control-option");
+    const [smallButton] = wrapper.findAll(
+      ".soundboard-layout-toolbar .segmented-control-option",
+    );
     expect(smallButton.attributes("disabled")).toBeDefined();
   });
 
   it("marks tiles dimmed when the tab has no destination and surfaces the backend error on click", async () => {
     const boards: SoundboardBoard[] = [makeBoard()];
     const clips: SoundboardClip[] = [
-      { id: "air-horn.wav", file_name: "air-horn.wav", label: "air-horn", path: "/sounds/sfx/air-horn.wav", duration_seconds: 3 },
+      {
+        id: "air-horn.wav",
+        file_name: "air-horn.wav",
+        label: "air-horn",
+        path: "/sounds/sfx/air-horn.wav",
+        duration_seconds: 3,
+      },
     ];
     mockInvoke({
       list_soundboard_boards: () => boards,
@@ -341,7 +452,10 @@ describe("Soundboard", () => {
     await tile.trigger("click");
     await flushPromises();
 
-    expect(pushNoticeMock).toHaveBeenCalledWith("error", '"SFX" tab has no target or monitor device set yet');
+    expect(pushNoticeMock).toHaveBeenCalledWith(
+      "error",
+      '"SFX" tab has no target or monitor device set yet',
+    );
   });
 
   it("saves the tab's target device on selection", async () => {
@@ -356,10 +470,14 @@ describe("Soundboard", () => {
     const wrapper = mount(Soundboard);
     await flushPromises();
 
-    await wrapper.find("#soundboard-target-device").setValue("pipe-deck-stream-mic");
+    await wrapper
+      .find("#soundboard-target-device")
+      .setValue("pipe-deck-stream-mic");
     await flushPromises();
 
-    const savedBoard = invokeMock.mock.calls.filter((call) => call[0] === "save_soundboard_board").at(-1)?.[1] as {
+    const savedBoard = invokeMock.mock.calls
+      .filter((call) => call[0] === "save_soundboard_board")
+      .at(-1)?.[1] as {
       board: SoundboardBoard;
     };
     expect(savedBoard.board.target_system_name).toBe("pipe-deck-stream-mic");
@@ -377,10 +495,14 @@ describe("Soundboard", () => {
     const wrapper = mount(Soundboard);
     await flushPromises();
 
-    await wrapper.find("#soundboard-monitor-device").setValue("alsa_output.pci-hdmi");
+    await wrapper
+      .find("#soundboard-monitor-device")
+      .setValue("alsa_output.pci-hdmi");
     await flushPromises();
 
-    const savedBoard = invokeMock.mock.calls.filter((call) => call[0] === "save_soundboard_board").at(-1)?.[1] as {
+    const savedBoard = invokeMock.mock.calls
+      .filter((call) => call[0] === "save_soundboard_board")
+      .at(-1)?.[1] as {
       board: SoundboardBoard;
     };
     expect(savedBoard.board.monitor_system_name).toBe("alsa_output.pci-hdmi");

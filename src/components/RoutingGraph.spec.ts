@@ -3,8 +3,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import RoutingGraph from "./RoutingGraph.vue";
 import { makeGraph } from "../test/graphFixtures";
 
-vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: vi.fn().mockResolvedValue(undefined),
+}));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn().mockResolvedValue(() => {}),
+}));
 
 // jsdom in this project's vitest config doesn't back window.localStorage by
 // default (see groups.spec.ts's note on loadGroups/saveGroups) — RoutingGraph.vue
@@ -58,9 +62,25 @@ describe("RoutingGraph.vue smoke mount", () => {
     const wrapper = mountRoutingGraph(
       makeGraph(
         [
-          { id: "dev-1", system_name: "physical-out-1", label: "Speakers", kind: "physical", direction: "output", volume_percent: 80, muted: false },
+          {
+            id: "dev-1",
+            system_name: "physical-out-1",
+            label: "Speakers",
+            kind: "physical",
+            direction: "output",
+            volume_percent: 80,
+            muted: false,
+          },
         ],
-        [{ id: "stream-1", app_name: "Test App", direction: "playback", volume_percent: 60, muted: false }],
+        [
+          {
+            id: "stream-1",
+            app_name: "Test App",
+            direction: "playback",
+            volume_percent: 60,
+            muted: false,
+          },
+        ],
         [{ id: "link-1", source_id: "stream-1", target_id: "dev-1" }],
       ),
     );
@@ -71,7 +91,11 @@ describe("RoutingGraph.vue smoke mount", () => {
     const wrapper = mountRoutingGraph();
     const vueFlow = wrapper.findComponent({ name: "VueFlowStub" });
 
-    await vueFlow.vm.$emit("pane-context-menu", { preventDefault: () => {}, clientX: 40, clientY: 60 });
+    await vueFlow.vm.$emit("pane-context-menu", {
+      preventDefault: () => {},
+      clientX: 40,
+      clientY: 60,
+    });
     expect(wrapper.find(".routing-graph-context-menu").exists()).toBe(true);
 
     await vueFlow.vm.$emit("pane-click");

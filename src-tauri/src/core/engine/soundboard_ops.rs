@@ -16,7 +16,9 @@ impl CoreEngine {
             .devices
             .iter()
             .find(|device| device.id == target_device_id)
-            .ok_or_else(|| EngineError::NotFound(format!("device not found: {target_device_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("device not found: {target_device_id}"))
+            })?;
 
         self.adapter
             .play_sound(path, &device.system_name, 100)
@@ -39,15 +41,20 @@ impl CoreEngine {
     /// still surfaced (not silently swallowed). Errors if the board/clip
     /// doesn't exist, or if the board has neither leg configured yet.
     pub fn play_soundboard_clip(&self, board_id: &str, clip_id: &str) -> Result<(), EngineError> {
-        let config = ConfigStore::new().load_config().map_err(|error| EngineError::Config(error.to_string()))?;
+        let config = ConfigStore::new()
+            .load_config()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
         let board = config
             .preferences
             .soundboard_boards
             .into_iter()
             .find(|board| board.id == board_id)
-            .ok_or_else(|| EngineError::NotFound(format!("soundboard board not found: {board_id}")))?;
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("soundboard board not found: {board_id}"))
+            })?;
 
-        let clips = soundboard::list_sounds(Path::new(&board.folder)).map_err(|error| EngineError::InvalidInput(error.to_string()))?;
+        let clips = soundboard::list_sounds(Path::new(&board.folder))
+            .map_err(|error| EngineError::InvalidInput(error.to_string()))?;
         let clip = clips
             .into_iter()
             .find(|clip| clip.id == clip_id)
@@ -62,12 +69,19 @@ impl CoreEngine {
 
         let mut errors = Vec::new();
         if let Some(target) = &board.target_system_name {
-            if let Err(error) = self.adapter.play_sound(Path::new(&clip.path), target, board.target_volume_percent) {
+            if let Err(error) =
+                self.adapter
+                    .play_sound(Path::new(&clip.path), target, board.target_volume_percent)
+            {
                 errors.push(format!("target: {error}"));
             }
         }
         if let Some(monitor) = &board.monitor_system_name {
-            if let Err(error) = self.adapter.play_sound(Path::new(&clip.path), monitor, board.monitor_volume_percent) {
+            if let Err(error) = self.adapter.play_sound(
+                Path::new(&clip.path),
+                monitor,
+                board.monitor_volume_percent,
+            ) {
                 errors.push(format!("monitor: {error}"));
             }
         }
@@ -83,7 +97,9 @@ impl CoreEngine {
     /// thin passthrough to `AudioBackend::stop_sound`, which owns the
     /// actual process handle(s) (see PD-036's rationale for that split).
     pub fn stop_soundboard_clip(&self) -> Result<(), EngineError> {
-        self.adapter.stop_sound().map_err(|error| EngineError::Adapter(error.to_string()))
+        self.adapter
+            .stop_sound()
+            .map_err(|error| EngineError::Adapter(error.to_string()))
     }
 }
 
@@ -107,7 +123,11 @@ mod live_tests {
             .expect("create disposable test device");
 
         let clip = Path::new("/usr/share/sounds/speech-dispatcher/test.wav");
-        assert!(clip.is_file(), "expected a system test wav to exist at {}", clip.display());
+        assert!(
+            clip.is_file(),
+            "expected a system test wav to exist at {}",
+            clip.display()
+        );
 
         let result = engine.play_sound(clip, &created.device_id);
 
@@ -129,7 +149,11 @@ mod live_tests {
         let sounds_dir = std::env::temp_dir().join("pipe-deck-soundboard-ops-live-test-sounds");
         let _ = std::fs::remove_dir_all(&sounds_dir);
         std::fs::create_dir_all(&sounds_dir).unwrap();
-        std::fs::copy("/usr/share/sounds/speech-dispatcher/test.wav", sounds_dir.join("test.wav")).unwrap();
+        std::fs::copy(
+            "/usr/share/sounds/speech-dispatcher/test.wav",
+            sounds_dir.join("test.wav"),
+        )
+        .unwrap();
 
         let mut engine = CoreEngine::new();
         engine.refresh_graph().expect("initial graph refresh");
@@ -184,7 +208,9 @@ mod live_tests {
         std::fs::write(sounds_dir.join("untargeted.wav"), b"fake").unwrap();
 
         let mut engine = CoreEngine::new();
-        engine.refresh_graph().expect("mock refresh_graph should not fail");
+        engine
+            .refresh_graph()
+            .expect("mock refresh_graph should not fail");
 
         let board = soundboard::SoundboardBoard {
             id: "unit-test-board".into(),
@@ -228,7 +254,9 @@ mod live_tests {
         std::fs::write(sounds_dir.join("test-only.wav"), b"fake").unwrap();
 
         let mut engine = CoreEngine::new();
-        engine.refresh_graph().expect("mock refresh_graph should not fail");
+        engine
+            .refresh_graph()
+            .expect("mock refresh_graph should not fail");
 
         let board = soundboard::SoundboardBoard {
             id: "monitor-only-board".into(),
@@ -264,7 +292,9 @@ mod live_tests {
         std::env::set_var("PIPE_DECK_USE_MOCK", "1");
 
         let mut engine = CoreEngine::new();
-        engine.refresh_graph().expect("mock refresh_graph should not fail");
+        engine
+            .refresh_graph()
+            .expect("mock refresh_graph should not fail");
 
         let result = engine.play_soundboard_clip("no-such-board", "whatever.wav");
 
@@ -281,7 +311,9 @@ mod live_tests {
         std::env::set_var("PIPE_DECK_USE_MOCK", "1");
 
         let mut engine = CoreEngine::new();
-        engine.refresh_graph().expect("mock refresh_graph should not fail");
+        engine
+            .refresh_graph()
+            .expect("mock refresh_graph should not fail");
 
         let result = engine.stop_soundboard_clip();
 

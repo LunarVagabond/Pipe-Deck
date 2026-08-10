@@ -4,7 +4,9 @@ use tauri::State;
 
 #[tauri::command]
 pub fn get_config() -> crate::core::models::AppConfig {
-    ConfigStore::new().load_config().unwrap_or_else(|_| ConfigStore::default_config())
+    ConfigStore::new()
+        .load_config()
+        .unwrap_or_else(|_| ConfigStore::default_config())
 }
 
 #[derive(serde::Serialize)]
@@ -96,7 +98,11 @@ pub fn set_theme_mode(mode: String) -> Result<(), String> {
 /// quit). A plain preference change from Settings passes `false`, since no
 /// close is in progress there.
 #[tauri::command]
-pub fn set_close_behavior(behavior: String, apply_now: bool, app: tauri::AppHandle) -> Result<(), String> {
+pub fn set_close_behavior(
+    behavior: String,
+    apply_now: bool,
+    app: tauri::AppHandle,
+) -> Result<(), String> {
     ConfigStore::new()
         .set_close_behavior(&behavior)
         .map_err(|error| error.to_string())?;

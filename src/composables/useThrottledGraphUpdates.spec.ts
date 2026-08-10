@@ -12,7 +12,10 @@ afterEach(() => {
 describe("createTrailingDebouncer", () => {
   it("applies a single event after the wait window", () => {
     const apply = vi.fn();
-    const debounced = createTrailingDebouncer(apply, { wait: 100, maxWait: 150 });
+    const debounced = createTrailingDebouncer(apply, {
+      wait: 100,
+      maxWait: 150,
+    });
 
     debounced("a");
     expect(apply).not.toHaveBeenCalled();
@@ -26,7 +29,10 @@ describe("createTrailingDebouncer", () => {
 
   it("never delays a sustained burst past maxWait from its first event", () => {
     const apply = vi.fn();
-    const debounced = createTrailingDebouncer(apply, { wait: 100, maxWait: 150 });
+    const debounced = createTrailingDebouncer(apply, {
+      wait: 100,
+      maxWait: 150,
+    });
 
     debounced("a");
     vi.advanceTimersByTime(60);
@@ -43,7 +49,10 @@ describe("createTrailingDebouncer", () => {
 
   it("applies independently-spaced events as separate bursts", () => {
     const apply = vi.fn();
-    const debounced = createTrailingDebouncer(apply, { wait: 100, maxWait: 150 });
+    const debounced = createTrailingDebouncer(apply, {
+      wait: 100,
+      maxWait: 150,
+    });
 
     debounced("a");
     vi.advanceTimersByTime(100);
@@ -57,7 +66,10 @@ describe("createTrailingDebouncer", () => {
 
   it("cancel stops a pending apply", () => {
     const apply = vi.fn();
-    const debounced = createTrailingDebouncer(apply, { wait: 100, maxWait: 150 });
+    const debounced = createTrailingDebouncer(apply, {
+      wait: 100,
+      maxWait: 150,
+    });
 
     debounced("a");
     debounced.cancel();

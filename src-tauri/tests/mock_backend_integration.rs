@@ -12,8 +12,8 @@ use pipe_deck_lib::backend::AudioBackend;
 use pipe_deck_lib::config::ConfigStore;
 use pipe_deck_lib::core::engine::CoreEngine;
 use pipe_deck_lib::core::models::{
-    Device, DeviceDirection, DeviceKind, LatencyPathNode, Profile, Rule, RuleAction, RuleCondition, RuntimeGraph,
-    Stream, StreamDirection, VirtualDeviceSpec,
+    Device, DeviceDirection, DeviceKind, LatencyPathNode, Profile, Rule, RuleAction, RuleCondition,
+    RuntimeGraph, Stream, StreamDirection, VirtualDeviceSpec,
 };
 use pipe_deck_lib::core::restore;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -29,7 +29,10 @@ static COUNTER: AtomicU32 = AtomicU32::new(0);
 /// since anything the test does afterward (`ConfigStore::new()` inside a
 /// `CoreEngine` method) re-reads the current environment.
 fn lock_env() -> MutexGuard<'static, ()> {
-    ENV_LOCK.get_or_init(|| Mutex::new(())).lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    ENV_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// `PIPE_DECK_USE_MOCK=1` only fakes the PipeWire graph — `ConfigStore`
@@ -48,7 +51,9 @@ fn mock_engine() -> (CoreEngine, MutexGuard<'static, ()>) {
     std::env::set_var("PIPE_DECK_CONFIG_DIR", &config_dir);
     std::env::set_var("PIPE_DECK_USE_MOCK", "1");
     let mut engine = CoreEngine::new();
-    engine.refresh_graph().expect("initial refresh should succeed");
+    engine
+        .refresh_graph()
+        .expect("initial refresh should succeed");
     (engine, guard)
 }
 
@@ -64,11 +69,21 @@ fn mixer_mutations_persist_across_refresh() {
     engine.set_stream_mute(&stream_id, true).unwrap();
     engine.refresh_graph().unwrap();
 
-    let device = engine.runtime_graph().devices.iter().find(|d| d.id == device_id).unwrap();
+    let device = engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .find(|d| d.id == device_id)
+        .unwrap();
     assert_eq!(device.volume_percent, Some(55));
     assert_eq!(device.muted, Some(true));
 
-    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap();
+    let stream = engine
+        .runtime_graph()
+        .streams
+        .iter()
+        .find(|s| s.id == stream_id)
+        .unwrap();
     assert_eq!(stream.volume_percent, Some(20));
     assert_eq!(stream.muted, Some(true));
 }
@@ -84,7 +99,14 @@ fn stream_routing_set_clear_and_undo_round_trip() {
     let result = engine.set_stream_target(&stream_id, &target_a).unwrap();
     assert!(result.success, "{:?}", result.message);
     assert_eq!(
-        engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap().current_target.as_deref(),
+        engine
+            .runtime_graph()
+            .streams
+            .iter()
+            .find(|s| s.id == stream_id)
+            .unwrap()
+            .current_target
+            .as_deref(),
         Some(target_a.as_str())
     );
 
@@ -94,16 +116,31 @@ fn stream_routing_set_clear_and_undo_round_trip() {
     let undo = engine.undo_last_routing().unwrap();
     assert!(undo.success, "{:?}", undo.message);
     assert_eq!(
-        engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap().current_target.as_deref(),
+        engine
+            .runtime_graph()
+            .streams
+            .iter()
+            .find(|s| s.id == stream_id)
+            .unwrap()
+            .current_target
+            .as_deref(),
         Some(target_a.as_str()),
         "undo should restore the previously set target"
     );
 
-    let clear = engine.clear_stream_target(&stream_id, Some(&target_a)).unwrap();
+    let clear = engine
+        .clear_stream_target(&stream_id, Some(&target_a))
+        .unwrap();
     assert!(clear.success, "{:?}", clear.message);
     engine.refresh_graph().unwrap();
     assert_eq!(
-        engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap().current_target,
+        engine
+            .runtime_graph()
+            .streams
+            .iter()
+            .find(|s| s.id == stream_id)
+            .unwrap()
+            .current_target,
         None,
         "cleared route must stay cleared across a refresh, not just until the next fetch"
     );
@@ -122,7 +159,9 @@ fn mic_passthrough_from_a_bare_hardware_target_auto_provisions_a_fan_out() {
 
     let (mut engine, _guard) = mock_engine();
 
-    engine.set_stream_target("stream-spotify", "sink-headphones").expect("route spotify to hardware sink first");
+    engine
+        .set_stream_target("stream-spotify", "sink-headphones")
+        .expect("route spotify to hardware sink first");
 
     let result = engine
         .enable_stream_mic_passthrough("stream-spotify", "source-mic-filtered")
@@ -136,21 +175,48 @@ fn mic_passthrough_from_a_bare_hardware_target_auto_provisions_a_fan_out() {
         .find(|node| node.label == "Spotify Passthrough")
         .expect("auto-provisioned fan-out node");
     assert_eq!(fan_out.inputs.len(), 1);
-    assert_eq!(fan_out.inputs[0].connected_id.as_deref(), Some("stream-spotify"));
+    assert_eq!(
+        fan_out.inputs[0].connected_id.as_deref(),
+        Some("stream-spotify")
+    );
     assert_eq!(fan_out.outputs.len(), 2);
-    let output_targets: Vec<&str> = fan_out.outputs.iter().filter_map(|port| port.connected_id.as_deref()).collect();
-    assert!(output_targets.contains(&"sink-headphones"), "{output_targets:?}");
-    assert!(output_targets.contains(&"source-mic-filtered"), "{output_targets:?}");
+    let output_targets: Vec<&str> = fan_out
+        .outputs
+        .iter()
+        .filter_map(|port| port.connected_id.as_deref())
+        .collect();
+    assert!(
+        output_targets.contains(&"sink-headphones"),
+        "{output_targets:?}"
+    );
+    assert!(
+        output_targets.contains(&"source-mic-filtered"),
+        "{output_targets:?}"
+    );
 
     // Re-invoking passthrough for the same stream/mic pair is a no-op, not a
     // second Fan-Out or a duplicate output leg.
-    let second_call = engine.enable_stream_mic_passthrough("stream-spotify", "source-mic-filtered").expect("second call");
+    let second_call = engine
+        .enable_stream_mic_passthrough("stream-spotify", "source-mic-filtered")
+        .expect("second call");
     assert!(!second_call.success);
     let graph = engine.runtime_graph();
-    let fan_out_count = graph.processing_nodes.iter().filter(|node| node.label == "Spotify Passthrough").count();
+    let fan_out_count = graph
+        .processing_nodes
+        .iter()
+        .filter(|node| node.label == "Spotify Passthrough")
+        .count();
     assert_eq!(fan_out_count, 1);
-    let fan_out = graph.processing_nodes.iter().find(|node| node.label == "Spotify Passthrough").unwrap();
-    assert_eq!(fan_out.outputs.len(), 2, "must not grow a duplicate output leg to the mic");
+    let fan_out = graph
+        .processing_nodes
+        .iter()
+        .find(|node| node.label == "Spotify Passthrough")
+        .unwrap();
+    assert_eq!(
+        fan_out.outputs.len(),
+        2,
+        "must not grow a duplicate output leg to the mic"
+    );
 
     // Disconnecting just the mic leg leaves the original playback route
     // (Fan-Out -> hardware sink) untouched.
@@ -161,11 +227,20 @@ fn mic_passthrough_from_a_bare_hardware_target_auto_provisions_a_fan_out() {
         .map(|port| port.index)
         .unwrap();
     let fan_out_id = fan_out.id.clone();
-    engine.disconnect_processing_node_port(&fan_out_id, PortDirection::Output, mic_port_index).expect("disconnect mic leg");
+    engine
+        .disconnect_processing_node_port(&fan_out_id, PortDirection::Output, mic_port_index)
+        .expect("disconnect mic leg");
     let graph = engine.runtime_graph();
-    let fan_out = graph.processing_nodes.iter().find(|node| node.label == "Spotify Passthrough").unwrap();
+    let fan_out = graph
+        .processing_nodes
+        .iter()
+        .find(|node| node.label == "Spotify Passthrough")
+        .unwrap();
     assert_eq!(fan_out.outputs.len(), 1);
-    assert_eq!(fan_out.outputs[0].connected_id.as_deref(), Some("sink-headphones"));
+    assert_eq!(
+        fan_out.outputs[0].connected_id.as_deref(),
+        Some("sink-headphones")
+    );
 }
 
 /// Issue #208: deleting a virtual output with a stream actively routed
@@ -176,20 +251,35 @@ fn mic_passthrough_from_a_bare_hardware_target_auto_provisions_a_fan_out() {
 fn removing_virtual_device_reroutes_streams_routed_through_it() {
     let (mut engine, _guard) = mock_engine();
 
-    let output = engine.create_virtual_output("Doomed Output").expect("create output");
+    let output = engine
+        .create_virtual_output("Doomed Output")
+        .expect("create output");
     let stream_id = engine.runtime_graph().streams[0].id.clone();
 
     engine
         .set_stream_target(&stream_id, &output.device_id)
         .expect("route stream to the soon-to-be-removed device");
     assert_eq!(
-        engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap().current_target,
+        engine
+            .runtime_graph()
+            .streams
+            .iter()
+            .find(|s| s.id == stream_id)
+            .unwrap()
+            .current_target,
         Some(output.device_id.clone()),
     );
 
-    engine.remove_virtual_device(&output.system_name).expect("remove virtual device");
+    engine
+        .remove_virtual_device(&output.system_name)
+        .expect("remove virtual device");
 
-    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == stream_id).unwrap();
+    let stream = engine
+        .runtime_graph()
+        .streams
+        .iter()
+        .find(|s| s.id == stream_id)
+        .unwrap();
     assert_ne!(
         stream.current_target.as_deref(),
         Some(output.device_id.as_str()),
@@ -205,22 +295,48 @@ fn removing_virtual_device_reroutes_streams_routed_through_it() {
 fn virtual_device_create_remove_cycle_leaves_no_residue() {
     let (mut engine, _guard) = mock_engine();
 
-    let output = engine.create_virtual_output("Integration Output").expect("create output");
-    assert!(engine.runtime_graph().devices.iter().any(|d| d.id == output.device_id));
+    let output = engine
+        .create_virtual_output("Integration Output")
+        .expect("create output");
+    assert!(engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .any(|d| d.id == output.device_id));
 
-    let multi = engine.create_virtual_multi_output("Integration Multi").expect("create multi output");
+    let multi = engine
+        .create_virtual_multi_output("Integration Multi")
+        .expect("create multi output");
     assert!(multi.multi);
-    assert!(engine.runtime_graph().devices.iter().any(|d| d.id == multi.device_id));
+    assert!(engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .any(|d| d.id == multi.device_id));
 
-    let input = engine.create_virtual_input("Integration Input").expect("create input");
-    assert!(engine.runtime_graph().devices.iter().any(|d| d.id == input.device_id));
+    let input = engine
+        .create_virtual_input("Integration Input")
+        .expect("create input");
+    assert!(engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .any(|d| d.id == input.device_id));
 
     // Repeated create/remove cycles must not leak state in the backend's
     // held graph (regression guard for the Mutex<RuntimeGraph> design).
     for i in 0..3 {
-        let created = engine.create_virtual_output(&format!("Cycle {i}")).expect("create in cycle");
-        engine.remove_virtual_device(&created.system_name).expect("remove in cycle");
-        assert!(!engine.runtime_graph().devices.iter().any(|d| d.id == created.device_id));
+        let created = engine
+            .create_virtual_output(&format!("Cycle {i}"))
+            .expect("create in cycle");
+        engine
+            .remove_virtual_device(&created.system_name)
+            .expect("remove in cycle");
+        assert!(!engine
+            .runtime_graph()
+            .devices
+            .iter()
+            .any(|d| d.id == created.device_id));
     }
 
     engine.remove_virtual_device(&output.system_name).unwrap();
@@ -246,11 +362,21 @@ fn processing_node_create_remove_round_trips() {
         .expect("create mixer node");
     assert_eq!(node.system_name, "pipe-deck-proc-mixer-game-mixer");
     assert!(matches!(node.kind, ProcessingNodeKind::Mixer { .. }));
-    assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    assert!(engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 
-    let result = engine.remove_processing_node(&node.id).expect("remove mixer node");
+    let result = engine
+        .remove_processing_node(&node.id)
+        .expect("remove mixer node");
     assert!(result.success);
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Stub effect kinds (issue #293's originally-11 non-DSP kinds, now 10 since
@@ -267,13 +393,29 @@ fn stub_processing_node_round_trips_without_error() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Saturation", ProcessingNodeSpecKind::Stub { stub_kind: StubEffectKind::Saturation })
+        .create_processing_node(
+            "Saturation",
+            ProcessingNodeSpecKind::Stub {
+                stub_kind: StubEffectKind::Saturation,
+            },
+        )
         .expect("create stub node");
-    assert!(matches!(node.kind, ProcessingNodeKind::Stub { stub_kind: StubEffectKind::Saturation }));
+    assert!(matches!(
+        node.kind,
+        ProcessingNodeKind::Stub {
+            stub_kind: StubEffectKind::Saturation
+        }
+    ));
     assert!(!node.live);
 
-    engine.remove_processing_node(&node.id).expect("remove stub node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove stub node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// All 7 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
@@ -299,12 +441,19 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     ];
 
     let (mut engine, _guard) = mock_engine();
-    let upstream = engine.create_virtual_output("Stub Upstream").expect("create upstream");
-    let downstream = engine.create_virtual_output("Stub Downstream").expect("create downstream");
+    let upstream = engine
+        .create_virtual_output("Stub Upstream")
+        .expect("create upstream");
+    let downstream = engine
+        .create_virtual_output("Stub Downstream")
+        .expect("create downstream");
 
     for stub_kind in kinds {
         let node = engine
-            .create_processing_node(&format!("{stub_kind:?}"), ProcessingNodeSpecKind::Stub { stub_kind })
+            .create_processing_node(
+                &format!("{stub_kind:?}"),
+                ProcessingNodeSpecKind::Stub { stub_kind },
+            )
             .unwrap_or_else(|error| panic!("create {stub_kind:?} node: {error}"));
         assert!(!node.live, "{stub_kind:?} should never report live");
 
@@ -319,7 +468,9 @@ fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
             .disconnect_processing_node_port(&node.id, PortDirection::Input, 0)
             .unwrap_or_else(|error| panic!("disconnect {stub_kind:?} input: {error}"));
 
-        engine.remove_processing_node(&node.id).unwrap_or_else(|error| panic!("remove {stub_kind:?}: {error}"));
+        engine
+            .remove_processing_node(&node.id)
+            .unwrap_or_else(|error| panic!("remove {stub_kind:?}: {error}"));
     }
 }
 
@@ -345,10 +496,24 @@ fn processing_nodes_chain_through_any_kind_and_direction_pairing() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out");
-    let upstream_mixer = engine.create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer).expect("create upstream mixer");
-    let downstream_mixer = engine.create_processing_node("Master Mix", ProcessingNodeSpecKind::Mixer).expect("create downstream mixer");
-    let source = engine.create_virtual_output("Source").expect("create source");
+    let fan_out = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out");
+    let upstream_mixer = engine
+        .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create upstream mixer");
+    let downstream_mixer = engine
+        .create_processing_node("Master Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create downstream mixer");
+    let source = engine
+        .create_virtual_output("Source")
+        .expect("create source");
 
     // source -> Fan-out
     engine
@@ -360,20 +525,51 @@ fn processing_nodes_chain_through_any_kind_and_direction_pairing() {
         .expect("chain fan-out into upstream mixer");
     // Mixer output -> Mixer input
     engine
-        .connect_processing_node_port(&downstream_mixer.id, PortDirection::Input, &upstream_mixer.id)
+        .connect_processing_node_port(
+            &downstream_mixer.id,
+            PortDirection::Input,
+            &upstream_mixer.id,
+        )
         .expect("chain upstream mixer output into downstream mixer input");
 
     let graph = engine.runtime_graph();
-    let fan_out_after = graph.processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap();
-    assert_eq!(fan_out_after.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
-    assert_eq!(fan_out_after.outputs[0].connected_id.as_deref(), Some(upstream_mixer.id.as_str()));
+    let fan_out_after = graph
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == fan_out.id)
+        .unwrap();
+    assert_eq!(
+        fan_out_after.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
+    assert_eq!(
+        fan_out_after.outputs[0].connected_id.as_deref(),
+        Some(upstream_mixer.id.as_str())
+    );
 
-    let upstream_after = graph.processing_nodes.iter().find(|n| n.id == upstream_mixer.id).unwrap();
-    assert_eq!(upstream_after.inputs[0].connected_id.as_deref(), Some(fan_out.id.as_str()));
-    assert_eq!(upstream_after.outputs[0].connected_id.as_deref(), Some(downstream_mixer.id.as_str()));
+    let upstream_after = graph
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == upstream_mixer.id)
+        .unwrap();
+    assert_eq!(
+        upstream_after.inputs[0].connected_id.as_deref(),
+        Some(fan_out.id.as_str())
+    );
+    assert_eq!(
+        upstream_after.outputs[0].connected_id.as_deref(),
+        Some(downstream_mixer.id.as_str())
+    );
 
-    let downstream_after = graph.processing_nodes.iter().find(|n| n.id == downstream_mixer.id).unwrap();
-    assert_eq!(downstream_after.inputs[0].connected_id.as_deref(), Some(upstream_mixer.id.as_str()));
+    let downstream_after = graph
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == downstream_mixer.id)
+        .unwrap();
+    assert_eq!(
+        downstream_after.inputs[0].connected_id.as_deref(),
+        Some(upstream_mixer.id.as_str())
+    );
 }
 
 /// Regression for a real bug found in manual live-PipeWire testing: dragging
@@ -389,29 +585,65 @@ fn connecting_a_peer_to_a_second_processing_node_disconnects_the_first() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
-    let fan_out = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out");
-    let source = engine.create_virtual_output("Source").expect("create source");
+    let mixer = engine
+        .create_processing_node("Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer");
+    let fan_out = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out");
+    let source = engine
+        .create_virtual_output("Source")
+        .expect("create source");
 
     engine
         .connect_processing_node_port(&mixer.id, PortDirection::Input, &source.device_id)
         .expect("connect source into mixer");
-    let mixer_after_first = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
-    assert_eq!(mixer_after_first.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    let mixer_after_first = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == mixer.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        mixer_after_first.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
     engine
         .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source.device_id)
         .expect("connect the same source into fan-out");
 
-    let mixer_after_second = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    let mixer_after_second = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == mixer.id)
+        .unwrap()
+        .clone();
     assert!(
         mixer_after_second.inputs.iter().all(|port| port.connected_id.is_none()),
         "mixer's input must be disconnected once the same source moves to fan-out, not left stale: {:?}",
         mixer_after_second.inputs
     );
 
-    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
-    assert_eq!(fan_out_after.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    let fan_out_after = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == fan_out.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        fan_out_after.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 /// Regression for a real bug found in manual live-PipeWire testing: chaining
@@ -432,13 +664,28 @@ fn chaining_into_a_peers_already_occupied_single_port_is_rejected() {
     let eq = engine
         .create_processing_node(
             "EQ",
-            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+            ProcessingNodeSpecKind::Eq5Band {
+                eq_sub: 0,
+                eq_bass: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
         )
         .expect("create eq node");
     let fan_out = engine
-        .create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
         .expect("create fan-out");
-    let device = engine.create_virtual_output("Device A").expect("create device a");
+    let device = engine
+        .create_virtual_output("Device A")
+        .expect("create device a");
 
     engine
         .connect_processing_node_port(&eq.id, PortDirection::Input, &device.device_id)
@@ -452,11 +699,26 @@ fn chaining_into_a_peers_already_occupied_single_port_is_rejected() {
     // The rejected connect must leave both sides' bookkeeping untouched —
     // eq still shows exactly one input (the device), fan-out shows no
     // output connection at all.
-    let eq_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == eq.id).unwrap().clone();
+    let eq_after = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == eq.id)
+        .unwrap()
+        .clone();
     assert_eq!(eq_after.inputs.len(), 1);
-    assert_eq!(eq_after.inputs[0].connected_id.as_deref(), Some(device.device_id.as_str()));
+    assert_eq!(
+        eq_after.inputs[0].connected_id.as_deref(),
+        Some(device.device_id.as_str())
+    );
 
-    let fan_out_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == fan_out.id).unwrap().clone();
+    let fan_out_after = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == fan_out.id)
+        .unwrap()
+        .clone();
     assert!(fan_out_after.outputs.is_empty() || fan_out_after.outputs[0].connected_id.is_none());
 }
 
@@ -477,15 +739,29 @@ fn removing_a_processing_node_with_multiple_connected_inputs_is_rejected() {
     let mut graph = engine.runtime_graph().clone();
     if let Some(n) = graph.processing_nodes.iter_mut().find(|n| n.id == node.id) {
         n.inputs = vec![
-            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()), feed_key: None },
-            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()), feed_key: None },
+            ProcessingNodePort {
+                index: 0,
+                connected_id: Some("device-a".into()),
+                feed_key: None,
+            },
+            ProcessingNodePort {
+                index: 1,
+                connected_id: Some("device-b".into()),
+                feed_key: None,
+            },
         ];
     }
     engine.apply_graph_update(graph);
 
-    let error = engine.remove_processing_node(&node.id).expect_err("ambiguous removal should be rejected");
+    let error = engine
+        .remove_processing_node(&node.id)
+        .expect_err("ambiguous removal should be rejected");
     assert!(error.to_string().contains("ambiguous"), "{error}");
-    assert!(engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    assert!(engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// A Fan-out Node's defining shape: one input, N outputs, each output
@@ -498,10 +774,20 @@ fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Stream Fan-out", pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .create_processing_node(
+            "Stream Fan-out",
+            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
         .expect("create fan-out node");
-    let output_a = engine.create_virtual_output("Fan A").expect("create target a");
-    let output_b = engine.create_virtual_output("Fan B").expect("create target b");
+    let output_a = engine
+        .create_virtual_output("Fan A")
+        .expect("create target a");
+    let output_b = engine
+        .create_virtual_output("Fan B")
+        .expect("create target b");
 
     engine
         .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
@@ -510,15 +796,38 @@ fn fan_out_node_output_ports_grow_and_shrink_on_connect_disconnect() {
         .connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id)
         .expect("connect output b");
 
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(refreshed.outputs.len(), 2);
-    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_a.device_id.as_str()));
-    assert_eq!(refreshed.outputs[1].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+    assert_eq!(
+        refreshed.outputs[0].connected_id.as_deref(),
+        Some(output_a.device_id.as_str())
+    );
+    assert_eq!(
+        refreshed.outputs[1].connected_id.as_deref(),
+        Some(output_b.device_id.as_str())
+    );
 
-    engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0).expect("disconnect output a");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect output a");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(refreshed.outputs.len(), 1);
-    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+    assert_eq!(
+        refreshed.outputs[0].connected_id.as_deref(),
+        Some(output_b.device_id.as_str())
+    );
 }
 
 /// A Group Node (issue #80, PD-035) has the identical shape to Fan-out —
@@ -532,10 +841,20 @@ fn group_node_output_ports_grow_and_shrink_on_connect_disconnect() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Speaker Group", ProcessingNodeSpecKind::Group { volume_percent: 100, muted: false })
+        .create_processing_node(
+            "Speaker Group",
+            ProcessingNodeSpecKind::Group {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
         .expect("create group node");
-    let output_a = engine.create_virtual_output("Group A").expect("create target a");
-    let output_b = engine.create_virtual_output("Group B").expect("create target b");
+    let output_a = engine
+        .create_virtual_output("Group A")
+        .expect("create target a");
+    let output_b = engine
+        .create_virtual_output("Group B")
+        .expect("create target b");
 
     engine
         .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
@@ -544,13 +863,30 @@ fn group_node_output_ports_grow_and_shrink_on_connect_disconnect() {
         .connect_processing_node_port(&node.id, PortDirection::Output, &output_b.device_id)
         .expect("connect output b");
 
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(refreshed.outputs.len(), 2);
 
-    engine.disconnect_processing_node_port(&node.id, PortDirection::Output, 0).expect("disconnect output a");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
+        .expect("disconnect output a");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(refreshed.outputs.len(), 1);
-    assert_eq!(refreshed.outputs[0].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+    assert_eq!(
+        refreshed.outputs[0].connected_id.as_deref(),
+        Some(output_b.device_id.as_str())
+    );
 }
 
 /// The core of issue #80: selecting 2+ existing outputs and grouping them in
@@ -565,27 +901,47 @@ fn create_output_group_wires_all_members_atomically() {
 
     let (mut engine, _guard) = mock_engine();
 
-    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
-    let output_b = engine.create_virtual_output("Recorder").expect("create output b");
+    let output_a = engine
+        .create_virtual_output("Speakers")
+        .expect("create output a");
+    let output_b = engine
+        .create_virtual_output("Recorder")
+        .expect("create output b");
 
     let node = engine
-        .create_output_group("Speakers + Recorder", &[output_a.device_id.clone(), output_b.device_id.clone()])
+        .create_output_group(
+            "Speakers + Recorder",
+            &[output_a.device_id.clone(), output_b.device_id.clone()],
+        )
         .expect("create group");
 
     assert_eq!(node.outputs.len(), 2);
-    assert_eq!(node.outputs[0].connected_id.as_deref(), Some(output_a.device_id.as_str()));
-    assert_eq!(node.outputs[1].connected_id.as_deref(), Some(output_b.device_id.as_str()));
+    assert_eq!(
+        node.outputs[0].connected_id.as_deref(),
+        Some(output_a.device_id.as_str())
+    );
+    assert_eq!(
+        node.outputs[1].connected_id.as_deref(),
+        Some(output_b.device_id.as_str())
+    );
 
     // A grouped member device is still independently usable as a Fan-out
     // output-side peer elsewhere — grouping doesn't claim exclusivity.
     let other_fan_out = engine
         .create_processing_node(
             "Other Fan-out",
-            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
         )
         .expect("create other fan-out node");
     engine
-        .connect_processing_node_port(&other_fan_out.id, PortDirection::Output, &output_a.device_id)
+        .connect_processing_node_port(
+            &other_fan_out.id,
+            PortDirection::Output,
+            &output_a.device_id,
+        )
         .expect("output_a should still be independently connectable outside the group");
 }
 
@@ -598,18 +954,29 @@ fn disconnecting_a_groups_last_member_removes_the_group_entirely() {
 
     let (mut engine, _guard) = mock_engine();
 
-    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
-    let output_b = engine.create_virtual_output("Recorder").expect("create output b");
+    let output_a = engine
+        .create_virtual_output("Speakers")
+        .expect("create output a");
+    let output_b = engine
+        .create_virtual_output("Recorder")
+        .expect("create output b");
 
     let node = engine
-        .create_output_group("Speakers + Recorder", &[output_a.device_id.clone(), output_b.device_id.clone()])
+        .create_output_group(
+            "Speakers + Recorder",
+            &[output_a.device_id.clone(), output_b.device_id.clone()],
+        )
         .expect("create group");
 
     engine
         .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
         .expect("disconnect first member");
     assert!(
-        engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        engine
+            .runtime_graph()
+            .processing_nodes
+            .iter()
+            .any(|n| n.id == node.id),
         "group should still exist with one member remaining"
     );
 
@@ -617,7 +984,11 @@ fn disconnecting_a_groups_last_member_removes_the_group_entirely() {
         .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
         .expect("disconnect last remaining member");
     assert!(
-        !engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        !engine
+            .runtime_graph()
+            .processing_nodes
+            .iter()
+            .any(|n| n.id == node.id),
         "group should be auto-removed once its last member is disconnected"
     );
 }
@@ -634,10 +1005,15 @@ fn disconnecting_a_fan_outs_last_output_does_not_remove_the_node() {
     let node = engine
         .create_processing_node(
             "Solo Fan-out",
-            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false },
+            pipe_deck_lib::core::models::ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
         )
         .expect("create fan-out node");
-    let output_a = engine.create_virtual_output("Target").expect("create target");
+    let output_a = engine
+        .create_virtual_output("Target")
+        .expect("create target");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Output, &output_a.device_id)
         .expect("connect output");
@@ -646,7 +1022,11 @@ fn disconnecting_a_fan_outs_last_output_does_not_remove_the_node() {
         .disconnect_processing_node_port(&node.id, PortDirection::Output, 0)
         .expect("disconnect only output");
     assert!(
-        engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id),
+        engine
+            .runtime_graph()
+            .processing_nodes
+            .iter()
+            .any(|n| n.id == node.id),
         "fan-out should remain even with zero connected outputs"
     );
 }
@@ -657,7 +1037,9 @@ fn disconnecting_a_fan_outs_last_output_does_not_remove_the_node() {
 fn create_output_group_requires_at_least_two_members() {
     let (mut engine, _guard) = mock_engine();
 
-    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+    let output_a = engine
+        .create_virtual_output("Speakers")
+        .expect("create output a");
 
     let error = engine
         .create_output_group("Solo Group", &[output_a.device_id])
@@ -672,15 +1054,24 @@ fn create_output_group_requires_at_least_two_members() {
 fn create_output_group_rolls_back_on_partial_wiring_failure() {
     let (mut engine, _guard) = mock_engine();
 
-    let output_a = engine.create_virtual_output("Speakers").expect("create output a");
+    let output_a = engine
+        .create_virtual_output("Speakers")
+        .expect("create output a");
 
     let error = engine
-        .create_output_group("Broken Group", &[output_a.device_id, "nonexistent-device".to_string()])
+        .create_output_group(
+            "Broken Group",
+            &[output_a.device_id, "nonexistent-device".to_string()],
+        )
         .expect_err("wiring a nonexistent member should fail the whole group");
     assert!(error.to_string().contains("peer not found"), "{error}");
 
     assert!(
-        !engine.runtime_graph().processing_nodes.iter().any(|n| n.label == "Broken Group"),
+        !engine
+            .runtime_graph()
+            .processing_nodes
+            .iter()
+            .any(|n| n.label == "Broken Group"),
         "a partially-wired group should be torn down, not left behind"
     );
 }
@@ -694,9 +1085,15 @@ fn create_output_group_rolls_back_on_partial_wiring_failure() {
 fn removing_a_fan_out_node_with_many_connected_outputs_succeeds() {
     let (mut engine, _guard) = mock_engine();
 
-    let output_a = engine.create_virtual_output("Fan A").expect("create target a");
-    let output_b = engine.create_virtual_output("Fan B").expect("create target b");
-    let output_c = engine.create_virtual_output("Fan C").expect("create target c");
+    let output_a = engine
+        .create_virtual_output("Fan A")
+        .expect("create target a");
+    let output_b = engine
+        .create_virtual_output("Fan B")
+        .expect("create target b");
+    let output_c = engine
+        .create_virtual_output("Fan C")
+        .expect("create target c");
 
     let node = engine
         .create_output_group(
@@ -706,8 +1103,14 @@ fn removing_a_fan_out_node_with_many_connected_outputs_succeeds() {
         .expect("create group with 3 members");
     assert_eq!(node.outputs.len(), 3);
 
-    engine.remove_processing_node(&node.id).expect("removing a many-output group should succeed");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("removing a many-output group should succeed");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// The removal fix must be side-specific, not a blanket relaxation. A
@@ -730,13 +1133,23 @@ fn removing_a_mixer_node_with_multiple_connected_outputs_is_still_rejected() {
     let mut graph = engine.runtime_graph().clone();
     if let Some(n) = graph.processing_nodes.iter_mut().find(|n| n.id == node.id) {
         n.outputs = vec![
-            ProcessingNodePort { index: 0, connected_id: Some("device-a".into()), feed_key: None },
-            ProcessingNodePort { index: 1, connected_id: Some("device-b".into()), feed_key: None },
+            ProcessingNodePort {
+                index: 0,
+                connected_id: Some("device-a".into()),
+                feed_key: None,
+            },
+            ProcessingNodePort {
+                index: 1,
+                connected_id: Some("device-b".into()),
+                feed_key: None,
+            },
         ];
     }
     engine.apply_graph_update(graph);
 
-    let error = engine.remove_processing_node(&node.id).expect_err("ambiguous removal should still be rejected");
+    let error = engine
+        .remove_processing_node(&node.id)
+        .expect_err("ambiguous removal should still be rejected");
     assert!(error.to_string().contains("ambiguous"), "{error}");
 }
 
@@ -758,10 +1171,20 @@ fn a_non_growable_port_side_rejects_a_second_connection() {
     let (mut engine, _guard) = mock_engine();
 
     let fan_out = engine
-        .create_processing_node("Stream Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false })
+        .create_processing_node(
+            "Stream Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
         .expect("create fan-out node");
-    let source_a = engine.create_virtual_output("Source A").expect("create source a");
-    let source_b = engine.create_virtual_output("Source B").expect("create source b");
+    let source_a = engine
+        .create_virtual_output("Source A")
+        .expect("create source a");
+    let source_b = engine
+        .create_virtual_output("Source B")
+        .expect("create source b");
     engine
         .connect_processing_node_port(&fan_out.id, PortDirection::Input, &source_a.device_id)
         .expect("connect first input");
@@ -770,9 +1193,15 @@ fn a_non_growable_port_side_rejects_a_second_connection() {
         .expect_err("fan-out's second input should be rejected");
     assert!(error.to_string().contains("only one input"), "{error}");
 
-    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
-    let target_a = engine.create_virtual_output("Target A").expect("create target a");
-    let target_b = engine.create_virtual_output("Target B").expect("create target b");
+    let mixer = engine
+        .create_processing_node("Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
+    let target_a = engine
+        .create_virtual_output("Target A")
+        .expect("create target a");
+    let target_b = engine
+        .create_virtual_output("Target B")
+        .expect("create target b");
     engine
         .connect_processing_node_port(&mixer.id, PortDirection::Output, &target_a.device_id)
         .expect("connect first output");
@@ -795,8 +1224,12 @@ fn mixer_node_sums_inputs_with_independent_gain() {
     let node = engine
         .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
         .expect("create mixer node");
-    let source_a = engine.create_virtual_output("Mic A").expect("create source a");
-    let source_b = engine.create_virtual_output("Mic B").expect("create source b");
+    let source_a = engine
+        .create_virtual_output("Mic A")
+        .expect("create source a");
+    let source_b = engine
+        .create_virtual_output("Mic B")
+        .expect("create source b");
 
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source_a.device_id)
@@ -805,30 +1238,59 @@ fn mixer_node_sums_inputs_with_independent_gain() {
         .connect_processing_node_port(&node.id, PortDirection::Input, &source_b.device_id)
         .expect("connect input b");
 
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(refreshed.inputs.len(), 2);
     match &refreshed.kind {
-        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![100, 100]),
+        ProcessingNodeKind::Mixer {
+            input_gains_percent,
+        } => assert_eq!(input_gains_percent, &vec![100, 100]),
         other => panic!("expected Mixer, got {other:?}"),
     }
 
     engine
         .update_processing_node_input_gain(&node.id, 0, 60, false)
         .expect("update gain for input a");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     match &refreshed.kind {
-        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![60, 100]),
+        ProcessingNodeKind::Mixer {
+            input_gains_percent,
+        } => assert_eq!(input_gains_percent, &vec![60, 100]),
         other => panic!("expected Mixer, got {other:?}"),
     }
 
-    engine.disconnect_processing_node_port(&node.id, PortDirection::Input, 0).expect("disconnect input a");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .disconnect_processing_node_port(&node.id, PortDirection::Input, 0)
+        .expect("disconnect input a");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(refreshed.inputs.len(), 1);
-    assert_eq!(refreshed.inputs[0].connected_id.as_deref(), Some(source_b.device_id.as_str()));
+    assert_eq!(
+        refreshed.inputs[0].connected_id.as_deref(),
+        Some(source_b.device_id.as_str())
+    );
     match &refreshed.kind {
         // Input b's gain (still at unity) survives disconnecting input a and
         // re-indexing down to slot 0.
-        ProcessingNodeKind::Mixer { input_gains_percent } => assert_eq!(input_gains_percent, &vec![100]),
+        ProcessingNodeKind::Mixer {
+            input_gains_percent,
+        } => assert_eq!(input_gains_percent, &vec![100]),
         other => panic!("expected Mixer, got {other:?}"),
     }
 }
@@ -838,7 +1300,9 @@ fn mixer_node_input_gain_update_rejects_a_disconnected_port() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer node");
+    let node = engine
+        .create_processing_node("Voice Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer node");
 
     let error = engine
         .update_processing_node_input_gain(&node.id, 0, 50, false)
@@ -857,7 +1321,14 @@ fn eq5band_node_create_update_remove_round_trips() {
     let node = engine
         .create_processing_node(
             "Voice EQ",
-            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+            ProcessingNodeSpecKind::Eq5Band {
+                eq_sub: 0,
+                eq_bass: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
         )
         .expect("create eq node");
     assert_eq!(node.system_name, "pipe-deck-proc-eq5band-voice-eq");
@@ -865,14 +1336,33 @@ fn eq5band_node_create_update_remove_round_trips() {
     engine
         .update_processing_node_eq_params(&node.id, 2, 4, 0, -2, 1, 3)
         .expect("update eq params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(
         refreshed.kind,
-        ProcessingNodeKind::Eq5Band { eq_sub: 2, eq_bass: 4, eq_mid: 0, eq_treble: -2, eq_air: 1, output_gain: 3 }
+        ProcessingNodeKind::Eq5Band {
+            eq_sub: 2,
+            eq_bass: 4,
+            eq_mid: 0,
+            eq_treble: -2,
+            eq_air: 1,
+            output_gain: 3
+        }
     );
 
-    engine.remove_processing_node(&node.id).expect("remove eq node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove eq node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass keeps a node wired exactly as-is (nothing disconnects) while
@@ -886,23 +1376,54 @@ fn bypass_toggles_without_disturbing_wiring() {
     let node = engine
         .create_processing_node(
             "Voice EQ",
-            ProcessingNodeSpecKind::Eq5Band { eq_sub: 0, eq_bass: 0, eq_mid: 0, eq_treble: 0, eq_air: 0, output_gain: 0 },
+            ProcessingNodeSpecKind::Eq5Band {
+                eq_sub: 0,
+                eq_bass: 0,
+                eq_mid: 0,
+                eq_treble: 0,
+                eq_air: 0,
+                output_gain: 0,
+            },
         )
         .expect("create eq node");
-    let source = engine.create_virtual_output("EQ Source").expect("create source");
+    let source = engine
+        .create_virtual_output("EQ Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -910,7 +1431,15 @@ fn eq_param_update_rejects_a_non_eq_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_eq_params(&node.id, 0, 0, 0, 0, 0, 0)
@@ -929,7 +1458,11 @@ fn delay_node_create_update_remove_round_trips() {
     let node = engine
         .create_processing_node(
             "Echo",
-            ProcessingNodeSpecKind::Delay { delay_ms: 0, feedback_percent: 0, feedforward_percent: 0 },
+            ProcessingNodeSpecKind::Delay {
+                delay_ms: 0,
+                feedback_percent: 0,
+                feedforward_percent: 0,
+            },
         )
         .expect("create delay node");
     assert_eq!(node.system_name, "pipe-deck-proc-delay-echo");
@@ -937,14 +1470,30 @@ fn delay_node_create_update_remove_round_trips() {
     engine
         .update_processing_node_delay_params(&node.id, 350, 40, -10)
         .expect("update delay params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert_eq!(
         refreshed.kind,
-        ProcessingNodeKind::Delay { delay_ms: 350, feedback_percent: 40, feedforward_percent: -10 }
+        ProcessingNodeKind::Delay {
+            delay_ms: 350,
+            feedback_percent: 40,
+            feedforward_percent: -10
+        }
     );
 
-    engine.remove_processing_node(&node.id).expect("remove delay node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove delay node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass toggles a Delay node's DSP without disturbing wiring — same
@@ -957,23 +1506,51 @@ fn delay_bypass_toggles_without_disturbing_wiring() {
     let node = engine
         .create_processing_node(
             "Echo",
-            ProcessingNodeSpecKind::Delay { delay_ms: 200, feedback_percent: 30, feedforward_percent: 0 },
+            ProcessingNodeSpecKind::Delay {
+                delay_ms: 200,
+                feedback_percent: 30,
+                feedforward_percent: 0,
+            },
         )
         .expect("create delay node");
-    let source = engine.create_virtual_output("Delay Source").expect("create source");
+    let source = engine
+        .create_virtual_output("Delay Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -981,7 +1558,15 @@ fn delay_param_update_rejects_a_non_delay_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_delay_params(&node.id, 0, 0, 0)
@@ -1000,22 +1585,62 @@ fn limiter_node_create_update_remove_round_trips() {
     let node = engine
         .create_processing_node(
             "Safety Limiter",
-            ProcessingNodeSpecKind::Limiter { ceiling_db: 0, floor_db: 0, symmetric: true },
+            ProcessingNodeSpecKind::Limiter {
+                ceiling_db: 0,
+                floor_db: 0,
+                symmetric: true,
+            },
         )
         .expect("create limiter node");
     assert_eq!(node.system_name, "pipe-deck-proc-limiter-safety-limiter");
 
-    engine.update_processing_node_limiter_params(&node.id, -6, -6, true).expect("update limiter params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(refreshed.kind, ProcessingNodeKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true });
+    engine
+        .update_processing_node_limiter_params(&node.id, -6, -6, true)
+        .expect("update limiter params");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Limiter {
+            ceiling_db: -6,
+            floor_db: -6,
+            symmetric: true
+        }
+    );
 
     // Asymmetric: ceiling and floor can be set independently once unlocked.
-    engine.update_processing_node_limiter_params(&node.id, -3, -12, false).expect("update limiter params asymmetrically");
-    let asymmetric = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(asymmetric.kind, ProcessingNodeKind::Limiter { ceiling_db: -3, floor_db: -12, symmetric: false });
+    engine
+        .update_processing_node_limiter_params(&node.id, -3, -12, false)
+        .expect("update limiter params asymmetrically");
+    let asymmetric = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        asymmetric.kind,
+        ProcessingNodeKind::Limiter {
+            ceiling_db: -3,
+            floor_db: -12,
+            symmetric: false
+        }
+    );
 
-    engine.remove_processing_node(&node.id).expect("remove limiter node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove limiter node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass toggles a Limiter node's DSP without disturbing wiring — same
@@ -1028,23 +1653,51 @@ fn limiter_bypass_toggles_without_disturbing_wiring() {
     let node = engine
         .create_processing_node(
             "Safety Limiter",
-            ProcessingNodeSpecKind::Limiter { ceiling_db: -6, floor_db: -6, symmetric: true },
+            ProcessingNodeSpecKind::Limiter {
+                ceiling_db: -6,
+                floor_db: -6,
+                symmetric: true,
+            },
         )
         .expect("create limiter node");
-    let source = engine.create_virtual_output("Limiter Source").expect("create source");
+    let source = engine
+        .create_virtual_output("Limiter Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -1052,12 +1705,23 @@ fn limiter_param_update_rejects_a_non_limiter_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_limiter_params(&node.id, 0, 0, true)
         .expect_err("limiter update on a non-Limiter node should be rejected");
-    assert!(error.to_string().contains("has no limiter params"), "{error}");
+    assert!(
+        error.to_string().contains("has no limiter params"),
+        "{error}"
+    );
 }
 
 /// HPF Node round-trip (issue #312): create, live-update Freq/Resonance,
@@ -1069,16 +1733,42 @@ fn hpf_node_create_update_remove_round_trips() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Rumble Filter", ProcessingNodeSpecKind::Hpf { freq_hz: 20, resonance_x10: 7 })
+        .create_processing_node(
+            "Rumble Filter",
+            ProcessingNodeSpecKind::Hpf {
+                freq_hz: 20,
+                resonance_x10: 7,
+            },
+        )
         .expect("create hpf node");
     assert_eq!(node.system_name, "pipe-deck-proc-hpf-rumble-filter");
 
-    engine.update_processing_node_hpf_params(&node.id, 150, 12).expect("update hpf params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(refreshed.kind, ProcessingNodeKind::Hpf { freq_hz: 150, resonance_x10: 12 });
+    engine
+        .update_processing_node_hpf_params(&node.id, 150, 12)
+        .expect("update hpf params");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Hpf {
+            freq_hz: 150,
+            resonance_x10: 12
+        }
+    );
 
-    engine.remove_processing_node(&node.id).expect("remove hpf node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove hpf node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass toggles an HPF node's DSP without disturbing wiring — same
@@ -1089,22 +1779,52 @@ fn hpf_bypass_toggles_without_disturbing_wiring() {
 
     let (mut engine, _guard) = mock_engine();
     let node = engine
-        .create_processing_node("Rumble Filter", ProcessingNodeSpecKind::Hpf { freq_hz: 150, resonance_x10: 7 })
+        .create_processing_node(
+            "Rumble Filter",
+            ProcessingNodeSpecKind::Hpf {
+                freq_hz: 150,
+                resonance_x10: 7,
+            },
+        )
         .expect("create hpf node");
-    let source = engine.create_virtual_output("HPF Source").expect("create source");
+    let source = engine
+        .create_virtual_output("HPF Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -1112,7 +1832,15 @@ fn hpf_param_update_rejects_a_non_hpf_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_hpf_params(&node.id, 0, 0)
@@ -1129,16 +1857,36 @@ fn reverb_node_create_update_remove_round_trips() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Room Verb", ProcessingNodeSpecKind::Reverb { mix_percent: 0 })
+        .create_processing_node(
+            "Room Verb",
+            ProcessingNodeSpecKind::Reverb { mix_percent: 0 },
+        )
         .expect("create reverb node");
     assert_eq!(node.system_name, "pipe-deck-proc-reverb-room-verb");
 
-    engine.update_processing_node_reverb_params(&node.id, 35).expect("update reverb params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(refreshed.kind, ProcessingNodeKind::Reverb { mix_percent: 35 });
+    engine
+        .update_processing_node_reverb_params(&node.id, 35)
+        .expect("update reverb params");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Reverb { mix_percent: 35 }
+    );
 
-    engine.remove_processing_node(&node.id).expect("remove reverb node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove reverb node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass toggles a Reverb node's DSP without disturbing wiring — same
@@ -1149,22 +1897,49 @@ fn reverb_bypass_toggles_without_disturbing_wiring() {
 
     let (mut engine, _guard) = mock_engine();
     let node = engine
-        .create_processing_node("Room Verb", ProcessingNodeSpecKind::Reverb { mix_percent: 35 })
+        .create_processing_node(
+            "Room Verb",
+            ProcessingNodeSpecKind::Reverb { mix_percent: 35 },
+        )
         .expect("create reverb node");
-    let source = engine.create_virtual_output("Reverb Source").expect("create source");
+    let source = engine
+        .create_virtual_output("Reverb Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -1172,12 +1947,23 @@ fn reverb_param_update_rejects_a_non_reverb_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_reverb_params(&node.id, 0)
         .expect_err("reverb update on a non-Reverb node should be rejected");
-    assert!(error.to_string().contains("has no reverb params"), "{error}");
+    assert!(
+        error.to_string().contains("has no reverb params"),
+        "{error}"
+    );
 }
 
 /// Widener Node round-trip (issue #314): create, live-update Width, remove.
@@ -1189,16 +1975,36 @@ fn widener_node_create_update_remove_round_trips() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Wide Stereo", ProcessingNodeSpecKind::Widener { width_percent: 100 })
+        .create_processing_node(
+            "Wide Stereo",
+            ProcessingNodeSpecKind::Widener { width_percent: 100 },
+        )
         .expect("create widener node");
     assert_eq!(node.system_name, "pipe-deck-proc-widener-wide-stereo");
 
-    engine.update_processing_node_widener_params(&node.id, 150).expect("update widener params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(refreshed.kind, ProcessingNodeKind::Widener { width_percent: 150 });
+    engine
+        .update_processing_node_widener_params(&node.id, 150)
+        .expect("update widener params");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Widener { width_percent: 150 }
+    );
 
-    engine.remove_processing_node(&node.id).expect("remove widener node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove widener node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass toggles a Widener node's DSP without disturbing wiring — same
@@ -1209,22 +2015,49 @@ fn widener_bypass_toggles_without_disturbing_wiring() {
 
     let (mut engine, _guard) = mock_engine();
     let node = engine
-        .create_processing_node("Wide Stereo", ProcessingNodeSpecKind::Widener { width_percent: 150 })
+        .create_processing_node(
+            "Wide Stereo",
+            ProcessingNodeSpecKind::Widener { width_percent: 150 },
+        )
         .expect("create widener node");
-    let source = engine.create_virtual_output("Widener Source").expect("create source");
+    let source = engine
+        .create_virtual_output("Widener Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -1232,12 +2065,23 @@ fn widener_param_update_rejects_a_non_widener_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_widener_params(&node.id, 100)
         .expect_err("widener update on a non-Widener node should be rejected");
-    assert!(error.to_string().contains("has no widener params"), "{error}");
+    assert!(
+        error.to_string().contains("has no widener params"),
+        "{error}"
+    );
 }
 
 /// Pan Node round-trip (issue #16): create, live-update Balance, remove.
@@ -1249,16 +2093,38 @@ fn pan_node_create_update_remove_round_trips() {
     let (mut engine, _guard) = mock_engine();
 
     let node = engine
-        .create_processing_node("Mic Balance", ProcessingNodeSpecKind::Pan { balance_percent: 0 })
+        .create_processing_node(
+            "Mic Balance",
+            ProcessingNodeSpecKind::Pan { balance_percent: 0 },
+        )
         .expect("create pan node");
     assert_eq!(node.system_name, "pipe-deck-proc-pan-mic-balance");
 
-    engine.update_processing_node_pan_params(&node.id, 40).expect("update pan params");
-    let refreshed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
-    assert_eq!(refreshed.kind, ProcessingNodeKind::Pan { balance_percent: 40 });
+    engine
+        .update_processing_node_pan_params(&node.id, 40)
+        .expect("update pan params");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Pan {
+            balance_percent: 40
+        }
+    );
 
-    engine.remove_processing_node(&node.id).expect("remove pan node");
-    assert!(!engine.runtime_graph().processing_nodes.iter().any(|n| n.id == node.id));
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove pan node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
 }
 
 /// Bypass toggles a Pan node's DSP without disturbing wiring — same
@@ -1269,22 +2135,51 @@ fn pan_bypass_toggles_without_disturbing_wiring() {
 
     let (mut engine, _guard) = mock_engine();
     let node = engine
-        .create_processing_node("Mic Balance", ProcessingNodeSpecKind::Pan { balance_percent: 40 })
+        .create_processing_node(
+            "Mic Balance",
+            ProcessingNodeSpecKind::Pan {
+                balance_percent: 40,
+            },
+        )
         .expect("create pan node");
-    let source = engine.create_virtual_output("Pan Source").expect("create source");
+    let source = engine
+        .create_virtual_output("Pan Source")
+        .expect("create source");
     engine
         .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
         .expect("connect input");
 
-    engine.set_processing_node_bypassed(&node.id, true).expect("bypass on");
-    let bypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(bypassed.bypassed);
-    assert_eq!(bypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 
-    engine.set_processing_node_bypassed(&node.id, false).expect("bypass off");
-    let unbypassed = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == node.id).unwrap().clone();
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
     assert!(!unbypassed.bypassed);
-    assert_eq!(unbypassed.inputs[0].connected_id.as_deref(), Some(source.device_id.as_str()));
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
 }
 
 #[test]
@@ -1292,7 +2187,15 @@ fn pan_param_update_rejects_a_non_pan_node() {
     use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
 
     let (mut engine, _guard) = mock_engine();
-    let node = engine.create_processing_node("Fan-out", ProcessingNodeSpecKind::FanOut { volume_percent: 100, muted: false }).expect("create fan-out node");
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
 
     let error = engine
         .update_processing_node_pan_params(&node.id, 0)
@@ -1316,9 +2219,13 @@ fn a_mixer_node_input_accepts_any_device_kind() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
 
     let (mut engine, _guard) = mock_engine();
-    let mixer = engine.create_processing_node("Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let mixer = engine
+        .create_processing_node("Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer");
 
-    let output = engine.create_virtual_output("Output Source").expect("create output");
+    let output = engine
+        .create_virtual_output("Output Source")
+        .expect("create output");
     let result = engine
         .connect_processing_node_port(&mixer.id, PortDirection::Input, &output.device_id)
         .expect("a virtual output device should be a valid mixer input");
@@ -1337,10 +2244,21 @@ fn a_mixer_node_input_accepts_any_device_kind() {
         .expect("a physical input device should also be a valid mixer input");
     assert!(result.success, "{:?}", result.message);
 
-    let node = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap();
+    let node = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == mixer.id)
+        .unwrap();
     assert_eq!(node.inputs.len(), 2);
-    assert_eq!(node.inputs[0].connected_id.as_deref(), Some(output.device_id.as_str()));
-    assert_eq!(node.inputs[1].connected_id.as_deref(), Some(physical_source.as_str()));
+    assert_eq!(
+        node.inputs[0].connected_id.as_deref(),
+        Some(output.device_id.as_str())
+    );
+    assert_eq!(
+        node.inputs[1].connected_id.as_deref(),
+        Some(physical_source.as_str())
+    );
 }
 
 #[test]
@@ -1350,7 +2268,9 @@ fn virtual_output_device_rejects_effect_attach() {
     // longer host effects directly at all; the dedicated EQ5Band processing
     // node is the replacement. Virtual input (mic) effects are unaffected.
     let (mut engine, _guard) = mock_engine();
-    let output = engine.create_virtual_output("Effects Test Output").expect("create output");
+    let output = engine
+        .create_virtual_output("Effects Test Output")
+        .expect("create output");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig::default();
     let error = engine
@@ -1362,12 +2282,21 @@ fn virtual_output_device_rejects_effect_attach() {
 #[test]
 fn device_alias_rename_is_visible_after_refresh() {
     let (mut engine, _guard) = mock_engine();
-    let output = engine.create_virtual_output("Original Label").expect("create output");
+    let output = engine
+        .create_virtual_output("Original Label")
+        .expect("create output");
 
-    engine.apply_device_alias(&output.system_name, "Renamed Label").unwrap();
+    engine
+        .apply_device_alias(&output.system_name, "Renamed Label")
+        .unwrap();
     engine.refresh_graph().unwrap();
 
-    let renamed = engine.runtime_graph().devices.iter().find(|d| d.id == output.device_id).unwrap();
+    let renamed = engine
+        .runtime_graph()
+        .devices
+        .iter()
+        .find(|d| d.id == output.device_id)
+        .unwrap();
     assert_eq!(renamed.label, "Renamed Label");
 }
 
@@ -1388,16 +2317,26 @@ fn mixer_node_accepts_a_physical_mic_as_an_input() {
         .expect("sample graph should have a physical input")
         .id
         .clone();
-    let mixer = engine.create_processing_node("Mic Mix", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let mixer = engine
+        .create_processing_node("Mic Mix", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer");
 
     let result = engine
         .connect_processing_node_port(&mixer.id, PortDirection::Input, &physical_source)
         .expect("connect physical mic to mixer");
     assert!(result.success, "{:?}", result.message);
 
-    let node = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap();
+    let node = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == mixer.id)
+        .unwrap();
     assert_eq!(node.inputs.len(), 1);
-    assert_eq!(node.inputs[0].connected_id.as_deref(), Some(physical_source.as_str()));
+    assert_eq!(
+        node.inputs[0].connected_id.as_deref(),
+        Some(physical_source.as_str())
+    );
 }
 
 #[test]
@@ -1421,7 +2360,10 @@ fn apply_effect_chain_structural_validates_even_in_mock_mode() {
 
     let config = pipe_deck_lib::core::models::EffectChainConfig::default();
     let result = engine.apply_effect_chain_structural(&physical_output, &config);
-    assert!(result.is_err(), "effects on a non-pipe-deck device must be rejected, even in mock mode");
+    assert!(
+        result.is_err(),
+        "effects on a non-pipe-deck device must be rejected, even in mock mode"
+    );
 }
 
 #[test]
@@ -1434,7 +2376,9 @@ fn remove_effect_chain_structural_runs_the_real_adapter_call_path_in_mock_mode()
     // `apply_effect_chain_structural`, which `MockAudioBackend` tracks
     // in-memory the same way it tracks routing/mixer state.
     let (mut engine, _guard) = mock_engine();
-    let mic = engine.create_virtual_input("Integration Remove Path Mic").expect("create mic");
+    let mic = engine
+        .create_virtual_input("Integration Remove Path Mic")
+        .expect("create mic");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig {
         stages: vec![pipe_deck_lib::core::models::EffectStage::Eq5Band {
@@ -1479,17 +2423,19 @@ fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
     // chain round-trips through `get_effect_chains` the same way it
     // already does for outputs.
     let (mut engine, _guard) = mock_engine();
-    let mic = engine.create_virtual_input("Integration Effects Mic").expect("create input");
+    let mic = engine
+        .create_virtual_input("Integration Effects Mic")
+        .expect("create input");
 
     let config = pipe_deck_lib::core::models::EffectChainConfig {
         stages: vec![pipe_deck_lib::core::models::EffectStage::Eq5Band {
             id: "eq".to_string(),
             eq_bass: 6,
             eq_sub: 0,
-                eq_mid: 0,
-                eq_treble: 0,
-                eq_air: 0,
-                output_gain: 0,
+            eq_mid: 0,
+            eq_treble: 0,
+            eq_air: 0,
+            output_gain: 0,
         }],
         ..Default::default()
     };
@@ -1505,9 +2451,14 @@ fn effect_chain_applies_and_removes_on_a_virtual_input_device() {
     // live effects are ever enabled) must round-trip through
     // `get_effect_chains` for an input device the same way it already does
     // for outputs.
-    engine.set_device_effects(&mic.device_id, config).expect("set_device_effects");
+    engine
+        .set_device_effects(&mic.device_id, config)
+        .expect("set_device_effects");
     let chains = engine.get_effect_chains().expect("get_effect_chains");
-    assert_eq!(chains.get(&mic.device_id).map(|c| c.eq_stage().eq_bass), Some(6));
+    assert_eq!(
+        chains.get(&mic.device_id).map(|c| c.eq_stage().eq_bass),
+        Some(6)
+    );
 }
 
 #[test]
@@ -1529,7 +2480,9 @@ fn add_remove_reorder_effect_stage_round_trips() {
     use pipe_deck_lib::core::models::EffectStage;
 
     let (mut engine, _guard) = mock_engine();
-    let mic = engine.create_virtual_input("Integration Stage Mic").expect("create mic");
+    let mic = engine
+        .create_virtual_input("Integration Stage Mic")
+        .expect("create mic");
 
     let add_result = engine
         .add_effect_stage(
@@ -1552,7 +2505,9 @@ fn add_remove_reorder_effect_stage_round_trips() {
         .expect("reorder_effect_stages should accept the only stage's id unchanged");
     assert!(reorder_result.success);
 
-    let remove_result = engine.remove_effect_stage(&mic.device_id, "eq").expect("remove_effect_stage");
+    let remove_result = engine
+        .remove_effect_stage(&mic.device_id, "eq")
+        .expect("remove_effect_stage");
     assert!(remove_result.success);
 }
 
@@ -1571,8 +2526,12 @@ fn removing_effects_from_one_mic_does_not_disturb_an_unrelated_mics_live_chain()
     let (mut engine, _guard) = mock_engine();
     let mic_a = engine.create_virtual_input("Mic A").expect("create mic a");
     let mic_b = engine.create_virtual_input("Mic B").expect("create mic b");
-    let source = engine.create_virtual_output("Mic Feed Source").expect("create mic feed source");
-    let mixer = engine.create_processing_node("Mic Mixer", ProcessingNodeSpecKind::Mixer).expect("create mixer");
+    let source = engine
+        .create_virtual_output("Mic Feed Source")
+        .expect("create mic feed source");
+    let mixer = engine
+        .create_processing_node("Mic Mixer", ProcessingNodeSpecKind::Mixer)
+        .expect("create mixer");
 
     engine
         .connect_processing_node_port(&mixer.id, PortDirection::Input, &source.device_id)
@@ -1592,21 +2551,39 @@ fn removing_effects_from_one_mic_does_not_disturb_an_unrelated_mics_live_chain()
         output_gain: 0,
     };
 
-    engine.add_effect_stage(&mic_a.device_id, eq_stage("mic-a-eq")).expect("add effects to mic a");
-    engine.add_effect_stage(&mic_b.device_id, eq_stage("mic-b-eq")).expect("add effects to mic b");
+    engine
+        .add_effect_stage(&mic_a.device_id, eq_stage("mic-a-eq"))
+        .expect("add effects to mic a");
+    engine
+        .add_effect_stage(&mic_b.device_id, eq_stage("mic-b-eq"))
+        .expect("add effects to mic b");
     engine.refresh_graph().unwrap();
-    assert!(engine.is_effect_chain_live(&mic_a.device_id), "mic a's chain should be live before touching mic b");
+    assert!(
+        engine.is_effect_chain_live(&mic_a.device_id),
+        "mic a's chain should be live before touching mic b"
+    );
 
-    engine.remove_effect_stage(&mic_b.device_id, "mic-b-eq").expect("remove effects from mic b");
+    engine
+        .remove_effect_stage(&mic_b.device_id, "mic-b-eq")
+        .expect("remove effects from mic b");
     engine.refresh_graph().unwrap();
 
     assert!(
         engine.is_effect_chain_live(&mic_a.device_id),
         "removing effects from an unrelated mic must not disturb mic a's own live chain"
     );
-    let mixer_after = engine.runtime_graph().processing_nodes.iter().find(|n| n.id == mixer.id).unwrap().clone();
+    let mixer_after = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == mixer.id)
+        .unwrap()
+        .clone();
     assert_eq!(
-        mixer_after.outputs.first().and_then(|port| port.connected_id.clone()),
+        mixer_after
+            .outputs
+            .first()
+            .and_then(|port| port.connected_id.clone()),
         Some(mic_a.device_id.clone()),
         "mic a's mixer feed must survive an unrelated mic's effect removal"
     );
@@ -1647,7 +2624,11 @@ fn virtual_device_spec(id: &str, slug: &str, direction: DeviceDirection) -> Virt
 fn restore_session_recreates_configured_virtual_devices_missing_from_the_backend() {
     let (backend, store, _guard) = mock_backend_with_config();
     store
-        .add_virtual_device(virtual_device_spec("vdev-1", "restore-output", DeviceDirection::Output))
+        .add_virtual_device(virtual_device_spec(
+            "vdev-1",
+            "restore-output",
+            DeviceDirection::Output,
+        ))
         .expect("save spec");
 
     let result = restore::restore_session(&backend).expect("restore_session");
@@ -1665,10 +2646,20 @@ fn restore_session_recreates_configured_virtual_devices_missing_from_the_backend
 fn restore_session_adopts_a_device_the_backend_already_has_instead_of_recreating_it() {
     let (backend, store, _guard) = mock_backend_with_config();
     store
-        .add_virtual_device(virtual_device_spec("vdev-1", "restore-output", DeviceDirection::Output))
+        .add_virtual_device(virtual_device_spec(
+            "vdev-1",
+            "restore-output",
+            DeviceDirection::Output,
+        ))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-restore-output", "Restore Test", DeviceDirection::Output, false, &[])
+        .restore_virtual_device(
+            "pipe-deck-restore-output",
+            "Restore Test",
+            DeviceDirection::Output,
+            false,
+            &[],
+        )
         .expect("pre-seed backend");
 
     let result = restore::restore_session(&backend).expect("restore_session");
@@ -1695,18 +2686,36 @@ fn restore_session_removes_orphaned_modules_not_listed_in_config() {
     // tripping that path and exercise orphan removal instead.
     let (backend, store, _guard) = mock_backend_with_config();
     store
-        .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
+        .add_virtual_device(virtual_device_spec(
+            "vdev-1",
+            "keep-me",
+            DeviceDirection::Output,
+        ))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
+        .restore_virtual_device(
+            "pipe-deck-keep-me",
+            "Keep Me",
+            DeviceDirection::Output,
+            false,
+            &[],
+        )
         .expect("pre-seed backend with the configured module");
     backend
-        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
+        .restore_virtual_device(
+            "pipe-deck-orphan",
+            "Orphan",
+            DeviceDirection::Output,
+            false,
+            &[],
+        )
         .expect("pre-seed backend with an unconfigured module");
 
     let result = restore::restore_session(&backend).expect("restore_session");
 
-    assert!(result.removed_orphans.contains(&"pipe-deck-orphan".to_string()));
+    assert!(result
+        .removed_orphans
+        .contains(&"pipe-deck-orphan".to_string()));
     assert!(result.adopted.contains(&"pipe-deck-keep-me".to_string()));
     let system_names: Vec<_> = backend
         .list_virtual_devices()
@@ -1724,13 +2733,29 @@ fn remove_all_virtual_devices_unloads_every_live_module_regardless_of_config() {
     // spare a device just because it's still listed there.
     let (backend, store, _guard) = mock_backend_with_config();
     store
-        .add_virtual_device(virtual_device_spec("vdev-1", "keep-me", DeviceDirection::Output))
+        .add_virtual_device(virtual_device_spec(
+            "vdev-1",
+            "keep-me",
+            DeviceDirection::Output,
+        ))
         .expect("save spec");
     backend
-        .restore_virtual_device("pipe-deck-keep-me", "Keep Me", DeviceDirection::Output, false, &[])
+        .restore_virtual_device(
+            "pipe-deck-keep-me",
+            "Keep Me",
+            DeviceDirection::Output,
+            false,
+            &[],
+        )
         .expect("pre-seed configured module");
     backend
-        .restore_virtual_device("pipe-deck-orphan", "Orphan", DeviceDirection::Output, false, &[])
+        .restore_virtual_device(
+            "pipe-deck-orphan",
+            "Orphan",
+            DeviceDirection::Output,
+            false,
+            &[],
+        )
         .expect("pre-seed unconfigured module");
 
     let (removed, errors) = restore::remove_all_virtual_devices(&backend);
@@ -1745,7 +2770,11 @@ fn remove_all_virtual_devices_unloads_every_live_module_regardless_of_config() {
 fn restore_profile_virtual_devices_recreates_devices_a_profile_depends_on() {
     let (backend, store, _guard) = mock_backend_with_config();
     store
-        .add_virtual_device(virtual_device_spec("vdev-1", "profile-output", DeviceDirection::Output))
+        .add_virtual_device(virtual_device_spec(
+            "vdev-1",
+            "profile-output",
+            DeviceDirection::Output,
+        ))
         .expect("save spec");
 
     let mut profile = Profile {
@@ -1759,9 +2788,12 @@ fn restore_profile_virtual_devices_recreates_devices_a_profile_depends_on() {
         device_assumptions: Default::default(),
         effect_state: Default::default(),
     };
-    profile.device_assumptions.insert("vdev-1".into(), "pipe-deck-profile-output".into());
+    profile
+        .device_assumptions
+        .insert("vdev-1".into(), "pipe-deck-profile-output".into());
 
-    let result = restore::restore_profile_virtual_devices(&backend, &profile).expect("restore_profile_virtual_devices");
+    let result = restore::restore_profile_virtual_devices(&backend, &profile)
+        .expect("restore_profile_virtual_devices");
 
     assert_eq!(result.created, vec!["pipe-deck-profile-output".to_string()]);
     assert!(backend
@@ -1860,7 +2892,12 @@ fn rule_added_after_a_stream_already_exists_is_applied_on_next_refresh() {
     engine.apply_graph_update(graph.clone());
 
     // No rule yet: the stream is observed and marked "seen" without a route.
-    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
+    let stream = engine
+        .runtime_graph()
+        .streams
+        .iter()
+        .find(|s| s.id == "node-1001")
+        .unwrap();
     assert_eq!(stream.current_target, None);
 
     // Now the user adds a matching rule — with the old identity-keyed seen
@@ -1871,7 +2908,12 @@ fn rule_added_after_a_stream_already_exists_is_applied_on_next_refresh() {
     graph.streams = vec![firefox_stream("node-1001")];
     engine.apply_graph_update(graph);
 
-    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
+    let stream = engine
+        .runtime_graph()
+        .streams
+        .iter()
+        .find(|s| s.id == "node-1001")
+        .unwrap();
     assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
 }
 
@@ -1896,7 +2938,12 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
         default_output_system_name: None,
     };
     engine.apply_graph_update(base_graph);
-    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1001").unwrap();
+    let stream = engine
+        .runtime_graph()
+        .streams
+        .iter()
+        .find(|s| s.id == "node-1001")
+        .unwrap();
     assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
 
     // Tab closes: node-1001 disappears. A new tab opens: node-1002, same
@@ -1913,7 +2960,12 @@ fn a_new_stream_instance_with_the_same_app_identity_is_still_auto_routed() {
     };
     engine.apply_graph_update(next_graph);
 
-    let stream = engine.runtime_graph().streams.iter().find(|s| s.id == "node-1002").unwrap();
+    let stream = engine
+        .runtime_graph()
+        .streams
+        .iter()
+        .find(|s| s.id == "node-1002")
+        .unwrap();
     assert_eq!(stream.current_target.as_deref(), Some("device-headset"));
 }
 
@@ -1924,10 +2976,18 @@ fn latency_ping_sums_hops_present_in_the_graph() {
     let stream_id = engine.runtime_graph().streams[0].id.clone();
 
     let path = vec![
-        LatencyPathNode { id: stream_id.clone(), system_name: None },
-        LatencyPathNode { id: device_id.clone(), system_name: None },
+        LatencyPathNode {
+            id: stream_id.clone(),
+            system_name: None,
+        },
+        LatencyPathNode {
+            id: device_id.clone(),
+            system_name: None,
+        },
     ];
-    let result = engine.measure_latency_ping(&path).expect("mock backend should measure latency");
+    let result = engine
+        .measure_latency_ping(&path)
+        .expect("mock backend should measure latency");
 
     assert_eq!(result.hops.len(), 2);
     assert!(result.hops.iter().all(|hop| hop.latency_ms.is_some()));
@@ -1942,10 +3002,18 @@ fn latency_ping_reports_no_total_when_a_hop_has_no_data() {
     let device_id = engine.runtime_graph().devices[0].id.clone();
 
     let path = vec![
-        LatencyPathNode { id: device_id, system_name: None },
-        LatencyPathNode { id: "node-not-in-graph".to_string(), system_name: None },
+        LatencyPathNode {
+            id: device_id,
+            system_name: None,
+        },
+        LatencyPathNode {
+            id: "node-not-in-graph".to_string(),
+            system_name: None,
+        },
     ];
-    let result = engine.measure_latency_ping(&path).expect("mock backend should measure latency");
+    let result = engine
+        .measure_latency_ping(&path)
+        .expect("mock backend should measure latency");
 
     assert_eq!(result.hops.len(), 2);
     assert!(result.hops[0].latency_ms.is_some());
@@ -1957,7 +3025,9 @@ fn latency_ping_reports_no_total_when_a_hop_has_no_data() {
 fn latency_ping_handles_an_empty_path() {
     let (engine, _guard) = mock_engine();
 
-    let result = engine.measure_latency_ping(&[]).expect("mock backend should measure latency");
+    let result = engine
+        .measure_latency_ping(&[])
+        .expect("mock backend should measure latency");
 
     assert!(result.hops.is_empty());
     assert_eq!(result.total_latency_ms, Some(0.0));
@@ -1970,16 +3040,25 @@ fn play_sound_reaches_the_backend_for_a_known_device() {
 
     let result = engine.play_sound(std::path::Path::new("/tmp/does-not-matter.wav"), &device_id);
 
-    assert!(result.is_ok(), "expected play_sound to succeed, got {result:?}");
+    assert!(
+        result.is_ok(),
+        "expected play_sound to succeed, got {result:?}"
+    );
 }
 
 #[test]
 fn play_sound_rejects_an_unknown_device_id() {
     let (engine, _guard) = mock_engine();
 
-    let result = engine.play_sound(std::path::Path::new("/tmp/does-not-matter.wav"), "no-such-device");
+    let result = engine.play_sound(
+        std::path::Path::new("/tmp/does-not-matter.wav"),
+        "no-such-device",
+    );
 
-    assert!(matches!(result, Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))));
+    assert!(matches!(
+        result,
+        Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))
+    ));
 }
 
 #[test]
@@ -1997,15 +3076,25 @@ fn default_output_device_starts_seeded_and_switches_to_another_output() {
         .devices
         .iter()
         .find(|device| {
-            matches!(device.direction, DeviceDirection::Output | DeviceDirection::Duplex) && device.id != starting_default
+            matches!(
+                device.direction,
+                DeviceDirection::Output | DeviceDirection::Duplex
+            ) && device.id != starting_default
         })
         .expect("mock sample graph should have more than one output device")
         .id
         .clone();
 
-    engine.set_default_output_device(&other).expect("switching default output should succeed");
+    engine
+        .set_default_output_device(&other)
+        .expect("switching default output should succeed");
 
-    assert_eq!(engine.default_output_device().map(|device| device.id.clone()), Some(other));
+    assert_eq!(
+        engine
+            .default_output_device()
+            .map(|device| device.id.clone()),
+        Some(other)
+    );
 }
 
 #[test]
@@ -2014,18 +3103,27 @@ fn set_default_output_device_rejects_an_unknown_device_id() {
 
     let result = engine.set_default_output_device("no-such-device");
 
-    assert!(matches!(result, Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))));
+    assert!(matches!(
+        result,
+        Err(pipe_deck_lib::core::engine::EngineError::NotFound(_))
+    ));
 }
 
 #[test]
 fn toggle_default_output_mute_flips_the_default_devices_mute_state() {
     let (mut engine, _guard) = mock_engine();
 
-    let starting_muted = engine.default_output_muted().expect("mock backend should have a default output");
+    let starting_muted = engine
+        .default_output_muted()
+        .expect("mock backend should have a default output");
 
-    engine.toggle_default_output_mute().expect("toggling default output mute should succeed");
+    engine
+        .toggle_default_output_mute()
+        .expect("toggling default output mute should succeed");
     assert_eq!(engine.default_output_muted(), Some(!starting_muted));
 
-    engine.toggle_default_output_mute().expect("toggling back should succeed");
+    engine
+        .toggle_default_output_mute()
+        .expect("toggling back should succeed");
     assert_eq!(engine.default_output_muted(), Some(starting_muted));
 }

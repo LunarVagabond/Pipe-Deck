@@ -6,22 +6,31 @@ use tauri::State;
 
 #[tauri::command]
 pub fn list_soundboard_boards() -> Vec<SoundboardBoard> {
-    ConfigStore::new().load_config().map(|config| config.preferences.soundboard_boards).unwrap_or_default()
+    ConfigStore::new()
+        .load_config()
+        .map(|config| config.preferences.soundboard_boards)
+        .unwrap_or_default()
 }
 
 #[tauri::command]
 pub fn save_soundboard_board(board: SoundboardBoard) -> Result<(), String> {
-    ConfigStore::new().save_soundboard_board(board).map_err(|error| error.to_string())
+    ConfigStore::new()
+        .save_soundboard_board(board)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn delete_soundboard_board(board_id: String) -> Result<(), String> {
-    ConfigStore::new().delete_soundboard_board(&board_id).map_err(|error| error.to_string())
+    ConfigStore::new()
+        .delete_soundboard_board(&board_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub fn list_soundboard_sounds(board_id: String) -> Result<Vec<SoundboardClip>, String> {
-    let config = ConfigStore::new().load_config().map_err(|error| error.to_string())?;
+    let config = ConfigStore::new()
+        .load_config()
+        .map_err(|error| error.to_string())?;
     let board = config
         .preferences
         .soundboard_boards
@@ -33,13 +42,21 @@ pub fn list_soundboard_sounds(board_id: String) -> Result<Vec<SoundboardClip>, S
 }
 
 #[tauri::command]
-pub async fn play_soundboard_clip(board_id: String, clip_id: String, state: State<'_, AppState>) -> Result<(), String> {
+pub async fn play_soundboard_clip(
+    board_id: String,
+    clip_id: String,
+    state: State<'_, AppState>,
+) -> Result<(), String> {
     let engine = state.engine.read().await;
-    engine.play_soundboard_clip(&board_id, &clip_id).map_err(|error| error.to_string())
+    engine
+        .play_soundboard_clip(&board_id, &clip_id)
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
 pub async fn stop_soundboard_clip(state: State<'_, AppState>) -> Result<(), String> {
     let engine = state.engine.read().await;
-    engine.stop_soundboard_clip().map_err(|error| error.to_string())
+    engine
+        .stop_soundboard_clip()
+        .map_err(|error| error.to_string())
 }
