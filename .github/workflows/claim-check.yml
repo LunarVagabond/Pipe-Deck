@@ -9,7 +9,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  check:
+  claim:
     runs-on: ubuntu-latest
     steps:
       - name: Verify referenced issue is claimed by the PR author
