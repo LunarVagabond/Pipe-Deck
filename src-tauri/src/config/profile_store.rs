@@ -315,7 +315,9 @@ mod tests {
         assert!(!store.profile_path(&entry.file).exists());
 
         // Deleting an already-missing file is a no-op, not an error.
-        store.delete_profile_file(&entry).expect("idempotent delete");
+        store
+            .delete_profile_file(&entry)
+            .expect("idempotent delete");
 
         let _ = fs::remove_dir_all(&temp_dir);
     }
