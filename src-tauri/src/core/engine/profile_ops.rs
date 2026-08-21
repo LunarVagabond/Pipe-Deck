@@ -109,6 +109,41 @@ impl CoreEngine {
         Ok(profile)
     }
 
+    pub fn delete_profile(&mut self, profile_id: &str) -> Result<(), EngineError> {
+        let store = ConfigStore::new();
+        let config = store
+            .load_config()
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        if config.active_profile.as_deref() == Some(profile_id) {
+            return Err(EngineError::InvalidInput(
+                "cannot delete the active profile; swap to another profile first".into(),
+            ));
+        }
+        if config.profile_index.len() <= 1 {
+            return Err(EngineError::InvalidInput(
+                "cannot delete the last remaining profile".into(),
+            ));
+        }
+
+        let entry = config
+            .profile_index
+            .iter()
+            .find(|entry| entry.id == profile_id)
+            .cloned()
+            .ok_or_else(|| EngineError::Profile(format!("profile not found: {profile_id}")))?;
+
+        let profile_store = ProfileStore::new(store.config_dir().clone());
+        profile_store
+            .delete_profile_file(&entry)
+            .map_err(|error| EngineError::Profile(error.to_string()))?;
+        store
+            .remove_profile_from_index(profile_id)
+            .map_err(|error| EngineError::Config(error.to_string()))?;
+
+        Ok(())
+    }
+
     pub fn save_profile_as(
         &mut self,
         profile_id: &str,

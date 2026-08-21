@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { useApplyResult } from "../stores/notices";
+import { useConfirm } from "../stores/confirm";
 import { useProfiles } from "../stores/profiles";
 import type { Profile } from "../types/graph";
 
@@ -14,12 +15,14 @@ const {
   getProfile,
   saveProfile,
   saveProfileAs,
+  deleteProfile,
   swapProfile,
   importProfile,
   exportProfile,
 } = useProfiles();
 
 const { handleApplyResult } = useApplyResult();
+const { confirm } = useConfirm();
 
 const selectedProfile = ref<Profile | null>(null);
 const saveAsName = ref("");
@@ -90,6 +93,35 @@ async function onExport(profileId: string) {
   if (!exportPath.value.trim()) return;
   await exportProfile(profileId, exportPath.value.trim());
   exportPath.value = "";
+}
+
+async function onDelete(profile: { id: string; name: string }) {
+  const confirmed = await confirm(
+    `Delete the "${profile.name}" profile? This removes its saved routes and cannot be undone.`,
+    {
+      title: "Delete profile",
+      confirmLabel: "Delete",
+      cancelLabel: "Cancel",
+    },
+  );
+  if (!confirmed) return;
+
+  try {
+    await deleteProfile(profile.id);
+    if (selectedProfile.value?.id === profile.id) {
+      selectedProfile.value = null;
+    }
+    await refresh();
+    handleApplyResult({ success: true }, "Profile deleted");
+  } catch (err) {
+    handleApplyResult(
+      {
+        success: false,
+        message: err instanceof Error ? err.message : String(err),
+      },
+      "",
+    );
+  }
 }
 </script>
 
@@ -192,6 +224,14 @@ async function onExport(profileId: string) {
             {{
               swapConfirmId === profile.id ? "Confirm apply all" : "Apply all"
             }}
+          </button>
+          <button
+            v-if="profile.id !== activeProfileId"
+            type="button"
+            title="Delete this saved profile"
+            @click="onDelete(profile)"
+          >
+            Delete
           </button>
         </div>
         <p v-if="swapConfirmId === profile.id" class="profile-meta">

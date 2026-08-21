@@ -26,6 +26,14 @@ pub async fn save_profile(
 }
 
 #[tauri::command]
+pub async fn delete_profile(profile_id: String, state: State<'_, AppState>) -> Result<(), String> {
+    let mut engine = state.engine.write().await;
+    engine
+        .delete_profile(&profile_id)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn save_profile_as(
     profile_id: String,
     name: String,

@@ -750,6 +750,12 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn remove_profile_from_index(&self, profile_id: &str) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        config.profile_index.retain(|entry| entry.id != profile_id);
+        self.save_config(&config)
+    }
+
     pub fn set_active_profile(&self, profile_id: &str) -> Result<(), ConfigError> {
         let mut config = self.load_config()?;
         config.active_profile = Some(profile_id.to_string());
@@ -954,6 +960,26 @@ mod tests {
         run(&store);
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+    }
+
+    #[test]
+    fn remove_profile_from_index_drops_only_the_matching_entry() {
+        with_temp_config(|store| {
+            store.ensure_layout().unwrap();
+            let mut config = ConfigStore::default_config();
+            config.profile_index.push(ProfileIndexEntry {
+                id: "gaming".into(),
+                name: "Gaming".into(),
+                file: "profiles/gaming.yaml".into(),
+            });
+            store.save_config(&config).unwrap();
+
+            store.remove_profile_from_index("gaming").unwrap();
+
+            let config = store.load_config().unwrap();
+            assert_eq!(config.profile_index.len(), 1);
+            assert_eq!(config.profile_index[0].id, "default");
+        });
     }
 
     #[test]
