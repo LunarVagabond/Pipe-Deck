@@ -140,6 +140,15 @@ impl ProfileStore {
         })
     }
 
+    pub fn delete_profile_file(&self, entry: &ProfileIndexEntry) -> Result<(), ProfileError> {
+        let path = self.profile_path(&entry.file);
+        if path.exists() {
+            fs::remove_file(&path)
+                .map_err(|error| ProfileError::Write(format!("{path:?}: {error}")))?;
+        }
+        Ok(())
+    }
+
     pub fn export_profile_archive(
         &self,
         entry: &ProfileIndexEntry,
@@ -288,6 +297,30 @@ pub fn import_profile_archive(
 mod tests {
     use super::*;
     use crate::core::models::{RoutingIntent, VolumeStateEntry};
+
+    #[test]
+    fn delete_profile_file_removes_the_yaml_file() {
+        let temp_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-profile-store-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_dir);
+        let store = ProfileStore::new(temp_dir.clone());
+        let entry = store
+            .save_profile_as("gaming", "Gaming", &base_profile())
+            .expect("save profile");
+        assert!(store.profile_path(&entry.file).exists());
+
+        store.delete_profile_file(&entry).expect("delete profile");
+        assert!(!store.profile_path(&entry.file).exists());
+
+        // Deleting an already-missing file is a no-op, not an error.
+        store
+            .delete_profile_file(&entry)
+            .expect("idempotent delete");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 
     #[test]
     fn validates_profile_shape() {

@@ -37,6 +37,10 @@ export function useProfiles() {
     return invoke<Profile>("save_profile_as", { profileId, name });
   }
 
+  async function deleteProfile(profileId: string) {
+    return invoke<void>("delete_profile", { profileId });
+  }
+
   async function swapProfile(profileId: string) {
     return invoke<{ success: boolean; message?: string }>("swap_profile", {
       profileId,
@@ -66,6 +70,7 @@ export function useProfiles() {
     getProfile,
     saveProfile,
     saveProfileAs,
+    deleteProfile,
     swapProfile,
     importProfile,
     importProfileArchive,

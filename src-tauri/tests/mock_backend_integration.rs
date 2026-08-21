@@ -3127,3 +3127,53 @@ fn toggle_default_output_mute_flips_the_default_devices_mute_state() {
         .expect("toggling back should succeed");
     assert_eq!(engine.default_output_muted(), Some(starting_muted));
 }
+
+#[test]
+fn delete_profile_removes_a_non_active_profile() {
+    let (mut engine, _guard) = mock_engine();
+    engine
+        .save_profile_as("gaming", "Gaming")
+        .expect("save_profile_as should succeed");
+
+    engine
+        .delete_profile("gaming")
+        .expect("deleting a non-active profile should succeed");
+
+    let store = ConfigStore::new();
+    let profiles = store.list_profiles().expect("list_profiles");
+    assert!(!profiles.iter().any(|entry| entry.id == "gaming"));
+}
+
+#[test]
+fn delete_profile_rejects_the_active_profile() {
+    let (mut engine, _guard) = mock_engine();
+    engine
+        .save_profile_as("gaming", "Gaming")
+        .expect("save_profile_as should succeed");
+
+    let result = engine.delete_profile("default");
+
+    assert!(matches!(
+        result,
+        Err(pipe_deck_lib::core::engine::EngineError::InvalidInput(_))
+    ));
+}
+
+#[test]
+fn delete_profile_rejects_deleting_the_last_remaining_profile() {
+    let (mut engine, _guard) = mock_engine();
+    // Point `active_profile` at a profile that isn't in the index so this
+    // specifically exercises the "last remaining profile" guard rather than
+    // the "can't delete the active profile" guard the other test covers.
+    let store = ConfigStore::new();
+    let mut config = store.load_config().expect("load_config");
+    config.active_profile = Some("ghost".into());
+    store.save_config(&config).expect("save_config");
+
+    let result = engine.delete_profile("default");
+
+    assert!(matches!(
+        result,
+        Err(pipe_deck_lib::core::engine::EngineError::InvalidInput(_))
+    ));
+}
