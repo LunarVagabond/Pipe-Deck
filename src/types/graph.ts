@@ -54,7 +54,9 @@ export interface Device {
   sink_mode?: SinkMode;
   volume_percent?: number;
   muted?: boolean;
+  /** Not legacy: just current_targets[0], kept for single-target UI. */
   current_target?: string;
+  /** Source of truth: every live target this output fans out to (can be more than one). */
   current_targets?: string[];
   mix_sources?: MixSource[];
   sample_rate?: number;

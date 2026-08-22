@@ -71,8 +71,10 @@ pub struct Device {
     pub volume_percent: Option<u8>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub muted: Option<bool>,
+    /// Not legacy: just `current_targets.first()`, kept for single-target consumers.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current_target: Option<String>,
+    /// Source of truth: every live target this output fans out to (can be more than one).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub current_targets: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
