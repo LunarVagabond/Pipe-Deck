@@ -112,8 +112,9 @@ fn dispatch(op: IpcOp) -> IpcResult {
         },
         IpcOp::LoadDspChain {
             device_system_name,
+            is_input,
             config,
-        } => match native_dsp_host::load_chain(&device_system_name, &config) {
+        } => match native_dsp_host::load_chain(&device_system_name, is_input, &config) {
             Ok(name) => IpcResult::Ok {
                 payload: IpcOkPayload::PlaybackName { name },
             },

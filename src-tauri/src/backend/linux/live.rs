@@ -564,7 +564,7 @@ impl AudioBackend for LinuxPipeWireBackend {
         // — this is dispatch on what the config actually needs, not a
         // rollout gate.
         let playback_name = if is_input && native_dsp_host::supports(config) {
-            NativeHostClient::load_dsp_chain(&device.system_name, config)
+            NativeHostClient::load_dsp_chain(&device.system_name, is_input, config)
         } else {
             NativeHostClient::load_chain(&device.system_name, is_input, config)
         }
@@ -962,11 +962,61 @@ impl AudioBackend for LinuxPipeWireBackend {
                 }
                 Ok(())
             }
+            ProcessingNodeKind::Compressor {
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+            } => {
+                // Unlike every other kind above, there's no builtin
+                // filter-chain dynamics primitive to fall back to at all
+                // (issue #86) — this always routes through the portable DSP
+                // host (issue #74's `native_dsp_host`, generalized for this
+                // standalone-bus identity in PD-052), never
+                // `NativeHostClient::load_chain`. No `fx_validate::preflight`
+                // call either: that gates builtin-filter *availability*,
+                // which is irrelevant to hand-written DSP that's always
+                // present. `node.system_name` stays the plain capture
+                // identity (a client `pw::stream`, not a `pactl`-visible
+                // sink — the volume/mute-forcing steps the other kinds need
+                // don't apply here, see `native_dsp_host`'s own "Scope/known
+                // limitation" doc section).
+                let config = crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Compressor {
+                        id: "compressor".into(),
+                        threshold_db: *threshold_db,
+                        ratio_x10: *ratio_x10,
+                        attack_ms: *attack_ms,
+                        release_ms: *release_ms,
+                        makeup_gain_db: *makeup_gain_db,
+                    }],
+                    bypassed: node.bypassed,
+                    ..Default::default()
+                };
+                crate::daemon::ipc::client::NativeHostClient::load_dsp_chain(
+                    &node.system_name,
+                    false,
+                    &config,
+                )
+                .map_err(|error| BackendError::Message(error.to_string()))?;
+                Ok(())
+            }
             ProcessingNodeKind::Stub { .. } => Ok(()),
         }
     }
 
     fn unload_processing_node(&self, system_name: &str) -> Result<(), BackendError> {
+        if system_name.starts_with("pipe-deck-proc-compressor-") {
+            // Routed exclusively through the portable DSP host (issue #86)
+            // — never `native_host`'s filter-chain module path, so this has
+            // no `is_loaded` guard to check first the way the builtin-module
+            // kinds below do; `native_dsp_host::unload_chain` is already a
+            // documented no-op if nothing is loaded.
+            crate::daemon::ipc::client::NativeHostClient::unload_dsp_chain(system_name)
+                .map_err(|error| BackendError::Message(error.to_string()))?;
+            return Ok(());
+        }
         if system_name.starts_with("pipe-deck-proc-eq5band-")
             || system_name.starts_with("pipe-deck-proc-delay-")
             || system_name.starts_with("pipe-deck-proc-limiter-")
@@ -996,6 +1046,9 @@ impl AudioBackend for LinuxPipeWireBackend {
     }
 
     fn is_processing_node_loaded(&self, system_name: &str) -> bool {
+        if system_name.starts_with("pipe-deck-proc-compressor-") {
+            return crate::daemon::ipc::client::NativeHostClient::is_dsp_chain_loaded(system_name);
+        }
         if system_name.starts_with("pipe-deck-proc-eq5band-") {
             return crate::daemon::ipc::client::NativeHostClient::is_loaded(system_name);
         }
@@ -1497,6 +1550,38 @@ impl AudioBackend for LinuxPipeWireBackend {
                 let _ = pactl::set_sink_mute_by_name(system_name, false);
             },
         )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn set_processing_node_compressor_params(
+        &self,
+        system_name: &str,
+        threshold_db: i32,
+        ratio_x10: i32,
+        attack_ms: i32,
+        release_ms: i32,
+        makeup_gain_db: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let config = crate::core::models::EffectChainConfig {
+            stages: vec![crate::core::models::EffectStage::Compressor {
+                id: "compressor".into(),
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+            }],
+            bypassed,
+            ..Default::default()
+        };
+        // No preflight/pactl-reforce steps — see `load_processing_node`'s
+        // Compressor arm's doc comment for why neither applies here.
+        crate::daemon::ipc::client::NativeHostClient::set_dsp_chain_live_params(
+            system_name,
+            &config,
+        )
+        .map_err(|error| BackendError::Message(error.to_string()))
     }
 }
 

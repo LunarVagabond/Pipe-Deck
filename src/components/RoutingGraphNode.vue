@@ -13,6 +13,7 @@ import RoutingGraphNodeHpf from "./RoutingGraphNodeHpf.vue";
 import RoutingGraphNodeReverb from "./RoutingGraphNodeReverb.vue";
 import RoutingGraphNodeWidener from "./RoutingGraphNodeWidener.vue";
 import RoutingGraphNodePan from "./RoutingGraphNodePan.vue";
+import RoutingGraphNodeCompressor from "./RoutingGraphNodeCompressor.vue";
 import RoutingGraphNodeFanOut from "./RoutingGraphNodeFanOut.vue";
 import RoutingGraphNodeGroup from "./RoutingGraphNodeGroup.vue";
 import type {
@@ -88,6 +89,7 @@ const hpfRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const reverbRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const widenerRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 const panRef = ref<{ reset: () => void | Promise<void> } | null>(null);
+const compressorRef = ref<{ reset: () => void | Promise<void> } | null>(null);
 
 /** Informational only — not an error/fault indicator. Rendered as a plain
  * (i) hint, not a warning triangle, since none of these describe something
@@ -115,7 +117,8 @@ function onResetClick() {
     hpfRef.value ??
     reverbRef.value ??
     widenerRef.value ??
-    panRef.value
+    panRef.value ??
+    compressorRef.value
   )?.reset();
 }
 
@@ -517,6 +520,17 @@ function onToggleMute() {
         ref="panRef"
         :node-id="data.entityId"
         :balance-percent="data.processingNodeKind.balance_percent"
+        :bypassed="data.processingNodeBypassed ?? false"
+      />
+      <RoutingGraphNodeCompressor
+        v-else-if="data.processingNodeKind?.kind === 'compressor'"
+        ref="compressorRef"
+        :node-id="data.entityId"
+        :threshold-db="data.processingNodeKind.threshold_db"
+        :ratio-x10="data.processingNodeKind.ratio_x10"
+        :attack-ms="data.processingNodeKind.attack_ms"
+        :release-ms="data.processingNodeKind.release_ms"
+        :makeup-gain-db="data.processingNodeKind.makeup_gain_db"
         :bypassed="data.processingNodeBypassed ?? false"
       />
       <RoutingGraphNodeFanOut

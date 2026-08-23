@@ -329,6 +329,33 @@ pub enum ProcessingNodeKind {
         #[serde(default)]
         balance_percent: i32,
     },
+    /// A real envelope-following compressor (issue #86) — PipeWire ships no
+    /// builtin dynamics primitive (verified against `man 7
+    /// libpipewire-module-filter-chain`), so unlike every other DSP kind
+    /// above this is never backed by a filter-chain builtin at all; it's
+    /// hand-written DSP (`dsp::CompressorProcessor`) hosted via
+    /// `pipewire::native_dsp_host` (issue #74's portable real-time host,
+    /// extended for a standalone-bus identity — see PD-052). `threshold_db`
+    /// is where gain reduction starts (more negative = more of the signal
+    /// gets compressed); `ratio_x10` is fixed-point (`10` == 1:1/no
+    /// compression, `40` == 4:1, up to very high values approximating a
+    /// limiter) so this struct can keep deriving `Eq`; `attack_ms`/
+    /// `release_ms` are the envelope follower's time constants;
+    /// `makeup_gain_db` is a final linear trim applied after gain
+    /// reduction, to bring the now-quieter peaks back up.
+    #[serde(rename = "compressor")]
+    Compressor {
+        #[serde(default = "default_compressor_threshold_db")]
+        threshold_db: i32,
+        #[serde(default = "default_compressor_ratio_x10")]
+        ratio_x10: i32,
+        #[serde(default = "default_compressor_attack_ms")]
+        attack_ms: i32,
+        #[serde(default = "default_compressor_release_ms")]
+        release_ms: i32,
+        #[serde(default)]
+        makeup_gain_db: i32,
+    },
     /// One of issue #293's non-DSP effect kinds — addable to the
     /// graph and wired like any other node, but a pure pass-through: never
     /// backed by a PipeWire object (`ProcessingNode::live` is always
@@ -349,6 +376,22 @@ fn default_widener_width_percent() -> i32 {
     100
 }
 
+fn default_compressor_threshold_db() -> i32 {
+    -18
+}
+
+fn default_compressor_ratio_x10() -> i32 {
+    40
+}
+
+fn default_compressor_attack_ms() -> i32 {
+    10
+}
+
+fn default_compressor_release_ms() -> i32 {
+    150
+}
+
 impl ProcessingNodeKind {
     pub fn kind_str(&self) -> &'static str {
         match self {
@@ -362,6 +405,7 @@ impl ProcessingNodeKind {
             ProcessingNodeKind::Reverb { .. } => "reverb",
             ProcessingNodeKind::Widener { .. } => "widener",
             ProcessingNodeKind::Pan { .. } => "pan",
+            ProcessingNodeKind::Compressor { .. } => "compressor",
             ProcessingNodeKind::Stub { .. } => "stub",
         }
     }
@@ -370,7 +414,6 @@ impl ProcessingNodeKind {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StubEffectKind {
-    Compressor,
     NoiseGate,
     Denoise,
     DeEsser,
@@ -899,6 +942,19 @@ pub enum ProcessingNodeSpecKind {
         #[serde(default)]
         balance_percent: i32,
     },
+    #[serde(rename = "compressor")]
+    Compressor {
+        #[serde(default = "default_compressor_threshold_db")]
+        threshold_db: i32,
+        #[serde(default = "default_compressor_ratio_x10")]
+        ratio_x10: i32,
+        #[serde(default = "default_compressor_attack_ms")]
+        attack_ms: i32,
+        #[serde(default = "default_compressor_release_ms")]
+        release_ms: i32,
+        #[serde(default)]
+        makeup_gain_db: i32,
+    },
     #[serde(rename = "stub")]
     Stub { stub_kind: StubEffectKind },
 }
@@ -1305,6 +1361,28 @@ pub enum EffectStage {
         #[serde(default)]
         balance_percent: i32,
     },
+    /// Carries a `ProcessingNodeKind::Compressor` node's params through the
+    /// existing `EffectChainConfig` transport (issue #86) — unlike every
+    /// other variant above, this one is *never* rendered by
+    /// `fx_validate::render_module_args` (there's no builtin filter-chain
+    /// dynamics primitive to render into): `backend::linux::live`'s
+    /// `ProcessingNodeKind::Compressor` arm dispatches it straight to
+    /// `pipewire::native_dsp_host` instead. See `dsp::CompressorProcessor`
+    /// for the actual DSP and PD-052 for the hosting design.
+    #[serde(rename = "compressor")]
+    Compressor {
+        id: String,
+        #[serde(default = "default_compressor_threshold_db")]
+        threshold_db: i32,
+        #[serde(default = "default_compressor_ratio_x10")]
+        ratio_x10: i32,
+        #[serde(default = "default_compressor_attack_ms")]
+        attack_ms: i32,
+        #[serde(default = "default_compressor_release_ms")]
+        release_ms: i32,
+        #[serde(default)]
+        makeup_gain_db: i32,
+    },
 }
 
 impl Default for EffectStage {
@@ -1331,6 +1409,7 @@ impl EffectStage {
             EffectStage::Reverb { .. } => "reverb",
             EffectStage::Widener { .. } => "widener",
             EffectStage::Pan { .. } => "pan",
+            EffectStage::Compressor { .. } => "compressor",
         }
     }
 
@@ -1343,6 +1422,7 @@ impl EffectStage {
             EffectStage::Reverb { id, .. } => id,
             EffectStage::Widener { id, .. } => id,
             EffectStage::Pan { id, .. } => id,
+            EffectStage::Compressor { id, .. } => id,
         }
     }
 }
@@ -1406,6 +1486,17 @@ pub struct WidenerStageParams {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct PanStageParams {
     pub balance_percent: i32,
+}
+
+/// Flattened params for a chain's `Compressor` stage, mirroring
+/// `LimiterStageParams`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompressorStageParams {
+    pub threshold_db: i32,
+    pub ratio_x10: i32,
+    pub attack_ms: i32,
+    pub release_ms: i32,
+    pub makeup_gain_db: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
@@ -1563,7 +1654,8 @@ impl EffectChainConfig {
                 | EffectStage::Hpf { .. }
                 | EffectStage::Reverb { .. }
                 | EffectStage::Widener { .. }
-                | EffectStage::Pan { .. } => None,
+                | EffectStage::Pan { .. }
+                | EffectStage::Compressor { .. } => None,
             })
             .unwrap_or_default()
     }
@@ -1589,7 +1681,8 @@ impl EffectChainConfig {
             | EffectStage::Hpf { .. }
             | EffectStage::Reverb { .. }
             | EffectStage::Widener { .. }
-            | EffectStage::Pan { .. } => None,
+            | EffectStage::Pan { .. }
+            | EffectStage::Compressor { .. } => None,
         })
     }
 
@@ -1611,7 +1704,8 @@ impl EffectChainConfig {
             | EffectStage::Hpf { .. }
             | EffectStage::Reverb { .. }
             | EffectStage::Widener { .. }
-            | EffectStage::Pan { .. } => None,
+            | EffectStage::Pan { .. }
+            | EffectStage::Compressor { .. } => None,
         })
     }
 
@@ -1631,7 +1725,8 @@ impl EffectChainConfig {
             | EffectStage::Limiter { .. }
             | EffectStage::Reverb { .. }
             | EffectStage::Widener { .. }
-            | EffectStage::Pan { .. } => None,
+            | EffectStage::Pan { .. }
+            | EffectStage::Compressor { .. } => None,
         })
     }
 
@@ -1646,7 +1741,8 @@ impl EffectChainConfig {
             | EffectStage::Limiter { .. }
             | EffectStage::Hpf { .. }
             | EffectStage::Widener { .. }
-            | EffectStage::Pan { .. } => None,
+            | EffectStage::Pan { .. }
+            | EffectStage::Compressor { .. } => None,
         })
     }
 
@@ -1661,7 +1757,8 @@ impl EffectChainConfig {
             | EffectStage::Limiter { .. }
             | EffectStage::Hpf { .. }
             | EffectStage::Reverb { .. }
-            | EffectStage::Pan { .. } => None,
+            | EffectStage::Pan { .. }
+            | EffectStage::Compressor { .. } => None,
         })
     }
 
@@ -1678,7 +1775,35 @@ impl EffectChainConfig {
             | EffectStage::Limiter { .. }
             | EffectStage::Hpf { .. }
             | EffectStage::Reverb { .. }
-            | EffectStage::Widener { .. } => None,
+            | EffectStage::Widener { .. }
+            | EffectStage::Compressor { .. } => None,
+        })
+    }
+
+    /// The chain's `Compressor` stage, flattened — mirrors `limiter_stage()`.
+    pub fn compressor_stage(&self) -> Option<CompressorStageParams> {
+        self.stages.iter().find_map(|stage| match stage {
+            EffectStage::Compressor {
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+                ..
+            } => Some(CompressorStageParams {
+                threshold_db: *threshold_db,
+                ratio_x10: *ratio_x10,
+                attack_ms: *attack_ms,
+                release_ms: *release_ms,
+                makeup_gain_db: *makeup_gain_db,
+            }),
+            EffectStage::Eq5Band { .. }
+            | EffectStage::Delay { .. }
+            | EffectStage::Limiter { .. }
+            | EffectStage::Hpf { .. }
+            | EffectStage::Reverb { .. }
+            | EffectStage::Widener { .. }
+            | EffectStage::Pan { .. } => None,
         })
     }
 }

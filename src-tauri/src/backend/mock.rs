@@ -1414,6 +1414,40 @@ impl AudioBackend for MockAudioBackend {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn set_processing_node_compressor_params(
+        &self,
+        system_name: &str,
+        threshold_db: i32,
+        ratio_x10: i32,
+        attack_ms: i32,
+        release_ms: i32,
+        makeup_gain_db: i32,
+        bypassed: bool,
+    ) -> Result<(), BackendError> {
+        let mut graph = self.lock();
+        let Some(node) = graph
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.system_name == system_name)
+        else {
+            return Err(BackendError::Message(format!(
+                "processing node not found: {system_name}"
+            )));
+        };
+        if let ProcessingNodeKind::Compressor { .. } = &node.kind {
+            node.kind = ProcessingNodeKind::Compressor {
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+            };
+        }
+        node.bypassed = bypassed;
+        Ok(())
+    }
+
     fn revert_to_plain_device(
         &self,
         _device: &Device,

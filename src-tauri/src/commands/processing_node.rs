@@ -225,6 +225,33 @@ pub async fn update_processing_node_pan_params(
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn update_processing_node_compressor_params(
+    node_id: String,
+    threshold_db: i32,
+    ratio_x10: i32,
+    attack_ms: i32,
+    release_ms: i32,
+    makeup_gain_db: i32,
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ApplyResult, String> {
+    let mut engine = state.engine.write().await;
+    let result = engine
+        .update_processing_node_compressor_params(
+            &node_id,
+            threshold_db,
+            ratio_x10,
+            attack_ms,
+            release_ms,
+            makeup_gain_db,
+        )
+        .map_err(|error| error.to_string())?;
+    engine.emit_graph_update(&app);
+    Ok(result)
+}
+
+#[tauri::command]
 pub async fn set_processing_node_bypassed(
     node_id: String,
     bypassed: bool,

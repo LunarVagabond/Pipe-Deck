@@ -56,10 +56,11 @@ pub enum IpcOp {
     },
     /// Portable-DSP equivalent of `LoadChain` (issue #74) — routed to
     /// `pipewire::native_dsp_host` instead of `pipewire::native_host`.
-    /// Capture-direction (virtual input/mic) only; no `is_input` field
-    /// since that's the only template `native_dsp_host` implements.
+    /// `is_input` selects the same naming template `LoadChain`'s own flag
+    /// does (issue #86, PD-052) — `native_dsp_host` implements both now.
     LoadDspChain {
         device_system_name: String,
+        is_input: bool,
         config: EffectChainConfig,
     },
     UnloadDspChain {
@@ -190,6 +191,7 @@ mod tests {
     fn load_dsp_chain_roundtrips() {
         roundtrips(IpcOp::LoadDspChain {
             device_system_name: "pipe-deck-mic".to_string(),
+            is_input: true,
             config: eq5band_config(),
         });
     }

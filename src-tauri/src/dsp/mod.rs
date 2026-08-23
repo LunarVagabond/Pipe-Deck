@@ -6,9 +6,11 @@
 
 pub mod biquad;
 pub mod chain;
+pub mod compressor;
 pub mod eq5band;
 pub mod stage;
 
 pub use chain::DspChain;
+pub use compressor::CompressorProcessor;
 pub use eq5band::Eq5BandProcessor;
 pub use stage::DspStage;

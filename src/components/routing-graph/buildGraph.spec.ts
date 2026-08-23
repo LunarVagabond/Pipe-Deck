@@ -528,6 +528,45 @@ describe("widener processing node (#314)", () => {
   });
 });
 
+describe("compressor processing node (#86)", () => {
+  beforeEach(() => {
+    stubLocalStorage();
+  });
+
+  it("builds a node with the Compressor subtitle and processing-node fields", () => {
+    const node = makeProcessingNode({
+      id: "proc-compressor-1",
+      label: "Vocal Compressor",
+      kind: {
+        kind: "compressor",
+        threshold_db: -18,
+        ratio_x10: 40,
+        attack_ms: 10,
+        release_ms: 150,
+        makeup_gain_db: 0,
+      },
+      system_name: "pipe-deck-proc-compressor-vocal-compressor",
+    });
+    const graph = makeGraph([], [], [], [node]);
+    const built = buildRoutingGraph(graph).nodes.find(
+      (n) => n.id === processingNodeNodeId("proc-compressor-1"),
+    );
+    const data = built?.data as RoutingGraphNodeData | undefined;
+
+    expect(data?.subtitle).toBe("Compressor");
+    expect(data?.nodeKind).toBe("processingNode");
+    expect(data?.processingNodeKind).toEqual({
+      kind: "compressor",
+      threshold_db: -18,
+      ratio_x10: 40,
+      attack_ms: 10,
+      release_ms: 150,
+      makeup_gain_db: 0,
+    });
+    expect(data?.supportsEffects).toBe(false);
+  });
+});
+
 describe("pan processing node (#16)", () => {
   beforeEach(() => {
     stubLocalStorage();

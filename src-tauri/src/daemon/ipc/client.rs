@@ -112,10 +112,12 @@ impl NativeHostClient {
     /// `pipewire::native_dsp_host` daemon-side instead of `native_host`.
     pub fn load_dsp_chain(
         device_system_name: &str,
+        is_input: bool,
         config: &EffectChainConfig,
     ) -> Result<String, IpcClientError> {
         let op = IpcOp::LoadDspChain {
             device_system_name: device_system_name.to_string(),
+            is_input,
             config: config.clone(),
         };
         match request_with_timeout(op, REQUEST_TIMEOUT)? {

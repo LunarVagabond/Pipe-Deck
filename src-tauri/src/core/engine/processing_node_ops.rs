@@ -958,6 +958,77 @@ impl CoreEngine {
         })
     }
 
+    /// Live-updates a Compressor node's Threshold/Ratio/Attack/Release/
+    /// Makeup Gain — same PD-017 fast path and bypass mechanism as
+    /// `update_processing_node_limiter_params` (issue #86), just rebuilding
+    /// and swapping the whole `dsp::DspChain` via `native_dsp_host` under
+    /// the hood instead of pushing a filter-chain `Props` param — see
+    /// `AudioBackend::set_processing_node_compressor_params`'s doc comment.
+    pub fn update_processing_node_compressor_params(
+        &mut self,
+        node_id: &str,
+        threshold_db: i32,
+        ratio_x10: i32,
+        attack_ms: i32,
+        release_ms: i32,
+        makeup_gain_db: i32,
+    ) -> Result<ApplyResult, EngineError> {
+        let node = self
+            .graph
+            .processing_nodes
+            .iter()
+            .find(|node| node.id == node_id)
+            .cloned()
+            .ok_or_else(|| {
+                EngineError::NotFound(format!("processing node not found: {node_id}"))
+            })?;
+
+        if !matches!(node.kind, ProcessingNodeKind::Compressor { .. }) {
+            return Err(EngineError::InvalidInput(format!(
+                "{node_id} has no compressor params to update"
+            )));
+        }
+
+        let live_apply_error = self
+            .adapter
+            .set_processing_node_compressor_params(
+                &node.system_name,
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+                node.bypassed,
+            )
+            .err();
+
+        if self.graph.data_source != "mock" {
+            ConfigStore::new()
+                .update_processing_node_compressor(
+                    node_id,
+                    threshold_db,
+                    ratio_x10,
+                    attack_ms,
+                    release_ms,
+                    makeup_gain_db,
+                )
+                .map_err(|error| EngineError::Config(error.to_string()))?;
+        }
+
+        self.refresh_graph()?;
+
+        if let Some(error) = live_apply_error {
+            return Ok(ApplyResult {
+                success: false,
+                message: Some(error.to_string()),
+            });
+        }
+        Ok(ApplyResult {
+            success: true,
+            message: None,
+        })
+    }
+
     /// Keeps a node wired exactly as-is but toggles whether audio passes
     /// through it processed or not — connections/ports never change, only
     /// the signal itself. Only `Eq5Band` currently enforces this backend-
@@ -1001,6 +1072,7 @@ impl CoreEngine {
         let is_reverb = matches!(node.kind, ProcessingNodeKind::Reverb { .. });
         let is_widener = matches!(node.kind, ProcessingNodeKind::Widener { .. });
         let is_pan = matches!(node.kind, ProcessingNodeKind::Pan { .. });
+        let is_compressor = matches!(node.kind, ProcessingNodeKind::Compressor { .. });
         let is_eq = matches!(node.kind, ProcessingNodeKind::Eq5Band { .. });
         let live_apply_error = if is_delay {
             let (delay_ms, feedback_percent, feedforward_percent) = match node.kind {
@@ -1072,6 +1144,34 @@ impl CoreEngine {
             };
             self.adapter
                 .set_processing_node_pan_params(&node.system_name, balance_percent, bypassed)
+                .err()
+        } else if is_compressor {
+            let (threshold_db, ratio_x10, attack_ms, release_ms, makeup_gain_db) = match node.kind {
+                ProcessingNodeKind::Compressor {
+                    threshold_db,
+                    ratio_x10,
+                    attack_ms,
+                    release_ms,
+                    makeup_gain_db,
+                } => (
+                    threshold_db,
+                    ratio_x10,
+                    attack_ms,
+                    release_ms,
+                    makeup_gain_db,
+                ),
+                _ => (-18, 40, 10, 150, 0),
+            };
+            self.adapter
+                .set_processing_node_compressor_params(
+                    &node.system_name,
+                    threshold_db,
+                    ratio_x10,
+                    attack_ms,
+                    release_ms,
+                    makeup_gain_db,
+                    bypassed,
+                )
                 .err()
         } else if is_eq || self.graph.data_source == "mock" {
             let (eq_sub, eq_bass, eq_mid, eq_treble, eq_air, output_gain) = match node.kind {
@@ -1386,6 +1486,7 @@ fn spec_kind_slug(kind: &ProcessingNodeSpecKind) -> &'static str {
         ProcessingNodeSpecKind::Reverb { .. } => "reverb",
         ProcessingNodeSpecKind::Widener { .. } => "widener",
         ProcessingNodeSpecKind::Pan { .. } => "pan",
+        ProcessingNodeSpecKind::Compressor { .. } => "compressor",
         ProcessingNodeSpecKind::Stub { .. } => "stub",
     }
 }
@@ -1607,6 +1708,19 @@ fn processing_node_from_spec_with_siblings(
         },
         ProcessingNodeSpecKind::Pan { balance_percent } => ProcessingNodeKind::Pan {
             balance_percent: *balance_percent,
+        },
+        ProcessingNodeSpecKind::Compressor {
+            threshold_db,
+            ratio_x10,
+            attack_ms,
+            release_ms,
+            makeup_gain_db,
+        } => ProcessingNodeKind::Compressor {
+            threshold_db: *threshold_db,
+            ratio_x10: *ratio_x10,
+            attack_ms: *attack_ms,
+            release_ms: *release_ms,
+            makeup_gain_db: *makeup_gain_db,
         },
         ProcessingNodeSpecKind::Stub { stub_kind } => ProcessingNodeKind::Stub {
             stub_kind: *stub_kind,
@@ -2342,6 +2456,92 @@ mod live_tests {
         assert!(
             sink_gone_after_removal,
             "removing the Pan node should unload its native chain"
+        );
+    }
+
+    /// Compressor Node round-trip (issue #86) against a real PipeWire
+    /// session — same structure/reasoning as
+    /// `pan_node_round_trips_on_a_real_pipewire_session`, with one
+    /// difference: Compressor has no builtin filter-chain equivalent at
+    /// all, so `node.system_name` is a plain client `pw::stream` capture
+    /// inlet, never a `pactl`-visible sink (`pactl::sink_exists` would
+    /// always report `false` for it) — liveness is checked via
+    /// `NativeHostClient::is_dsp_chain_loaded` (the portable-DSP-host
+    /// equivalent) instead. The underlying mechanism (real audio flowing
+    /// through a `pw_filter`-hosted hand-written DSP stage against a live
+    /// session, with genuine measured gain reduction) was already verified
+    /// end-to-end by the #509 spike this issue builds on
+    /// (`examples/pw_filter_dsp_spike.rs`, PD-051); this test's job is
+    /// narrower — confirming the `ProcessingNode` integration layer
+    /// (`CoreEngine` → daemon IPC → `native_dsp_host`'s new
+    /// standalone-bus naming template, PD-052) actually loads/unloads.
+    #[test]
+    #[ignore]
+    fn compressor_node_round_trips_on_a_real_pipewire_session() {
+        assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
+
+        let mut ephemeral_daemon = crate::daemon::ensure_ephemeral_daemon();
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            std::thread::sleep(std::time::Duration::from_millis(500));
+        }
+        if !crate::daemon::ipc::client::NativeHostClient::ping() {
+            panic!("native-effects daemon did not become reachable — is src-tauri/bin/pipe-deck-daemon-* built (make check/make build-rust)?");
+        }
+
+        let mut engine = CoreEngine::new();
+        engine.refresh_graph().expect("initial graph refresh");
+
+        let cleanup = |engine: &mut CoreEngine, node_id: Option<&str>| {
+            if let Some(id) = node_id {
+                let _ = engine.remove_processing_node(id);
+            }
+        };
+
+        let node = match engine.create_processing_node(
+            "Pipe Deck Live Compressor",
+            ProcessingNodeSpecKind::Compressor {
+                threshold_db: -30,
+                ratio_x10: 100,
+                attack_ms: 5,
+                release_ms: 100,
+                makeup_gain_db: 0,
+            },
+        ) {
+            Ok(node) => node,
+            Err(error) => {
+                cleanup(&mut engine, None);
+                panic!("create_processing_node failed: {error}");
+            }
+        };
+
+        let loaded_after_create =
+            crate::daemon::ipc::client::NativeHostClient::is_dsp_chain_loaded(&node.system_name);
+
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let update_result =
+            engine.update_processing_node_compressor_params(&node.id, -18, 40, 5, 150, 0);
+        if let Err(error) = &update_result {
+            eprintln!(
+                "note: live compressor param update did not succeed in this environment ({error})"
+            );
+        }
+
+        cleanup(&mut engine, Some(&node.id));
+        let unloaded_after_removal =
+            !crate::daemon::ipc::client::NativeHostClient::is_dsp_chain_loaded(&node.system_name);
+
+        if let Some(child) = ephemeral_daemon.as_mut() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+
+        assert!(
+            loaded_after_create,
+            "Compressor node's portable-DSP chain did not load after creation"
+        );
+        assert!(
+            unloaded_after_removal,
+            "removing the Compressor node should unload its portable-DSP chain"
         );
     }
 

@@ -41,20 +41,28 @@
 //!
 //! ## Naming / identity (PD-020 swap-by-identity)
 //!
-//! Device-attached effect chains only ever reach virtual **input** (mic)
-//! devices today (`core::engine::effects_ops::apply_effect_chain_structural`'s
-//! own direction gate) — this module only implements that capture-direction
-//! template, mirroring `fx_validate::render_conf_capture`'s naming:
-//! - `effect_input.<device_system_name>` — the raw inlet (`pw::stream`,
+//! `load_chain`'s `is_input` flag mirrors `native_host::load_chain`'s own
+//! flag, picking between two naming templates (PD-052, issue #86):
+//! - `is_input = true` — device-attached effect chains, which only ever
+//!   reach virtual **input** (mic) devices
+//!   (`core::engine::effects_ops::apply_effect_chain_structural`'s own
+//!   direction gate). Mirrors `fx_validate::render_conf_capture`'s naming:
+//!   `effect_input.<device_system_name>` is the raw inlet (`pw::stream`,
 //!   `media.class = Audio/Sink` — required, or the session manager's
 //!   default policy never links other apps' `target.object` requests to it
-//!   at all, confirmed live). Matches the builtin-module capture template's
-//!   own `capture.props`.
-//! - `<device_system_name>` itself — the processed outlet (`pw_filter`,
-//!   `media.class = Audio/Source/Virtual` on the filter's own node props),
+//!   at all, confirmed live), and `<device_system_name>` itself is the
+//!   processed outlet (`pw_filter`, `media.class = Audio/Source/Virtual`),
 //!   taking over the device's own identity so everything already routed to
-//!   it keeps working — the builtin-module path's swap-by-identity
-//!   contract, matching its `playback.props`.
+//!   it keeps working.
+//! - `is_input = false` — a standalone `ProcessingNode` bus with no
+//!   builtin-module equivalent to fall back to (`Compressor` is the first;
+//!   PipeWire ships no builtin envelope-following dynamics primitive).
+//!   Mirrors `fx_validate::render_module_args`'s naming instead:
+//!   `device_system_name` itself stays the plain inlet (nothing pivots —
+//!   there's no pre-existing device identity to preserve), and the
+//!   processed outlet is `effect_output.<device_system_name>` with no
+//!   forced `media.class`, since it's only ever `pw-link`ed onward
+//!   programmatically, never user-selected as a microphone.
 //!
 //! ## Real-time safety
 //!
@@ -312,11 +320,12 @@ static PLAYBACK_FILTER_EVENTS: pw_sys::pw_filter_events = pw_sys::pw_filter_even
 /// same contract as every other raw `pw::*` call in this codebase.
 fn create_playback_filter(
     core: &pw::core::CoreRc,
-    device_system_name: &str,
+    playback_node_name: &str,
+    media_class: Option<&str>,
     audio_rx: HeapCons<f32>,
 ) -> Result<PlaybackFilter, NativeDspHostError> {
-    let name_c = CString::new(device_system_name)
-        .map_err(|_| NativeDspHostError::PlaybackFilterFailed(device_system_name.to_string()))?;
+    let name_c = CString::new(playback_node_name)
+        .map_err(|_| NativeDspHostError::PlaybackFilterFailed(playback_node_name.to_string()))?;
 
     // Matches the builtin-module outlet's own prop set exactly (diffed live
     // against a real `libpipewire-module-filter-chain` node via `pw-dump`):
@@ -332,15 +341,22 @@ fn create_playback_filter(
     // manager's policy-based autoconnect for other apps' `target.object`
     // links — confirmed live (an app's own `pw-cat --record --target=...`
     // stopped forming a link at all once this was removed). Restored.
-    let filter_props = properties! {
+    let mut filter_props = properties! {
         *pw::keys::MEDIA_TYPE => "Audio",
         *pw::keys::MEDIA_CATEGORY => "Playback",
-        *pw::keys::MEDIA_CLASS => "Audio/Source/Virtual",
-        *pw::keys::NODE_NAME => device_system_name,
-        *pw::keys::NODE_DESCRIPTION => format!("Pipe Deck Effects - {device_system_name}").as_str(),
-        *pw::keys::NODE_VIRTUAL => "true",
+        *pw::keys::NODE_NAME => playback_node_name,
+        *pw::keys::NODE_DESCRIPTION => format!("Pipe Deck Effects - {playback_node_name}").as_str(),
         *pw::keys::AUDIO_CHANNELS => HOST_CHANNELS.to_string().as_str(),
     };
+    // Only the capture-direction (mic-attached) identity-swap template wants
+    // this outlet to present as a normal selectable microphone — a
+    // standalone processing-node bus's outlet is only ever `pw-link`ed
+    // onward programmatically (matching `fx_validate::render_module_args`'s
+    // own `playback_media_class: None` for that same is_input=false case).
+    if let Some(media_class) = media_class {
+        filter_props.insert(*pw::keys::MEDIA_CLASS, media_class);
+        filter_props.insert(*pw::keys::NODE_VIRTUAL, "true");
+    }
     // SAFETY: `core.as_raw_ptr()` is a valid, live core pointer (this
     // module's shared connection); `name_c`/`filter_props.into_raw()` are
     // freshly built, valid for this call. `pw_filter_new` takes ownership
@@ -350,7 +366,7 @@ fn create_playback_filter(
     };
     if filter.is_null() {
         return Err(NativeDspHostError::PlaybackFilterFailed(
-            device_system_name.to_string(),
+            playback_node_name.to_string(),
         ));
     }
 
@@ -385,7 +401,7 @@ fn create_playback_filter(
             // ports already added.
             unsafe { pw_sys::pw_filter_destroy(filter) };
             return Err(NativeDspHostError::PlaybackPortFailed(
-                device_system_name.to_string(),
+                playback_node_name.to_string(),
             ));
         }
         ports[channel] = port_data;
@@ -434,7 +450,7 @@ fn create_playback_filter(
         // references `filter` yet since it was never returned to a caller.
         unsafe { pw_sys::pw_filter_destroy(filter) };
         return Err(NativeDspHostError::PlaybackConnectFailed(
-            device_system_name.to_string(),
+            playback_node_name.to_string(),
         ));
     }
 
@@ -523,27 +539,47 @@ fn audio_info_pod(rate_hz: Option<u32>) -> Result<Vec<u8>, NativeDspHostError> {
     .map_err(|error| NativeDspHostError::PodBuildFailed(format!("{error:?}")))
 }
 
-/// Whether `config` is fully expressible through this portable host —
-/// today, exactly the "every stage is `Eq5Band`" shape
-/// `dsp::DspChain::from_config` builds a real `DspStage` for. `false` for an
-/// empty config too: there's nothing to gain from connecting a portable host
-/// that would process nothing, so an inactive config just stays on whatever
-/// path it's already on. Callers (`backend::linux::live`) use this to decide
-/// whether to route a capture-direction (virtual input/mic) device's effect
-/// chain through this module or through `native_host`'s builtin-module path.
+/// Whether `config` is fully expressible through this portable host — every
+/// stage kind `dsp::DspChain::from_config` builds a real `DspStage` for
+/// (`Eq5Band`, `Compressor` — issue #86). `false` for an empty config too:
+/// there's nothing to gain from connecting a portable host that would
+/// process nothing, so an inactive config just stays on whatever path it's
+/// already on. Callers (`backend::linux::live`) use this to decide whether
+/// to route a capture-direction (virtual input/mic) device's effect chain
+/// through this module or through `native_host`'s builtin-module path — a
+/// `ProcessingNodeKind::Compressor` node has no such decision to make, since
+/// there's no builtin-module path for it at all; it always routes here.
 pub fn supports(config: &EffectChainConfig) -> bool {
     !config.stages.is_empty()
-        && config
-            .stages
-            .iter()
-            .all(|stage| matches!(stage, crate::core::models::EffectStage::Eq5Band { .. }))
+        && config.stages.iter().all(|stage| {
+            matches!(
+                stage,
+                crate::core::models::EffectStage::Eq5Band { .. }
+                    | crate::core::models::EffectStage::Compressor { .. }
+            )
+        })
 }
 
 /// Loads (or replaces) a real-time DSP chain for `device_system_name` — the
 /// portable-DSP equivalent of `native_host::load_chain`, scoped to whatever
-/// `dsp::DspChain::from_config` can actually build a stage for (today: only
-/// `EffectStage::Eq5Band`). Returns the processed-outlet node name
-/// (`device_system_name` itself — see module doc's naming section).
+/// `dsp::DspChain::from_config` can actually build a stage for (today:
+/// `EffectStage::Eq5Band`/`Compressor`). Returns the processed-outlet node
+/// name.
+///
+/// `is_input` picks the naming/identity template exactly like
+/// `native_host::load_chain`'s own flag (issue #86, PD-052):
+/// - `true` (capture-direction / mic-attached, this module's original
+///   scope): `device_system_name` itself becomes the processed outlet
+///   (`Audio/Source/Virtual`, swap-by-identity — PD-020), with a shadow
+///   `effect_input.<device_system_name>` raw inlet.
+/// - `false` (a standalone `ProcessingNode` bus, e.g. `Compressor` — issue
+///   #86): `device_system_name` stays the plain inlet identity (nothing
+///   pivots), and the processed outlet is `effect_output.<device_system_name>`
+///   with no forced `media.class` — matching
+///   `fx_validate::render_module_args`'s own `playback_media_class: None`
+///   for this same direction, since a processing node's outlet is only ever
+///   `pw-link`ed onward programmatically, never user-selected as a
+///   microphone.
 ///
 /// `sample_rate_hz` is fixed at connect time (48kHz is what every Pipe Deck
 /// virtual device is created at — see `backend::linux::pactl::virtual`) —
@@ -552,14 +588,26 @@ pub fn supports(config: &EffectChainConfig) -> bool {
 /// disconnect/reconnect, not attempted in this pass.
 pub fn load_chain(
     device_system_name: &str,
+    is_input: bool,
     config: &EffectChainConfig,
 ) -> Result<String, NativeDspHostError> {
     const SAMPLE_RATE_HZ: f64 = 48000.0;
 
     unload_chain(device_system_name);
 
-    let capture_name = format!("effect_input.{device_system_name}");
-    let playback_name = device_system_name.to_string();
+    let (capture_name, playback_name, playback_media_class) = if is_input {
+        (
+            format!("effect_input.{device_system_name}"),
+            device_system_name.to_string(),
+            Some("Audio/Source/Virtual"),
+        )
+    } else {
+        (
+            device_system_name.to_string(),
+            format!("effect_output.{device_system_name}"),
+            None,
+        )
+    };
 
     let mut guard = host().lock().expect("native dsp host mutex poisoned");
 
@@ -669,7 +717,8 @@ pub fn load_chain(
             .register()
             .map_err(|_| NativeDspHostError::CaptureStreamFailed(device_system_name.to_string()))?;
 
-        let playback = create_playback_filter(&guard.core, device_system_name, audio_rx)?;
+        let playback =
+            create_playback_filter(&guard.core, &playback_name, playback_media_class, audio_rx)?;
 
         let format_bytes = audio_info_pod(Some(SAMPLE_RATE_HZ as u32))?;
         let format_pod = Pod::from_bytes(&format_bytes).ok_or_else(|| {
@@ -779,7 +828,7 @@ mod tests {
             ..Default::default()
         };
 
-        let handle = std::thread::spawn(move || load_chain(device_system_name, &config));
+        let handle = std::thread::spawn(move || load_chain(device_system_name, true, &config));
         let result = handle.join().expect("spawned thread panicked");
         unload_chain(device_system_name);
         result.expect("load_chain from a different thread than warm_up failed");
@@ -812,7 +861,7 @@ mod tests {
             ..Default::default()
         };
 
-        let playback_name = match load_chain(device_system_name, &config) {
+        let playback_name = match load_chain(device_system_name, true, &config) {
             Ok(name) => name,
             Err(error) => {
                 cleanup();

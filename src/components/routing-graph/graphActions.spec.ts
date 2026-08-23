@@ -17,6 +17,7 @@ describe("isProcessingNodeType", () => {
       "reverb",
       "widener",
       "pan",
+      "compressor",
     ]) {
       expect(isProcessingNodeType(type)).toBe(true);
     }

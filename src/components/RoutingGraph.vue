@@ -404,7 +404,8 @@ async function onAddNodeAction(
     | "hpf"
     | "reverb"
     | "widener"
-    | "pan",
+    | "pan"
+    | "compressor",
 ) {
   contextMenu.value = null;
   if (isProcessingNodeType(type)) {

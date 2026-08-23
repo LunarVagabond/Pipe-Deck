@@ -200,6 +200,19 @@ defineProps<{
       <path d="M4 12h16" />
       <circle cx="15" cy="12" r="2.75" fill="currentColor" stroke="none" />
     </g>
+    <!-- Compressor node: a loud waveform squeezed down toward a quieter, more even one -->
+    <g
+      v-else-if="kind === 'compressor'"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="1.75"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M4 5v14M20 5v14" stroke-width="1.25" opacity="0.6" />
+      <path d="M7 18c1.5-9 3-11 5-11s3.5 2 5 11" opacity="0.45" />
+      <path d="M7 15.5c1.5-4 3-5 5-5s3.5 1 5 5" />
+    </g>
     <!-- Stub effect node: not implemented yet -->
     <circle
       v-else-if="kind === 'stub'"

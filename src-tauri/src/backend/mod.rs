@@ -617,6 +617,30 @@ pub trait AudioBackend: Send + Sync {
             "set_processing_node_pan_params: not implemented".into(),
         ))
     }
+
+    /// Live-updates a Compressor node's Threshold/Ratio/Attack/Release/
+    /// Makeup Gain — unlike every other `set_processing_node_*_params`
+    /// above, this doesn't push a `Props` param to an already-loaded
+    /// filter-chain node (there's no such node — issue #86, no builtin
+    /// dynamics primitive exists); it rebuilds and swaps the whole
+    /// `dsp::DspChain` via `pipewire::native_dsp_host::set_live_chain`
+    /// instead, same as the mic-attached EQ5Band portable-DSP path already
+    /// does.
+    #[allow(clippy::too_many_arguments)]
+    fn set_processing_node_compressor_params(
+        &self,
+        _system_name: &str,
+        _threshold_db: i32,
+        _ratio_x10: i32,
+        _attack_ms: i32,
+        _release_ms: i32,
+        _makeup_gain_db: i32,
+        _bypassed: bool,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "set_processing_node_compressor_params: not implemented".into(),
+        ))
+    }
 }
 
 /// Backend selection is compile-time/explicit-factory only (PD-019) — never
