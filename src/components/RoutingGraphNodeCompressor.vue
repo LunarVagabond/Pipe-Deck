@@ -83,7 +83,9 @@ function valueFor(key: (typeof CONTROLS)[number]["key"]): number {
 
 function displayFor(control: (typeof CONTROLS)[number]): string {
   const value = valueFor(control.key);
-  return "format" in control ? control.format(value) : `${value}${control.unit}`;
+  return "format" in control
+    ? control.format(value)
+    : `${value}${control.unit}`;
 }
 
 function onControlInput(key: (typeof CONTROLS)[number]["key"], event: Event) {
