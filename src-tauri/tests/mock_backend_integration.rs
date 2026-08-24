@@ -419,18 +419,17 @@ fn stub_processing_node_round_trips_without_error() {
 }
 
 /// All 7 remaining non-DSP stub kinds (issue #293, less `eq5band`/`delay`/
-/// `limiter`/`hpf`/`widener` which have since graduated to real processing nodes)
-/// round-trip identically: create, connect a real input and output,
-/// disconnect, remove — pure pass-through graph bookkeeping, never `live`,
-/// and (per a real-backend regression this caught during phase 5)
-/// connect/disconnect must be a true no-op rather than attempting a
+/// `limiter`/`hpf`/`widener`/`compressor` which have since graduated to real
+/// processing nodes) round-trip identically: create, connect a real input
+/// and output, disconnect, remove — pure pass-through graph bookkeeping,
+/// never `live`, and (per a real-backend regression this caught during
+/// phase 5) connect/disconnect must be a true no-op rather than attempting a
 /// `pw-link` against a sink a stub never actually creates.
 #[test]
 fn every_stub_effect_kind_round_trips_create_connect_disconnect_remove() {
     use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind, StubEffectKind};
 
     let kinds = [
-        StubEffectKind::Compressor,
         StubEffectKind::NoiseGate,
         StubEffectKind::Denoise,
         StubEffectKind::DeEsser,
@@ -2080,6 +2079,150 @@ fn widener_param_update_rejects_a_non_widener_node() {
         .expect_err("widener update on a non-Widener node should be rejected");
     assert!(
         error.to_string().contains("has no widener params"),
+        "{error}"
+    );
+}
+
+/// Compressor Node round-trip (issue #86): create, live-update Threshold/
+/// Ratio/Attack/Release/Makeup Gain, remove. Same pattern as
+/// `widener_node_create_update_remove_round_trips` — unlike every other DSP
+/// kind, Compressor has no builtin filter-chain equivalent at all and
+/// routes through the portable DSP host instead
+/// (`AudioBackend::set_processing_node_compressor_params`), but the
+/// `CoreEngine`/mock-graph contract this test exercises is identical.
+#[test]
+fn compressor_node_create_update_remove_round_trips() {
+    use pipe_deck_lib::core::models::{ProcessingNodeKind, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+
+    let node = engine
+        .create_processing_node(
+            "Vocal Compressor",
+            ProcessingNodeSpecKind::Compressor {
+                threshold_db: -18,
+                ratio_x10: 40,
+                attack_ms: 10,
+                release_ms: 150,
+                makeup_gain_db: 0,
+            },
+        )
+        .expect("create compressor node");
+    assert_eq!(
+        node.system_name,
+        "pipe-deck-proc-compressor-vocal-compressor"
+    );
+
+    engine
+        .update_processing_node_compressor_params(&node.id, -24, 80, 5, 200, 6)
+        .expect("update compressor params");
+    let refreshed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert_eq!(
+        refreshed.kind,
+        ProcessingNodeKind::Compressor {
+            threshold_db: -24,
+            ratio_x10: 80,
+            attack_ms: 5,
+            release_ms: 200,
+            makeup_gain_db: 6,
+        }
+    );
+
+    engine
+        .remove_processing_node(&node.id)
+        .expect("remove compressor node");
+    assert!(!engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .any(|n| n.id == node.id));
+}
+
+/// Bypass toggles a Compressor node's DSP without disturbing wiring — same
+/// contract as `widener_bypass_toggles_without_disturbing_wiring`.
+#[test]
+fn compressor_bypass_toggles_without_disturbing_wiring() {
+    use pipe_deck_lib::core::models::{PortDirection, ProcessingNodeSpecKind};
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node(
+            "Vocal Compressor",
+            ProcessingNodeSpecKind::Compressor {
+                threshold_db: -18,
+                ratio_x10: 40,
+                attack_ms: 10,
+                release_ms: 150,
+                makeup_gain_db: 0,
+            },
+        )
+        .expect("create compressor node");
+    let source = engine
+        .create_virtual_output("Compressor Source")
+        .expect("create source");
+    engine
+        .connect_processing_node_port(&node.id, PortDirection::Input, &source.device_id)
+        .expect("connect input");
+
+    engine
+        .set_processing_node_bypassed(&node.id, true)
+        .expect("bypass on");
+    let bypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert!(bypassed.bypassed);
+    assert_eq!(
+        bypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
+
+    engine
+        .set_processing_node_bypassed(&node.id, false)
+        .expect("bypass off");
+    let unbypassed = engine
+        .runtime_graph()
+        .processing_nodes
+        .iter()
+        .find(|n| n.id == node.id)
+        .unwrap()
+        .clone();
+    assert!(!unbypassed.bypassed);
+    assert_eq!(
+        unbypassed.inputs[0].connected_id.as_deref(),
+        Some(source.device_id.as_str())
+    );
+}
+
+#[test]
+fn compressor_param_update_rejects_a_non_compressor_node() {
+    use pipe_deck_lib::core::models::ProcessingNodeSpecKind;
+
+    let (mut engine, _guard) = mock_engine();
+    let node = engine
+        .create_processing_node(
+            "Fan-out",
+            ProcessingNodeSpecKind::FanOut {
+                volume_percent: 100,
+                muted: false,
+            },
+        )
+        .expect("create fan-out node");
+
+    let error = engine
+        .update_processing_node_compressor_params(&node.id, -18, 40, 10, 150, 0)
+        .expect_err("compressor update on a non-Compressor node should be rejected");
+    assert!(
+        error.to_string().contains("has no compressor params"),
         "{error}"
     );
 }

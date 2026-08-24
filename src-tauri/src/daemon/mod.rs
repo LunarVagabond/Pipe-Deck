@@ -229,7 +229,8 @@ fn reconcile_live_effects_state() {
         // transport after a crash/restart, not silently switch to the
         // builtin-module path just because this is the recovery caller.
         if is_input && crate::pipewire::native_dsp_host::supports(config) {
-            let _ = crate::pipewire::native_dsp_host::load_chain(&info.system_name, config);
+            let _ =
+                crate::pipewire::native_dsp_host::load_chain(&info.system_name, is_input, config);
         } else {
             let _ = crate::pipewire::native_host::load_chain(&info.system_name, is_input, config);
         }
@@ -270,7 +271,29 @@ fn reconcile_live_processing_nodes() {
         // (issue #313's Delay) MUST get its own arm here, or a persisted
         // node silently stops working after every daemon restart — nothing
         // else in this codebase reloads it.
-        let (system_name, config) = match &spec.kind {
+        let (system_name, config, via_dsp_host) = match &spec.kind {
+            crate::core::models::ProcessingNodeSpecKind::Compressor {
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+            } => (
+                format!("pipe-deck-proc-compressor-{}", spec.slug),
+                crate::core::models::EffectChainConfig {
+                    stages: vec![crate::core::models::EffectStage::Compressor {
+                        id: "compressor".into(),
+                        threshold_db: *threshold_db,
+                        ratio_x10: *ratio_x10,
+                        attack_ms: *attack_ms,
+                        release_ms: *release_ms,
+                        makeup_gain_db: *makeup_gain_db,
+                    }],
+                    bypassed: spec.bypassed,
+                    ..Default::default()
+                },
+                true,
+            ),
             crate::core::models::ProcessingNodeSpecKind::Eq5Band {
                 eq_sub,
                 eq_bass,
@@ -293,6 +316,7 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             crate::core::models::ProcessingNodeSpecKind::Delay {
                 delay_ms,
@@ -310,6 +334,7 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             crate::core::models::ProcessingNodeSpecKind::Limiter {
                 ceiling_db,
@@ -327,6 +352,7 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             crate::core::models::ProcessingNodeSpecKind::Hpf {
                 freq_hz,
@@ -342,6 +368,7 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             crate::core::models::ProcessingNodeSpecKind::Reverb { mix_percent } => (
                 format!("pipe-deck-proc-reverb-{}", spec.slug),
@@ -353,6 +380,7 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             crate::core::models::ProcessingNodeSpecKind::Widener { width_percent } => (
                 format!("pipe-deck-proc-widener-{}", spec.slug),
@@ -364,6 +392,7 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             crate::core::models::ProcessingNodeSpecKind::Pan { balance_percent } => (
                 format!("pipe-deck-proc-pan-{}", spec.slug),
@@ -375,9 +404,23 @@ fn reconcile_live_processing_nodes() {
                     bypassed: spec.bypassed,
                     ..Default::default()
                 },
+                false,
             ),
             _ => continue,
         };
+
+        if via_dsp_host {
+            // Compressor (issue #86) — no builtin-module fallback exists,
+            // routes exclusively through the portable DSP host. No
+            // `is_loaded` pre-check the builtin-module kinds below need
+            // (`native_dsp_host::load_chain` already unloads-then-reloads
+            // idempotently), and no `set_processing_node_volume` nudge
+            // either — this is a plain client `pw::stream`, not a
+            // `pactl`-visible sink (see `native_dsp_host`'s own "Scope/known
+            // limitation" doc section).
+            let _ = crate::pipewire::native_dsp_host::load_chain(&system_name, false, &config);
+            continue;
+        }
 
         if crate::pipewire::native_host::is_loaded(&system_name) {
             continue;

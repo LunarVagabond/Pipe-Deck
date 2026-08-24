@@ -13,7 +13,8 @@ type AddNodeType =
   | "hpf"
   | "reverb"
   | "widener"
-  | "pan";
+  | "pan"
+  | "compressor";
 
 /** Catalog of effects a node can attach — today just one kind, but this is
  * the reusable shape a second kind (parametric EQ #17, dynamics once
@@ -94,24 +95,25 @@ const GENERAL_NODE_CATALOG: {
     description:
       "Shift a signal's balance between the left and right channels.",
   },
+  {
+    type: "compressor",
+    label: "Compressor Node",
+    description:
+      "Automatically reduce the difference between loud and quiet parts of a signal — even out a mic or tame loud transients.",
+  },
 ];
 
 /** issue #293's non-DSP effect kinds — addable to the graph as visibly "Not
  * implemented yet" pass-through stub nodes (PD-032 phase 5), ahead of real
  * DSP landing for each in follow-up tickets. Originally 11; `reverb_delay`,
- * `limiter`, `hpf`, and `stereo_widener` graduated to real node buttons in
- * the General category below (issues #313/#311/#312/#314). */
+ * `limiter`, `hpf`, `stereo_widener`, and `compressor` graduated to real
+ * node buttons in the General category above (issues
+ * #313/#311/#312/#314/#86). */
 const STUB_EFFECT_CATALOG: {
   kind: string;
   label: string;
   description: string;
 }[] = [
-  {
-    kind: "compressor",
-    label: "Compressor",
-    description:
-      "Automatically reduce the difference between loud and quiet parts of a signal.",
-  },
   {
     kind: "noise_gate",
     label: "Noise Gate",

@@ -7,7 +7,8 @@ export type ProcessingNodeType =
   | "hpf"
   | "reverb"
   | "widener"
-  | "pan";
+  | "pan"
+  | "compressor";
 
 const PROCESSING_NODE_TYPES: readonly ProcessingNodeType[] = [
   "fan_out",
@@ -19,6 +20,7 @@ const PROCESSING_NODE_TYPES: readonly ProcessingNodeType[] = [
   "reverb",
   "widener",
   "pan",
+  "compressor",
 ];
 
 /** Distinguishes the "add node" context-menu types that create a `ProcessingNode` directly from those that open the new-device dialog instead. */
@@ -36,6 +38,7 @@ const DEFAULT_LABELS: Record<ProcessingNodeType, string> = {
   reverb: "Reverb",
   widener: "Stereo Widener",
   pan: "Balance/Pan",
+  compressor: "Compressor",
 };
 
 export function defaultLabelForProcessingNodeType(

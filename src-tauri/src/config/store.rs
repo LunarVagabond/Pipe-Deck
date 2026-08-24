@@ -292,6 +292,35 @@ impl ConfigStore {
         self.save_config(&config)
     }
 
+    pub fn update_processing_node_compressor(
+        &self,
+        node_id: &str,
+        threshold_db: i32,
+        ratio_x10: i32,
+        attack_ms: i32,
+        release_ms: i32,
+        makeup_gain_db: i32,
+    ) -> Result<(), ConfigError> {
+        let mut config = self.load_config()?;
+        let Some(node) = config
+            .processing_nodes
+            .iter_mut()
+            .find(|node| node.id == node_id)
+        else {
+            return Ok(());
+        };
+        if let ProcessingNodeSpecKind::Compressor { .. } = &node.kind {
+            node.kind = ProcessingNodeSpecKind::Compressor {
+                threshold_db,
+                ratio_x10,
+                attack_ms,
+                release_ms,
+                makeup_gain_db,
+            };
+        }
+        self.save_config(&config)
+    }
+
     pub fn set_processing_node_volume(
         &self,
         node_id: &str,

@@ -145,38 +145,64 @@ builtin filter list (Mixer, Copy, Biquads, Parametric EQ, and more).
    needs to find it at a predictable path outside of Tauri's own resource
    resolution.
 
-## The actual blocker for a Limiter/Compressor specifically
+## The actual blocker for Limiter/Compressor — and how Compressor got unblocked (#86)
 
-`fx_capability.rs::probe_capabilities` hardcodes `builtin_limiter: false`
-(never even probed for), and `fx_validate::preflight` unconditionally
-rejects any `Limiter`/`Compressor` stage:
-> "Limiter/Compressor has no supported backing plugin on this system yet —
-> disabled until one is available"
+`fx_capability.rs::probe_capabilities` still hardcodes `builtin_limiter:
+false` (never even probed for), and `fx_validate::preflight` still
+unconditionally rejects the legacy `limiter`/`compressor: DynamicsStage`
+fields on `EffectChainConfig` (the pre-PD-032 device-attached concept —
+see `core/models.rs`'s doc comment distinguishing those from
+`ProcessingNodeKind::Limiter`/`Compressor`, which are unrelated and not
+blocked).
 
 This isn't a Pipe Deck gap, it's a real PipeWire gap: **no PipeWire version
 ships a builtin dynamics-processing filter** (verified against `man 7
 libpipewire-module-filter-chain`'s "Biquads"/"Parametric EQ"/"Mixer"/"Copy"
 builtin list — nothing dynamics-shaped). The module *does* support LADSPA
-and LV2 plugins in the same `filter.graph` (`type = ladspa` / `type = lv2`,
-see the man page's plugin examples), the same way `fx_capability.rs`
-already probes for a LADSPA noise-gate plugin
-(`ladspa_noise_gate`/`find_ladspa_plugin`) for the (also currently blocked)
-Noise Gate stage. Shipping a real Limiter means:
+and LV2 plugins in the same `filter.graph` (`type = ladspa` / `type = lv2`),
+the same way `fx_capability.rs` probes for a LADSPA noise-gate plugin — but
+PD-017 (written after the #64 incident, an unvalidated FFmpeg `acompressor`
+drop-in crashing a user's session) bars exactly this kind of third-party
+plugin dependency for dynamics processing. `ProcessingNodeKind::Limiter`
+(#311) sidestepped this by using the builtin `clamp` filter for a
+brick-wall (no envelope/attack-release) limiter — a real but crude MVP.
 
-1. Picking (or requiring the user install) a specific LADSPA/LV2 limiter
-   plugin, the same way noise gate probing looks for
-   `librnnoise_ladspa.so`.
-2. Extending `fx_capability::probe_capabilities` to actually probe for it
-   (mirror the existing noise-gate probe).
-3. Extending `render_filter_chain_module_args` (or adding a sibling
-   render function) to emit a `type = ladspa` node instead of `type =
-   builtin`, with `plugin`/`label`/`control` set from the discovered
-   plugin's port names.
-4. Removing the unconditional block in `fx_validate::preflight` once a
-   plugin is actually found, gating on capability the same way noise gate
-   does.
+**Compressor genuinely needs the envelope-following behavior `clamp` can't
+provide, and had no builtin or LADSPA-free plugin path available.** #509's
+research spike (`examples/pw_filter_dsp_spike.rs`, PD-051) proved a third
+option: host **hand-written DSP compiled into the binary** — a real
+attack/release envelope follower and gain computer
+(`dsp::CompressorProcessor`, a plain `DspStage`) — inside a raw `pw_filter`
+process() callback, via `pipewire::native_dsp_host` (issue #74's portable
+real-time host, previously scoped only to the mic-attached EQ5Band path,
+generalized in PD-052 to also host a standalone `ProcessingNode` bus).
+This satisfies PD-015/PD-017 with no external plugin file and no LADSPA
+dependency at all — first-party code, not a third-party config being
+loaded. `ProcessingNodeKind::Compressor`'s `load_processing_node` arm in
+`backend/linux/live.rs` dispatches straight to
+`NativeHostClient::load_dsp_chain` unconditionally, never through
+`fx_validate`/`fx_capability` at all — there's no builtin-availability
+question to preflight for code that's always compiled in.
 
-Everything *else* — hosting, live param push, reconciliation, the
-create/connect/bypass engine ops, the Vue slider component pattern — is
+**A real, non-obvious gotcha found productionizing this (PD-052, distinct
+from #303):** the already-known `ThreadLoopRc`-must-run-continuously fix
+for #303 was necessary but not sufficient for a `pw_filter`. A filter node
+with a live input link but a completely *unlinked* output never got folded
+into an actively-driven quantum at all — `process()` fired, but
+`spa_io_position.clock.duration` stayed 0 forever, so zero samples ever
+flowed, silently. Every use of `native_dsp_host` before Compressor
+(the mic-attached EQ path) always had both a real inlet *and* a real
+downstream consumer by construction, so this never surfaced. A future new
+DSP-backed kind should give its outlet a real downstream link (even a
+throwaway one, if genuinely nothing needs it yet) before trusting that
+`process()` firing means audio is actually flowing.
+
+Everything *else* for a *builtin-filter-chain-backed* kind (Limiter/Delay/
+HPF/Reverb/Widener/Pan's own hosting, live param push, reconciliation, the
+create/connect/bypass engine ops, the Vue slider component pattern) is
 already generic infrastructure from the EQ5Band work and needs no changes
-for a new effect kind.
+for a new such kind. A kind that instead needs genuinely custom DSP (no
+builtin equivalent, like Compressor) follows `dsp::CompressorProcessor`'s
+pattern instead: a `DspStage` impl, an `EffectStage` variant, and a
+`ProcessingNodeKind`/`load_processing_node` arm that calls
+`native_dsp_host::load_chain`/`NativeHostClient::load_dsp_chain` directly.

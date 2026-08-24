@@ -1,4 +1,5 @@
 use crate::core::models::{EffectChainConfig, EffectStage};
+use crate::dsp::compressor::CompressorProcessor;
 use crate::dsp::eq5band::Eq5BandProcessor;
 use crate::dsp::stage::DspStage;
 
@@ -23,20 +24,37 @@ impl DspChain {
         Self { stages }
     }
 
-    /// Builds a chain from a device's effect config. Only `EffectStage::Eq5Band`
-    /// has a real `DspStage` implementation today (issue #74's scope); any
-    /// other stage kind is skipped here rather than erroring, since those
-    /// kinds are only ever reached through `ProcessingNode`'s
-    /// builtin-module transport (`pipewire::native_host`), never through
-    /// this portable path — this function only has to handle what
-    /// `native_dsp_host` is actually asked to host.
+    /// Builds a chain from a device's effect config. `EffectStage::Eq5Band`
+    /// and `EffectStage::Compressor` are the only variants with a real
+    /// `DspStage` implementation (issue #74's original scope, extended for
+    /// #86's compressor — PipeWire ships no builtin envelope-following
+    /// dynamics primitive, so a compressor has no builtin-module path to
+    /// fall back to at all); any other stage kind is skipped here rather
+    /// than erroring, since those kinds are only ever reached through
+    /// `ProcessingNode`'s builtin-module transport (`pipewire::native_host`),
+    /// never through this portable path — this function only has to handle
+    /// what `native_dsp_host` is actually asked to host.
+    ///
+    /// `config.bypassed` short-circuits to an empty (pure passthrough)
+    /// chain, matching every builtin-module renderer's own "bypass = render
+    /// neutral params" convention (e.g. `fx_validate`'s Delay/HPF/Reverb
+    /// renderers) — a real DSP stage has no equivalent "neutral params"
+    /// input shape to render instead, so skipping construction entirely is
+    /// this path's version of the same contract.
     pub fn from_config(sample_rate_hz: f64, config: &EffectChainConfig) -> Self {
+        if config.bypassed {
+            return Self::empty();
+        }
         let stages = config
             .stages
             .iter()
             .filter_map(|stage| match stage {
                 EffectStage::Eq5Band { .. } => {
                     let processor = Eq5BandProcessor::from_stage(sample_rate_hz, stage);
+                    Some(Box::new(processor) as Box<dyn DspStage>)
+                }
+                EffectStage::Compressor { .. } => {
+                    let processor = CompressorProcessor::from_stage(sample_rate_hz, stage);
                     Some(Box::new(processor) as Box<dyn DspStage>)
                 }
                 _ => None,

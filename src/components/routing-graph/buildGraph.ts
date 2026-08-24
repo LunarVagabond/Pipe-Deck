@@ -424,6 +424,7 @@ const PROCESSING_NODE_SUBTITLE: Record<ProcessingNode["kind"]["kind"], string> =
     reverb: "Reverb",
     widener: "Stereo Widener",
     pan: "Balance/Pan",
+    compressor: "Compressor",
     stub: "Not implemented yet",
   };
 
