@@ -137,6 +137,7 @@ For major work:
 ## Development Interface (Makefile)
 
 Use `make` as the canonical interface for local development and build tasks.
+Python 3.11 or newer is required for the dependency target guard run by `make check`.
 
 - Run `make help` to list available commands.
 - Prefer adding new recurring CLI workflows as Makefile targets instead of documenting one-off shell commands.
