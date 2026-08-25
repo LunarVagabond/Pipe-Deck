@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repository-specific tests for the PipeWire target guard."""
+"""Repository-specific tests for the Linux dependency target guard."""
 
 import copy, importlib.util, subprocess, sys, tempfile, tomllib, unittest
 from pathlib import Path
@@ -45,6 +45,22 @@ def metadata(*, direct: bool, alias: str = "pipewire", version: str = "0.10.0",
     }
 
 
+def sd_notify_metadata(*, direct: bool) -> dict:
+    root, dependency = "root", "sd-notify-package"
+    packages = [
+        {"id": root, "name": "pipe-deck", "version": "0.2.1", "source": None},
+        {"id": dependency, "name": "sd-notify", "version": "0.5.0", "source": CRATES_IO},
+    ]
+    edges = [{"name": "sd_notify", "pkg": dependency}] if direct else []
+    return {
+        "packages": packages,
+        "resolve": {
+            "root": root,
+            "nodes": [{"id": root, "deps": edges}, {"id": dependency, "deps": []}],
+        },
+    }
+
+
 class GuardTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -62,8 +78,32 @@ class GuardTests(unittest.TestCase):
         self.assertTrue(callable(check), "repository-specific check_target is required")
         return check
 
+    def sd_notify_target_check(self):
+        check = getattr(self.guard, "check_sd_notify_target", None)
+        self.assertTrue(callable(check), "repository-specific check_sd_notify_target is required")
+        return check
+
     def test_checked_in_manifest_is_linux_only(self) -> None:
         self.manifest_check()(self.manifest)
+
+    def test_checked_in_sd_notify_manifest_is_linux_only(self) -> None:
+        locations = []
+        for group in ("dependencies", "build-dependencies", "dev-dependencies"):
+            if "sd-notify" in self.manifest.get(group, {}):
+                locations.append((None, group, "sd-notify"))
+        for target, tables in self.manifest.get("target", {}).items():
+            for group in ("dependencies", "build-dependencies", "dev-dependencies"):
+                if "sd-notify" in tables.get(group, {}):
+                    locations.append((target, group, "sd-notify"))
+        self.assertEqual(locations, [(LINUX, "dependencies", "sd-notify")])
+
+    def test_manifest_guard_rejects_unconditional_sd_notify_independently(self) -> None:
+        manifest = copy.deepcopy(self.manifest)
+        if "sd-notify" not in manifest.get("dependencies", {}):
+            dependency = manifest["target"][LINUX]["dependencies"].pop("sd-notify")
+            manifest["dependencies"]["sd-notify"] = dependency
+        with self.assertRaises(AssertionError):
+            self.manifest_check()(manifest)
 
     def test_widened_target_is_rejected(self) -> None:
         manifest = copy.deepcopy(self.manifest)
@@ -172,6 +212,25 @@ class GuardTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             check(metadata(direct=True), "fixture-target", False)
         self.assertIsNone(check(metadata(direct=False, transitive=True), "fixture-target", False))
+
+    def test_sd_notify_target_check_is_independent(self) -> None:
+        check = self.sd_notify_target_check()
+        edge, package = check(sd_notify_metadata(direct=True), "fixture-linux", True)
+        self.assertEqual((edge["name"], package["name"]), ("sd_notify", "sd-notify"))
+        with self.assertRaises(AssertionError):
+            check(sd_notify_metadata(direct=False), "fixture-linux", True)
+        with self.assertRaises(AssertionError):
+            check(sd_notify_metadata(direct=True), "fixture-windows", False)
+        self.assertIsNone(check(sd_notify_metadata(direct=False), "fixture-windows", False))
+
+    def test_checked_in_target_graph_has_linux_sd_notify_only(self) -> None:
+        for target, expected in self.guard.TARGETS:
+            data = self.guard.cargo_metadata(target)
+            packages = {package["id"]: package for package in data["packages"]}
+            nodes = {node["id"]: node for node in data["resolve"]["nodes"]}
+            root = data["resolve"]["root"]
+            names = [packages[edge["pkg"]]["name"] for edge in nodes[root]["deps"]]
+            self.assertEqual(names.count("sd-notify"), int(expected), target)
 
     def test_make_target_is_cwd_independent_and_ordered(self) -> None:
         expected = [f"python3 {ROOT}/scripts/test_check_target_dependencies.py", f"python3 {SCRIPT}"]
