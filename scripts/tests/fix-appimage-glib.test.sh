@@ -192,7 +192,8 @@ case_spa_near_prefix_controls_survive() {
 
 case_strips_files_symlinks_and_special_paths() {
   new_case strips_files_symlinks_and_special_paths true
-  mkdir -p "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support"
+  mkdir -p "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support" \
+    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/jack"
   touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libgobject-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libgio-2.0.so.0"
@@ -205,6 +206,7 @@ case_strips_files_symlinks_and_special_paths() {
     "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so.0"
   ln -s libspa-support.so.0 \
     "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so"
+  touch "$FIXTURE_APPDIR/usr/lib/spa path [*]?/jack/libspa-jack.so"
   touch "$FIXTURE_APPDIR/usr/lib/control file [*]?.so.1"
 
   local outside_dir="$CASE_ROOT/outside targets [*]?"
@@ -223,7 +225,8 @@ case_strips_files_symlinks_and_special_paths() {
     usr/lib/libpipewire-0.3.so.0.1300.1 \
     'usr/lib/spa path [*]?/support/libspa-support.so' \
     'usr/lib/spa path [*]?/support/libspa-support.so.0' \
-    'usr/lib/spa path [*]?/support/libspa-support.so.0.2.0'; do
+    'usr/lib/spa path [*]?/support/libspa-support.so.0.2.0' \
+    'usr/lib/spa path [*]?/jack/libspa-jack.so'; do
     [ ! -e "$CAPTURED_APPDIR/$banned_chain_node" ] && \
       [ ! -L "$CAPTURED_APPDIR/$banned_chain_node" ] || \
       fail "forbidden library chain node remained in the AppDir: $banned_chain_node"
