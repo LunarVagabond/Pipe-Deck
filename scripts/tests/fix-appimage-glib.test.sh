@@ -49,6 +49,7 @@ if [ "${FAKE_UNSQUASHFS_STATUS:-0}" -ne 0 ]; then
 fi
 mkdir -p "$2"
 cp -a -- "$FIXTURE_APPDIR/." "$2/"
+printf '%s\n' "$2" > "$EXTRACTED_APPDIR_FILE"
 printf 'unsquashfs\n' >> "$EVENT_LOG"
 EOF
 
@@ -131,6 +132,7 @@ new_case() {
   fi
   FIXTURE_APPDIR="$CASE_ROOT/fixture AppDir [*]?"
   CAPTURED_APPDIR="$CASE_ROOT/captured AppDir [*]?"
+  EXTRACTED_APPDIR_FILE="$CASE_ROOT/extracted AppDir path.txt"
   EVENT_LOG="$CASE_ROOT/events.log"
   FIND_LOG="$CASE_ROOT/find-arguments.log"
   FAKE_BIN="$CASE_ROOT/bin"
@@ -150,7 +152,8 @@ new_case() {
   FAKE_UNSQUASHFS_STATUS=0
   FAKE_MKSQUASHFS_STATUS=0
   SIGNED_APPIMAGE="$CASE_ROOT/signer-input.AppImage"
-  export FIXTURE_APPDIR CAPTURED_APPDIR EVENT_LOG FIND_LOG SYSTEM_FIND
+  export FIXTURE_APPDIR CAPTURED_APPDIR EXTRACTED_APPDIR_FILE
+  export EVENT_LOG FIND_LOG SYSTEM_FIND
   export EXPECTED_SQUASHFS_FILE EXPECTED_SQUASHFS_SHA256
   export FAKE_UNSQUASHFS_STATUS FAKE_MKSQUASHFS_STATUS SIGNED_APPIMAGE
 }
@@ -181,6 +184,26 @@ assert_no_banned_libs() {
        -o -name 'libpipewire*.so*' -o -name 'libspa-*.so*' \) \
     -printf '%P\n' | LC_ALL=C sort)"
   [ -z "$residue" ] || fail "banned libraries remain after AppImage post-processing: $residue"
+}
+
+assert_extracted_tree_matches_allowed_removals() {
+  local expected_appdir="$CASE_ROOT/expected AppDir [*]?"
+  local extracted_appdir
+  extracted_appdir="$(<"$EXTRACTED_APPDIR_FILE")"
+  [ -n "$extracted_appdir" ] || fail "extractor did not record its actual AppDir destination"
+  [ "$1" = "$extracted_appdir" ] || \
+    fail "SPA selector contract observed find root '$1' instead of extracted AppDir '$extracted_appdir'"
+
+  cp -a -- "$FIXTURE_APPDIR" "$expected_appdir"
+  find "$expected_appdir" \( -type f -o -type l \) \
+    \( -name 'libglib-2.0.so*' -o -name 'libgobject-2.0.so*' \
+       -name 'libgio-2.0.so*' -o -name 'libgmodule-2.0.so*' \
+       -o -name 'libpipewire*.so*' -o -name 'libspa-*.so*' \) \
+    -delete
+
+  if ! diff -r --no-dereference -- "$expected_appdir" "$CAPTURED_APPDIR"; then
+    fail "post-processing changed paths outside the allowed GLib, PipeWire, and lowercase SPA basename classes"
+  fi
 }
 
 case_extractor_authenticates_sliced_payload() {
@@ -218,6 +241,9 @@ case_spa_selector_contract() {
   new_case spa_selector_contract
   touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libspa-support.so.0"
+  touch "$FIXTURE_APPDIR/usr/lib/libpulse.so.0"
+  touch "$FIXTURE_APPDIR/usr/lib/libasound.so.2"
+  touch "$FIXTURE_APPDIR/usr/lib/libunrelated-control.so.0"
   printf 'case-sensitive control\n' > "$FIXTURE_APPDIR/usr/lib/LIBSPA-support.so.0"
   printf 'independent case-sensitive control\n' > \
     "$FIXTURE_APPDIR/usr/lib/LIBSPA-secret.so.0"
@@ -305,6 +331,8 @@ case_spa_selector_contract() {
   [ "$invocation_count" -eq 6 ] || \
     fail "SPA selector contract requires exactly six repository find frames; observed $invocation_count"
 
+  assert_extracted_tree_matches_allowed_removals "$expected_root"
+
   cmp -s -- "$FIXTURE_APPDIR/usr/lib/LIBSPA-support.so.0" \
     "$CAPTURED_APPDIR/usr/lib/LIBSPA-support.so.0" || \
     fail "case-insensitive SPA lookup changed the uppercase near-prefix control"
@@ -343,6 +371,32 @@ make_alternate_resolution_mutation() {
   printf '%s\n' "$mutated_script"
 }
 
+make_decoy_root_mutation() {
+  local mutated_script="$TEST_ROOT/fix-appimage-glib.decoy-root.sh"
+  cp -- "$SCRIPT" "$mutated_script"
+  sed -i \
+    '/^strip_family GLib/i mkdir -p "$WORKDIR/Decoy"; find() { local actual_root="$1"; shift; command find "$WORKDIR/Decoy" "$@" >/dev/null; /usr/bin/find "$actual_root" "$@"; }' \
+    "$mutated_script"
+  grep -Fq \
+    'mkdir -p "$WORKDIR/Decoy"; find() {' "$mutated_script" || \
+    fail "decoy-root mutation was not applied"
+  bash -n "$mutated_script"
+  printf '%s\n' "$mutated_script"
+}
+
+make_unobserved_unrelated_deletion_mutation() {
+  local mutated_script="$TEST_ROOT/fix-appimage-glib.unobserved-unrelated-deletion.sh"
+  cp -- "$SCRIPT" "$mutated_script"
+  sed -i \
+    '/^mksquashfs /i /usr/bin/find "$WORKDIR/AppDir" -name '\''libunrelated-*.so*'\'' -delete' \
+    "$mutated_script"
+  grep -Fq \
+    '/usr/bin/find "$WORKDIR/AppDir" -name '\''libunrelated-*.so*'\'' -delete' \
+    "$mutated_script" || fail "unobserved unrelated-deletion mutation was not applied"
+  bash -n "$mutated_script"
+  printf '%s\n' "$mutated_script"
+}
+
 case_spa_same_cardinality_mutation_is_rejected() {
   local mutated_script
   mutated_script="$(make_same_cardinality_mutation)"
@@ -373,8 +427,44 @@ case_spa_alternate_resolution_mutation_is_rejected() {
   [ "$status" -eq 1 ] || \
     fail "alternate executable-resolution SPA mutation returned unexpected status $status: $output"
   case "$output" in
-    *"alternate executable resolution changed the independent uppercase SPA control"*) ;;
+    *"post-processing changed paths outside the allowed"*) ;;
     *) fail "alternate executable-resolution SPA mutation did not fail at its behavior assertion: $output" ;;
+  esac
+  printf '%s\n' "$output"
+}
+
+case_spa_decoy_root_mutation_is_rejected() {
+  local mutated_script
+  mutated_script="$(make_decoy_root_mutation)"
+  local output status
+  if output="$(SCRIPT_UNDER_TEST="$mutated_script" bash "$TEST_SCRIPT" spa_selector_contract 2>&1)"; then
+    fail "decoy-root SPA selector mutation was accepted by the oracle"
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] || \
+    fail "decoy-root SPA selector mutation returned unexpected status $status: $output"
+  case "$output" in
+    *"observed find root"*) ;;
+    *) fail "decoy-root SPA selector mutation did not fail at root authentication: $output" ;;
+  esac
+  printf '%s\n' "$output"
+}
+
+case_spa_unobserved_unrelated_deletion_is_rejected() {
+  local mutated_script
+  mutated_script="$(make_unobserved_unrelated_deletion_mutation)"
+  local output status
+  if output="$(SCRIPT_UNDER_TEST="$mutated_script" bash "$TEST_SCRIPT" spa_selector_contract 2>&1)"; then
+    fail "unobserved unrelated-deletion SPA mutation was accepted by the oracle"
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] || \
+    fail "unobserved unrelated-deletion SPA mutation returned unexpected status $status: $output"
+  case "$output" in
+    *"post-processing changed paths outside the allowed"*) ;;
+    *) fail "unobserved unrelated-deletion SPA mutation did not fail at the complete-tree assertion: $output" ;;
   esac
   printf '%s\n' "$output"
 }
@@ -628,6 +718,8 @@ run_case() {
     spa_selector_contract) case_spa_selector_contract ;;
     same_cardinality_mutation) case_spa_same_cardinality_mutation_is_rejected ;;
     alternate_resolution_mutation) case_spa_alternate_resolution_mutation_is_rejected ;;
+    decoy_root_mutation) case_spa_decoy_root_mutation_is_rejected ;;
+    unobserved_unrelated_deletion) case_spa_unobserved_unrelated_deletion_is_rejected ;;
     strips_files_symlinks_and_special_paths) case_strips_files_symlinks_and_special_paths ;;
     glib_glib) case_glib_selector glib_glib libglib-2.0.so.0 ;;
     glib_gobject) case_glib_selector glib_gobject libgobject-2.0.so.0 ;;
@@ -649,6 +741,7 @@ if [ "$#" -eq 0 ]; then
   set -- \
     extractor_payload spa_near_prefix_controls spa_selector_contract \
     same_cardinality_mutation alternate_resolution_mutation \
+    decoy_root_mutation unobserved_unrelated_deletion \
     strips_files_symlinks_and_special_paths \
     glib_glib glib_gobject glib_gio glib_gmodule \
     absent_pipewire absent_spa missing_glib \
