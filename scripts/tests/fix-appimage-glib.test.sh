@@ -197,7 +197,7 @@ assert_extracted_tree_matches_allowed_removals() {
   cp -a -- "$FIXTURE_APPDIR" "$expected_appdir"
   find "$expected_appdir" \( -type f -o -type l \) \
     \( -name 'libglib-2.0.so*' -o -name 'libgobject-2.0.so*' \
-       -name 'libgio-2.0.so*' -o -name 'libgmodule-2.0.so*' \
+       -o -name 'libgio-2.0.so*' -o -name 'libgmodule-2.0.so*' \
        -o -name 'libpipewire*.so*' -o -name 'libspa-*.so*' \) \
     -delete
 
@@ -240,6 +240,8 @@ case_spa_near_prefix_controls_survive() {
 case_spa_selector_contract() {
   new_case spa_selector_contract
   touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
+  touch "$FIXTURE_APPDIR/usr/lib/libgobject-2.0.so.0"
+  touch "$FIXTURE_APPDIR/usr/lib/libgio-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libspa-support.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libpulse.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libasound.so.2"
