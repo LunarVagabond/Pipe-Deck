@@ -156,7 +156,8 @@ new_case() {
 
 run_post_processor() {
   local caller_dir="${RUN_POST_PROCESSOR_CWD:-$PWD}"
-  (cd "$caller_dir" && PATH="$FAKE_BIN:$PATH" bash "$SCRIPT" "$APPIMAGE")
+  local script_under_test="${SCRIPT_UNDER_TEST:-$SCRIPT}"
+  (cd "$caller_dir" && PATH="$FAKE_BIN:$PATH" bash "$script_under_test" "$APPIMAGE")
 }
 
 run_post_processor_successfully() {
@@ -217,6 +218,8 @@ case_spa_selector_contract() {
   touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libspa-support.so.0"
   printf 'case-sensitive control\n' > "$FIXTURE_APPDIR/usr/lib/LIBSPA-support.so.0"
+  printf 'independent case-sensitive control\n' > \
+    "$FIXTURE_APPDIR/usr/lib/LIBSPA-secret.so.0"
 
   local RUN_POST_PROCESSOR_CWD="$CASE_ROOT/caller glob source"
   mkdir -p "$RUN_POST_PROCESSOR_CWD"
@@ -229,13 +232,9 @@ case_spa_selector_contract() {
   local token_index=0
   local invocation_count=0
   local argument_count
-  local exact_spa_removal_count=0
-  local exact_spa_residue_count=0
-  local spa_removal_root=""
-  local spa_residue_root=""
+  local expected_root=""
   local -a invocation_args=()
-  local -a expected_spa_removal=()
-  local -a expected_spa_residue=()
+  local -a expected_frame=()
   while [ "$token_index" -lt "${#find_tokens[@]}" ]; do
     argument_count="${find_tokens[$token_index]}"
     token_index=$((token_index + 1))
@@ -246,35 +245,129 @@ case_spa_selector_contract() {
       fail "find argument transcript ended inside invocation $((invocation_count + 1))"
     invocation_count=$((invocation_count + 1))
     invocation_args=("${find_tokens[@]:$token_index:$argument_count}")
-    local invocation_root="${invocation_args[0]:-}"
-    expected_spa_removal=(
-      "$invocation_root" '(' -type f -o -type l ')' '(' -name 'libspa-*.so*' ')' -print0
-    )
-    expected_spa_residue=(
-      "$invocation_root" '(' -type f -o -type l ')' '(' -name 'libspa-*.so*' ')' -print -quit
-    )
-    if arrays_equal invocation_args expected_spa_removal; then
-      exact_spa_removal_count=$((exact_spa_removal_count + 1))
-      spa_removal_root="$invocation_root"
-    elif arrays_equal invocation_args expected_spa_residue; then
-      exact_spa_residue_count=$((exact_spa_residue_count + 1))
-      spa_residue_root="$invocation_root"
+    if [ "$invocation_count" -eq 1 ]; then
+      expected_root="${invocation_args[0]:-}"
+      [ -n "$expected_root" ] || fail "SPA selector contract received an empty AppDir root"
     fi
+    case "$invocation_count" in
+      1)
+        expected_frame=(
+          "$expected_root" '(' -type f -o -type l ')' '('
+          -name 'libglib-2.0.so*' -o
+          -name 'libgobject-2.0.so*' -o
+          -name 'libgio-2.0.so*' -o
+          -name 'libgmodule-2.0.so*' ')' -print0
+        )
+        ;;
+      2)
+        expected_frame=(
+          "$expected_root" '(' -type f -o -type l ')' '('
+          -name 'libglib-2.0.so*' -o
+          -name 'libgobject-2.0.so*' -o
+          -name 'libgio-2.0.so*' -o
+          -name 'libgmodule-2.0.so*' ')' -print -quit
+        )
+        ;;
+      3)
+        expected_frame=(
+          "$expected_root" '(' -type f -o -type l ')' '('
+          -name 'libpipewire*.so*' ')' -print0
+        )
+        ;;
+      4)
+        expected_frame=(
+          "$expected_root" '(' -type f -o -type l ')' '('
+          -name 'libpipewire*.so*' ')' -print -quit
+        )
+        ;;
+      5)
+        expected_frame=(
+          "$expected_root" '(' -type f -o -type l ')' '('
+          -name 'libspa-*.so*' ')' -print0
+        )
+        ;;
+      6)
+        expected_frame=(
+          "$expected_root" '(' -type f -o -type l ')' '('
+          -name 'libspa-*.so*' ')' -print -quit
+        )
+        ;;
+      *)
+        fail "SPA selector contract allows exactly six repository find frames; observed at least $invocation_count"
+        ;;
+    esac
+    arrays_equal invocation_args expected_frame || \
+      fail "SPA selector contract rejected unexpected find argv in invocation $invocation_count: ${invocation_args[*]}"
     token_index=$((token_index + argument_count))
   done
 
   [ "$invocation_count" -eq 6 ] || \
-    fail "SPA selector contract allows exactly two SPA find operations and no additional find lookup; observed $invocation_count total find invocations"
-  [ "$exact_spa_removal_count" -eq 1 ] || \
-    fail "SPA selector contract requires exactly one literal -name libspa-*.so* removal operation; observed $exact_spa_removal_count"
-  [ "$exact_spa_residue_count" -eq 1 ] || \
-    fail "SPA selector contract requires exactly one literal -name libspa-*.so* residue operation; observed $exact_spa_residue_count"
-  [ "$spa_removal_root" = "$spa_residue_root" ] || \
-    fail "SPA removal and residue find operations used different AppDir roots"
+    fail "SPA selector contract requires exactly six repository find frames; observed $invocation_count"
 
   cmp -s -- "$FIXTURE_APPDIR/usr/lib/LIBSPA-support.so.0" \
     "$CAPTURED_APPDIR/usr/lib/LIBSPA-support.so.0" || \
     fail "case-insensitive SPA lookup changed the uppercase near-prefix control"
+
+  cmp -s -- "$FIXTURE_APPDIR/usr/lib/LIBSPA-secret.so.0" \
+    "$CAPTURED_APPDIR/usr/lib/LIBSPA-secret.so.0" || \
+    fail "alternate executable resolution changed the independent uppercase SPA control"
+}
+
+make_same_cardinality_mutation() {
+  local mutated_script="$TEST_ROOT/fix-appimage-glib.same-cardinality.sh"
+  cp -- "$SCRIPT" "$mutated_script"
+  sed -i \
+    -e "s/'libgmodule-2.0.so\\*'/'libgmodule-2.0.so*' 'libspa-*.so*'/" \
+    -e "s/strip_family PipeWire optional 'libpipewire\\*.so\\*'/strip_family PipeWire optional 'libpipewire*.so*' 'libspa-*.so*'/" \
+    "$mutated_script"
+  bash -n "$mutated_script"
+  printf '%s\n' "$mutated_script"
+}
+
+make_alternate_resolution_mutation() {
+  local mutated_script="$TEST_ROOT/fix-appimage-glib.alternate-resolution.sh"
+  cp -- "$SCRIPT" "$mutated_script"
+  sed -i \
+    '/^mksquashfs /i command -p find "$WORKDIR/AppDir" -iname '\''libspa-secret.so*'\'' -delete' \
+    "$mutated_script"
+  bash -n "$mutated_script"
+  printf '%s\n' "$mutated_script"
+}
+
+case_spa_same_cardinality_mutation_is_rejected() {
+  local mutated_script
+  mutated_script="$(make_same_cardinality_mutation)"
+  local output status
+  if output="$(SCRIPT_UNDER_TEST="$mutated_script" case_spa_selector_contract 2>&1)"; then
+    fail "same-cardinality SPA selector mutation was accepted by the oracle"
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] || \
+    fail "same-cardinality SPA selector mutation returned unexpected status $status: $output"
+  case "$output" in
+    *"rejected unexpected find argv"*) ;;
+    *) fail "same-cardinality SPA selector mutation did not fail at its contract assertion: $output" ;;
+  esac
+  printf '%s\n' "$output"
+}
+
+case_spa_alternate_resolution_mutation_is_rejected() {
+  local mutated_script
+  mutated_script="$(make_alternate_resolution_mutation)"
+  local output status
+  if output="$(SCRIPT_UNDER_TEST="$mutated_script" case_spa_selector_contract 2>&1)"; then
+    fail "alternate executable-resolution SPA mutation was accepted by the oracle"
+  else
+    status=$?
+  fi
+  [ "$status" -eq 1 ] || \
+    fail "alternate executable-resolution SPA mutation returned unexpected status $status: $output"
+  case "$output" in
+    *"alternate executable resolution changed the independent uppercase SPA control"*) ;;
+    *) fail "alternate executable-resolution SPA mutation did not fail at its behavior assertion: $output" ;;
+  esac
+  printf '%s\n' "$output"
 }
 
 case_strips_files_symlinks_and_special_paths() {
@@ -524,6 +617,8 @@ run_case() {
     extractor_payload) case_extractor_authenticates_sliced_payload ;;
     spa_near_prefix_controls) case_spa_near_prefix_controls_survive ;;
     spa_selector_contract) case_spa_selector_contract ;;
+    same_cardinality_mutation) case_spa_same_cardinality_mutation_is_rejected ;;
+    alternate_resolution_mutation) case_spa_alternate_resolution_mutation_is_rejected ;;
     strips_files_symlinks_and_special_paths) case_strips_files_symlinks_and_special_paths ;;
     glib_glib) case_glib_selector glib_glib libglib-2.0.so.0 ;;
     glib_gobject) case_glib_selector glib_gobject libgobject-2.0.so.0 ;;
@@ -544,6 +639,7 @@ run_case() {
 if [ "$#" -eq 0 ]; then
   set -- \
     extractor_payload spa_near_prefix_controls spa_selector_contract \
+    same_cardinality_mutation alternate_resolution_mutation \
     strips_files_symlinks_and_special_paths \
     glib_glib glib_gobject glib_gio glib_gmodule \
     absent_pipewire absent_spa missing_glib \
