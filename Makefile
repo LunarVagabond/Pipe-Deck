@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check check-target-dependencies lint-rust test test-unit test-e2e clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
+.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check check-target-dependencies lint-rust test test-unit test-e2e test-appimage-postprocess clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
 
 NPM ?= npm
 CARGO ?= cargo
@@ -61,7 +61,7 @@ build: build-daemon ## Build production desktop bundles (.deb, .rpm, AppImage, b
 		exit 0; \
 	fi; \
 	if ! command -v unsquashfs >/dev/null || ! command -v mksquashfs >/dev/null; then \
-		echo "squashfs-tools not installed; skipping AppImage glib fix for issue #349 (see scripts/fix-appimage-glib.sh) — install squashfs-tools to patch local builds too"; \
+		echo "squashfs-tools not installed; skipping AppImage host-library fix for issues #349/#299 (see scripts/fix-appimage-glib.sh) — install squashfs-tools to patch local builds too"; \
 		exit 0; \
 	fi; \
 	bash scripts/fix-appimage-glib.sh "$$appimage"; \
@@ -81,7 +81,7 @@ check-target-dependencies: ## Verify target-filtered Cargo dependency invariants
 	python3 $(MAKEFILE_DIR)scripts/test_check_target_dependencies.py
 	python3 $(MAKEFILE_DIR)scripts/check-target-dependencies.py
 
-check: check-target-dependencies build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
+check: test-appimage-postprocess check-target-dependencies build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, packaging tests, and Rust checks without producing bundles
 	$(NPM) run build
 	$(NPM) run test:unit
 	$(CARGO) check --manifest-path $(TAURI_DIR)/Cargo.toml
@@ -98,6 +98,9 @@ test-unit: ## Run frontend Vitest unit tests (src/**/*.spec.ts)
 
 test-e2e: ## Run frontend Playwright component tests (src/e2e/, needs `npx playwright install chromium` once)
 	$(NPM) run test:e2e
+
+test-appimage-postprocess: ## Test AppImage host-library post-processing with local fixtures
+	bash scripts/tests/fix-appimage-glib.test.sh
 
 preview: ## Preview the built frontend assets
 	$(NPM) run preview

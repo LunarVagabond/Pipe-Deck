@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Strip linuxdeploy's bundled GLib family libs from a built AppImage.
+# Strip linuxdeploy's bundled host-provided libraries from a built AppImage.
 #
 # Issue #349: linuxdeploy's gtk plugin bundles libglib-2.0/libgobject-2.0/
 # libgio-2.0/libgmodule-2.0 into the AppDir (they're not on upstream's
@@ -13,6 +13,10 @@
 # search dir ahead of the system default path — if a lib isn't there, the
 # dynamic linker falls through to the host's copy, the same way the
 # excludelist already makes EGL/GL/Mesa resolve against the host.
+#
+# Issue #299: the daemon sidecar makes linuxdeploy bundle libpipewire/libspa.
+# Pipe Deck must use the host's PipeWire session and libraries, so keeping
+# those copies in AppDir can make subprocesses resolve an incompatible bundle.
 set -euo pipefail
 
 APPIMAGE="${1:?usage: fix-appimage-glib.sh <path-to.AppImage>}"
@@ -33,23 +37,53 @@ dd if="$APPIMAGE" of="$WORKDIR/fs.squashfs" bs=1 skip="$offset" status=none
 
 unsquashfs -d "$WORKDIR/AppDir" "$WORKDIR/fs.squashfs" >/dev/null
 
-removed=0
-while IFS= read -r -d '' lib; do
-  echo "Removing bundled lib: ${lib#"$WORKDIR/AppDir/"}"
-  rm -f "$lib"
-  removed=$((removed + 1))
-done < <(find "$WORKDIR/AppDir" -maxdepth 4 -type f \
-  \( -name 'libglib-2.0.so*' -o -name 'libgobject-2.0.so*' \
-     -o -name 'libgio-2.0.so*' -o -name 'libgmodule-2.0.so*' \) -print0)
+strip_family() {
+  local label="$1"
+  local required="$2"
+  shift 2
 
-if [ "$removed" -eq 0 ]; then
-  echo "No bundled GLib libs found in $APPIMAGE — nothing to strip." >&2
-  exit 1
-fi
+  local -a name_expression=()
+  local pattern
+  for pattern in "$@"; do
+    if [ "${#name_expression[@]}" -gt 0 ]; then
+      name_expression+=(-o)
+    fi
+    name_expression+=(-name "$pattern")
+  done
+
+  local removed=0
+  local lib
+  while IFS= read -r -d '' lib; do
+    echo "Removing bundled lib: ${lib#"$WORKDIR/AppDir/"}"
+    rm -f "$lib"
+    removed=$((removed + 1))
+  done < <(find "$WORKDIR/AppDir" \( -type f -o -type l \) \
+    \( "${name_expression[@]}" \) -print0)
+
+  if [ "$required" = required ] && [ "$removed" -eq 0 ]; then
+    echo "No bundled $label libs found in $APPIMAGE — nothing to strip." >&2
+    exit 1
+  fi
+
+  local remaining
+  remaining="$(find "$WORKDIR/AppDir" \( -type f -o -type l \) \
+    \( "${name_expression[@]}" \) -print -quit)"
+  if [ -n "$remaining" ]; then
+    echo "Bundled $label lib remains after stripping: ${remaining#"$WORKDIR/AppDir/"}" >&2
+    exit 1
+  fi
+
+  echo "Stripped $removed bundled $label lib(s) from $APPIMAGE"
+}
+
+strip_family GLib required \
+  'libglib-2.0.so*' 'libgobject-2.0.so*' 'libgio-2.0.so*' 'libgmodule-2.0.so*'
+strip_family PipeWire required 'libpipewire*.so*'
+strip_family SPA optional 'libspa*.so*'
 
 mksquashfs "$WORKDIR/AppDir" "$WORKDIR/new.squashfs" -root-owned -noappend >/dev/null
 
 cat "$WORKDIR/runtime" "$WORKDIR/new.squashfs" > "$APPIMAGE"
 chmod +x "$APPIMAGE"
 
-echo "Stripped $removed bundled GLib lib(s) from $APPIMAGE"
+echo "Finished stripping bundled host libraries from $APPIMAGE"
