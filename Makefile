@@ -64,7 +64,7 @@ build: build-daemon ## Build production desktop bundles (.deb, .rpm, AppImage, b
 		echo "squashfs-tools not installed; skipping AppImage host-library fix for issues #349/#299 (see scripts/fix-appimage-glib.sh) — install squashfs-tools to patch local builds too"; \
 		exit 0; \
 	fi; \
-	bash scripts/fix-appimage-glib.sh "$$appimage"; \
+	bash scripts/fix-appimage-glib.sh "$$appimage" || exit $$?; \
 	if [ -n "$$TAURI_SIGNING_PRIVATE_KEY" ] || [ -n "$$TAURI_SIGNING_PRIVATE_KEY_PATH" ]; then \
 		$(NPM) exec tauri signer sign "$$appimage"; \
 	else \
