@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/fix-appimage-glib.sh"
+TEST_SCRIPT="$REPO_ROOT/scripts/tests/fix-appimage-glib.test.sh"
 SYSTEM_FIND="$(command -v find)"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
@@ -346,7 +347,7 @@ case_spa_same_cardinality_mutation_is_rejected() {
   local mutated_script
   mutated_script="$(make_same_cardinality_mutation)"
   local output status
-  if output="$(SCRIPT_UNDER_TEST="$mutated_script" case_spa_selector_contract 2>&1)"; then
+  if output="$(SCRIPT_UNDER_TEST="$mutated_script" bash "$TEST_SCRIPT" spa_selector_contract 2>&1)"; then
     fail "same-cardinality SPA selector mutation was accepted by the oracle"
   else
     status=$?
@@ -364,7 +365,7 @@ case_spa_alternate_resolution_mutation_is_rejected() {
   local mutated_script
   mutated_script="$(make_alternate_resolution_mutation)"
   local output status
-  if output="$(SCRIPT_UNDER_TEST="$mutated_script" case_spa_selector_contract 2>&1)"; then
+  if output="$(SCRIPT_UNDER_TEST="$mutated_script" bash "$TEST_SCRIPT" spa_selector_contract 2>&1)"; then
     fail "alternate executable-resolution SPA mutation was accepted by the oracle"
   else
     status=$?
