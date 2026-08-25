@@ -199,7 +199,12 @@ case_strips_files_symlinks_and_special_paths() {
   touch "$FIXTURE_APPDIR/usr/lib/libgmodule-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libpipewire-0.3.so.0.1300.1"
   ln -s libpipewire-0.3.so.0.1300.1 "$FIXTURE_APPDIR/usr/lib/libpipewire-0.3.so.0"
-  touch "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so.0"
+  ln -s libpipewire-0.3.so.0 "$FIXTURE_APPDIR/usr/lib/libpipewire-0.3.so"
+  touch "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so.0.2.0"
+  ln -s libspa-support.so.0.2.0 \
+    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so.0"
+  ln -s libspa-support.so.0 \
+    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so"
   touch "$FIXTURE_APPDIR/usr/lib/control file [*]?.so.1"
 
   local outside_dir="$CASE_ROOT/outside targets [*]?"
@@ -211,6 +216,18 @@ case_strips_files_symlinks_and_special_paths() {
 
   run_post_processor_successfully "special-character AppImage fixture"
   assert_no_banned_libs "$CAPTURED_APPDIR"
+  local banned_chain_node
+  for banned_chain_node in \
+    usr/lib/libpipewire-0.3.so \
+    usr/lib/libpipewire-0.3.so.0 \
+    usr/lib/libpipewire-0.3.so.0.1300.1 \
+    'usr/lib/spa path [*]?/support/libspa-support.so' \
+    'usr/lib/spa path [*]?/support/libspa-support.so.0' \
+    'usr/lib/spa path [*]?/support/libspa-support.so.0.2.0'; do
+    [ ! -e "$CAPTURED_APPDIR/$banned_chain_node" ] && \
+      [ ! -L "$CAPTURED_APPDIR/$banned_chain_node" ] || \
+      fail "forbidden library chain node remained in the AppDir: $banned_chain_node"
+  done
   [ -f "$CAPTURED_APPDIR/usr/lib/control file [*]?.so.1" ] || \
     fail "unrelated control file in a metacharacter path was removed"
   [ -L "$CAPTURED_APPDIR/usr/lib/control-link.so" ] || \
