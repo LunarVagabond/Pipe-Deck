@@ -333,10 +333,10 @@ make_alternate_resolution_mutation() {
   local mutated_script="$TEST_ROOT/fix-appimage-glib.alternate-resolution.sh"
   cp -- "$SCRIPT" "$mutated_script"
   sed -i \
-    '/^mksquashfs /i /usr/bin/find "$WORKDIR/AppDir" -name '\''LIBSPA-secret.so*'\'' -delete' \
+    '/^mksquashfs /i /usr/bin/find "$WORKDIR/AppDir" -name '\''LIBSPA-secret.so.0'\'' -exec /bin/rm -f -- {} +' \
     "$mutated_script"
   grep -Fq \
-    '/usr/bin/find "$WORKDIR/AppDir" -name '\''LIBSPA-secret.so*'\'' -delete' \
+    '/usr/bin/find "$WORKDIR/AppDir" -name '\''LIBSPA-secret.so.0'\'' -exec /bin/rm -f -- {} +' \
     "$mutated_script" || fail "alternate-resolution mutation was not applied"
   bash -n "$mutated_script"
   printf '%s\n' "$mutated_script"
