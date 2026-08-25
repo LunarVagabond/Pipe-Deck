@@ -320,6 +320,11 @@ make_same_cardinality_mutation() {
     -e "s/'libgmodule-2.0.so\\*'/'libgmodule-2.0.so*' 'libspa-*.so*'/" \
     -e "s/strip_family PipeWire optional 'libpipewire\\*.so\\*'/strip_family PipeWire optional 'libpipewire*.so*' 'libspa-*.so*'/" \
     "$mutated_script"
+  grep -Fq "'libgmodule-2.0.so*' 'libspa-*.so*'" "$mutated_script" || \
+    fail "same-cardinality mutation did not add the SPA selector to the GLib family"
+  grep -Fq "strip_family PipeWire optional 'libpipewire*.so*' 'libspa-*.so*'" \
+    "$mutated_script" || \
+    fail "same-cardinality mutation did not add the SPA selector to the PipeWire family"
   bash -n "$mutated_script"
   printf '%s\n' "$mutated_script"
 }
@@ -328,8 +333,11 @@ make_alternate_resolution_mutation() {
   local mutated_script="$TEST_ROOT/fix-appimage-glib.alternate-resolution.sh"
   cp -- "$SCRIPT" "$mutated_script"
   sed -i \
-    '/^mksquashfs /i command -p find "$WORKDIR/AppDir" -iname '\''libspa-secret.so*'\'' -delete' \
+    '/^mksquashfs /i /usr/bin/find "$WORKDIR/AppDir" -iname '\''libspa-secret.so*'\'' -delete' \
     "$mutated_script"
+  grep -Fq \
+    '/usr/bin/find "$WORKDIR/AppDir" -iname '\''libspa-secret.so*'\'' -delete' \
+    "$mutated_script" || fail "alternate-resolution mutation was not applied"
   bash -n "$mutated_script"
   printf '%s\n' "$mutated_script"
 }
