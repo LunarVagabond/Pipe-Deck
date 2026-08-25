@@ -12,6 +12,16 @@ fail() {
   exit 1
 }
 
+arrays_equal() {
+  local -n left_array="$1"
+  local -n right_array="$2"
+  [ "${#left_array[@]}" -eq "${#right_array[@]}" ] || return 1
+  local index
+  for ((index = 0; index < ${#left_array[@]}; index++)); do
+    [ "${left_array[$index]}" = "${right_array[$index]}" ] || return 1
+  done
+}
+
 make_fake_tools() {
   local bin_dir="$1"
   mkdir -p "$bin_dir"
@@ -86,22 +96,7 @@ EOF
 #!/usr/bin/env bash
 set -euo pipefail
 args=("$@")
-name_patterns=()
-contains_spa_pattern=false
-for ((index = 0; index < ${#args[@]}; index++)); do
-  if [ "${args[$index]}" = -name ] && [ "$((index + 1))" -lt "${#args[@]}" ]; then
-    name_pattern="${args[$((index + 1))]}"
-    name_patterns+=("$name_pattern")
-    case "$name_pattern" in
-      libspa-*) contains_spa_pattern=true ;;
-    esac
-  fi
-done
-if [ "$contains_spa_pattern" = true ]; then
-  printf '%s' "${#name_patterns[@]}" >> "$SELECTOR_LOG"
-  printf '\t%s' "${name_patterns[@]}" >> "$SELECTOR_LOG"
-  printf '\n' >> "$SELECTOR_LOG"
-fi
+printf '%s\0' "${#args[@]}" "${args[@]}" >> "$FIND_LOG"
 exec "$SYSTEM_FIND" "${args[@]}"
 EOF
 
@@ -136,12 +131,12 @@ new_case() {
   FIXTURE_APPDIR="$CASE_ROOT/fixture AppDir [*]?"
   CAPTURED_APPDIR="$CASE_ROOT/captured AppDir [*]?"
   EVENT_LOG="$CASE_ROOT/events.log"
-  SELECTOR_LOG="$CASE_ROOT/find-selectors.log"
+  FIND_LOG="$CASE_ROOT/find-arguments.log"
   FAKE_BIN="$CASE_ROOT/bin"
   APPIMAGE="$CASE_ROOT/test image [*]?.AppImage"
   mkdir -p "$FIXTURE_APPDIR/usr/lib"
   : > "$EVENT_LOG"
-  : > "$SELECTOR_LOG"
+  : > "$FIND_LOG"
   make_fake_tools "$FAKE_BIN"
   FAKE_APPIMAGE_OFFSET=512
   export FAKE_APPIMAGE_OFFSET
@@ -154,13 +149,14 @@ new_case() {
   FAKE_UNSQUASHFS_STATUS=0
   FAKE_MKSQUASHFS_STATUS=0
   SIGNED_APPIMAGE="$CASE_ROOT/signer-input.AppImage"
-  export FIXTURE_APPDIR CAPTURED_APPDIR EVENT_LOG SELECTOR_LOG SYSTEM_FIND
+  export FIXTURE_APPDIR CAPTURED_APPDIR EVENT_LOG FIND_LOG SYSTEM_FIND
   export EXPECTED_SQUASHFS_FILE EXPECTED_SQUASHFS_SHA256
   export FAKE_UNSQUASHFS_STATUS FAKE_MKSQUASHFS_STATUS SIGNED_APPIMAGE
 }
 
 run_post_processor() {
-  PATH="$FAKE_BIN:$PATH" bash "$SCRIPT" "$APPIMAGE"
+  local caller_dir="${RUN_POST_PROCESSOR_CWD:-$PWD}"
+  (cd "$caller_dir" && PATH="$FAKE_BIN:$PATH" bash "$SCRIPT" "$APPIMAGE")
 }
 
 run_post_processor_successfully() {
@@ -220,13 +216,65 @@ case_spa_selector_contract() {
   new_case spa_selector_contract
   touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libspa-support.so.0"
+  printf 'case-sensitive control\n' > "$FIXTURE_APPDIR/usr/lib/LIBSPA-support.so.0"
+
+  local RUN_POST_PROCESSOR_CWD="$CASE_ROOT/caller glob source"
+  mkdir -p "$RUN_POST_PROCESSOR_CWD"
+  touch "$RUN_POST_PROCESSOR_CWD/libspa-expanded.so.0"
 
   run_post_processor_successfully "SPA selector contract fixture"
 
-  local observed_selectors
-  observed_selectors="$(<"$SELECTOR_LOG")"
-  [ "$observed_selectors" = $'1\tlibspa-*.so*\n1\tlibspa-*.so*' ] || \
-    fail "SPA selector contract must use exactly one libspa-*.so* pattern for both removal and residue checks; observed: $observed_selectors"
+  local -a find_tokens=()
+  mapfile -d '' -t find_tokens < "$FIND_LOG"
+  local token_index=0
+  local invocation_count=0
+  local argument_count
+  local exact_spa_removal_count=0
+  local exact_spa_residue_count=0
+  local spa_removal_root=""
+  local spa_residue_root=""
+  local -a invocation_args=()
+  local -a expected_spa_removal=()
+  local -a expected_spa_residue=()
+  while [ "$token_index" -lt "${#find_tokens[@]}" ]; do
+    argument_count="${find_tokens[$token_index]}"
+    token_index=$((token_index + 1))
+    case "$argument_count" in
+      ''|*[!0-9]*) fail "find argument transcript has an invalid argument count: $argument_count" ;;
+    esac
+    [ "$((token_index + argument_count))" -le "${#find_tokens[@]}" ] || \
+      fail "find argument transcript ended inside invocation $((invocation_count + 1))"
+    invocation_count=$((invocation_count + 1))
+    invocation_args=("${find_tokens[@]:$token_index:$argument_count}")
+    local invocation_root="${invocation_args[0]:-}"
+    expected_spa_removal=(
+      "$invocation_root" '(' -type f -o -type l ')' '(' -name 'libspa-*.so*' ')' -print0
+    )
+    expected_spa_residue=(
+      "$invocation_root" '(' -type f -o -type l ')' '(' -name 'libspa-*.so*' ')' -print -quit
+    )
+    if arrays_equal invocation_args expected_spa_removal; then
+      exact_spa_removal_count=$((exact_spa_removal_count + 1))
+      spa_removal_root="$invocation_root"
+    elif arrays_equal invocation_args expected_spa_residue; then
+      exact_spa_residue_count=$((exact_spa_residue_count + 1))
+      spa_residue_root="$invocation_root"
+    fi
+    token_index=$((token_index + argument_count))
+  done
+
+  [ "$invocation_count" -eq 6 ] || \
+    fail "SPA selector contract allows exactly two SPA find operations and no additional find lookup; observed $invocation_count total find invocations"
+  [ "$exact_spa_removal_count" -eq 1 ] || \
+    fail "SPA selector contract requires exactly one literal -name libspa-*.so* removal operation; observed $exact_spa_removal_count"
+  [ "$exact_spa_residue_count" -eq 1 ] || \
+    fail "SPA selector contract requires exactly one literal -name libspa-*.so* residue operation; observed $exact_spa_residue_count"
+  [ "$spa_removal_root" = "$spa_residue_root" ] || \
+    fail "SPA removal and residue find operations used different AppDir roots"
+
+  cmp -s -- "$FIXTURE_APPDIR/usr/lib/LIBSPA-support.so.0" \
+    "$CAPTURED_APPDIR/usr/lib/LIBSPA-support.so.0" || \
+    fail "case-insensitive SPA lookup changed the uppercase near-prefix control"
 }
 
 case_strips_files_symlinks_and_special_paths() {
