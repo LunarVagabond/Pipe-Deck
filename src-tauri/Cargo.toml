@@ -38,15 +38,6 @@ regex = "1"
 tauri-plugin-http = "2.5.9"
 tauri-plugin-dialog = "2"
 
-# Native, restart-free effects transport (issue #148, cutover in #149) —
-# links `libpipewire` directly (via `pipewire-rs`) from the daemon binary to
-# load/unload `module-filter-chain` instances in-process, replacing the old
-# conf.d + `systemctl restart filter-chain.service` flow. See
-# docs/architecture/Decisions.md PD-027 for the research spike and its
-# field-confidence addenda (issues #148/#205). Requires `libpipewire-0.3` dev
-# headers (via `pkg-config`) to build — see CONTRIBUTING.md for setup.
-pipewire = { version = "0.10" }
-
 # Narrow, single-purpose systemd `sd_notify(3)` integration (needed for
 # `Type=notify` readiness, including correctly targeting systemd's
 # abstract-namespace notify socket) — not a general IPC crate; the actual
@@ -80,3 +71,13 @@ lofty = "0.25.0"
 # runtime for what's at most a few calls per app session.
 zbus = { version = "5.18.0", features = ["blocking"] }
 ringbuf = "0.5"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Native, restart-free effects transport (issue #148, cutover in #149) —
+# links `libpipewire` directly (via `pipewire-rs`) from the daemon binary to
+# load/unload `module-filter-chain` instances in-process, replacing the old
+# conf.d + `systemctl restart filter-chain.service` flow. See
+# docs/architecture/Decisions.md PD-027 for the research spike and its
+# field-confidence addenda (issues #148/#205). Requires `libpipewire-0.3` dev
+# headers (via `pkg-config`) to build — see CONTRIBUTING.md for setup.
+pipewire = { version = "0.10" }
