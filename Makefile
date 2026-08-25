@@ -4,6 +4,7 @@ SHELL := /usr/bin/env bash
 
 NPM ?= npm
 CARGO ?= cargo
+MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 TAURI_DIR := src-tauri
 HOST_TRIPLE := $(shell rustc -vV | sed -n 's/^host: //p')
 export CARGO_TARGET_DIR := $(abspath $(TAURI_DIR)/target)
@@ -77,8 +78,8 @@ build-rust: build-daemon-dev build-cli ## Compile the Rust backend (debug)
 	$(CARGO) build --manifest-path $(TAURI_DIR)/Cargo.toml
 
 check-target-dependencies: ## Verify target-filtered Cargo dependency invariants
-	python3 scripts/test_check_target_dependencies.py
-	python3 scripts/check-target-dependencies.py
+	python3 $(MAKEFILE_DIR)scripts/test_check_target_dependencies.py
+	python3 $(MAKEFILE_DIR)scripts/check-target-dependencies.py
 
 check: check-target-dependencies build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
 	$(NPM) run build
