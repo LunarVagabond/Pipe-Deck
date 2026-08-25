@@ -19,6 +19,18 @@ make_fake_tools() {
 #!/usr/bin/env bash
 set -euo pipefail
 [ "$1" = "-d" ] || exit 64
+source_path="${3:-}"
+if source_digest="$(sha256sum -- "$source_path" 2>/dev/null)"; then
+  source_digest="${source_digest%% *}"
+else
+  source_digest=""
+fi
+if [ "${source_path##*/}" != fs.squashfs ] || \
+   [ "$source_digest" != "$EXPECTED_SQUASHFS_SHA256" ] || \
+   ! cmp -s -- "$source_path" "$EXPECTED_SQUASHFS_FILE"; then
+  printf 'extractor received wrong AppImage payload\n' >&2
+  exit 68
+fi
 if [ "${FAKE_UNSQUASHFS_STATUS:-0}" -ne 0 ]; then
   printf 'unsquashfs-fail\n' >> "$EVENT_LOG"
   exit "$FAKE_UNSQUASHFS_STATUS"
@@ -79,11 +91,13 @@ make_fake_appimage() {
   cat > "$appimage" <<'EOF'
 #!/usr/bin/env bash
 if [ "${1:-}" = "--appimage-offset" ]; then
-  printf '0\n'
+  printf '%s\n' "${FAKE_APPIMAGE_OFFSET:?}"
   exit 0
 fi
 exit 64
 EOF
+  printf '%0500s' '' >> "$appimage"
+  printf 'FAKE-SQUASHFS-PAYLOAD\n' >> "$appimage"
   chmod +x "$appimage"
 }
 
@@ -103,11 +117,19 @@ new_case() {
   mkdir -p "$FIXTURE_APPDIR/usr/lib"
   : > "$EVENT_LOG"
   make_fake_tools "$FAKE_BIN"
+  FAKE_APPIMAGE_OFFSET=512
+  export FAKE_APPIMAGE_OFFSET
   make_fake_appimage "$APPIMAGE"
+  EXPECTED_SQUASHFS_FILE="$CASE_ROOT/expected fs.squashfs [*]?"
+  dd if="$APPIMAGE" of="$EXPECTED_SQUASHFS_FILE" bs=1 \
+    skip="$FAKE_APPIMAGE_OFFSET" status=none
+  EXPECTED_SQUASHFS_SHA256="$(sha256sum -- "$EXPECTED_SQUASHFS_FILE")"
+  EXPECTED_SQUASHFS_SHA256="${EXPECTED_SQUASHFS_SHA256%% *}"
   FAKE_UNSQUASHFS_STATUS=0
   FAKE_MKSQUASHFS_STATUS=0
   SIGNED_APPIMAGE="$CASE_ROOT/signer-input.AppImage"
   export FIXTURE_APPDIR CAPTURED_APPDIR EVENT_LOG
+  export EXPECTED_SQUASHFS_FILE EXPECTED_SQUASHFS_SHA256
   export FAKE_UNSQUASHFS_STATUS FAKE_MKSQUASHFS_STATUS SIGNED_APPIMAGE
 }
 
@@ -132,9 +154,40 @@ assert_no_banned_libs() {
   residue="$(find "$root" \( -type f -o -type l \) \
     \( -name 'libglib-2.0.so*' -o -name 'libgobject-2.0.so*' \
        -o -name 'libgio-2.0.so*' -o -name 'libgmodule-2.0.so*' \
-       -o -name 'libpipewire*.so*' -o -name 'libspa*.so*' \) \
+       -o -name 'libpipewire*.so*' -o -name 'libspa-*.so*' \) \
     -printf '%P\n' | LC_ALL=C sort)"
   [ -z "$residue" ] || fail "banned libraries remain after AppImage post-processing: $residue"
+}
+
+case_extractor_authenticates_sliced_payload() {
+  new_case extractor_authenticates_sliced_payload true
+  touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
+  touch "$FIXTURE_APPDIR/usr/lib/libpipewire-0.3.so.0"
+  run_post_processor_successfully "authenticated extractor payload fixture"
+  assert_no_banned_libs "$CAPTURED_APPDIR"
+}
+
+case_spa_near_prefix_controls_survive() {
+  new_case spa_near_prefix_controls_survive true
+  mkdir -p "$FIXTURE_APPDIR/usr/lib/spa controls [*]?"
+  touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
+  printf 'intended-spa-library\n' > \
+    "$FIXTURE_APPDIR/usr/lib/spa controls [*]?/libspa-support.so.0"
+  printf 'spandsp-control-bytes\n' > \
+    "$FIXTURE_APPDIR/usr/lib/spa controls [*]?/libspandsp.so.2"
+  printf 'spatialite-control-bytes\n' > \
+    "$FIXTURE_APPDIR/usr/lib/spa controls [*]?/libspatialite.so.7"
+
+  run_post_processor_successfully "SPA near-prefix control fixture"
+  assert_no_banned_libs "$CAPTURED_APPDIR"
+  cmp -s -- \
+    "$FIXTURE_APPDIR/usr/lib/spa controls [*]?/libspandsp.so.2" \
+    "$CAPTURED_APPDIR/usr/lib/spa controls [*]?/libspandsp.so.2" || \
+    fail "unrelated near-prefix shared library was removed or changed: libspandsp.so.2"
+  cmp -s -- \
+    "$FIXTURE_APPDIR/usr/lib/spa controls [*]?/libspatialite.so.7" \
+    "$CAPTURED_APPDIR/usr/lib/spa controls [*]?/libspatialite.so.7" || \
+    fail "unrelated near-prefix shared library was removed or changed: libspatialite.so.7"
 }
 
 case_strips_files_symlinks_and_special_paths() {
@@ -325,6 +378,8 @@ case_public_make_signs_only_final_bytes() {
 
 run_case() {
   case "$1" in
+    extractor_payload) case_extractor_authenticates_sliced_payload ;;
+    spa_near_prefix_controls) case_spa_near_prefix_controls_survive ;;
     strips_files_symlinks_and_special_paths) case_strips_files_symlinks_and_special_paths ;;
     glib_glib) case_glib_selector glib_glib libglib-2.0.so.0 ;;
     glib_gobject) case_glib_selector glib_gobject libgobject-2.0.so.0 ;;
@@ -344,6 +399,7 @@ run_case() {
 
 if [ "$#" -eq 0 ]; then
   set -- \
+    extractor_payload spa_near_prefix_controls \
     strips_files_symlinks_and_special_paths \
     glib_glib glib_gobject glib_gio glib_gmodule \
     absent_pipewire absent_spa missing_glib \

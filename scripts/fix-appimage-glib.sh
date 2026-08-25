@@ -79,7 +79,7 @@ strip_family() {
 strip_family GLib required \
   'libglib-2.0.so*' 'libgobject-2.0.so*' 'libgio-2.0.so*' 'libgmodule-2.0.so*'
 strip_family PipeWire optional 'libpipewire*.so*'
-strip_family SPA optional 'libspa*.so*'
+strip_family SPA optional 'libspa-*.so*'
 
 mksquashfs "$WORKDIR/AppDir" "$WORKDIR/new.squashfs" -root-owned -noappend >/dev/null
 
