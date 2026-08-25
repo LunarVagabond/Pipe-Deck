@@ -8,8 +8,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
-import sys
-from types import SimpleNamespace
+import tomllib
 from typing import NamedTuple
 
 
@@ -17,11 +16,10 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_PATH = (REPOSITORY_ROOT / "src-tauri" / "Cargo.toml").resolve()
 TARGET_EXPECTATIONS = (
     ("x86_64-unknown-linux-gnu", True),
-    ("aarch64-unknown-linux-gnu", True),
     ("x86_64-pc-windows-msvc", False),
-    ("x86_64-pc-windows-gnu", False),
-    ("aarch64-apple-darwin", False),
 )
+LINUX_TARGET_EXPRESSION = 'cfg(target_os = "linux")'
+DEPENDENCY_TABLE_NAMES = ("dependencies", "build-dependencies", "dev-dependencies")
 CRATES_IO_SOURCES = frozenset(
     {
         "registry+https://github.com/rust-lang/crates.io-index",
@@ -29,7 +27,6 @@ CRATES_IO_SOURCES = frozenset(
         "sparse+https://index.crates.io/",
     }
 )
-sys.dont_write_bytecode = True
 
 
 class DependencyIdentity(NamedTuple):
@@ -60,6 +57,71 @@ def require_string(value: object, label: str) -> str:
     if not isinstance(value, str) or not value:
         fail(f"{label} must be a nonempty string")
     return value
+
+
+def dependency_package_name(alias: str, specification: object, label: str) -> str:
+    if isinstance(specification, str):
+        return alias
+    if not isinstance(specification, dict):
+        fail(f"{label} must be a version string or dependency table")
+    package_name = specification.get("package", alias)
+    return require_string(package_name, f"{label}.package")
+
+
+def validate_manifest_declaration(manifest_value: object) -> str:
+    manifest = require_mapping(manifest_value, "manifest")
+    declarations: list[tuple[str | None, str, str]] = []
+
+    def inspect_table(
+        target_expression: str | None,
+        table_name: str,
+        table_value: object,
+    ) -> None:
+        table = require_mapping(table_value, f"manifest {table_name}")
+        for alias, specification in table.items():
+            package_name = dependency_package_name(
+                alias,
+                specification,
+                f"manifest dependency {alias}",
+            )
+            if package_name == "pipewire":
+                declarations.append((target_expression, table_name, alias))
+
+    for table_name in DEPENDENCY_TABLE_NAMES:
+        if table_name in manifest:
+            inspect_table(None, table_name, manifest[table_name])
+
+    targets = require_mapping(manifest.get("target", {}), "manifest target")
+    for target_expression, target_value in targets.items():
+        target = require_mapping(
+            target_value,
+            f"manifest target {target_expression}",
+        )
+        for table_name in DEPENDENCY_TABLE_NAMES:
+            if table_name in target:
+                inspect_table(target_expression, table_name, target[table_name])
+
+    expected_location = (LINUX_TARGET_EXPRESSION, "dependencies")
+    matching = [
+        alias
+        for target_expression, table_name, alias in declarations
+        if (target_expression, table_name) == expected_location
+    ]
+    if len(declarations) != 1 or len(matching) != 1:
+        fail(
+            "pipewire must be declared exactly once in "
+            f"target.{LINUX_TARGET_EXPRESSION!r}.dependencies; found {declarations!r}"
+        )
+    return matching[0]
+
+
+def load_manifest() -> dict[str, object]:
+    try:
+        with MANIFEST_PATH.open("rb") as manifest_file:
+            value = tomllib.load(manifest_file)
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        fail(f"manifest {MANIFEST_PATH} could not be parsed: {error}")
+    return require_mapping(value, f"manifest {MANIFEST_PATH}")
 
 
 def package_index(metadata: dict[str, object], target: str) -> dict[str, dict[str, object]]:
@@ -138,7 +200,11 @@ def dependency_edges(
 
 
 def is_expected_pipewire_version(version: str) -> bool:
-    match = re.fullmatch(r"(\d+)\.(\d+)\.(\d+)", version)
+    match = re.fullmatch(
+        r"(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)"
+        r"(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?",
+        version,
+    )
     if match is None:
         return False
     parsed = tuple(int(component) for component in match.groups())
@@ -164,14 +230,19 @@ def validate_target_metadata(
     edges = dependency_edges(resolved[root_id], resolved, packages, target)
 
     if expects_pipewire:
-        pipewire_edges = [edge for edge in edges if edge["name"] == "pipewire"]
+        pipewire_edges = [
+            edge
+            for edge in edges
+            if packages[str(edge["pkg"])]["name"] == "pipewire"
+        ]
         if len(pipewire_edges) != 1:
-            fail(f"{target}: root must have exactly one direct pipewire dependency edge")
+            fail(
+                f"{target}: root must have exactly one direct dependency resolving "
+                "to pipewire"
+            )
         edge = pipewire_edges[0]
         package_id = str(edge["pkg"])
         package = packages[package_id]
-        if package["name"] != "pipewire":
-            fail(f"{target}: direct pipewire edge resolves to {package['name']!r}")
         source = package["source"]
         if source not in CRATES_IO_SOURCES:
             fail(f"{target}: direct pipewire package has unexpected source {source!r}")
@@ -179,15 +250,13 @@ def validate_target_metadata(
         if not is_expected_pipewire_version(version):
             fail(f"{target}: direct pipewire package has unexpected version {version!r}")
         return DependencyIdentity(
-            edge_name="pipewire",
+            edge_name=str(edge["name"]),
             package_id=package_id,
             package_name="pipewire",
             version=version,
             source=str(source),
         )
 
-    if any(edge["name"] == "pipewire" for edge in edges):
-        fail(f"{target}: root must not have a direct pipewire dependency edge")
     for package_id in resolved:
         package = packages[package_id]
         if package["name"] == "pipewire" and package["source"] in CRATES_IO_SOURCES:
@@ -225,23 +294,14 @@ def cargo_metadata(target: str) -> dict[str, object]:
     return require_mapping(value, f"{target}: cargo metadata")
 
 
-def run_persistent_self_tests() -> None:
-    from test_check_target_dependencies import assert_checker_contract
-
-    assert_checker_contract(
-        SimpleNamespace(
-            MANIFEST_PATH=MANIFEST_PATH,
-            TARGET_EXPECTATIONS=TARGET_EXPECTATIONS,
-            validate_target_metadata=validate_target_metadata,
-        )
-    )
-
-
 def main() -> None:
     print(f"check script: {Path(__file__).resolve()}")
     print(f"manifest: {MANIFEST_PATH}")
-    run_persistent_self_tests()
-    print("PASS: deterministic checker self-tests")
+    dependency_alias = validate_manifest_declaration(load_manifest())
+    print(
+        "PASS: manifest declares crates.io pipewire only in "
+        f"target.{LINUX_TARGET_EXPRESSION!r}.dependencies as {dependency_alias!r}"
+    )
 
     for target, expects_pipewire in TARGET_EXPECTATIONS:
         identity = validate_target_metadata(

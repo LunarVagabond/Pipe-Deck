@@ -77,6 +77,7 @@ build-rust: build-daemon-dev build-cli ## Compile the Rust backend (debug)
 	$(CARGO) build --manifest-path $(TAURI_DIR)/Cargo.toml
 
 check-target-dependencies: ## Verify target-filtered Cargo dependency invariants
+	python3 scripts/test_check_target_dependencies.py
 	python3 scripts/check-target-dependencies.py
 
 check: check-target-dependencies build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
