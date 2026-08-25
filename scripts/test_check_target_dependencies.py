@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT, MANIFEST, LINUX = ROOT / "scripts" / "check-target-dependencies.py", ROOT / "src-tauri" / "Cargo.toml", 'cfg(target_os = "linux")'
+CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
 sys.dont_write_bytecode = True
 
 
@@ -18,15 +19,29 @@ def load_checker():
     return module
 
 
-def metadata(*, direct: bool, alias: str = "pipewire") -> dict:
-    root, pipewire = "root", "pipewire-package"
-    package = lambda identity, name, source: {
-        "id": identity, "name": name, "version": "0.10.0", "source": source,
+def metadata(*, direct: bool, alias: str = "pipewire", version: str = "0.10.0",
+             source: str | None = CRATES_IO, unrelated_source: str | None | bool = False,
+             transitive: bool = False) -> dict:
+    root, pipewire, helper = "root", "pipewire-package", "helper-package"
+    package = lambda identity, name, package_version, package_source: {
+        "id": identity, "name": name, "version": package_version, "source": package_source,
         "manifest_path": str(MANIFEST if name == "pipe-deck" else "/crate/Cargo.toml")}
     edges = [{"name": alias, "pkg": pipewire}] if direct else []
+    packages = [package(root, "pipe-deck", "0.2.1", None),
+                package(pipewire, "pipewire", version, source)]
+    nodes = [{"id": pipewire, "deps": []}]
+    if transitive:
+        edges.append({"name": "helper", "pkg": helper})
+        packages.append(package(helper, "helper", "1.0.0", CRATES_IO))
+        nodes.append({"id": helper, "deps": [{"name": "pipewire", "pkg": pipewire}]})
+    if unrelated_source is not False:
+        unrelated = "unrelated-pipewire"
+        edges.append({"name": "forked-pw", "pkg": unrelated})
+        packages.append(package(unrelated, "pipewire", "0.10.0", unrelated_source))
+        nodes.append({"id": unrelated, "deps": []})
     return {
-        "packages": [package(root, "pipe-deck", None), package(pipewire, "pipewire", "registry")],
-        "resolve": {"root": root, "nodes": [{"id": root, "deps": edges}, {"id": pipewire, "deps": []}]},
+        "packages": packages,
+        "resolve": {"root": root, "nodes": [{"id": root, "deps": edges}, *nodes]},
     }
 
 
@@ -80,11 +95,36 @@ class GuardTests(unittest.TestCase):
         edge, package = self.target_check()(metadata(direct=True, alias="pw"), "fixture-target", True)
         self.assertEqual((edge["name"], package["name"]), ("pw", "pipewire"))
 
-    def test_windows_excludes_direct_but_ignores_transitive_pipewire(self) -> None:
+    def test_wrong_source_does_not_satisfy_linux(self) -> None:
+        with self.assertRaises(AssertionError):
+            self.target_check()(
+                metadata(direct=True, source="git+https://example.invalid/pipewire"),
+                "fixture-linux", True,
+            )
+
+    def test_wrong_version_does_not_satisfy_linux(self) -> None:
+        with self.assertRaises(AssertionError):
+            self.target_check()(metadata(direct=True, version="1.0.0"), "fixture-linux", True)
+
+    def test_unrelated_direct_git_and_path_resolutions_are_ignored(self) -> None:
+        check = self.target_check()
+        for source in ("git+https://example.invalid/pipewire", None):
+            with self.subTest(source=source):
+                edge, package = check(metadata(direct=True, unrelated_source=source), "fixture-linux", True)
+                self.assertEqual((edge["pkg"], package["source"]), ("pipewire-package", CRATES_IO))
+
+    def test_linux_requires_one_intended_dependency(self) -> None:
+        with self.assertRaises(AssertionError):
+            self.target_check()(
+                metadata(direct=False, unrelated_source="git+https://example.invalid/pipewire"),
+                "fixture-linux", True,
+            )
+
+    def test_windows_excludes_direct_but_ignores_real_transitive_pipewire(self) -> None:
         check = self.target_check()
         with self.assertRaises(AssertionError):
             check(metadata(direct=True), "fixture-target", False)
-        self.assertIsNone(check(metadata(direct=False), "fixture-target", False))
+        self.assertIsNone(check(metadata(direct=False, transitive=True), "fixture-target", False))
 
     def test_make_target_is_cwd_independent_and_ordered(self) -> None:
         expected = [f"python3 {ROOT}/scripts/test_check_target_dependencies.py", f"python3 {SCRIPT}"]

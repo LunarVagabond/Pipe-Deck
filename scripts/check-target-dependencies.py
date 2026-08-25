@@ -7,6 +7,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST, LINUX = ROOT / "src-tauri" / "Cargo.toml", 'cfg(target_os = "linux")'
+PIPEWIRE_SOURCE, PIPEWIRE_VERSION = "registry+https://github.com/rust-lang/crates.io-index", "0.10."
 GROUPS = ("dependencies", "build-dependencies", "dev-dependencies")
 TARGETS = (("x86_64-unknown-linux-gnu", True), ("x86_64-pc-windows-msvc", False))
 
@@ -50,10 +51,12 @@ def check_target(metadata: dict, target: str, expected: bool):
     matches = []
     for edge in nodes[resolve["root"]]["deps"]:
         package = packages[edge["pkg"]]
-        if package["name"] == "pipewire":
+        if (package["name"] == "pipewire" and package["source"] == PIPEWIRE_SOURCE
+                and package["version"].startswith(PIPEWIRE_VERSION)):
             matches.append((edge, package))
     assert len(matches) == int(expected), (
-        f"{target}: expected {int(expected)} root-direct pipewire edge, found {len(matches)}"
+        f"{target}: expected {int(expected)} root-direct crates.io pipewire 0.10 edge, "
+        f"found {len(matches)}"
     )
     return matches[0] if matches else None
 
