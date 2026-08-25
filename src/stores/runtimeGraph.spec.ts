@@ -166,6 +166,61 @@ describe("useRuntimeGraph", () => {
     },
   );
 
+  it("refreshes through the returned public action and settles its state", async () => {
+    const { composable } = await mountRuntimeGraph();
+    const refreshedGraph = graphWithDevice("manual-refresh");
+    let resolveRefresh!: (graph: RuntimeGraph) => void;
+    invokeMock.mockImplementation((command: string) =>
+      command === "get_runtime_graph"
+        ? new Promise<RuntimeGraph>((resolve) => {
+            resolveRefresh = resolve;
+          })
+        : Promise.resolve(undefined),
+    );
+
+    const refresh = composable.refresh();
+
+    expect(composable.loading.value).toBe(true);
+    expect(composable.error.value).toBeNull();
+
+    resolveRefresh(refreshedGraph);
+    await expect(refresh).resolves.toBeUndefined();
+
+    expect(composable.graph.value).toEqual(refreshedGraph);
+    expect(composable.loading.value).toBe(false);
+    expect(composable.error.value).toBeNull();
+  });
+
+  it.each([
+    [new Error("manual refresh failed"), "manual refresh failed"],
+    ["plain manual refresh failure", "plain manual refresh failure"],
+  ])(
+    "normalizes a public refresh %s rejection and resets loading",
+    async (rejection, message) => {
+      const { composable } = await mountRuntimeGraph();
+      composable.error.value = "stale error";
+      let rejectRefresh!: (reason?: unknown) => void;
+      invokeMock.mockImplementation((command: string) =>
+        command === "get_runtime_graph"
+          ? new Promise<RuntimeGraph>((_resolve, reject) => {
+              rejectRefresh = reject;
+            })
+          : Promise.resolve(undefined),
+      );
+
+      const refresh = composable.refresh();
+
+      expect(composable.loading.value).toBe(true);
+      expect(composable.error.value).toBeNull();
+
+      rejectRefresh(rejection);
+      await expect(refresh).resolves.toBeUndefined();
+
+      expect(composable.error.value).toBe(message);
+      expect(composable.loading.value).toBe(false);
+    },
+  );
+
   it("applies an event after the trailing debounce and keeps the latest payload", async () => {
     const { composable } = await mountRuntimeGraph();
     const firstEvent = graphWithDevice("first-event");
