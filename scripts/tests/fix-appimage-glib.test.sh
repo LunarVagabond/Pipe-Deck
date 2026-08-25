@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SCRIPT="$REPO_ROOT/scripts/fix-appimage-glib.sh"
+SYSTEM_FIND="$(command -v find)"
 TEST_ROOT="$(mktemp -d)"
 trap 'rm -rf "$TEST_ROOT"' EXIT
 
@@ -81,8 +82,31 @@ case "${1:-} ${2:-} ${3:-}" in
 esac
 EOF
 
+  cat > "$bin_dir/find" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+args=("$@")
+name_patterns=()
+contains_spa_pattern=false
+for ((index = 0; index < ${#args[@]}; index++)); do
+  if [ "${args[$index]}" = -name ] && [ "$((index + 1))" -lt "${#args[@]}" ]; then
+    name_pattern="${args[$((index + 1))]}"
+    name_patterns+=("$name_pattern")
+    case "$name_pattern" in
+      libspa-*) contains_spa_pattern=true ;;
+    esac
+  fi
+done
+if [ "$contains_spa_pattern" = true ]; then
+  printf '%s' "${#name_patterns[@]}" >> "$SELECTOR_LOG"
+  printf '\t%s' "${name_patterns[@]}" >> "$SELECTOR_LOG"
+  printf '\n' >> "$SELECTOR_LOG"
+fi
+exec "$SYSTEM_FIND" "${args[@]}"
+EOF
+
   chmod +x "$bin_dir/unsquashfs" "$bin_dir/mksquashfs" \
-    "$bin_dir/fake-cargo" "$bin_dir/fake-npm"
+    "$bin_dir/fake-cargo" "$bin_dir/fake-npm" "$bin_dir/find"
 }
 
 make_fake_appimage() {
@@ -112,10 +136,12 @@ new_case() {
   FIXTURE_APPDIR="$CASE_ROOT/fixture AppDir [*]?"
   CAPTURED_APPDIR="$CASE_ROOT/captured AppDir [*]?"
   EVENT_LOG="$CASE_ROOT/events.log"
+  SELECTOR_LOG="$CASE_ROOT/find-selectors.log"
   FAKE_BIN="$CASE_ROOT/bin"
   APPIMAGE="$CASE_ROOT/test image [*]?.AppImage"
   mkdir -p "$FIXTURE_APPDIR/usr/lib"
   : > "$EVENT_LOG"
+  : > "$SELECTOR_LOG"
   make_fake_tools "$FAKE_BIN"
   FAKE_APPIMAGE_OFFSET=512
   export FAKE_APPIMAGE_OFFSET
@@ -128,7 +154,7 @@ new_case() {
   FAKE_UNSQUASHFS_STATUS=0
   FAKE_MKSQUASHFS_STATUS=0
   SIGNED_APPIMAGE="$CASE_ROOT/signer-input.AppImage"
-  export FIXTURE_APPDIR CAPTURED_APPDIR EVENT_LOG
+  export FIXTURE_APPDIR CAPTURED_APPDIR EVENT_LOG SELECTOR_LOG SYSTEM_FIND
   export EXPECTED_SQUASHFS_FILE EXPECTED_SQUASHFS_SHA256
   export FAKE_UNSQUASHFS_STATUS FAKE_MKSQUASHFS_STATUS SIGNED_APPIMAGE
 }
@@ -188,6 +214,19 @@ case_spa_near_prefix_controls_survive() {
     "$FIXTURE_APPDIR/usr/lib/spa controls [*]?/libspatialite.so.7" \
     "$CAPTURED_APPDIR/usr/lib/spa controls [*]?/libspatialite.so.7" || \
     fail "unrelated near-prefix shared library was removed or changed: libspatialite.so.7"
+}
+
+case_spa_selector_contract() {
+  new_case spa_selector_contract
+  touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
+  touch "$FIXTURE_APPDIR/usr/lib/libspa-support.so.0"
+
+  run_post_processor_successfully "SPA selector contract fixture"
+
+  local observed_selectors
+  observed_selectors="$(<"$SELECTOR_LOG")"
+  [ "$observed_selectors" = $'1\tlibspa-*.so*\n1\tlibspa-*.so*' ] || \
+    fail "SPA selector contract must use exactly one libspa-*.so* pattern for both removal and residue checks; observed: $observed_selectors"
 }
 
 case_strips_files_symlinks_and_special_paths() {
@@ -436,6 +475,7 @@ run_case() {
   case "$1" in
     extractor_payload) case_extractor_authenticates_sliced_payload ;;
     spa_near_prefix_controls) case_spa_near_prefix_controls_survive ;;
+    spa_selector_contract) case_spa_selector_contract ;;
     strips_files_symlinks_and_special_paths) case_strips_files_symlinks_and_special_paths ;;
     glib_glib) case_glib_selector glib_glib libglib-2.0.so.0 ;;
     glib_gobject) case_glib_selector glib_gobject libgobject-2.0.so.0 ;;
@@ -455,7 +495,7 @@ run_case() {
 
 if [ "$#" -eq 0 ]; then
   set -- \
-    extractor_payload spa_near_prefix_controls \
+    extractor_payload spa_near_prefix_controls spa_selector_contract \
     strips_files_symlinks_and_special_paths \
     glib_glib glib_gobject glib_gio glib_gmodule \
     absent_pipewire absent_spa missing_glib \
