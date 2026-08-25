@@ -1,9 +1,10 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check lint-rust test test-unit test-e2e clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
+.PHONY: help install start start-mock dev dev-mock dev-frontend build build-daemon build-daemon-dev build-cli build-frontend build-rust check check-target-dependencies lint-rust test test-unit test-e2e clean preview smoke screenshots demo simulate-claim-check release release-checks release-skip-tests
 
 NPM ?= npm
 CARGO ?= cargo
+MAKEFILE_DIR := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 TAURI_DIR := src-tauri
 HOST_TRIPLE := $(shell rustc -vV | sed -n 's/^host: //p')
 export CARGO_TARGET_DIR := $(abspath $(TAURI_DIR)/target)
@@ -76,7 +77,11 @@ build-frontend: ## Type-check and build the Vue frontend
 build-rust: build-daemon-dev build-cli ## Compile the Rust backend (debug)
 	$(CARGO) build --manifest-path $(TAURI_DIR)/Cargo.toml
 
-check: build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
+check-target-dependencies: ## Verify target-filtered Cargo dependency invariants
+	python3 $(MAKEFILE_DIR)scripts/test_check_target_dependencies.py
+	python3 $(MAKEFILE_DIR)scripts/check-target-dependencies.py
+
+check: check-target-dependencies build-daemon-dev build-cli lint-rust ## Run frontend type-check, frontend unit tests, and Rust checks without producing bundles
 	$(NPM) run build
 	$(NPM) run test:unit
 	$(CARGO) check --manifest-path $(TAURI_DIR)/Cargo.toml
