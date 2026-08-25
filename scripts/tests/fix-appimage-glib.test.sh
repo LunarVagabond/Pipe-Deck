@@ -193,7 +193,9 @@ case_spa_near_prefix_controls_survive() {
 case_strips_files_symlinks_and_special_paths() {
   new_case strips_files_symlinks_and_special_paths true
   mkdir -p "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support" \
-    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/jack"
+    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/jack" \
+    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/audioconvert" \
+    "$FIXTURE_APPDIR/usr/lib/spa path [*]?/syntactic cases"
   touch "$FIXTURE_APPDIR/usr/lib/libglib-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libgobject-2.0.so.0"
   touch "$FIXTURE_APPDIR/usr/lib/libgio-2.0.so.0"
@@ -207,6 +209,32 @@ case_strips_files_symlinks_and_special_paths() {
   ln -s libspa-support.so.0 \
     "$FIXTURE_APPDIR/usr/lib/spa path [*]?/support/libspa-support.so"
   touch "$FIXTURE_APPDIR/usr/lib/spa path [*]?/jack/libspa-jack.so"
+
+  # This is an authentic PipeWire SPA plugin basename. The generated matrix
+  # below exercises only the syntactic libspa-<stem>.so* contract; those stems
+  # are deliberately not presented as upstream plugin names.
+  local authentic_spa_node='usr/lib/spa path [*]?/audioconvert/libspa-audioconvert.so'
+  touch "$FIXTURE_APPDIR/$authentic_spa_node"
+  [ -f "$FIXTURE_APPDIR/$authentic_spa_node" ] && \
+    [ ! -L "$FIXTURE_APPDIR/$authentic_spa_node" ] || \
+    fail "authentic SPA plugin fixture was not seeded: $authentic_spa_node"
+
+  local -a syntactic_stem_heads=(alpha mix2 route)
+  local -a syntactic_stem_tails=(core -bridge2 _node3 .stage4)
+  local -a syntactic_suffixes=(.so .so.0 .so.7.4)
+  local -a syntactic_spa_nodes=()
+  local stem_head stem_tail suffix syntactic_spa_node
+  local syntactic_suffix_count="${#syntactic_suffixes[@]}"
+  local matrix_index=0
+  for stem_head in "${syntactic_stem_heads[@]}"; do
+    for stem_tail in "${syntactic_stem_tails[@]}"; do
+      suffix="${syntactic_suffixes[$((matrix_index % syntactic_suffix_count))]}"
+      syntactic_spa_node="usr/lib/spa path [*]?/syntactic cases/libspa-${stem_head}${stem_tail}${suffix}"
+      touch "$FIXTURE_APPDIR/$syntactic_spa_node"
+      syntactic_spa_nodes+=("$syntactic_spa_node")
+      matrix_index=$((matrix_index + 1))
+    done
+  done
   touch "$FIXTURE_APPDIR/usr/lib/control file [*]?.so.1"
 
   local outside_dir="$CASE_ROOT/outside targets [*]?"
@@ -218,6 +246,14 @@ case_strips_files_symlinks_and_special_paths() {
 
   run_post_processor_successfully "special-character AppImage fixture"
   assert_no_banned_libs "$CAPTURED_APPDIR"
+  [ ! -e "$CAPTURED_APPDIR/$authentic_spa_node" ] && \
+    [ ! -L "$CAPTURED_APPDIR/$authentic_spa_node" ] || \
+    fail "authentic SPA plugin remained in the AppDir: $authentic_spa_node"
+  for syntactic_spa_node in "${syntactic_spa_nodes[@]}"; do
+    [ ! -e "$CAPTURED_APPDIR/$syntactic_spa_node" ] && \
+      [ ! -L "$CAPTURED_APPDIR/$syntactic_spa_node" ] || \
+      fail "syntactic SPA basename-class node remained in the AppDir: $syntactic_spa_node"
+  done
   local banned_chain_node
   for banned_chain_node in \
     usr/lib/libpipewire-0.3.so \
