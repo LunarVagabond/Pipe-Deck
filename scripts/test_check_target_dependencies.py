@@ -81,6 +81,53 @@ class GuardTests(unittest.TestCase):
         with self.assertRaises(AssertionError):
             check(manifest)
 
+    def test_second_default_registry_declaration_is_rejected_in_every_group(self) -> None:
+        check = self.manifest_check()
+        for where in ("root", LINUX, "cfg(unix)"):
+            for group in ("dependencies", "build-dependencies", "dev-dependencies"):
+                for alias in ("pipewire", "pw-alias"):
+                    if (where, group, alias) == (LINUX, "dependencies", "pipewire"):
+                        continue
+                    with self.subTest(where=where, group=group, alias=alias):
+                        manifest = copy.deepcopy(self.manifest)
+                        owner = manifest if where == "root" else manifest.setdefault("target", {}).setdefault(where, {})
+                        specification = "0.10" if alias == "pipewire" else {
+                            "package": "pipewire", "version": "0.10",
+                        }
+                        owner.setdefault(group, {})[alias] = specification
+                        with self.assertRaises(AssertionError):
+                            check(manifest)
+
+    def test_sole_declaration_in_linux_build_or_dev_dependencies_is_rejected(self) -> None:
+        check = self.manifest_check()
+        for group in ("build-dependencies", "dev-dependencies"):
+            with self.subTest(group=group):
+                manifest = copy.deepcopy(self.manifest)
+                dependency = manifest["target"][LINUX]["dependencies"].pop("pipewire")
+                manifest["target"][LINUX].setdefault(group, {})["pipewire"] = dependency
+                with self.assertRaises(AssertionError):
+                    check(manifest)
+
+    def test_real_target_matrix_keeps_linux_positive_and_windows_negative(self) -> None:
+        targets = getattr(self.guard, "TARGETS", ())
+        self.assertTrue(any("linux" in target and expected is True for target, expected in targets),
+                        f"no Linux positive target: {targets}")
+        self.assertTrue(any("windows" in target and expected is False for target, expected in targets),
+                        f"no Windows negative target: {targets}")
+
+    def test_workspace_and_registry_layouts_fail_closed(self) -> None:
+        classify = getattr(self.guard, "is_default_pipewire", None)
+        self.assertTrue(callable(classify), "repository-specific is_default_pipewire is required")
+        for alias, specification in (
+            ("pipewire", {"workspace": True}),
+            ("pw-alias", {"package": "pipewire", "workspace": True}),
+            ("pipewire", {"version": "0.10", "registry": "private"}),
+            ("pw-alias", {"package": "pipewire", "version": "0.10", "registry": "private"}),
+        ):
+            with self.subTest(alias=alias, specification=specification):
+                with self.assertRaises(AssertionError):
+                    classify(alias, specification)
+
     def test_unrelated_git_and_path_same_name_are_ignored(self) -> None:
         check = self.manifest_check()
         for source, value in (("git", "https://example.invalid/pw"), ("path", "../pw")):
