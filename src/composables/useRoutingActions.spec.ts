@@ -29,7 +29,7 @@ describe("refreshCanUndo", () => {
   it.each([
     [new Error("backend unavailable"), "an Error"],
     ["plain rejection", "a non-Error rejection"],
-  ])("resets false for %s", async (rejection) => {
+  ])("resets false for %s", async (rejection, description) => {
     invokeMock.mockResolvedValueOnce(true);
     const { canUndo, refreshCanUndo } = useRoutingActions();
     await refreshCanUndo();
@@ -37,7 +37,7 @@ describe("refreshCanUndo", () => {
     invokeMock.mockRejectedValueOnce(rejection);
     await refreshCanUndo();
 
-    expect(canUndo.value).toBe(false);
+    expect(canUndo.value, description).toBe(false);
   });
 });
 
