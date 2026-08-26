@@ -99,6 +99,17 @@ function makeBoard(overrides: Partial<SoundboardBoard> = {}): SoundboardBoard {
   };
 }
 
+function makeClip(overrides: Partial<SoundboardClip> = {}): SoundboardClip {
+  return {
+    id: "clip.wav",
+    file_name: "clip.wav",
+    label: "clip",
+    path: "/sounds/sfx/clip.wav",
+    duration_seconds: null,
+    ...overrides,
+  };
+}
+
 function mockInvoke(handlers: Record<string, (args?: unknown) => unknown>) {
   invokeMock.mockImplementation((command: string, args?: unknown) => {
     const handler = handlers[command];
@@ -588,6 +599,192 @@ describe("Soundboard", () => {
     expect(
       invokeMock.mock.calls.some((call) => call[0] === "stop_soundboard_clip"),
     ).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("does not inherit same-name playback across overlapping soundboard tabs", async () => {
+    const boards: SoundboardBoard[] = [
+      makeBoard({
+        id: "board-a",
+        name: "Board A",
+        folder: "/sounds/a",
+        exclusive_playback: false,
+      }),
+      makeBoard({
+        id: "board-b",
+        name: "Board B",
+        folder: "/sounds/b",
+        exclusive_playback: false,
+      }),
+    ];
+    const clipA = makeClip({
+      id: "alert.wav",
+      file_name: "alert.wav",
+      label: "alert.wav",
+      duration_seconds: 4,
+    });
+    const clipB = makeClip({
+      id: "alert.wav",
+      file_name: "alert.wav",
+      label: "alert.wav",
+      duration_seconds: 4,
+    });
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: (args) =>
+        (args as { boardId: string }).boardId === "board-a" ? [clipA] : [clipB],
+      play_soundboard_clip: () => null,
+      stop_soundboard_clip: () => null,
+    });
+
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    const boardTabs = wrapper
+      .find(".soundboard-view > .segmented-control")
+      .findAll(".segmented-control-option");
+    expect(boardTabs).toHaveLength(3);
+
+    let tile = wrapper.find(".soundboard-tile");
+    await tile.trigger("click");
+    await flushPromises();
+    expect(tile.classes()).toContain("playing");
+
+    await boardTabs![1].trigger("click");
+    await flushPromises();
+    tile = wrapper.find(".soundboard-tile");
+    expect(tile.classes()).not.toContain("playing");
+
+    await tile.trigger("click");
+    await flushPromises();
+    expect(tile.classes()).toContain("playing");
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === "play_soundboard_clip"),
+    ).toHaveLength(2);
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === "stop_soundboard_clip"),
+    ).toHaveLength(0);
+
+    wrapper.unmount();
+  });
+
+  it("retains playing progress independently for same-name overlap clips on both tabs", async () => {
+    const boards: SoundboardBoard[] = [
+      makeBoard({
+        id: "board-a",
+        name: "Board A",
+        folder: "/sounds/a",
+        exclusive_playback: false,
+      }),
+      makeBoard({
+        id: "board-b",
+        name: "Board B",
+        folder: "/sounds/b",
+        exclusive_playback: false,
+      }),
+    ];
+    const clipsByBoard: Record<string, SoundboardClip[]> = {
+      "board-a": [
+        makeClip({
+          id: "alert.wav",
+          file_name: "alert.wav",
+          duration_seconds: 4,
+        }),
+      ],
+      "board-b": [
+        makeClip({
+          id: "alert.wav",
+          file_name: "alert.wav",
+          duration_seconds: 7,
+        }),
+      ],
+    };
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: (args) =>
+        clipsByBoard[(args as { boardId: string }).boardId],
+      play_soundboard_clip: () => null,
+      stop_soundboard_clip: () => null,
+    });
+
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+    const boardTabs = wrapper
+      .find(".soundboard-view > .segmented-control")
+      .findAll(".segmented-control-option");
+    expect(boardTabs).toHaveLength(3);
+
+    await wrapper.find(".soundboard-tile").trigger("click");
+    await flushPromises();
+    await boardTabs![1].trigger("click");
+    await flushPromises();
+    await wrapper.find(".soundboard-tile").trigger("click");
+    await flushPromises();
+
+    let tile = wrapper.find(".soundboard-tile");
+    expect(tile.classes()).toContain("playing");
+    expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
+    expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+      "0:07",
+    );
+
+    await boardTabs![0].trigger("click");
+    await flushPromises();
+    tile = wrapper.find(".soundboard-tile");
+    expect(tile.classes()).toContain("playing");
+    expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
+    expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+      "0:04",
+    );
+
+    await boardTabs![1].trigger("click");
+    await flushPromises();
+    tile = wrapper.find(".soundboard-tile");
+    expect(tile.classes()).toContain("playing");
+    expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
+    expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+      "0:07",
+    );
+
+    wrapper.unmount();
+  });
+
+  it("surfaces a restricted stop failure and suppresses the next play", async () => {
+    const board = makeBoard({
+      id: "board-a",
+      name: "Board A",
+      folder: "/sounds/a",
+      exclusive_playback: true,
+    });
+    const clips = [
+      makeClip({ id: "first.wav", file_name: "first.wav" }),
+      makeClip({ id: "second.wav", file_name: "second.wav" }),
+    ];
+    mockInvoke({
+      list_soundboard_boards: () => [board],
+      list_soundboard_sounds: () => clips,
+      play_soundboard_clip: () => null,
+      stop_soundboard_clip: () => {
+        throw new Error("stop failed");
+      },
+    });
+
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+    const tiles = wrapper.findAll(".soundboard-tile");
+    await tiles[0].trigger("click");
+    await flushPromises();
+    await tiles[1].trigger("click");
+    await flushPromises();
+
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === "stop_soundboard_clip"),
+    ).toHaveLength(1);
+    expect(
+      invokeMock.mock.calls.filter(([name]) => name === "play_soundboard_clip"),
+    ).toHaveLength(1);
+    expect(pushNoticeMock).toHaveBeenCalledWith("error", "stop failed");
+
     wrapper.unmount();
   });
 

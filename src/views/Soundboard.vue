@@ -74,10 +74,13 @@ interface PlaybackState {
 // Elapsed/remaining time is interpolated client-side from each clip's probed
 // duration (#399) rather than pushed from the backend —
 // `play_soundboard_clip` only ever tells us playback *started* (PD-036), never
-// when it finishes. Keeping one state entry per clip lets overlap mode render
-// all active clips while the backend owns the actual process handles.
+// when it finishes. Keeping one state entry per board-qualified clip lets
+// overlap mode render all active clips while the backend owns the actual
+// process handles.
 const playingClips = ref<Record<string, PlaybackState>>({});
 const exclusivePlayback = ref(DEFAULT_EXCLUSIVE_PLAYBACK);
+// This count intentionally spans every tab: stop_soundboard_clip is global to
+// the backend's tracked playback legs, even though the UI state is tab-qualified.
 const activePlaybackCount = computed(
   () => Object.keys(playingClips.value).length,
 );
@@ -98,8 +101,21 @@ function resetPlaybackState() {
 
 onUnmounted(clearProgressTimer);
 
+function playbackKey(boardId: string, clipId: string): string {
+  return JSON.stringify([boardId, clipId]);
+}
+
+function currentPlaybackKey(clipId: string): string | null {
+  return activeBoardId.value ? playbackKey(activeBoardId.value, clipId) : null;
+}
+
+function getPlaybackState(clipId: string): PlaybackState | undefined {
+  const key = currentPlaybackKey(clipId);
+  return key === null ? undefined : playingClips.value[key];
+}
+
 function playingProgressPercent(clipId: string): number {
-  const playback = playingClips.value[clipId];
+  const playback = getPlaybackState(clipId);
   if (!playback?.durationSeconds) return 0;
   return Math.min(
     100,
@@ -108,15 +124,15 @@ function playingProgressPercent(clipId: string): number {
 }
 
 function isClipPlaying(clipId: string): boolean {
-  return Boolean(playingClips.value[clipId]);
+  return Boolean(getPlaybackState(clipId));
 }
 
 function getPlayingElapsed(clipId: string): number {
-  return playingClips.value[clipId]?.elapsedSeconds ?? 0;
+  return getPlaybackState(clipId)?.elapsedSeconds ?? 0;
 }
 
 function getPlayingDuration(clipId: string): number | null {
-  return playingClips.value[clipId]?.durationSeconds ?? null;
+  return getPlaybackState(clipId)?.durationSeconds ?? null;
 }
 
 function updatePlaybackProgress() {
@@ -204,6 +220,7 @@ async function loadClips() {
 async function playClip(clip: SoundboardClip) {
   const boardId = activeBoardId.value;
   if (!boardId) return;
+  const key = playbackKey(boardId, clip.id);
 
   if (exclusivePlayback.value && activePlaybackCount.value > 0) {
     const stopped = await stopClip();
@@ -212,7 +229,7 @@ async function playClip(clip: SoundboardClip) {
 
   playingClips.value = {
     ...playingClips.value,
-    [clip.id]: {
+    [key]: {
       durationSeconds: clip.duration_seconds,
       elapsedSeconds: 0,
       startedAt: Date.now(),
@@ -227,7 +244,7 @@ async function playClip(clip: SoundboardClip) {
     });
   } catch (err) {
     const remaining = { ...playingClips.value };
-    delete remaining[clip.id];
+    delete remaining[key];
     playingClips.value = remaining;
     if (Object.keys(remaining).length === 0) clearProgressTimer();
     handleApplyResult(

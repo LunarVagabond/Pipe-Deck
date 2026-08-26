@@ -9,7 +9,7 @@ Define how Pipe Deck lets a user trigger short audio clips (sound effects, drops
 - Backend playback primitive: playing an arbitrary audio file into a named target device.
 - Configured clip sources: user-named tabs (Soundux-style, e.g. "SFX", "Music"), each backed by its own folder of sound files, and per-**tab** target/monitor device assignment with independent volumes.
 - Soundboard tab UI: browsing configured clips and triggering playback.
-- Stop/interrupt of an in-progress clip, with a Spotify-style progress bar (elapsed on the left, remaining time on the right) on the currently-playing tile.
+- Stop/interrupt of an in-progress clip, with a Spotify-style progress bar (elapsed on the left, remaining time on the right) on each currently playing tile.
 - Per-tab playback policy: exclusive mode stops the current clip before a new one starts; overlap mode lets clips play concurrently.
 
 ## Out of Scope (for now)
