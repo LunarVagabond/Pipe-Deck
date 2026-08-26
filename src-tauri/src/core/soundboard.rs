@@ -43,10 +43,18 @@ pub struct SoundboardBoard {
     pub monitor_system_name: Option<String>,
     #[serde(default = "default_volume_percent")]
     pub monitor_volume_percent: u8,
+    /// When true, starting a new clip stops any currently playing clip. This
+    /// preserves the single-clip behavior of existing boards after #399.
+    #[serde(default = "default_exclusive_playback")]
+    pub exclusive_playback: bool,
 }
 
 fn default_volume_percent() -> u8 {
     100
+}
+
+fn default_exclusive_playback() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -235,6 +243,52 @@ mod tests {
         assert!(
             (duration - 2.0).abs() < 0.05,
             "expected ~2s, got {duration}"
+        );
+    }
+
+    #[test]
+    fn legacy_board_config_defaults_to_restricted_playback_when_serialized() {
+        let board: SoundboardBoard = serde_yaml::from_str(
+            r#"
+id: legacy
+name: Legacy
+folder: /sounds
+target_system_name: null
+target_volume_percent: 100
+monitor_system_name: null
+monitor_volume_percent: 100
+"#,
+        )
+        .unwrap();
+
+        let serialized = serde_yaml::to_value(board).unwrap();
+        assert_eq!(
+            serialized.get("exclusive_playback"),
+            Some(&serde_yaml::Value::Bool(true)),
+            "legacy boards must retain the current single-clip behavior"
+        );
+    }
+
+    #[test]
+    fn explicit_overlap_policy_survives_board_serialization() {
+        let board: SoundboardBoard = serde_yaml::from_str(
+            r#"
+id: overlapping
+name: Overlapping
+folder: /sounds
+target_system_name: null
+target_volume_percent: 100
+monitor_system_name: null
+monitor_volume_percent: 100
+exclusive_playback: false
+"#,
+        )
+        .unwrap();
+
+        let serialized = serde_yaml::to_value(board).unwrap();
+        assert_eq!(
+            serialized.get("exclusive_playback"),
+            Some(&serde_yaml::Value::Bool(false))
         );
     }
 }

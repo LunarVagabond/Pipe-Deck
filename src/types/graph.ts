@@ -268,6 +268,8 @@ export interface SoundboardBoard {
   target_volume_percent: number;
   monitor_system_name: string | null;
   monitor_volume_percent: number;
+  /** Stop the current clip before a new clip starts when true (legacy default). */
+  exclusive_playback: boolean;
 }
 
 export interface SoundboardClip {
