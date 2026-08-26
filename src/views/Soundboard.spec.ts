@@ -669,6 +669,7 @@ describe("Soundboard", () => {
   });
 
   it("retains playing progress independently for same-name overlap clips on both tabs", async () => {
+    let wrapper: ReturnType<typeof mount> | undefined;
     vi.useFakeTimers();
     try {
       vi.setSystemTime(new Date(0));
@@ -710,72 +711,68 @@ describe("Soundboard", () => {
         stop_soundboard_clip: () => null,
       });
 
-      const wrapper = mount(Soundboard);
+      const mountedWrapper: ReturnType<typeof mount> = (wrapper =
+        mount(Soundboard));
       await flushPromises();
-      const boardTabs = wrapper
+      const boardTabs = mountedWrapper
         .find(".soundboard-view > .segmented-control")
         .findAll(".segmented-control-option");
       expect(boardTabs).toHaveLength(3);
+      const switchBoardAndAdvance = async (index: number) => {
+        await boardTabs[index].trigger("click");
+        await flushPromises();
+        await vi.advanceTimersByTimeAsync(200);
+        await flushPromises();
+      };
 
-      await wrapper.find(".soundboard-tile").trigger("click");
+      await mountedWrapper.find(".soundboard-tile").trigger("click");
       await flushPromises();
       await vi.advanceTimersByTimeAsync(800);
       await flushPromises();
 
-      await boardTabs[1].trigger("click");
-      await flushPromises();
-      await wrapper.find(".soundboard-tile").trigger("click");
+      await switchBoardAndAdvance(1);
+      await mountedWrapper.find(".soundboard-tile").trigger("click");
       await flushPromises();
       await vi.advanceTimersByTimeAsync(1200);
       await flushPromises();
 
-      let tile = wrapper.find(".soundboard-tile");
+      let tile = mountedWrapper.find(".soundboard-tile");
       expect(tile.classes()).toContain("playing");
       expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:01",
+      let progressTimes = tile.findAll(
+        ".soundboard-tile-progress-times > span",
       );
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:07",
-      );
+      expect(progressTimes).toHaveLength(2);
+      expect(progressTimes[0].text()).toBe("0:01");
+      expect(progressTimes[1].text()).toBe("0:07");
 
-      await boardTabs[0].trigger("click");
-      await flushPromises();
-      tile = wrapper.find(".soundboard-tile");
+      await switchBoardAndAdvance(0);
+      tile = mountedWrapper.find(".soundboard-tile");
       expect(tile.classes()).toContain("playing");
       expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:02",
-      );
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:04",
-      );
+      progressTimes = tile.findAll(".soundboard-tile-progress-times > span");
+      expect(progressTimes).toHaveLength(2);
+      expect(progressTimes[0].text()).toBe("0:02");
+      expect(progressTimes[1].text()).toBe("0:04");
 
-      await boardTabs[1].trigger("click");
-      await flushPromises();
-      tile = wrapper.find(".soundboard-tile");
+      await switchBoardAndAdvance(1);
+      tile = mountedWrapper.find(".soundboard-tile");
       expect(tile.classes()).toContain("playing");
       expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:01",
-      );
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:07",
-      );
+      progressTimes = tile.findAll(".soundboard-tile-progress-times > span");
+      expect(progressTimes).toHaveLength(2);
+      expect(progressTimes[0].text()).toBe("0:02");
+      expect(progressTimes[1].text()).toBe("0:07");
 
-      await boardTabs[0].trigger("click");
-      await flushPromises();
-      tile = wrapper.find(".soundboard-tile");
+      await switchBoardAndAdvance(0);
+      tile = mountedWrapper.find(".soundboard-tile");
       expect(tile.classes()).toContain("playing");
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:02",
-      );
-      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-        "0:04",
-      );
-
-      wrapper.unmount();
+      progressTimes = tile.findAll(".soundboard-tile-progress-times > span");
+      expect(progressTimes).toHaveLength(2);
+      expect(progressTimes[0].text()).toBe("0:03");
+      expect(progressTimes[1].text()).toBe("0:04");
     } finally {
+      wrapper?.unmount();
       vi.useRealTimers();
     }
   });
