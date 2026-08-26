@@ -669,84 +669,115 @@ describe("Soundboard", () => {
   });
 
   it("retains playing progress independently for same-name overlap clips on both tabs", async () => {
-    const boards: SoundboardBoard[] = [
-      makeBoard({
-        id: "board-a",
-        name: "Board A",
-        folder: "/sounds/a",
-        exclusive_playback: false,
-      }),
-      makeBoard({
-        id: "board-b",
-        name: "Board B",
-        folder: "/sounds/b",
-        exclusive_playback: false,
-      }),
-    ];
-    const clipsByBoard: Record<string, SoundboardClip[]> = {
-      "board-a": [
-        makeClip({
-          id: "alert.wav",
-          file_name: "alert.wav",
-          duration_seconds: 4,
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date(0));
+      const boards: SoundboardBoard[] = [
+        makeBoard({
+          id: "board-a",
+          name: "Board A",
+          folder: "/sounds/a",
+          exclusive_playback: false,
         }),
-      ],
-      "board-b": [
-        makeClip({
-          id: "alert.wav",
-          file_name: "alert.wav",
-          duration_seconds: 7,
+        makeBoard({
+          id: "board-b",
+          name: "Board B",
+          folder: "/sounds/b",
+          exclusive_playback: false,
         }),
-      ],
-    };
-    mockInvoke({
-      list_soundboard_boards: () => boards,
-      list_soundboard_sounds: (args) =>
-        clipsByBoard[(args as { boardId: string }).boardId],
-      play_soundboard_clip: () => null,
-      stop_soundboard_clip: () => null,
-    });
+      ];
+      const clipsByBoard: Record<string, SoundboardClip[]> = {
+        "board-a": [
+          makeClip({
+            id: "alert.wav",
+            file_name: "alert.wav",
+            duration_seconds: 4,
+          }),
+        ],
+        "board-b": [
+          makeClip({
+            id: "alert.wav",
+            file_name: "alert.wav",
+            duration_seconds: 7,
+          }),
+        ],
+      };
+      mockInvoke({
+        list_soundboard_boards: () => boards,
+        list_soundboard_sounds: (args) =>
+          clipsByBoard[(args as { boardId: string }).boardId],
+        play_soundboard_clip: () => null,
+        stop_soundboard_clip: () => null,
+      });
 
-    const wrapper = mount(Soundboard);
-    await flushPromises();
-    const boardTabs = wrapper
-      .find(".soundboard-view > .segmented-control")
-      .findAll(".segmented-control-option");
-    expect(boardTabs).toHaveLength(3);
+      const wrapper = mount(Soundboard);
+      await flushPromises();
+      const boardTabs = wrapper
+        .find(".soundboard-view > .segmented-control")
+        .findAll(".segmented-control-option");
+      expect(boardTabs).toHaveLength(3);
 
-    await wrapper.find(".soundboard-tile").trigger("click");
-    await flushPromises();
-    await boardTabs![1].trigger("click");
-    await flushPromises();
-    await wrapper.find(".soundboard-tile").trigger("click");
-    await flushPromises();
+      await wrapper.find(".soundboard-tile").trigger("click");
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(800);
+      await flushPromises();
 
-    let tile = wrapper.find(".soundboard-tile");
-    expect(tile.classes()).toContain("playing");
-    expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
-    expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-      "0:07",
-    );
+      await boardTabs[1].trigger("click");
+      await flushPromises();
+      await wrapper.find(".soundboard-tile").trigger("click");
+      await flushPromises();
+      await vi.advanceTimersByTimeAsync(1200);
+      await flushPromises();
 
-    await boardTabs![0].trigger("click");
-    await flushPromises();
-    tile = wrapper.find(".soundboard-tile");
-    expect(tile.classes()).toContain("playing");
-    expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
-    expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-      "0:04",
-    );
+      let tile = wrapper.find(".soundboard-tile");
+      expect(tile.classes()).toContain("playing");
+      expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:01",
+      );
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:07",
+      );
 
-    await boardTabs![1].trigger("click");
-    await flushPromises();
-    tile = wrapper.find(".soundboard-tile");
-    expect(tile.classes()).toContain("playing");
-    expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
-    expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
-      "0:07",
-    );
+      await boardTabs[0].trigger("click");
+      await flushPromises();
+      tile = wrapper.find(".soundboard-tile");
+      expect(tile.classes()).toContain("playing");
+      expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:02",
+      );
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:04",
+      );
 
-    wrapper.unmount();
+      await boardTabs[1].trigger("click");
+      await flushPromises();
+      tile = wrapper.find(".soundboard-tile");
+      expect(tile.classes()).toContain("playing");
+      expect(tile.find(".soundboard-tile-progress").exists()).toBe(true);
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:01",
+      );
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:07",
+      );
+
+      await boardTabs[0].trigger("click");
+      await flushPromises();
+      tile = wrapper.find(".soundboard-tile");
+      expect(tile.classes()).toContain("playing");
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:02",
+      );
+      expect(tile.find(".soundboard-tile-progress-times").text()).toContain(
+        "0:04",
+      );
+
+      wrapper.unmount();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("surfaces a restricted stop failure and suppresses the next play", async () => {
