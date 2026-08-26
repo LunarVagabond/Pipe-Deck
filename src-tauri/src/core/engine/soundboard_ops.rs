@@ -173,6 +173,7 @@ mod live_tests {
             target_volume_percent: 100,
             monitor_system_name: Some(monitor_device.system_name.clone()),
             monitor_volume_percent: 50,
+            exclusive_playback: true,
         };
         ConfigStore::new().ensure_layout().unwrap();
         ConfigStore::new().save_soundboard_board(board).unwrap();
@@ -220,6 +221,7 @@ mod live_tests {
             target_volume_percent: 100,
             monitor_system_name: None,
             monitor_volume_percent: 100,
+            exclusive_playback: true,
         };
         ConfigStore::new().ensure_layout().unwrap();
         ConfigStore::new().save_soundboard_board(board).unwrap();
@@ -266,6 +268,7 @@ mod live_tests {
             target_volume_percent: 100,
             monitor_system_name: Some("pipe-deck-mock-monitor".to_string()),
             monitor_volume_percent: 60,
+            exclusive_playback: true,
         };
         ConfigStore::new().ensure_layout().unwrap();
         ConfigStore::new().save_soundboard_board(board).unwrap();

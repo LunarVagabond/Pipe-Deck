@@ -10,6 +10,7 @@ Define how Pipe Deck lets a user trigger short audio clips (sound effects, drops
 - Configured clip sources: user-named tabs (Soundux-style, e.g. "SFX", "Music"), each backed by its own folder of sound files, and per-**tab** target/monitor device assignment with independent volumes.
 - Soundboard tab UI: browsing configured clips and triggering playback.
 - Stop/interrupt of an in-progress clip, with a Spotify-style progress bar (elapsed on the left, remaining time on the right) on the currently-playing tile.
+- Per-tab playback policy: exclusive mode stops the current clip before a new one starts; overlap mode lets clips play concurrently.
 
 ## Out of Scope (for now)
 
@@ -27,9 +28,10 @@ Tracked as epic issue #127 with native GitHub sub-issues, built in this order:
 5. **#397 — play button wiring.** `CoreEngine::play_soundboard_clip(board_id, clip_id)` (`core/engine/soundboard_ops.rs`) re-resolves the clip fresh from config + disk on every call (loads the board, re-lists its folder rather than trusting a client-supplied path) and plays it via the #393 primitive. Each Soundboard tile is a real button: clicking it plays the clip. The Tauri command (`commands::soundboard::play_soundboard_clip`) is a one-line wrapper; all the logic lives in the engine per this codebase's thin-commands convention.
 6. **#398 — target/monitor device + volume, per tab.** `SoundboardBoard` grew four flat fields — `target_system_name`, `target_volume_percent`, `monitor_system_name`, `monitor_volume_percent` — replacing #395's per-clip `clip_targets` map outright (see `docs/architecture/Decisions.md` PD-038). Every clip in a tab plays through the same two destinations: `target` (what other people/apps hear, e.g. a virtual mic) and `monitor` (a local output, e.g. the user's own speakers, so they can hear/test a clip independent of what the target gets), each with its own volume — `AudioBackend::play_sound` gained a `volume_percent` parameter (applied via `pw-cat --volume`) to support this. The controls live in the Soundboard tab itself (two device dropdowns + two range sliders, next to Refresh/Change folder/Rename/Delete tab), not Settings. Per-clip overrides were deliberately cut after initial review; per-tab (board-wide) is the ceiling for now — finer-grained mapping is a possible future ticket, not built speculatively here.
 7. **#399 — stop/interrupt playback + progress bar.** `AudioBackend::stop_sound()` (default no-op, overridden by `LinuxPipeWireBackend` and `MockAudioBackend`) kills whatever `pw-cat` child process(es) `LinuxPipeWireBackend` is tracking from the most recent `play_sound` call(s) — up to two, one per leg (#398). `core::soundboard::list_sounds` now also probes each clip's `duration_seconds` via `lofty` (file header/metadata, no decoding); the frontend uses that plus a client-side interval timer to render the progress bar (Spotify-style: elapsed on the left counting up from 0:00, the clip's static length on the right) with no backend completion event needed — see `docs/architecture/Decisions.md` PD-039.
+8. **#408 — per-tab overlap policy.** `SoundboardBoard.exclusive_playback` is persisted per tab and defaults to `true` when absent, retaining the post-#399 single-clip behavior for existing configurations. The active tab's **Exclusive playback** toggle saves through the existing board persistence path. When disabled, a second tile click goes directly to `play_soundboard_clip` and leaves existing client playback state visible; when enabled, the frontend requests the existing `stop_soundboard_clip` command and starts the new clip only after that stop succeeds. The stop command remains global for the backend's tracked `pw-cat` legs, so per-clip stop semantics are not implied by this toggle.
 
 ## Related Documents
 
-- `docs/architecture/Decisions.md` (PD-036, PD-039)
+- `docs/architecture/Decisions.md` (PD-036, PD-039, PD-053)
 - `docs/specs/Config_Spec.md`
 - `docs/specs/UI_Spec.md`

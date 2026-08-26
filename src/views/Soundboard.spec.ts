@@ -1,6 +1,6 @@
 import { mount, flushPromises } from "@vue/test-utils";
 import { ref } from "vue";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import Soundboard from "./Soundboard.vue";
 import type {
   Device,
@@ -94,6 +94,7 @@ function makeBoard(overrides: Partial<SoundboardBoard> = {}): SoundboardBoard {
     target_volume_percent: 100,
     monitor_system_name: null,
     monitor_volume_percent: 100,
+    exclusive_playback: true,
     ...overrides,
   };
 }
@@ -107,6 +108,10 @@ function mockInvoke(handlers: Record<string, (args?: unknown) => unknown>) {
 }
 
 describe("Soundboard", () => {
+  beforeEach(() => {
+    invokeMock.mockClear();
+  });
+
   it("shows the empty state when there are no tabs", async () => {
     mockInvoke({ list_soundboard_boards: () => [] });
     const wrapper = mount(Soundboard);
@@ -506,5 +511,133 @@ describe("Soundboard", () => {
       board: SoundboardBoard;
     };
     expect(savedBoard.board.monitor_system_name).toBe("alsa_output.pci-hdmi");
+  });
+
+  it("shows the legacy-restricted overlap policy and persists its toggle", async () => {
+    let boards = [
+      { ...makeBoard(), exclusive_playback: undefined },
+    ] as unknown as SoundboardBoard[];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => [],
+      save_soundboard_board: (args) => {
+        boards = [(args as { board: SoundboardBoard }).board];
+      },
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    const toggle = wrapper.find("#soundboard-exclusive-playback");
+    expect(toggle.exists()).toBe(true);
+    expect((toggle.element as HTMLInputElement).checked).toBe(true);
+
+    await toggle.setValue(false);
+    await flushPromises();
+
+    const savedBoard = invokeMock.mock.calls
+      .filter((call) => call[0] === "save_soundboard_board")
+      .at(-1)?.[1] as { board: Record<string, unknown> };
+    expect(savedBoard.board.exclusive_playback).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("allows a second clip without stopping the first in overlap mode", async () => {
+    const boards = [
+      {
+        ...makeBoard({ target_system_name: "pipe-deck-stream-mic" }),
+        exclusive_playback: false,
+      },
+    ] as SoundboardBoard[];
+    const clips: SoundboardClip[] = [
+      {
+        id: "first.wav",
+        file_name: "first.wav",
+        label: "first",
+        path: "/sounds/sfx/first.wav",
+        duration_seconds: null,
+      },
+      {
+        id: "second.wav",
+        file_name: "second.wav",
+        label: "second",
+        path: "/sounds/sfx/second.wav",
+        duration_seconds: null,
+      },
+    ];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => clips,
+      play_soundboard_clip: () => null,
+      stop_soundboard_clip: () => null,
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    const tiles = wrapper.findAll(".soundboard-tile");
+    expect(tiles[1].attributes("disabled")).toBeUndefined();
+    await tiles[0].trigger("click");
+    await flushPromises();
+    await tiles[1].trigger("click");
+    await flushPromises();
+
+    expect(
+      invokeMock.mock.calls.filter(
+        (call) => call[0] === "play_soundboard_clip",
+      ),
+    ).toHaveLength(2);
+    expect(
+      invokeMock.mock.calls.some((call) => call[0] === "stop_soundboard_clip"),
+    ).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("stops the current clip before starting the next in restricted mode", async () => {
+    const boards = [
+      {
+        ...makeBoard({ target_system_name: "pipe-deck-stream-mic" }),
+        exclusive_playback: true,
+      },
+    ] as SoundboardBoard[];
+    const clips: SoundboardClip[] = [
+      {
+        id: "first.wav",
+        file_name: "first.wav",
+        label: "first",
+        path: "/sounds/sfx/first.wav",
+        duration_seconds: null,
+      },
+      {
+        id: "second.wav",
+        file_name: "second.wav",
+        label: "second",
+        path: "/sounds/sfx/second.wav",
+        duration_seconds: null,
+      },
+    ];
+    const calls: string[] = [];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => clips,
+      play_soundboard_clip: () => {
+        calls.push("play");
+        return null;
+      },
+      stop_soundboard_clip: () => {
+        calls.push("stop");
+        return null;
+      },
+    });
+    const wrapper = mount(Soundboard);
+    await flushPromises();
+
+    const tiles = wrapper.findAll(".soundboard-tile");
+    expect(tiles[1].attributes("disabled")).toBeUndefined();
+    await tiles[0].trigger("click");
+    await flushPromises();
+    await tiles[1].trigger("click");
+    await flushPromises();
+
+    expect(calls).toEqual(["play", "stop", "play"]);
+    wrapper.unmount();
   });
 });
