@@ -735,9 +735,24 @@ describe("Soundboard", () => {
       expect((toggle.element as HTMLInputElement).checked).toBe(true);
       await toggle.setValue(false);
       await flushPromises();
-      const savedBoard = savedBoardPayloads.at(-1);
-      expect(savedBoard?.id).toBe("board-exclusive");
-      expect(savedBoard?.exclusive_playback).toBe(false);
+      const toggleAfterFirstSave = wrapper.find(
+        "#soundboard-exclusive-playback",
+      );
+      expect((toggleAfterFirstSave.element as HTMLInputElement).checked).toBe(
+        false,
+      );
+      await toggleAfterFirstSave.setValue(true);
+      await flushPromises();
+      expect(savedBoardPayloads).toHaveLength(2);
+      expect(
+        savedBoardPayloads.map(({ id, exclusive_playback }) => ({
+          id,
+          exclusive_playback,
+        })),
+      ).toEqual([
+        { id: "board-exclusive", exclusive_playback: false },
+        { id: "board-exclusive", exclusive_playback: true },
+      ]);
       expect(
         boards.find((board) => board.id === "board-overlap")
           ?.exclusive_playback,
@@ -745,11 +760,20 @@ describe("Soundboard", () => {
       expect(
         boards.find((board) => board.id === "board-exclusive")
           ?.exclusive_playback,
-      ).toBe(false);
+      ).toBe(true);
 
       const refreshedBoardTabs = wrapper
         .find(".soundboard-view > .segmented-control")
         .findAll(".segmented-control-option");
+      expect(wrapper.find(".soundboard-board-folder").text()).toBe(
+        "/sounds/exclusive",
+      );
+      expect(
+        (
+          wrapper.find("#soundboard-exclusive-playback")
+            .element as HTMLInputElement
+        ).checked,
+      ).toBe(true);
       await refreshedBoardTabs[0].trigger("click");
       await flushPromises();
       expect(wrapper.find(".soundboard-board-folder").text()).toBe(
@@ -774,7 +798,7 @@ describe("Soundboard", () => {
           wrapper.find("#soundboard-exclusive-playback")
             .element as HTMLInputElement
         ).checked,
-      ).toBe(false);
+      ).toBe(true);
     } finally {
       wrapper?.unmount();
     }
