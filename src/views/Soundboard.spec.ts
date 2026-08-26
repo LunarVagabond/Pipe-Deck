@@ -602,6 +602,184 @@ describe("Soundboard", () => {
     wrapper.unmount();
   });
 
+  it("applies and persists each board's playback policy independently", async () => {
+    let wrapper: ReturnType<typeof mount> | undefined;
+    let boards: SoundboardBoard[] = [
+      makeBoard({
+        id: "board-overlap",
+        name: "Overlap",
+        folder: "/sounds/overlap",
+        target_system_name: "pipe-deck-stream-mic",
+        exclusive_playback: false,
+      }),
+      makeBoard({
+        id: "board-exclusive",
+        name: "Exclusive",
+        folder: "/sounds/exclusive",
+        target_system_name: "pipe-deck-stream-mic",
+        exclusive_playback: true,
+      }),
+    ];
+    const clipsByBoard: Record<string, SoundboardClip[]> = {
+      "board-overlap": [
+        makeClip({ id: "overlap-first.wav", file_name: "overlap-first.wav" }),
+        makeClip({
+          id: "overlap-second.wav",
+          file_name: "overlap-second.wav",
+        }),
+      ],
+      "board-exclusive": [
+        makeClip({
+          id: "exclusive-first.wav",
+          file_name: "exclusive-first.wav",
+        }),
+        makeClip({
+          id: "exclusive-second.wav",
+          file_name: "exclusive-second.wav",
+        }),
+      ],
+    };
+    const commandSequence: string[] = [];
+    const savedBoardPayloads: SoundboardBoard[] = [];
+    let deferStop = false;
+    let releaseStop: (() => void) | undefined;
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: (args) =>
+        clipsByBoard[(args as { boardId: string }).boardId],
+      save_soundboard_board: (args) => {
+        const board = (args as { board: SoundboardBoard }).board;
+        savedBoardPayloads.push({ ...board });
+        boards = boards.map((existing) =>
+          existing.id === board.id ? { ...existing, ...board } : existing,
+        );
+      },
+      play_soundboard_clip: (args) => {
+        const { boardId, clipId } = args as {
+          boardId: string;
+          clipId: string;
+        };
+        commandSequence.push(`play:${boardId}:${clipId}`);
+        return null;
+      },
+      stop_soundboard_clip: () => {
+        commandSequence.push("stop");
+        if (deferStop) {
+          return new Promise<void>((resolve) => {
+            releaseStop = resolve;
+          });
+        }
+        return null;
+      },
+    });
+
+    try {
+      wrapper = mount(Soundboard);
+      await flushPromises();
+      const boardTabs = wrapper
+        .find(".soundboard-view > .segmented-control")
+        .findAll(".segmented-control-option");
+      expect(boardTabs).toHaveLength(3);
+      expect(boardTabs[0].text()).toBe("Overlap");
+      expect(boardTabs[1].text()).toBe("Exclusive");
+      expect(wrapper.find(".soundboard-board-folder").text()).toBe(
+        "/sounds/overlap",
+      );
+
+      let tiles = wrapper.findAll(".soundboard-tile");
+      expect(tiles).toHaveLength(2);
+      await tiles[0].trigger("click");
+      await flushPromises();
+      await tiles[1].trigger("click");
+      await flushPromises();
+      expect(commandSequence).toEqual([
+        "play:board-overlap:overlap-first.wav",
+        "play:board-overlap:overlap-second.wav",
+      ]);
+
+      await tiles[0].trigger("click");
+      await flushPromises();
+      commandSequence.length = 0;
+      deferStop = true;
+
+      await boardTabs[1].trigger("click");
+      await flushPromises();
+      expect(wrapper.find(".soundboard-board-folder").text()).toBe(
+        "/sounds/exclusive",
+      );
+      tiles = wrapper.findAll(".soundboard-tile");
+      expect(tiles).toHaveLength(2);
+      await tiles[0].trigger("click");
+      await flushPromises();
+      expect(commandSequence).toEqual([
+        "play:board-exclusive:exclusive-first.wav",
+      ]);
+
+      const replacementClick = tiles[1].trigger("click");
+      await flushPromises();
+      expect(releaseStop).toEqual(expect.any(Function));
+      expect(commandSequence).toEqual([
+        "play:board-exclusive:exclusive-first.wav",
+        "stop",
+      ]);
+      releaseStop?.();
+      await replacementClick;
+      await flushPromises();
+      expect(commandSequence).toEqual([
+        "play:board-exclusive:exclusive-first.wav",
+        "stop",
+        "play:board-exclusive:exclusive-second.wav",
+      ]);
+
+      const toggle = wrapper.find("#soundboard-exclusive-playback");
+      expect((toggle.element as HTMLInputElement).checked).toBe(true);
+      await toggle.setValue(false);
+      await flushPromises();
+      const savedBoard = savedBoardPayloads.at(-1);
+      expect(savedBoard?.id).toBe("board-exclusive");
+      expect(savedBoard?.exclusive_playback).toBe(false);
+      expect(
+        boards.find((board) => board.id === "board-overlap")
+          ?.exclusive_playback,
+      ).toBe(false);
+      expect(
+        boards.find((board) => board.id === "board-exclusive")
+          ?.exclusive_playback,
+      ).toBe(false);
+
+      const refreshedBoardTabs = wrapper
+        .find(".soundboard-view > .segmented-control")
+        .findAll(".segmented-control-option");
+      await refreshedBoardTabs[0].trigger("click");
+      await flushPromises();
+      expect(wrapper.find(".soundboard-board-folder").text()).toBe(
+        "/sounds/overlap",
+      );
+      expect(
+        (
+          wrapper.find("#soundboard-exclusive-playback")
+            .element as HTMLInputElement
+        ).checked,
+      ).toBe(false);
+      const finalBoardTabs = wrapper
+        .find(".soundboard-view > .segmented-control")
+        .findAll(".segmented-control-option");
+      await finalBoardTabs[1].trigger("click");
+      await flushPromises();
+      expect(wrapper.find(".soundboard-board-folder").text()).toBe(
+        "/sounds/exclusive",
+      );
+      expect(
+        (
+          wrapper.find("#soundboard-exclusive-playback")
+            .element as HTMLInputElement
+        ).checked,
+      ).toBe(false);
+    } finally {
+      wrapper?.unmount();
+    }
+  });
+
   it("does not inherit same-name playback across overlapping soundboard tabs", async () => {
     const boards: SoundboardBoard[] = [
       makeBoard({
