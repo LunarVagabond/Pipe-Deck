@@ -63,16 +63,27 @@ const clips = ref<SoundboardClip[]>([]);
 const loadingBoards = ref(true);
 const loadingClips = ref(false);
 const error = ref<string | null>(null);
-const playingClipId = ref<string | null>(null);
-// Elapsed/remaining time is interpolated client-side from the clip's probed
-// duration (#399) rather than pushed from the backend — `play_soundboard_clip`
-// only ever tells us playback *started* (PD-036), never when it finishes, so
-// there's nothing to subscribe to. `playingDurationSeconds` is null when the
-// clip's duration couldn't be probed (see `SoundboardClip.duration_seconds`);
-// the progress bar degrades to an elapsed-only counter with no fixed end.
-const playingDurationSeconds = ref<number | null>(null);
-const playingElapsedSeconds = ref(0);
-let playingStartedAt = 0;
+const DEFAULT_EXCLUSIVE_PLAYBACK = true;
+
+interface PlaybackState {
+  durationSeconds: number | null;
+  elapsedSeconds: number;
+  startedAt: number;
+}
+
+// Elapsed/remaining time is interpolated client-side from each clip's probed
+// duration (#399) rather than pushed from the backend —
+// `play_soundboard_clip` only ever tells us playback *started* (PD-036), never
+// when it finishes. Keeping one state entry per board-qualified clip lets
+// overlap mode render all active clips while the backend owns the actual
+// process handles.
+const playingClips = ref<Record<string, PlaybackState>>({});
+const exclusivePlayback = ref(DEFAULT_EXCLUSIVE_PLAYBACK);
+// This count intentionally spans every tab: stop_soundboard_clip is global to
+// the backend's tracked playback legs, even though the UI state is tab-qualified.
+const activePlaybackCount = computed(
+  () => Object.keys(playingClips.value).length,
+);
 let progressTimer: ReturnType<typeof setInterval> | null = null;
 const PROGRESS_TICK_MS = 200;
 
@@ -85,18 +96,66 @@ function clearProgressTimer() {
 
 function resetPlaybackState() {
   clearProgressTimer();
-  playingClipId.value = null;
-  playingDurationSeconds.value = null;
-  playingElapsedSeconds.value = 0;
+  playingClips.value = {};
 }
 
 onUnmounted(clearProgressTimer);
 
-const playingProgressPercent = computed(() => {
-  const duration = playingDurationSeconds.value;
-  if (!duration) return 0;
-  return Math.min(100, (playingElapsedSeconds.value / duration) * 100);
-});
+function playbackKey(boardId: string, clipId: string): string {
+  return JSON.stringify([boardId, clipId]);
+}
+
+function currentPlaybackKey(clipId: string): string | null {
+  return activeBoardId.value ? playbackKey(activeBoardId.value, clipId) : null;
+}
+
+function getPlaybackState(clipId: string): PlaybackState | undefined {
+  const key = currentPlaybackKey(clipId);
+  return key === null ? undefined : playingClips.value[key];
+}
+
+function playingProgressPercent(clipId: string): number {
+  const playback = getPlaybackState(clipId);
+  if (!playback?.durationSeconds) return 0;
+  return Math.min(
+    100,
+    (playback.elapsedSeconds / playback.durationSeconds) * 100,
+  );
+}
+
+function isClipPlaying(clipId: string): boolean {
+  return Boolean(getPlaybackState(clipId));
+}
+
+function getPlayingElapsed(clipId: string): number {
+  return getPlaybackState(clipId)?.elapsedSeconds ?? 0;
+}
+
+function getPlayingDuration(clipId: string): number | null {
+  return getPlaybackState(clipId)?.durationSeconds ?? null;
+}
+
+function updatePlaybackProgress() {
+  const now = Date.now();
+  const next: Record<string, PlaybackState> = {};
+  for (const [clipId, playback] of Object.entries(playingClips.value)) {
+    const elapsedSeconds = (now - playback.startedAt) / 1000;
+    if (
+      playback.durationSeconds !== null &&
+      elapsedSeconds >= playback.durationSeconds
+    ) {
+      continue;
+    }
+    next[clipId] = { ...playback, elapsedSeconds };
+  }
+  playingClips.value = next;
+  if (Object.keys(next).length === 0) clearProgressTimer();
+}
+
+function startProgressTimer() {
+  clearProgressTimer();
+  progressTimer = setInterval(updatePlaybackProgress, PROGRESS_TICK_MS);
+}
 
 function formatTime(seconds: number): string {
   const total = Math.max(0, Math.round(seconds));
@@ -159,27 +218,35 @@ async function loadClips() {
 }
 
 async function playClip(clip: SoundboardClip) {
-  if (!activeBoardId.value || playingClipId.value) return;
-  playingClipId.value = clip.id;
-  playingDurationSeconds.value = clip.duration_seconds;
-  playingElapsedSeconds.value = 0;
-  playingStartedAt = Date.now();
-  clearProgressTimer();
-  progressTimer = setInterval(() => {
-    playingElapsedSeconds.value = (Date.now() - playingStartedAt) / 1000;
-    const duration = playingDurationSeconds.value;
-    if (duration !== null && playingElapsedSeconds.value >= duration) {
-      resetPlaybackState();
-    }
-  }, PROGRESS_TICK_MS);
+  const boardId = activeBoardId.value;
+  if (!boardId) return;
+  const key = playbackKey(boardId, clip.id);
+
+  if (exclusivePlayback.value && activePlaybackCount.value > 0) {
+    const stopped = await stopClip();
+    if (!stopped) return;
+  }
+
+  playingClips.value = {
+    ...playingClips.value,
+    [key]: {
+      durationSeconds: clip.duration_seconds,
+      elapsedSeconds: 0,
+      startedAt: Date.now(),
+    },
+  };
+  startProgressTimer();
 
   try {
     await invoke("play_soundboard_clip", {
-      boardId: activeBoardId.value,
+      boardId,
       clipId: clip.id,
     });
   } catch (err) {
-    resetPlaybackState();
+    const remaining = { ...playingClips.value };
+    delete remaining[key];
+    playingClips.value = remaining;
+    if (Object.keys(remaining).length === 0) clearProgressTimer();
     handleApplyResult(
       {
         success: false,
@@ -190,10 +257,11 @@ async function playClip(clip: SoundboardClip) {
   }
 }
 
-async function stopClip() {
-  if (!playingClipId.value) return;
+async function stopClip(): Promise<boolean> {
+  if (activePlaybackCount.value === 0) return true;
   try {
     await invoke("stop_soundboard_clip");
+    return true;
   } catch (err) {
     handleApplyResult(
       {
@@ -202,13 +270,14 @@ async function stopClip() {
       },
       "",
     );
+    return false;
   } finally {
     resetPlaybackState();
   }
 }
 
 function handleTileClick(clip: SoundboardClip) {
-  if (clip.id === playingClipId.value) {
+  if (isClipPlaying(clip.id)) {
     stopClip();
   } else {
     playClip(clip);
@@ -253,6 +322,7 @@ async function addBoard() {
     target_volume_percent: 100,
     monitor_system_name: null,
     monitor_volume_percent: 100,
+    exclusive_playback: DEFAULT_EXCLUSIVE_PLAYBACK,
   };
   try {
     await invoke("save_soundboard_board", { board });
@@ -368,6 +438,8 @@ watch(
     targetVolume.value = board?.target_volume_percent ?? 100;
     monitorSystemName.value = board?.monitor_system_name ?? null;
     monitorVolume.value = board?.monitor_volume_percent ?? 100;
+    exclusivePlayback.value =
+      board?.exclusive_playback ?? DEFAULT_EXCLUSIVE_PLAYBACK;
   },
   { immediate: true },
 );
@@ -383,6 +455,7 @@ async function saveDestinations() {
         target_volume_percent: targetVolume.value,
         monitor_system_name: monitorSystemName.value,
         monitor_volume_percent: monitorVolume.value,
+        exclusive_playback: exclusivePlayback.value,
       },
     });
     await loadBoards();
@@ -518,6 +591,19 @@ onMounted(async () => {
             >
           </div>
         </div>
+
+        <div class="soundboard-playback-policy">
+          <label for="soundboard-exclusive-playback">
+            <input
+              id="soundboard-exclusive-playback"
+              v-model="exclusivePlayback"
+              type="checkbox"
+              @change="saveDestinations"
+            />
+            Exclusive playback
+          </label>
+          <span>Stop the current clip before playing another</span>
+        </div>
       </div>
 
       <div
@@ -564,13 +650,12 @@ onMounted(async () => {
           type="button"
           class="soundboard-tile"
           :class="{
-            playing: playingClipId === clip.id,
+            playing: isClipPlaying(clip.id),
             'no-target': !hasBoardDestination,
             'soundboard-tile--list': clipLayout === 'list',
           }"
-          :disabled="playingClipId !== null && playingClipId !== clip.id"
           :title="
-            playingClipId === clip.id
+            isClipPlaying(clip.id)
               ? `${clip.label} — click to stop`
               : hasBoardDestination
                 ? clip.label
@@ -579,23 +664,20 @@ onMounted(async () => {
           @click="handleTileClick(clip)"
         >
           <span class="soundboard-tile-icon">{{
-            playingClipId === clip.id ? "⏹" : "🔊"
+            isClipPlaying(clip.id) ? "⏹" : "🔊"
           }}</span>
           <span class="soundboard-tile-label">{{ clip.label }}</span>
-          <div
-            v-if="playingClipId === clip.id"
-            class="soundboard-tile-progress"
-          >
+          <div v-if="isClipPlaying(clip.id)" class="soundboard-tile-progress">
             <div class="soundboard-tile-progress-bar">
               <div
                 class="soundboard-tile-progress-fill"
-                :style="{ width: `${playingProgressPercent}%` }"
+                :style="{ width: `${playingProgressPercent(clip.id)}%` }"
               />
             </div>
             <div class="soundboard-tile-progress-times">
-              <span>{{ formatTime(playingElapsedSeconds) }}</span>
-              <span v-if="playingDurationSeconds !== null">{{
-                formatTime(playingDurationSeconds)
+              <span>{{ formatTime(getPlayingElapsed(clip.id)) }}</span>
+              <span v-if="getPlayingDuration(clip.id) !== null">{{
+                formatTime(getPlayingDuration(clip.id) ?? 0)
               }}</span>
             </div>
           </div>

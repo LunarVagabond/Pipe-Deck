@@ -1114,6 +1114,7 @@ mod tests {
                 target_volume_percent: 100,
                 monitor_system_name: None,
                 monitor_volume_percent: 100,
+                exclusive_playback: true,
             };
             store.save_soundboard_board(sfx.clone()).unwrap();
             assert_eq!(store.preferences().soundboard_boards, vec![sfx.clone()]);
@@ -1126,6 +1127,7 @@ mod tests {
                 target_volume_percent: 100,
                 monitor_system_name: None,
                 monitor_volume_percent: 100,
+                exclusive_playback: true,
             };
             store.save_soundboard_board(music.clone()).unwrap();
             assert_eq!(
@@ -1141,6 +1143,7 @@ mod tests {
                 target_volume_percent: 100,
                 monitor_system_name: None,
                 monitor_volume_percent: 100,
+                exclusive_playback: true,
             };
             store.save_soundboard_board(renamed_sfx.clone()).unwrap();
             assert_eq!(
@@ -1168,6 +1171,7 @@ mod tests {
                 target_volume_percent: 100,
                 monitor_system_name: Some("alsa_output.pci-hdmi".to_string()),
                 monitor_volume_percent: 40,
+                exclusive_playback: true,
             };
             store.save_soundboard_board(board).unwrap();
 
