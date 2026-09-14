@@ -156,7 +156,7 @@ use std::os::raw::c_void;
 use std::sync::{Mutex, OnceLock};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum NativeDspHostError {
     #[error("failed to create capture stream for {0}")]
     CaptureStreamFailed(String),
@@ -170,6 +170,8 @@ pub enum NativeDspHostError {
     ConnectFailed(String, String),
     #[error("failed to build a Format pod: {0}")]
     PodBuildFailed(String),
+    #[error("couldn't start the effects engine — is PipeWire running? ({0})")]
+    InitFailed(String),
 }
 
 /// Fixed at stereo — see module doc "Scope / known limitation".
@@ -485,7 +487,7 @@ struct DspHost {
 // `Send` by construction (ringbuf's `SharedRb` is designed to cross threads).
 unsafe impl Send for DspHost {}
 
-static HOST: OnceLock<Mutex<DspHost>> = OnceLock::new();
+static HOST: OnceLock<Result<Mutex<DspHost>, NativeDspHostError>> = OnceLock::new();
 
 /// Reuses `native_host`'s connection (`shared_connection()`) rather than
 /// opening a second, independent one — an earlier version of this module
@@ -496,23 +498,31 @@ static HOST: OnceLock<Mutex<DspHost>> = OnceLock::new();
 /// the one connection this codebase already runs in production
 /// (PD-027/PD-029) removes that variable; this module's own state is just
 /// its `loaded` bookkeeping now.
-fn host() -> &'static Mutex<DspHost> {
+///
+/// Like `native_host::host()`, a failed one-time setup (issue #437) is
+/// cached and returned to every subsequent caller rather than panicking or
+/// retried.
+fn host() -> Result<&'static Mutex<DspHost>, NativeDspHostError> {
     HOST.get_or_init(|| {
-        let (thread_loop, core) = crate::pipewire::native_host::shared_connection();
-        Mutex::new(DspHost {
+        let (thread_loop, core) = crate::pipewire::native_host::shared_connection()
+            .map_err(|error| NativeDspHostError::InitFailed(error.to_string()))?;
+        Ok(Mutex::new(DspHost {
             thread_loop,
             core,
             loaded: HashMap::new(),
-        })
+        }))
     })
+    .as_ref()
+    .map_err(Clone::clone)
 }
 
 /// Forces the one-time setup above to happen now rather than inside the
 /// first real request — same rationale and call site as
 /// `native_host::warm_up`, which this itself now depends on (call that
 /// first, or this transitively triggers it via `shared_connection()`).
-pub fn warm_up() {
-    host();
+pub fn warm_up() -> Result<(), NativeDspHostError> {
+    host()?;
+    Ok(())
 }
 
 fn audio_info_pod(rate_hz: Option<u32>) -> Result<Vec<u8>, NativeDspHostError> {
@@ -609,7 +619,7 @@ pub fn load_chain(
         )
     };
 
-    let mut guard = host().lock().expect("native dsp host mutex poisoned");
+    let mut guard = host()?.lock().expect("native dsp host mutex poisoned");
 
     // Built inside a closure so the `thread_loop` lock guard(s) it holds are
     // dropped before `guard.loaded.insert` below needs an exclusive borrow
@@ -754,9 +764,14 @@ pub fn load_chain(
 }
 
 /// Unloads a previously loaded chain, disconnecting and destroying both
-/// streams. A no-op if nothing is loaded for `device_system_name`.
+/// streams. A no-op if nothing is loaded for `device_system_name` — including
+/// when the host itself never initialized, since nothing could have been
+/// loaded on a connection that doesn't exist.
 pub fn unload_chain(device_system_name: &str) {
-    let mut guard = host().lock().expect("native dsp host mutex poisoned");
+    let Ok(host) = host() else {
+        return;
+    };
+    let mut guard = host.lock().expect("native dsp host mutex poisoned");
     let Some(loaded) = guard.loaded.remove(device_system_name) else {
         return;
     };
@@ -769,9 +784,12 @@ pub fn unload_chain(device_system_name: &str) {
 }
 
 /// Whether a portable-DSP chain is currently loaded for `device_system_name`.
+/// `false` if the native DSP host itself never initialized.
 pub fn is_loaded(device_system_name: &str) -> bool {
-    host()
-        .lock()
+    let Ok(host) = host() else {
+        return false;
+    };
+    host.lock()
         .expect("native dsp host mutex poisoned")
         .loaded
         .contains_key(device_system_name)
@@ -786,7 +804,7 @@ pub fn set_live_chain(
     device_system_name: &str,
     config: &EffectChainConfig,
 ) -> Result<(), NativeDspHostError> {
-    let mut guard = host().lock().expect("native dsp host mutex poisoned");
+    let mut guard = host()?.lock().expect("native dsp host mutex poisoned");
     let Some(loaded) = guard.loaded.get_mut(device_system_name) else {
         return Ok(());
     };
@@ -812,7 +830,7 @@ mod tests {
     fn load_chain_from_a_different_thread_than_warm_up_used() {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
-        warm_up();
+        warm_up().expect("warm_up failed");
 
         let device_system_name = "pipe-deck-dsp-host-cross-thread-test";
         let config = EffectChainConfig {
