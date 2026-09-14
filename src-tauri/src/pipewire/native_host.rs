@@ -65,7 +65,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum NativeHostError {
     #[error("pw_context_load_module returned NULL for {0} — module failed to load")]
     LoadFailed(String),
@@ -77,6 +77,8 @@ pub enum NativeHostError {
     BindFailed(String),
     #[error("failed to build a Props pod: {0}")]
     PodBuildFailed(String),
+    #[error("couldn't start the effects engine — is PipeWire running? ({0})")]
+    InitFailed(String),
 }
 
 /// Wraps `(control_name, value)` pairs as the `Struct` pod filter-chain's
@@ -163,95 +165,117 @@ struct NativeHost {
 // `node_ids` is a plain `Arc<Mutex<..>>`, `Send`-safe regardless.
 unsafe impl Send for NativeHost {}
 
-static NATIVE_HOST: OnceLock<Mutex<NativeHost>> = OnceLock::new();
+static NATIVE_HOST: OnceLock<Result<Mutex<NativeHost>, NativeHostError>> = OnceLock::new();
 
-fn host() -> &'static Mutex<NativeHost> {
-    NATIVE_HOST.get_or_init(|| {
-        static PW_INIT: std::sync::Once = std::sync::Once::new();
-        PW_INIT.call_once(pw::init);
-        // SAFETY: `pw::init()` has just been called above (exactly once,
-        // process-wide, via `PW_INIT`).
-        let thread_loop =
-            unsafe { pw::thread_loop::ThreadLoopRc::new(Some("pipe-deck-native-host"), None) }
-                .expect("failed to create PipeWire thread loop");
-        thread_loop.start();
+/// Lazily initializes the process-wide PipeWire connection on first use, or
+/// returns the same `NativeHostError` every subsequent call if that one-time
+/// setup ever fails — `OnceLock` caches whichever `Result` the init closure
+/// returns, success or failure, and there's no retry path (matching this
+/// module's "one connection, held for the process's life" design elsewhere).
+/// A failure here used to `.expect()`-panic and take the whole daemon down
+/// (issue #437); every caller below now propagates this `Result` instead.
+fn host() -> Result<&'static Mutex<NativeHost>, NativeHostError> {
+    NATIVE_HOST
+        .get_or_init(|| {
+            static PW_INIT: std::sync::Once = std::sync::Once::new();
+            PW_INIT.call_once(pw::init);
+            // SAFETY: `pw::init()` has just been called above (exactly once,
+            // process-wide, via `PW_INIT`).
+            let thread_loop =
+                unsafe { pw::thread_loop::ThreadLoopRc::new(Some("pipe-deck-native-host"), None) }
+                    .map_err(|error| {
+                        NativeHostError::InitFailed(format!(
+                            "failed to create PipeWire thread loop: {error}"
+                        ))
+                    })?;
+            thread_loop.start();
 
-        let node_ids: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
-        // `id -> name` isn't kept as a struct field — it only exists to let
-        // the `global_remove` closure below know which `node_ids` entry a
-        // dying id used to own, so it's captured by that closure alone
-        // rather than exposed more broadly.
-        let id_to_name: Arc<Mutex<HashMap<u32, String>>> = Arc::new(Mutex::new(HashMap::new()));
+            let node_ids: Arc<Mutex<HashMap<String, u32>>> = Arc::new(Mutex::new(HashMap::new()));
+            // `id -> name` isn't kept as a struct field — it only exists to let
+            // the `global_remove` closure below know which `node_ids` entry a
+            // dying id used to own, so it's captured by that closure alone
+            // rather than exposed more broadly.
+            let id_to_name: Arc<Mutex<HashMap<u32, String>>> = Arc::new(Mutex::new(HashMap::new()));
 
-        let (context, core, registry, node_listener) = {
-            let _lock = thread_loop.lock();
-            let context = pw::context::ContextRc::new(&thread_loop, None)
-                .expect("failed to create PipeWire context");
-            let core = context
-                .connect_rc(None)
-                .expect("failed to connect to PipeWire core");
-            let registry = core
-                .get_registry_rc()
-                .expect("failed to get PipeWire registry");
+            let (context, core, registry, node_listener) = {
+                let _lock = thread_loop.lock();
+                let context = pw::context::ContextRc::new(&thread_loop, None).map_err(|error| {
+                    NativeHostError::InitFailed(format!(
+                        "failed to create PipeWire context: {error}"
+                    ))
+                })?;
+                let core = context.connect_rc(None).map_err(|error| {
+                    NativeHostError::InitFailed(format!(
+                        "failed to connect to PipeWire core: {error}"
+                    ))
+                })?;
+                let registry = core.get_registry_rc().map_err(|error| {
+                    NativeHostError::InitFailed(format!(
+                        "failed to get PipeWire registry: {error}"
+                    ))
+                })?;
 
-            let add_node_ids = node_ids.clone();
-            let add_id_to_name = id_to_name.clone();
-            let remove_node_ids = node_ids.clone();
-            let remove_id_to_name = id_to_name.clone();
-            let node_listener = registry
-                .add_listener_local()
-                .global(move |global| {
-                    if global.type_ != pw::types::ObjectType::Node {
-                        return;
-                    }
-                    let Some(name) = global.props.and_then(|props| props.get("node.name")) else {
-                        return;
-                    };
-                    let name = name.to_string();
-                    add_node_ids
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .insert(name.clone(), global.id);
-                    add_id_to_name
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .insert(global.id, name);
-                })
-                .global_remove(move |id| {
-                    let Some(name) = remove_id_to_name
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .remove(&id)
-                    else {
-                        return;
-                    };
-                    let mut node_ids = remove_node_ids
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner());
-                    // Only remove if this id is still on record for that
-                    // name — guards against a rare remove-then-immediately-
-                    // recreate-with-a-new-id race clobbering a just-inserted
-                    // newer entry (same guard `pw_registry.rs::apply_event`
-                    // and `pw_link_native.rs::Index::apply` both use).
-                    if node_ids.get(&name) == Some(&id) {
-                        node_ids.remove(&name);
-                    }
-                })
-                .register();
+                let add_node_ids = node_ids.clone();
+                let add_id_to_name = id_to_name.clone();
+                let remove_node_ids = node_ids.clone();
+                let remove_id_to_name = id_to_name.clone();
+                let node_listener = registry
+                    .add_listener_local()
+                    .global(move |global| {
+                        if global.type_ != pw::types::ObjectType::Node {
+                            return;
+                        }
+                        let Some(name) = global.props.and_then(|props| props.get("node.name"))
+                        else {
+                            return;
+                        };
+                        let name = name.to_string();
+                        add_node_ids
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .insert(name.clone(), global.id);
+                        add_id_to_name
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .insert(global.id, name);
+                    })
+                    .global_remove(move |id| {
+                        let Some(name) = remove_id_to_name
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner())
+                            .remove(&id)
+                        else {
+                            return;
+                        };
+                        let mut node_ids = remove_node_ids
+                            .lock()
+                            .unwrap_or_else(|poisoned| poisoned.into_inner());
+                        // Only remove if this id is still on record for that
+                        // name — guards against a rare remove-then-immediately-
+                        // recreate-with-a-new-id race clobbering a just-inserted
+                        // newer entry (same guard `pw_registry.rs::apply_event`
+                        // and `pw_link_native.rs::Index::apply` both use).
+                        if node_ids.get(&name) == Some(&id) {
+                            node_ids.remove(&name);
+                        }
+                    })
+                    .register();
 
-            (context, core, registry, node_listener)
-        };
+                (context, core, registry, node_listener)
+            };
 
-        Mutex::new(NativeHost {
-            thread_loop,
-            context,
-            registry,
-            _core: core,
-            _node_listener: node_listener,
-            node_ids,
-            loaded: HashMap::new(),
+            Ok(Mutex::new(NativeHost {
+                thread_loop,
+                context,
+                registry,
+                _core: core,
+                _node_listener: node_listener,
+                node_ids,
+                loaded: HashMap::new(),
+            }))
         })
-    })
+        .as_ref()
+        .map_err(Clone::clone)
 }
 
 /// Resolves `node_name`'s live id via this connection's own `node_ids`
@@ -300,8 +324,9 @@ fn settle() {
 /// only touch `native_host` at all when there's something persisted to
 /// reload, so a fresh profile with nothing yet configured never warms it up
 /// on its own).
-pub fn warm_up() {
-    host();
+pub fn warm_up() -> Result<(), NativeHostError> {
+    host()?;
+    Ok(())
 }
 
 /// Exposes this module's connection (`ThreadLoopRc`/`CoreRc`) for
@@ -311,9 +336,10 @@ pub fn warm_up() {
 /// testing). Cheap `Rc` clones handed back to the caller; the caller must
 /// still take `thread_loop.lock()` before any `pw::*` call on the returned
 /// `core`, same contract as every other use of this connection in this file.
-pub fn shared_connection() -> (pw::thread_loop::ThreadLoopRc, pw::core::CoreRc) {
-    let guard = host().lock().expect("native host mutex poisoned");
-    (guard.thread_loop.clone(), guard._core.clone())
+pub fn shared_connection(
+) -> Result<(pw::thread_loop::ThreadLoopRc, pw::core::CoreRc), NativeHostError> {
+    let guard = host()?.lock().expect("native host mutex poisoned");
+    Ok((guard.thread_loop.clone(), guard._core.clone()))
 }
 
 /// Loads `config`'s filter chain onto `device_system_name`, swapping out
@@ -350,7 +376,7 @@ pub fn load_chain(
     let args_c = CString::new(args)
         .map_err(|_| NativeHostError::InvalidArgs(device_system_name.to_string()))?;
 
-    let mut guard = host().lock().expect("native host mutex poisoned");
+    let mut guard = host()?.lock().expect("native host mutex poisoned");
     let module_ptr = {
         let _lock = guard.thread_loop.lock();
         unsafe {
@@ -404,7 +430,7 @@ pub fn load_chain(
 /// `device_system_name` — mirrors `revert_to_plain_device`'s tolerance of
 /// being called on a device that's already plain.
 pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
-    let mut guard = host().lock().expect("native host mutex poisoned");
+    let mut guard = host()?.lock().expect("native host mutex poisoned");
     let Some(handle) = guard.loaded.remove(device_system_name) else {
         return Ok(());
     };
@@ -417,10 +443,14 @@ pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
     Ok(())
 }
 
-/// Whether a chain is currently loaded for `device_system_name`.
+/// Whether a chain is currently loaded for `device_system_name`. `false` if
+/// the native host itself never initialized — nothing can be loaded on a
+/// connection that doesn't exist.
 pub fn is_loaded(device_system_name: &str) -> bool {
-    host()
-        .lock()
+    let Ok(host) = host() else {
+        return false;
+    };
+    host.lock()
         .expect("native host mutex poisoned")
         .loaded
         .contains_key(device_system_name)
@@ -451,7 +481,7 @@ pub fn set_param(
         return Ok(());
     }
 
-    let guard = host().lock().expect("native host mutex poisoned");
+    let guard = host()?.lock().expect("native host mutex poisoned");
 
     let mut id = None;
     for attempt in 0..SETTLE_ATTEMPTS {
@@ -529,7 +559,10 @@ pub fn set_param(
 #[cfg(test)]
 fn is_indexed(node_name: &str) -> bool {
     find_live_node_id(
-        &host().lock().expect("native host mutex poisoned"),
+        &host()
+            .expect("native host failed to initialize")
+            .lock()
+            .expect("native host mutex poisoned"),
         node_name,
     )
     .is_some()
