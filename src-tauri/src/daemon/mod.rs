@@ -170,8 +170,15 @@ fn serve_native_effects() {
     // there's something persisted to reload, but a fresh profile with
     // nothing configured yet skips both, so this can't be dropped in favor
     // of relying on them.
-    crate::pipewire::native_host::warm_up();
-    crate::pipewire::native_dsp_host::warm_up();
+    // A failure here (issue #437) no longer panics — it's logged and the
+    // daemon keeps starting; the same error surfaces to whichever
+    // LoadChain/etc. IPC request first tries to use the connection instead.
+    if let Err(error) = crate::pipewire::native_host::warm_up() {
+        eprintln!("native effects host failed to start: {error}");
+    }
+    if let Err(error) = crate::pipewire::native_dsp_host::warm_up() {
+        eprintln!("native DSP host failed to start: {error}");
+    }
     reconcile_live_effects_state();
     reconcile_live_processing_nodes();
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
