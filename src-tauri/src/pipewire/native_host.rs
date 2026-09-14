@@ -210,9 +210,7 @@ fn host() -> Result<&'static Mutex<NativeHost>, NativeHostError> {
                     ))
                 })?;
                 let registry = core.get_registry_rc().map_err(|error| {
-                    NativeHostError::InitFailed(format!(
-                        "failed to get PipeWire registry: {error}"
-                    ))
+                    NativeHostError::InitFailed(format!("failed to get PipeWire registry: {error}"))
                 })?;
 
                 let add_node_ids = node_ids.clone();
