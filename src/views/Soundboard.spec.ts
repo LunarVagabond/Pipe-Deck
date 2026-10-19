@@ -555,6 +555,54 @@ describe("Soundboard", () => {
     wrapper.unmount();
   });
 
+  it("clicking the exclusive playback label flips and saves the toggle", async () => {
+    let boards: SoundboardBoard[] = [
+      makeBoard({ id: "active-board", exclusive_playback: true }),
+    ];
+    mockInvoke({
+      list_soundboard_boards: () => boards,
+      list_soundboard_sounds: () => [],
+      save_soundboard_board: (args) => {
+        const savedBoard = (args as { board: SoundboardBoard }).board;
+        boards = boards.map((board) =>
+          board.id === savedBoard.id ? { ...board, ...savedBoard } : board,
+        );
+      },
+    });
+
+    const wrapper = mount(Soundboard, { attachTo: document.body });
+    try {
+      await flushPromises();
+
+      const toggle = wrapper
+        .find(".soundboard-playback-policy")
+        .findComponent(ToggleSwitch);
+      expect(toggle.props("modelValue")).toBe(true);
+
+      const label = wrapper.get(".soundboard-playback-policy-label");
+      const input = toggle.get("input.toggle-input");
+      expect(label.element.tagName).toBe("LABEL");
+      expect(label.attributes("for")).toBe("soundboard-exclusive-playback");
+      expect(input.attributes("id")).toBe("soundboard-exclusive-playback");
+
+      label.element.click();
+      await flushPromises();
+
+      expect(toggle.props("modelValue")).toBe(false);
+      expect(invokeMock).toHaveBeenCalledWith(
+        "save_soundboard_board",
+        expect.objectContaining({
+          board: expect.objectContaining({
+            id: "active-board",
+            exclusive_playback: false,
+          }),
+        }),
+      );
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it("persists the active board's exclusive playback toggle across reloads", async () => {
     let wrapper: ReturnType<typeof mount> | undefined;
     let boards: SoundboardBoard[] = [

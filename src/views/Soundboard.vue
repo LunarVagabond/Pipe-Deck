@@ -600,12 +600,16 @@ onMounted(async () => {
 
         <div class="soundboard-playback-policy">
           <div class="soundboard-playback-policy-control">
-            <span class="soundboard-playback-policy-label">
+            <label
+              class="soundboard-playback-policy-label"
+              for="soundboard-exclusive-playback"
+            >
               Exclusive playback
-            </span>
+            </label>
             <ToggleSwitch
               :model-value="exclusivePlayback"
               :show-state-labels="false"
+              input-id="soundboard-exclusive-playback"
               @update:model-value="setExclusivePlayback"
             />
           </div>
