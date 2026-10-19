@@ -585,7 +585,7 @@ describe("Soundboard", () => {
       expect(label.attributes("for")).toBe("soundboard-exclusive-playback");
       expect(input.attributes("id")).toBe("soundboard-exclusive-playback");
 
-      label.element.click();
+      await label.trigger("click");
       await flushPromises();
 
       expect(toggle.props("modelValue")).toBe(false);
