@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import SegmentedControl from "../components/SegmentedControl.vue";
+import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { useApplyResult } from "../stores/notices";
 import { usePrompt } from "../stores/prompt";
 import { useConfirm } from "../stores/confirm";
@@ -470,6 +471,11 @@ async function saveDestinations() {
   }
 }
 
+async function setExclusivePlayback(value: boolean) {
+  exclusivePlayback.value = value;
+  await saveDestinations();
+}
+
 onMounted(async () => {
   await loadBoards();
   await loadClips();
@@ -593,15 +599,20 @@ onMounted(async () => {
         </div>
 
         <div class="soundboard-playback-policy">
-          <label for="soundboard-exclusive-playback">
-            <input
-              id="soundboard-exclusive-playback"
-              v-model="exclusivePlayback"
-              type="checkbox"
-              @change="saveDestinations"
+          <div class="soundboard-playback-policy-control">
+            <label
+              class="soundboard-playback-policy-label"
+              for="soundboard-exclusive-playback"
+            >
+              Exclusive playback
+            </label>
+            <ToggleSwitch
+              :model-value="exclusivePlayback"
+              :show-state-labels="false"
+              input-id="soundboard-exclusive-playback"
+              @update:model-value="setExclusivePlayback"
             />
-            Exclusive playback
-          </label>
+          </div>
           <span>Stop the current clip before playing another</span>
         </div>
       </div>
