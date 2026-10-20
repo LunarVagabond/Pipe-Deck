@@ -125,17 +125,16 @@
   gap: 0.35rem;
   min-width: 220px;
 
-  label {
+  .soundboard-playback-policy-control {
     display: flex;
     align-items: center;
     gap: 0.5rem;
+  }
+
+  .soundboard-playback-policy-label {
     font-size: 0.9rem;
     font-weight: 600;
     color: var(--text);
-  }
-
-  input[type="checkbox"] {
-    accent-color: var(--accent-purple);
   }
 
   span {

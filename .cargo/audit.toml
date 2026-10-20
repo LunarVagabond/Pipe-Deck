@@ -1,0 +1,27 @@
+# cargo-audit configuration. cargo-audit reads `.cargo/audit.toml` relative to
+# the directory it is run from. The Cargo Audit workflow
+# (.github/workflows/cargo-audit.yml) runs it from the repo root as
+# `cargo audit --file src-tauri/Cargo.lock`, so this file has to live here, not
+# under src-tauri/. Reproduce locally from the repo root with the same command.
+#
+# Every entry needs a reason and a tracking issue, and gets removed as soon as
+# the underlying dependency can move to a patched version.
+
+[advisories]
+ignore = [
+  # zip < 9.0.0 (#554, #555, #556): unsafe symlink / SUID handling in
+  # `ZipArchive::extract` and `ZipStreamReader::extract`.
+  #
+  # The only consumer is tauri-plugin-updater, which pins `zip ^4` in every
+  # release (2.12.0 through 2.14.0 and the 3.0 alphas) and uses it only in
+  # its Windows-only `extract_zip` path (`[target.'cfg(target_os = "windows")']`).
+  # Pipe Deck ships Linux builds only, so zip is in Cargo.lock but never
+  # compiled into a shipped binary. The updater's `zip` feature cannot be
+  # turned off either: it also gates the `.AppImage.tar.gz` extraction used
+  # for Linux updates.
+  #
+  # Remove these entries once tauri-plugin-updater moves to zip >= 9.
+  "RUSTSEC-2026-0367",
+  "RUSTSEC-2026-0368",
+  "RUSTSEC-2026-0369",
+]
