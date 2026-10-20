@@ -61,7 +61,7 @@ use pipewire::sys as pw_sys;
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::io::Cursor;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use thiserror::Error;
 
@@ -79,6 +79,8 @@ pub enum NativeHostError {
     PodBuildFailed(String),
     #[error("couldn't start the effects engine — is PipeWire running? ({0})")]
     InitFailed(String),
+    #[error("native host mutex poisoned")]
+    LockPoisoned,
 }
 
 /// Wraps `(control_name, value)` pairs as the `Struct` pod filter-chain's
@@ -166,6 +168,10 @@ struct NativeHost {
 unsafe impl Send for NativeHost {}
 
 static NATIVE_HOST: OnceLock<Result<Mutex<NativeHost>, NativeHostError>> = OnceLock::new();
+
+fn lock_host<T>(host: &Mutex<T>) -> Result<MutexGuard<'_, T>, NativeHostError> {
+    host.lock().map_err(|_| NativeHostError::LockPoisoned)
+}
 
 /// Lazily initializes the process-wide PipeWire connection on first use, or
 /// returns the same `NativeHostError` every subsequent call if that one-time
@@ -336,7 +342,7 @@ pub fn warm_up() -> Result<(), NativeHostError> {
 /// `core`, same contract as every other use of this connection in this file.
 pub fn shared_connection(
 ) -> Result<(pw::thread_loop::ThreadLoopRc, pw::core::CoreRc), NativeHostError> {
-    let guard = host()?.lock().expect("native host mutex poisoned");
+    let guard = lock_host(host()?)?;
     Ok((guard.thread_loop.clone(), guard._core.clone()))
 }
 
@@ -374,7 +380,7 @@ pub fn load_chain(
     let args_c = CString::new(args)
         .map_err(|_| NativeHostError::InvalidArgs(device_system_name.to_string()))?;
 
-    let mut guard = host()?.lock().expect("native host mutex poisoned");
+    let mut guard = lock_host(host()?)?;
     let module_ptr = {
         let _lock = guard.thread_loop.lock();
         unsafe {
@@ -428,7 +434,7 @@ pub fn load_chain(
 /// `device_system_name` — mirrors `revert_to_plain_device`'s tolerance of
 /// being called on a device that's already plain.
 pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
-    let mut guard = host()?.lock().expect("native host mutex poisoned");
+    let mut guard = lock_host(host()?)?;
     let Some(handle) = guard.loaded.remove(device_system_name) else {
         return Ok(());
     };
@@ -443,15 +449,16 @@ pub fn unload_chain(device_system_name: &str) -> Result<(), NativeHostError> {
 
 /// Whether a chain is currently loaded for `device_system_name`. `false` if
 /// the native host itself never initialized — nothing can be loaded on a
-/// connection that doesn't exist.
+/// connection that doesn't exist. Also returns `false` if the host mutex
+/// is poisoned.
 pub fn is_loaded(device_system_name: &str) -> bool {
     let Ok(host) = host() else {
         return false;
     };
-    host.lock()
-        .expect("native host mutex poisoned")
-        .loaded
-        .contains_key(device_system_name)
+    let Ok(guard) = lock_host(host) else {
+        return false;
+    };
+    guard.loaded.contains_key(device_system_name)
 }
 
 /// Pushes a live `Props` param update — `(control_name, value)` pairs — to
@@ -479,7 +486,7 @@ pub fn set_param(
         return Ok(());
     }
 
-    let guard = host()?.lock().expect("native host mutex poisoned");
+    let guard = lock_host(host()?)?;
 
     let mut id = None;
     for attempt in 0..SETTLE_ATTEMPTS {
@@ -556,14 +563,64 @@ pub fn set_param(
 /// couldn't distinguish (both paths produce the same success either way).
 #[cfg(test)]
 fn is_indexed(node_name: &str) -> bool {
-    find_live_node_id(
-        &host()
-            .expect("native host failed to initialize")
-            .lock()
-            .expect("native host mutex poisoned"),
-        node_name,
-    )
-    .is_some()
+    let host = host().expect("native host failed to initialize");
+    let Ok(guard) = lock_host(host) else {
+        return false;
+    };
+    find_live_node_id(&guard, node_name).is_some()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poisoned_host_lock_returns_typed_error() {
+        let mutex = Arc::new(Mutex::new(()));
+        let thread_mutex = mutex.clone();
+        let panic = std::thread::spawn(move || {
+            let Ok(_guard) = thread_mutex.lock() else {
+                panic!("fresh mutex was poisoned");
+            };
+            panic!("poison the test mutex");
+        })
+        .join();
+        assert!(panic.is_err());
+        assert!(mutex.is_poisoned());
+
+        for _ in 0..2 {
+            assert!(matches!(
+                lock_host(&mutex),
+                Err(NativeHostError::LockPoisoned)
+            ));
+        }
+    }
+
+    #[test]
+    fn healthy_host_lock_preserves_state_and_guard_lifetime() {
+        let mutex = Mutex::new(7);
+        let mut guard = lock_host(&mutex).expect("healthy mutex must lock");
+        assert_eq!(*guard, 7);
+        *guard = 11;
+        assert!(matches!(
+            mutex.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+        drop(guard);
+
+        assert_eq!(*lock_host(&mutex).expect("mutex must unlock on drop"), 11);
+    }
+
+    #[test]
+    fn native_host_locks_do_not_panic_on_poison() {
+        let lock_then_panic =
+            regex::Regex::new(r"\.\s*lock\s*\(\s*\)\s*\.\s*(?:expect|unwrap)\s*\(")
+                .expect("valid lock acquisition pattern");
+        assert!(
+            !lock_then_panic.is_match(include_str!("native_host.rs")),
+            "native host lock acquisitions must propagate poison instead of panicking"
+        );
+    }
 }
 
 #[cfg(test)]

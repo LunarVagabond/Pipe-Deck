@@ -2,6 +2,7 @@
 withDefaults(
   defineProps<{
     modelValue: boolean;
+    inputId?: string;
     disabled?: boolean;
     showStateLabels?: boolean;
   }>(),
@@ -34,6 +35,7 @@ function onChange(event: Event) {
     </span>
     <label class="toggle-switch">
       <input
+        :id="inputId"
         type="checkbox"
         class="toggle-input"
         :checked="modelValue"
