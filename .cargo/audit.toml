@@ -1,6 +1,8 @@
-# cargo-audit configuration. Read by the Cargo Audit workflow
-# (.github/workflows/cargo-audit.yml, working-directory: src-tauri) and by a
-# local `cargo audit` run from src-tauri/.
+# cargo-audit configuration. cargo-audit reads `.cargo/audit.toml` relative to
+# the directory it is run from. The Cargo Audit workflow
+# (.github/workflows/cargo-audit.yml) runs it from the repo root as
+# `cargo audit --file src-tauri/Cargo.lock`, so this file has to live here, not
+# under src-tauri/. Reproduce locally from the repo root with the same command.
 #
 # Every entry needs a reason and a tracking issue, and gets removed as soon as
 # the underlying dependency can move to a patched version.
