@@ -774,20 +774,29 @@ pub fn load_chain(
 /// when the host itself never initialized, since nothing could have been
 /// loaded on a connection that doesn't exist.
 pub fn unload_chain(device_system_name: &str) -> Result<(), NativeDspHostError> {
-    let Ok(host) = host() else {
+    unload_if_initialized(host(), |host| {
+        let mut guard = lock_host(host)?;
+        let Some(loaded) = guard.loaded.remove(device_system_name) else {
+            return Ok(());
+        };
+        // Streams must be disconnected/destroyed with the thread loop locked,
+        // same contract as every other `pw::*` teardown in this codebase — drop
+        // them explicitly inside the lock rather than relying on `loaded`'s own
+        // `Drop` running at an unlocked, unspecified point.
+        let _lock = guard.thread_loop.lock();
+        drop(loaded);
+        Ok(())
+    })
+}
+
+pub(crate) fn unload_if_initialized<T>(
+    host: Result<T, NativeDspHostError>,
+    unload: impl FnOnce(T) -> Result<(), NativeDspHostError>,
+) -> Result<(), NativeDspHostError> {
+    let Ok(host) = host else {
         return Ok(());
     };
-    let mut guard = lock_host(host)?;
-    let Some(loaded) = guard.loaded.remove(device_system_name) else {
-        return Ok(());
-    };
-    // Streams must be disconnected/destroyed with the thread loop locked,
-    // same contract as every other `pw::*` teardown in this codebase — drop
-    // them explicitly inside the lock rather than relying on `loaded`'s own
-    // `Drop` running at an unlocked, unspecified point.
-    let _lock = guard.thread_loop.lock();
-    drop(loaded);
-    Ok(())
+    unload(host)
 }
 
 /// Whether a portable-DSP chain is currently loaded for `device_system_name`.

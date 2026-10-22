@@ -161,19 +161,16 @@ mod tests {
 
     #[test]
     fn unload_dsp_chain_without_loaded_host_returns_unit() {
-        let device_system_name = "pipe-deck-dsp-unload-test".to_string();
+        let host = Err::<(), _>(native_dsp_host::NativeDspHostError::InitFailed(
+            "unavailable host".to_string(),
+        ));
+        let result = native_dsp_host::unload_if_initialized(host, |()| {
+            panic!("an unavailable host must not unload a chain");
+        });
         assert_eq!(
-            dispatch(IpcOp::UnloadDspChain {
-                device_system_name: device_system_name.clone(),
-            }),
+            unload_dsp_chain_result(result),
             IpcResult::Ok {
                 payload: IpcOkPayload::Unit,
-            }
-        );
-        assert_eq!(
-            dispatch(IpcOp::IsDspChainLoaded { device_system_name }),
-            IpcResult::Ok {
-                payload: IpcOkPayload::Loaded { loaded: false },
             }
         );
     }
