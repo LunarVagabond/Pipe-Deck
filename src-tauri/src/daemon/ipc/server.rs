@@ -123,10 +123,7 @@ fn dispatch(op: IpcOp) -> IpcResult {
             },
         },
         IpcOp::UnloadDspChain { device_system_name } => {
-            native_dsp_host::unload_chain(&device_system_name);
-            IpcResult::Ok {
-                payload: IpcOkPayload::Unit,
-            }
+            unload_dsp_chain_result(native_dsp_host::unload_chain(&device_system_name))
         }
         IpcOp::IsDspChainLoaded { device_system_name } => IpcResult::Ok {
             payload: IpcOkPayload::Loaded {
@@ -144,5 +141,50 @@ fn dispatch(op: IpcOp) -> IpcResult {
                 message: error.to_string(),
             },
         },
+    }
+}
+
+fn unload_dsp_chain_result(result: Result<(), native_dsp_host::NativeDspHostError>) -> IpcResult {
+    match result {
+        Ok(()) => IpcResult::Ok {
+            payload: IpcOkPayload::Unit,
+        },
+        Err(error) => IpcResult::Error {
+            message: error.to_string(),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unload_dsp_chain_without_loaded_host_returns_unit() {
+        let device_system_name = "pipe-deck-dsp-unload-test".to_string();
+        assert_eq!(
+            dispatch(IpcOp::UnloadDspChain {
+                device_system_name: device_system_name.clone(),
+            }),
+            IpcResult::Ok {
+                payload: IpcOkPayload::Unit,
+            }
+        );
+        assert_eq!(
+            dispatch(IpcOp::IsDspChainLoaded { device_system_name }),
+            IpcResult::Ok {
+                payload: IpcOkPayload::Loaded { loaded: false },
+            }
+        );
+    }
+
+    #[test]
+    fn unload_dsp_chain_poison_returns_ipc_error() {
+        assert_eq!(
+            unload_dsp_chain_result(Err(native_dsp_host::NativeDspHostError::LockPoisoned)),
+            IpcResult::Error {
+                message: "native dsp host mutex poisoned".to_string(),
+            }
+        );
     }
 }
