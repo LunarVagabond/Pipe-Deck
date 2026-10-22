@@ -684,16 +684,22 @@ test.describe("RoutingGraph context menu", () => {
     const viewport = page.viewportSize();
     if (!viewport) throw new Error("missing viewport size");
 
-    // Before the menu clamped itself to the viewport, a click this close to
-    // the corner rendered it partly (or fully) off-screen — see the
-    // "Bring node here" test above, which had to click "high enough up" to
-    // work around exactly this.
-    await page.mouse.click(viewport.width - 20, viewport.height - 20, {
-      button: "right",
-    });
+    // This exposed strip is inside the rounded canvas corner but beyond the
+    // docked latency panel, which intercepts the old 20px-inset click.
+    const clickPoint = { x: viewport.width - 6, y: viewport.height - 6 };
+    expect(
+      await page.evaluate(
+        (point) =>
+          document
+            .elementFromPoint(point.x, point.y)
+            ?.classList.contains("vue-flow__pane"),
+        clickPoint,
+      ),
+    ).toBe(true);
+    await page.mouse.click(clickPoint.x, clickPoint.y, { button: "right" });
     const menu = page.locator(".routing-graph-context-menu");
     await expect(menu).toHaveCount(1);
-    await page.waitForTimeout(100);
+    await expect(menu).toBeInViewport({ ratio: 1 });
 
     const box = await menu.boundingBox();
     if (!box) throw new Error("missing context menu bounding box");
