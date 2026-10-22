@@ -616,6 +616,26 @@ test.describe("RoutingGraph bring node here", () => {
     // position, but high enough up that the menu (which grows downward from
     // the click point) still fits inside the default 720px-tall viewport.
     const clickPoint = { x: boxBefore.x + 400, y: boxBefore.y + 60 };
+    // Convert the click independently to the graph's 20-unit grid so the
+    // destination assertion catches relocation to the wrong point as well.
+    const expectedPosition = await page
+      .locator(".vue-flow")
+      .evaluate((element, point) => {
+        const pane = element.querySelector(".vue-flow__transformationpane");
+        if (!pane) throw new Error("missing graph transform");
+        const transform = new DOMMatrixReadOnly(
+          getComputedStyle(pane).transform,
+        );
+        const rect = element.getBoundingClientRect();
+        return {
+          x:
+            Math.round((point.x - rect.x - transform.e) / transform.a / 20) *
+            20,
+          y:
+            Math.round((point.y - rect.y - transform.f) / transform.d / 20) *
+            20,
+        };
+      }, clickPoint);
     await page.mouse.click(clickPoint.x, clickPoint.y, { button: "right" });
     await page.waitForSelector(".routing-graph-context-menu");
 
@@ -631,6 +651,10 @@ test.describe("RoutingGraph bring node here", () => {
     await pickButton.click();
 
     await expect(page.locator(".routing-graph-context-menu")).toHaveCount(0);
+    await expect(streamNode).toHaveCSS(
+      "transform",
+      `matrix(1, 0, 0, 1, ${expectedPosition.x}, ${expectedPosition.y})`,
+    );
 
     const boxAfter = await streamNode.boundingBox();
     if (!boxAfter) throw new Error("missing bounding box after relocation");
@@ -639,16 +663,12 @@ test.describe("RoutingGraph bring node here", () => {
     // than staying at its pre-relocation spot.
     expect(Math.abs(boxAfter.x - boxBefore.x)).toBeGreaterThan(50);
 
-    // Key bumped to v2 in buildGraph.ts (LANE_X changes invalidating old
-    // saved positions) — this test was never updated to match, so it always
-    // read back `null` and failed regardless of whether the relocation
-    // itself worked.
     const layoutRaw = await page.evaluate(() =>
-      localStorage.getItem("pipe-deck-routing-layout-v2"),
+      localStorage.getItem("pipe-deck-routing-layout-v3"),
     );
     expect(layoutRaw).toBeTruthy();
     const layout = JSON.parse(layoutRaw ?? "{}");
-    expect(layout["stream:stream-1"]).toBeDefined();
+    expect(layout["stream:stream-1"]).toEqual(expectedPosition);
   });
 });
 
