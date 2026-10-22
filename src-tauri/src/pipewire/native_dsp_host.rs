@@ -834,7 +834,30 @@ pub fn set_live_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::sync::Arc;
+
+    #[test]
+    fn unload_dsp_chain_initialized_host_preserves_poison_error() {
+        let received = Cell::new(None);
+        let result = unload_if_initialized(Ok(7), |host| {
+            received.set(Some(host));
+            Err(NativeDspHostError::LockPoisoned)
+        });
+        assert_eq!(received.get(), Some(7));
+        assert!(matches!(result, Err(NativeDspHostError::LockPoisoned)));
+    }
+
+    #[test]
+    fn unload_dsp_chain_initialized_host_preserves_success() {
+        let received = Cell::new(None);
+        let result = unload_if_initialized(Ok(11), |host| {
+            received.set(Some(host));
+            Ok(())
+        });
+        assert_eq!(received.get(), Some(11));
+        assert!(matches!(result, Ok(())));
+    }
 
     #[test]
     fn poisoned_host_lock_returns_typed_error() {

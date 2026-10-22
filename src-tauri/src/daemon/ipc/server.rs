@@ -160,6 +160,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn unload_dsp_chain_dispatch_forwards_actual_result() {
+        let source = include_str!("server.rs");
+        let dispatch = source
+            .split("fn dispatch(op: IpcOp) -> IpcResult {")
+            .nth(1)
+            .expect("server.rs: dispatch function must exist")
+            .split("\nfn unload_dsp_chain_result")
+            .next()
+            .expect("server.rs: dispatch body must exist");
+        let forwarding = regex::Regex::new(concat!(
+            r"IpcOp::UnloadDspChain\s*\{\s*device_system_name\s*\}\s*=>\s*\{\s*",
+            r"unload_dsp_chain_result\(\s*native_dsp_host::unload_chain\(\s*&device_system_name\s*\)\s*\)\s*\}"
+        ))
+        .expect("valid unload dispatch forwarding pattern");
+        assert!(
+            forwarding.is_match(dispatch),
+            "server.rs: dispatch UnloadDspChain arm must forward the actual native_dsp_host::unload_chain result into unload_dsp_chain_result"
+        );
+    }
+
+    #[test]
     fn unload_dsp_chain_without_loaded_host_returns_unit() {
         let host = Err::<(), _>(native_dsp_host::NativeDspHostError::InitFailed(
             "unavailable host".to_string(),
