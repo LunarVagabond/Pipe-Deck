@@ -361,6 +361,19 @@ test.describe("RoutingGraph grouping", () => {
     if (!boxesBefore[0] || !boxesBefore[1])
       throw new Error("missing member bounding boxes before ungroup");
 
+    // Ungrouping persists positions on the 20-unit graph grid. The fixture's
+    // second member starts at y=150 and therefore snaps to y=160.
+    const zoom = await page
+      .locator(".vue-flow__transformationpane")
+      .evaluate(
+        (element) =>
+          new DOMMatrixReadOnly(getComputedStyle(element).transform).a,
+      );
+    const expectedBoxes = [
+      boxesBefore[0],
+      { ...boxesBefore[1], y: boxesBefore[1].y + 10 * zoom },
+    ];
+
     await page.click(".routing-graph-group-ungroup");
     await expect(page.locator(".vue-flow__node-groupNode")).toHaveCount(0);
 
@@ -372,8 +385,8 @@ test.describe("RoutingGraph grouping", () => {
       throw new Error("missing member bounding boxes after ungroup");
 
     for (let i = 0; i < 2; i += 1) {
-      expect(Math.abs(boxesAfter[i]!.x - boxesBefore[i]!.x)).toBeLessThan(5);
-      expect(Math.abs(boxesAfter[i]!.y - boxesBefore[i]!.y)).toBeLessThan(5);
+      expect(Math.abs(boxesAfter[i]!.x - expectedBoxes[i]!.x)).toBeLessThan(5);
+      expect(Math.abs(boxesAfter[i]!.y - expectedBoxes[i]!.y)).toBeLessThan(5);
     }
   });
 
