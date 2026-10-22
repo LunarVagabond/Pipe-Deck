@@ -69,6 +69,10 @@ Run `make help` for the full, current list — it stays more up to date than any
 
 ## Testing Notes
 
+For Playwright component tests, run `npm ci`, then `npx playwright install --with-deps chromium`, then `make test-e2e`.
+
+CI runs when pull requests are opened, reopened, or synchronized, and on pushes to `main`. It runs `npm run format:check`, `npm run lint`, `make check`, and `make test`, then installs Chromium and its system dependencies and runs `make test-e2e`. A failing Playwright run fails the CI job.
+
 `cargo test` runs the mock-backed unit tests plus the mock-backend integration suite — extend that suite rather than writing a throwaway verification script when changing engine/backend call paths.
 
 `src-tauri/src/core/restore.rs` (session restore, profile-swap virtual-device restore, persisted-route reapplication) is covered the same way: its functions take `&dyn AudioBackend` directly, so `mock_backend_integration.rs`'s `restore_*` tests exercise them against a bare `MockAudioBackend` (device create/adopt/orphan-removal, profile `device_assumptions` restore) rather than through `CoreEngine`, which never reaches `restore.rs` at all in mock mode.
