@@ -66,6 +66,22 @@ impl CommandFixture {
         std::env::set_var("PIPE_DECK_BUNDLED_PLUGINS", self.config_dir.join("bundled"));
     }
 
+    pub fn isolate_daemon(&mut self) {
+        for name in [
+            "DBUS_SESSION_BUS_ADDRESS",
+            "XDG_STATE_HOME",
+            "XDG_CONFIG_HOME",
+            "PIPE_DECK_DAEMON_PATH",
+        ] {
+            self.previous_env.push((name, std::env::var_os(name)));
+        }
+        // Reject the transport before any session-bus connection can be attempted.
+        std::env::set_var("DBUS_SESSION_BUS_ADDRESS", "invalid:");
+        std::env::set_var("XDG_STATE_HOME", self.config_dir.join("state"));
+        std::env::set_var("XDG_CONFIG_HOME", self.config_dir.join("service-config"));
+        std::env::set_var("PIPE_DECK_DAEMON_PATH", self.config_dir.join("daemon"));
+    }
+
     pub fn take_graph_updates(&self) -> Vec<RuntimeGraph> {
         std::mem::take(&mut *self.graph_updates.lock().unwrap())
     }

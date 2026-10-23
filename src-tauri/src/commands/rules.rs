@@ -344,6 +344,30 @@ mod tests {
     fn apply_rules_returns_success_refreshes_and_emits() {
         let fixture = CommandFixture::new();
         ConfigStore::new().save_rule(rule()).unwrap();
+        {
+            let state = fixture.app.state::<AppState>();
+            let result = state
+                .engine
+                .blocking_write()
+                .clear_stream_target("stream-discord", Some("sink-chat"))
+                .unwrap();
+            assert!(result.success);
+        }
+        // Restore the backend route while retaining the engine's user-cleared mask.
+        fixture.use_backend(Box::new(crate::backend::mock::MockAudioBackend::new()));
+        let cleared = block_on(crate::commands::graph::get_runtime_graph(
+            fixture.app.state::<AppState>(),
+        ))
+        .unwrap();
+        assert_eq!(
+            cleared
+                .streams
+                .iter()
+                .find(|stream| stream.id == "stream-discord")
+                .unwrap()
+                .current_target,
+            None
+        );
         ConfigStore::new()
             .set_device_alias("source-mic", "Rules refresh microphone")
             .unwrap();
@@ -355,6 +379,23 @@ mod tests {
         assert_eq!(
             serde_json::to_value(result).unwrap(),
             json!({"success": true, "message": null})
+        );
+        let applied = fixture
+            .app
+            .state::<AppState>()
+            .engine
+            .blocking_read()
+            .runtime_graph()
+            .clone();
+        assert_eq!(
+            applied
+                .streams
+                .iter()
+                .find(|stream| stream.id == "stream-discord")
+                .unwrap()
+                .current_target
+                .as_deref(),
+            Some("sink-chat")
         );
         assert_event(&fixture, "sink-chat");
         let state = fixture.app.state::<AppState>();
