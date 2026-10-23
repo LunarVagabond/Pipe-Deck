@@ -1416,21 +1416,13 @@ impl CoreEngine {
 /// so re-deriving from `ConfigStore` here would be a second, divergent
 /// source of truth for the same data.
 ///
-/// **Test coverage gap, not just a code comment**: this early return means
-/// no mock-backed `tests/mock_backend_integration.rs` test can ever execute
-/// this function's actual body — including the from-scratch batch-conversion
-/// ordering that caused a real live-only bug (a processing-node-to-
-/// processing-node port could never resolve, since `graph.processing_nodes`
-/// is empty/stale at the time each spec converts; see
-/// `processing_node_from_spec_with_siblings`'s doc comment). The closest
-/// coverage is the unit test `spec_to_node_resolves_a_processing_node_peer_via_the_sibling_map`,
-/// which calls the sibling-resolution helper directly with a hand-built
-/// `specs`/`siblings` map — real, but it doesn't exercise this function
-/// itself, `ConfigStore`, or a real `AudioBackend`. Any future change here
-/// needs a live/manual check; nothing automated will catch a regression in
-/// this function's own batching logic.
+/// `previous_nodes` retains the last refresh's bindings so a newly resolved
+/// replacement stream is relinked once, while an unchanged binding is left
+/// alone. The recording-backend regression exercises this path through both
+/// graph-update and refresh entry points; live PipeWire routing is separate.
 pub(super) fn merge_processing_nodes(
     graph: &mut RuntimeGraph,
+    previous_nodes: &[ProcessingNode],
     adapter: &dyn crate::backend::AudioBackend,
 ) {
     if graph.data_source == "mock" {
@@ -1464,6 +1456,38 @@ pub(super) fn merge_processing_nodes(
         })
         .collect();
     graph.processing_nodes = nodes;
+
+    for node_index in 0..graph.processing_nodes.len() {
+        for input_index in 0..graph.processing_nodes[node_index].inputs.len() {
+            let node = &graph.processing_nodes[node_index];
+            let port = &node.inputs[input_index];
+            let (Some(peer_id), Some(feed_key)) = (&port.connected_id, &port.feed_key) else {
+                continue;
+            };
+            if !node.live || peer_id == feed_key {
+                continue;
+            }
+            if previous_nodes.iter().any(|previous| {
+                previous.id == node.id && previous.live && previous.inputs.contains(port)
+            }) {
+                continue;
+            }
+            if let Err(error) = adapter.relink_processing_node_port(
+                graph,
+                &node.system_name,
+                port.index,
+                PortDirection::Input,
+                Some(peer_id),
+            ) {
+                eprintln!(
+                    "failed to relink replacement stream {peer_id} to {}: {error}",
+                    node.system_name
+                );
+                // Leave failed bindings unresolved so the next refresh retries.
+                graph.processing_nodes[node_index].inputs[input_index].connected_id = None;
+            }
+        }
+    }
 }
 
 fn processing_node_system_name(spec: &ProcessingNodeSpec) -> String {
@@ -2618,6 +2642,10 @@ mod live_tests {
 }
 
 #[cfg(test)]
+#[path = "processing_node_recording_backend.rs"]
+mod recording_backend;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::core::models::ProcessingNodePortSpec;
@@ -2749,6 +2777,241 @@ mod tests {
         assert_eq!(node.inputs.len(), 1);
         assert_eq!(node.inputs[0].connected_id.as_deref(), Some("node-200"));
         assert_eq!(node.inputs[0].feed_key.as_deref(), Some("node-99"));
+    }
+
+    #[test]
+    fn processing_route_relinks_replacement_once_preserving_the_original_feed() {
+        use super::recording_backend::{BackendCall, RecordingBackend};
+        use crate::core::models::{Device, DeviceDirection, DeviceKind};
+        use std::sync::{Arc, Mutex};
+
+        let _guard = crate::config::store::lock_config_dir_env();
+        struct RestoreConfigDir(Option<std::ffi::OsString>);
+        impl Drop for RestoreConfigDir {
+            fn drop(&mut self) {
+                match &self.0 {
+                    Some(value) => std::env::set_var("PIPE_DECK_CONFIG_DIR", value),
+                    None => std::env::remove_var("PIPE_DECK_CONFIG_DIR"),
+                }
+            }
+        }
+        let _restore = RestoreConfigDir(std::env::var_os("PIPE_DECK_CONFIG_DIR"));
+        let config_dir = std::env::current_dir()
+            .unwrap()
+            .join("target/processing-route-test");
+        std::env::set_var("PIPE_DECK_CONFIG_DIR", config_dir);
+
+        for kind in [
+            ProcessingNodeSpecKind::Mixer,
+            ProcessingNodeSpecKind::Eq5Band {
+                eq_sub: 1,
+                eq_bass: 2,
+                eq_mid: 3,
+                eq_treble: 4,
+                eq_air: 5,
+                output_gain: -2,
+            },
+        ] {
+            for refresh in [false, true] {
+                let spec = ProcessingNodeSpec {
+                    id: "processing-stream-route".into(),
+                    slug: "stream-route".into(),
+                    label: "Stream Route".into(),
+                    created_at: "2026-07-29T00:00:00Z".into(),
+                    kind: kind.clone(),
+                    input_sources: vec![ProcessingNodePortSpec {
+                        source_system_name: "pipe-deck-stream-node-99".into(),
+                        gain_percent: 80,
+                        muted: true,
+                        source_stream_identity: Some(stream_identity_key(&firefox_stream(
+                            "node-99",
+                            "The old video",
+                        ))),
+                    }],
+                    output_targets: vec!["alsa_output.speakers".into()],
+                    bypassed: true,
+                };
+                let mut config = ConfigStore::default_config();
+                config.preferences.auto_apply_rules = false;
+                config.processing_nodes = vec![spec.clone()];
+                ConfigStore::new().save_config(&config).unwrap();
+
+                let mut graph = empty_graph();
+                graph.default_output_system_name = Some("alsa_output.speakers".into());
+                graph.devices.push(Device {
+                    id: "device-speakers".into(),
+                    system_name: "alsa_output.speakers".into(),
+                    label: "Speakers".into(),
+                    kind: DeviceKind::Physical,
+                    direction: DeviceDirection::Output,
+                    sink_mode: None,
+                    volume_percent: Some(65),
+                    muted: Some(false),
+                    current_target: None,
+                    current_targets: Vec::new(),
+                    mix_sources: Vec::new(),
+                    sample_rate: Some(48000),
+                    channels: Some(2),
+                });
+                let mut original_stream = firefox_stream("node-99", "The old video");
+                original_stream.current_target = Some(spec.id.clone());
+                graph.streams.push(original_stream);
+                let calls = Arc::new(Mutex::new(Vec::new()));
+                let backend_graph = Arc::new(Mutex::new(graph.clone()));
+                let loaded = Arc::new(std::sync::atomic::AtomicBool::new(true));
+                let fail_relink = Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let mut engine = CoreEngine {
+                    graph: empty_graph(),
+                    adapter: Box::new(RecordingBackend {
+                        calls: calls.clone(),
+                        graph: backend_graph.clone(),
+                        loaded: loaded.clone(),
+                        fail_relink: fail_relink.clone(),
+                    }),
+                    rollback_stack: Vec::new(),
+                    device_id_remap: Default::default(),
+                    last_error: None,
+                    manual_overrides: Default::default(),
+                    cleared_stream_routes: Default::default(),
+                    cleared_device_routes: Default::default(),
+                    plugin_manager: Mutex::new(crate::plugins::PluginManager::new()),
+                    recent_streams: Default::default(),
+                    seen_stream_ids: Default::default(),
+                    effect_chain_liveness: Default::default(),
+                    effect_chain_last_targets: Default::default(),
+                    graph_generation: Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                };
+                engine.apply_graph_update(graph.clone());
+                let original_node = engine.graph.processing_nodes[0].clone();
+                let original_feed_key = original_node.inputs[0].feed_key.clone();
+                assert_eq!(original_feed_key.as_deref(), Some("node-99"));
+                let mut routine_calls = vec![
+                    BackendCall::Other("list_virtual_devices"),
+                    BackendCall::Other("apply_device_aliases_and_levels"),
+                    BackendCall::Loaded(original_node.system_name.clone()),
+                    BackendCall::Other("sync_live_routing_graph"),
+                    BackendCall::Other("apply_user_cleared_routes"),
+                ];
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    routine_calls,
+                    "unchanged original stream must not be relinked"
+                );
+                calls.lock().unwrap().clear();
+
+                // A genuinely new stream arrives on the physical default.
+                let mut replacement = firefox_stream("node-200", "A new video");
+                replacement.current_target = Some("device-speakers".into());
+                graph.streams = vec![replacement];
+                *backend_graph.lock().unwrap() = graph.clone();
+                let reconcile = |engine: &mut CoreEngine| {
+                    if refresh {
+                        engine.refresh_graph().unwrap();
+                    } else {
+                        engine.apply_graph_update(graph.clone());
+                    }
+                };
+                reconcile(&mut engine);
+                assert_eq!(
+                    engine.graph.processing_nodes[0].inputs[0].feed_key, original_feed_key,
+                    "(c) overwriting the original feed_key must fail"
+                );
+                let mut expected_node = original_node.clone();
+                expected_node.inputs[0].connected_id = Some("node-200".into());
+                assert_eq!(
+                    engine.graph.processing_nodes,
+                    vec![expected_node.clone()],
+                    "every other node and port field must remain unchanged"
+                );
+                assert_eq!(engine.graph.streams, graph.streams);
+                assert_eq!(engine.graph.devices, graph.devices);
+                assert_eq!(engine.graph.links, graph.links);
+                assert_eq!(
+                    ConfigStore::new().processing_nodes(),
+                    vec![spec.clone()],
+                    "all persisted route fields must remain unchanged"
+                );
+                let mut expected_calls = routine_calls.clone();
+                expected_calls.insert(
+                    3,
+                    BackendCall::Relink {
+                        node: expected_node.clone(),
+                        port_index: 0,
+                        direction: PortDirection::Input,
+                        peer_id: Some("node-200".into()),
+                    },
+                );
+                if refresh {
+                    expected_calls.insert(0, BackendCall::Other("fetch_graph"));
+                    routine_calls.insert(0, BackendCall::Other("fetch_graph"));
+                }
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    expected_calls,
+                    "(a) removing the replacement relink must fail the exact transcript"
+                );
+                calls.lock().unwrap().clear();
+
+                reconcile(&mut engine);
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    routine_calls,
+                    "(b) relinking on every reconcile must fail: no additional backend calls"
+                );
+                assert_eq!(engine.graph.processing_nodes, vec![expected_node.clone()]);
+                assert_eq!(
+                    engine.graph.processing_nodes[0].inputs[0].feed_key, original_feed_key,
+                    "(c) later reconciles must preserve the ORIGINAL feed_key too"
+                );
+                assert_eq!(ConfigStore::new().processing_nodes(), vec![spec]);
+
+                calls.lock().unwrap().clear();
+                loaded.store(false, std::sync::atomic::Ordering::SeqCst);
+                reconcile(&mut engine);
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    routine_calls,
+                    "a persisted-only node must not receive a live relink"
+                );
+                let mut unavailable_node = expected_node.clone();
+                unavailable_node.live = false;
+                assert_eq!(engine.graph.processing_nodes, vec![unavailable_node]);
+
+                calls.lock().unwrap().clear();
+                loaded.store(true, std::sync::atomic::Ordering::SeqCst);
+                fail_relink.store(true, std::sync::atomic::Ordering::SeqCst);
+                reconcile(&mut engine);
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    expected_calls,
+                    "a node becoming live must relink its replacement input"
+                );
+                let mut failed_node = expected_node.clone();
+                failed_node.inputs[0].connected_id = None;
+                assert_eq!(
+                    engine.graph.processing_nodes,
+                    vec![failed_node],
+                    "a failed relink must remain eligible for retry"
+                );
+
+                calls.lock().unwrap().clear();
+                fail_relink.store(false, std::sync::atomic::Ordering::SeqCst);
+                reconcile(&mut engine);
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    expected_calls,
+                    "the next reconcile must retry a failed relink"
+                );
+                assert_eq!(engine.graph.processing_nodes, vec![expected_node]);
+                calls.lock().unwrap().clear();
+                reconcile(&mut engine);
+                assert_eq!(
+                    *calls.lock().unwrap(),
+                    routine_calls,
+                    "a successful retry must not relink again"
+                );
+            }
+        }
     }
 
     /// The original stream instance is still live and unclaimed — no
