@@ -87,7 +87,7 @@ pub struct Device {
 
 /// A single contributor to a virtual-mic mix, with a gain that only affects
 /// its contribution to that specific mix (not the source device's own
-/// volume). Backed by a per-pair feed sink; see `backend::linux::virtual_mic_mix`.
+/// volume). Backed by a per-pair feed sink; see the Linux backend's `virtual_mic_mix`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct MixSource {
     pub device_id: String,
@@ -1365,7 +1365,7 @@ pub enum EffectStage {
     /// existing `EffectChainConfig` transport (issue #86) — unlike every
     /// other variant above, this one is *never* rendered by
     /// `fx_validate::render_module_args` (there's no builtin filter-chain
-    /// dynamics primitive to render into): `backend::linux::live`'s
+    /// dynamics primitive to render into): `LinuxPipeWireBackend`'s
     /// `ProcessingNodeKind::Compressor` arm dispatches it straight to
     /// `pipewire::native_dsp_host` instead. See `dsp::CompressorProcessor`
     /// for the actual DSP and PD-052 for the hosting design.
@@ -1867,7 +1867,7 @@ pub struct VirtualDeviceResult {
 
 /// Backend-neutral virtual device bookkeeping info returned by
 /// `AudioBackend::list_virtual_devices` — deliberately smaller than
-/// `backend::linux::virtual_devices::VirtualDeviceEntry` (no `module_id`,
+/// the Linux backend's `VirtualDeviceEntry` (no `module_id`,
 /// a pactl-only implementation detail). Never serialized to the frontend.
 #[derive(Debug, Clone)]
 pub struct VirtualDeviceInfo {

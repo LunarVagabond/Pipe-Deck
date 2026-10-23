@@ -1379,7 +1379,7 @@ impl CoreEngine {
         // regardless, so a failed native-chain unload (e.g. a transient
         // daemon-IPC hiccup for the Eq5Band/Delay/Limiter/Hpf/Reverb/Widener/
         // Pan kinds, which route through `daemon::ipc` — see
-        // `backend::linux::live::LinuxPipeWireBackend::unload_processing_node`)
+        // `LinuxPipeWireBackend::unload_processing_node`)
         // must not block that, the same reasoning `remove_virtual_device`
         // already applies to its own `discard_effect_chain_conf` cleanup.
         // Previously this used `?` and returned early on any error, which
@@ -1790,7 +1790,7 @@ fn processing_node_from_spec_with_siblings(
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod live_tests {
     //! `#[ignore]`d on purpose (mirrors `effects_ops::live_tests`): these hit
     //! a *real* PipeWire session via `pactl`/`pw-link`, unlike every other
@@ -1799,7 +1799,10 @@ mod live_tests {
     //! Creates disposable `pipe-deck-*`/`pipe-deck-proc-*` devices it removes
     //! itself; never touches anything the user configured.
     use super::*;
-    use crate::backend::linux::{pactl, pw_link};
+    #[cfg(all(test, target_os = "linux"))]
+    use crate::backend as platform;
+    #[cfg(all(test, target_os = "linux"))]
+    use platform::linux::{pactl, pw_link};
 
     #[test]
     #[ignore]

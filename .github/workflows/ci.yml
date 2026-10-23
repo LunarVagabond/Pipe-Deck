@@ -68,3 +68,29 @@ jobs:
 
       - name: make test-e2e
         run: make test-e2e
+
+  windows-check:
+    runs-on: windows-latest
+    # Cold-cache Windows target checks need more time than the Linux job's 30 minutes.
+    timeout-minutes: 40
+    # issue #358 stays non-blocking until Windows Prep lands and the tree compiles clean for the msvc target.
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: cargo check --target x86_64-pc-windows-msvc
+        run: cargo check --target x86_64-pc-windows-msvc
+        working-directory: src-tauri

@@ -1,7 +1,7 @@
 //! Native systemd user-session control via `zbus` (#425) — replaces
 //! `daemon/mod.rs`'s `run_systemctl` (`Command::new("systemctl").arg("--user")...`)
 //! with direct calls against `org.freedesktop.systemd1.Manager`/`.Unit` over
-//! the session D-Bus. Unlike the `backend::linux` PipeWire modules'
+//! the session D-Bus. Unlike the Linux backend's PipeWire modules'
 //! native-first/CLI-fallback shape, there's no fallback here: `systemctl`
 //! itself is just a D-Bus client for exactly this API, so a session bus
 //! being unreachable would break the `systemctl` shellout identically — a
