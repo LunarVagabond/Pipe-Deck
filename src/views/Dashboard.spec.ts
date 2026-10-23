@@ -55,7 +55,13 @@ beforeEach(() => {
       [
         makeDevice({ id: "speaker", label: "Speakers" }),
         makeDevice({ id: "mic", label: "Desk mic", direction: "input" }),
-        makeDevice({ id: "virtual", label: "Virtual bus", kind: "virtual" }),
+        makeDevice({
+          id: "virtual",
+          label: "Virtual bus",
+          kind: "virtual",
+          current_target: "route-single",
+          current_targets: ["route-multi"],
+        }),
         makeDevice({
           id: "internal",
           label: "Speakers internal",
@@ -86,7 +92,6 @@ afterEach(() => {
 
 describe("Dashboard global search", () => {
   it("filters only device cards, preserving all stats and recently seen entries", async () => {
-    searchQuery.value = " speakers ";
     wrapper = mount(Dashboard, {
       attachTo: document.body,
       global: { provide: { [navigateKey as symbol]: vi.fn() } },
@@ -99,8 +104,13 @@ describe("Dashboard global search", () => {
     const stats = () =>
       wrapper!.findAll(".stat-value").map((node) => node.text());
 
+    expect(labels()).toEqual(["Speakers", "Desk mic", "Virtual bus"]);
+    expect(stats()).toEqual(["1", "1", "4", "1"]);
+
+    searchQuery.value = " speakers ";
+    await flushPromises();
     expect(labels()).toEqual(["Speakers"]);
-    expect(stats()).toEqual(["1", "1", "2", "1"]);
+    expect(stats()).toEqual(["1", "1", "4", "1"]);
     expect(
       wrapper.findAll(".recently-seen-info strong").map((node) => node.text()),
     ).toEqual(["Recent app"]);
@@ -108,13 +118,13 @@ describe("Dashboard global search", () => {
     searchQuery.value = "internal";
     await flushPromises();
     expect(labels()).toEqual([]);
-    expect(stats()).toEqual(["1", "1", "2", "1"]);
+    expect(stats()).toEqual(["1", "1", "4", "1"]);
 
     for (const query of ["", " \t "]) {
       searchQuery.value = query;
       await flushPromises();
       expect(labels()).toEqual(["Speakers", "Desk mic", "Virtual bus"]);
-      expect(stats()).toEqual(["1", "1", "2", "1"]);
+      expect(stats()).toEqual(["1", "1", "4", "1"]);
     }
   });
 
