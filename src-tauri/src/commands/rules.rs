@@ -9,9 +9,9 @@ pub async fn list_rules(state: State<'_, AppState>) -> Result<Vec<Rule>, String>
 }
 
 #[tauri::command]
-pub async fn save_rule(
+pub async fn save_rule<R: tauri::Runtime>(
     rule: Rule,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -22,9 +22,9 @@ pub async fn save_rule(
 }
 
 #[tauri::command]
-pub async fn delete_rule(
+pub async fn delete_rule<R: tauri::Runtime>(
     rule_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -37,10 +37,10 @@ pub async fn delete_rule(
 }
 
 #[tauri::command]
-pub async fn toggle_rule(
+pub async fn toggle_rule<R: tauri::Runtime>(
     rule_id: String,
     enabled: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -62,8 +62,8 @@ pub async fn simulate_rules(
 }
 
 #[tauri::command]
-pub async fn apply_rules(
-    app: tauri::AppHandle,
+pub async fn apply_rules<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;

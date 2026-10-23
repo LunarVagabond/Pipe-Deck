@@ -35,10 +35,10 @@ pub fn list_profiles() -> Vec<crate::core::models::ProfileIndexEntry> {
 }
 
 #[tauri::command]
-pub async fn set_device_alias(
+pub async fn set_device_alias<R: tauri::Runtime>(
     system_name: String,
     alias: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;

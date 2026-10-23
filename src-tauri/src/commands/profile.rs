@@ -91,9 +91,9 @@ pub async fn get_profile_drift(
 }
 
 #[tauri::command]
-pub async fn apply_profile_routes(
+pub async fn apply_profile_routes<R: tauri::Runtime>(
     profile_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -105,9 +105,9 @@ pub async fn apply_profile_routes(
 }
 
 #[tauri::command]
-pub async fn swap_profile(
+pub async fn swap_profile<R: tauri::Runtime>(
     profile_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
