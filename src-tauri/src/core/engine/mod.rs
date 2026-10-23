@@ -433,3 +433,11 @@ impl CoreEngine {
         }
     }
 }
+
+#[cfg(test)]
+pub(crate) fn command_test_engine() -> CoreEngine {
+    CoreEngine {
+        adapter: Box::new(crate::backend::mock::MockAudioBackend::new()),
+        ..CoreEngine::new()
+    }
+}

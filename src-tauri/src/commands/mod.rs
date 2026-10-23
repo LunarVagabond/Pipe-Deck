@@ -12,3 +12,6 @@ pub mod routing;
 pub mod rules;
 pub mod soundboard;
 pub mod virtual_device;
+
+#[cfg(test)]
+mod test_support;

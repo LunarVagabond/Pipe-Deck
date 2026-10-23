@@ -60,3 +60,226 @@ pub async fn set_stream_mute(
     engine.emit_graph_update(&app);
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{set_device_mute, set_device_volume, set_stream_mute, set_stream_volume};
+    use crate::commands::test_support::CommandFixture;
+    use tauri::async_runtime::block_on;
+
+    #[test]
+    fn set_device_volume_updates_the_requested_device_and_clamps() {
+        let fixture = CommandFixture::new();
+        block_on(async {
+            for (percent, expected) in [(37, 37), (143, 100)] {
+                assert_eq!(
+                    set_device_volume(
+                        "sink-speakers".into(),
+                        percent,
+                        fixture.app.clone(),
+                        fixture.state()
+                    )
+                    .await,
+                    Ok(())
+                );
+                let state = fixture.state();
+                let engine = state.engine.read().await;
+                let graph = engine.runtime_graph();
+                assert_eq!(
+                    graph
+                        .devices
+                        .iter()
+                        .find(|device| device.id == "sink-speakers")
+                        .unwrap()
+                        .volume_percent,
+                    Some(expected)
+                );
+                assert_eq!(
+                    graph
+                        .devices
+                        .iter()
+                        .find(|device| device.id == "sink-headphones")
+                        .unwrap()
+                        .volume_percent,
+                    Some(70)
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn set_device_volume_maps_backend_error_to_string() {
+        let fixture = CommandFixture::new();
+        assert_eq!(
+            block_on(set_device_volume(
+                "missing-device".into(),
+                37,
+                fixture.app.clone(),
+                fixture.state()
+            )),
+            Err("pipewire adapter error: device not found: missing-device".into())
+        );
+    }
+
+    #[test]
+    fn set_device_mute_updates_the_requested_device_in_both_directions() {
+        let fixture = CommandFixture::new();
+        block_on(async {
+            for muted in [true, false] {
+                assert_eq!(
+                    set_device_mute(
+                        "sink-speakers".into(),
+                        muted,
+                        fixture.app.clone(),
+                        fixture.state()
+                    )
+                    .await,
+                    Ok(())
+                );
+                let state = fixture.state();
+                let engine = state.engine.read().await;
+                let graph = engine.runtime_graph();
+                assert_eq!(
+                    graph
+                        .devices
+                        .iter()
+                        .find(|device| device.id == "sink-speakers")
+                        .unwrap()
+                        .muted,
+                    Some(muted)
+                );
+                assert_eq!(
+                    graph
+                        .devices
+                        .iter()
+                        .find(|device| device.id == "sink-headphones")
+                        .unwrap()
+                        .muted,
+                    Some(false)
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn set_device_mute_maps_backend_error_to_string() {
+        let fixture = CommandFixture::new();
+        assert_eq!(
+            block_on(set_device_mute(
+                "missing-device".into(),
+                true,
+                fixture.app.clone(),
+                fixture.state()
+            )),
+            Err("pipewire adapter error: device not found: missing-device".into())
+        );
+    }
+
+    #[test]
+    fn set_stream_volume_updates_the_requested_stream_and_clamps() {
+        let fixture = CommandFixture::new();
+        block_on(async {
+            for (percent, expected) in [(23, 23), (147, 100)] {
+                assert_eq!(
+                    set_stream_volume(
+                        "stream-spotify".into(),
+                        percent,
+                        fixture.app.clone(),
+                        fixture.state()
+                    )
+                    .await,
+                    Ok(())
+                );
+                let state = fixture.state();
+                let engine = state.engine.read().await;
+                let graph = engine.runtime_graph();
+                assert_eq!(
+                    graph
+                        .streams
+                        .iter()
+                        .find(|stream| stream.id == "stream-spotify")
+                        .unwrap()
+                        .volume_percent,
+                    Some(expected)
+                );
+                assert_eq!(
+                    graph
+                        .streams
+                        .iter()
+                        .find(|stream| stream.id == "stream-discord")
+                        .unwrap()
+                        .volume_percent,
+                    None
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn set_stream_volume_maps_backend_error_to_string() {
+        let fixture = CommandFixture::new();
+        assert_eq!(
+            block_on(set_stream_volume(
+                "missing-stream".into(),
+                23,
+                fixture.app.clone(),
+                fixture.state()
+            )),
+            Err("pipewire adapter error: stream not found: missing-stream".into())
+        );
+    }
+
+    #[test]
+    fn set_stream_mute_updates_the_requested_stream_in_both_directions() {
+        let fixture = CommandFixture::new();
+        block_on(async {
+            for muted in [true, false] {
+                assert_eq!(
+                    set_stream_mute(
+                        "stream-spotify".into(),
+                        muted,
+                        fixture.app.clone(),
+                        fixture.state()
+                    )
+                    .await,
+                    Ok(())
+                );
+                let state = fixture.state();
+                let engine = state.engine.read().await;
+                let graph = engine.runtime_graph();
+                assert_eq!(
+                    graph
+                        .streams
+                        .iter()
+                        .find(|stream| stream.id == "stream-spotify")
+                        .unwrap()
+                        .muted,
+                    Some(muted)
+                );
+                assert_eq!(
+                    graph
+                        .streams
+                        .iter()
+                        .find(|stream| stream.id == "stream-discord")
+                        .unwrap()
+                        .muted,
+                    None
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn set_stream_mute_maps_backend_error_to_string() {
+        let fixture = CommandFixture::new();
+        assert_eq!(
+            block_on(set_stream_mute(
+                "missing-stream".into(),
+                true,
+                fixture.app.clone(),
+                fixture.state()
+            )),
+            Err("pipewire adapter error: stream not found: missing-stream".into())
+        );
+    }
+}
