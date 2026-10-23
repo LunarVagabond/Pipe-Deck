@@ -104,6 +104,7 @@ mod tests {
                         .volume_percent,
                     Some(70)
                 );
+                fixture.assert_graph_update(graph);
             }
         });
     }
@@ -120,6 +121,7 @@ mod tests {
             )),
             Err("pipewire adapter error: device not found: missing-device".into())
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -158,6 +160,7 @@ mod tests {
                         .muted,
                     Some(false)
                 );
+                fixture.assert_graph_update(graph);
             }
         });
     }
@@ -174,6 +177,7 @@ mod tests {
             )),
             Err("pipewire adapter error: device not found: missing-device".into())
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -212,6 +216,7 @@ mod tests {
                         .volume_percent,
                     None
                 );
+                fixture.assert_graph_update(graph);
             }
         });
     }
@@ -228,6 +233,7 @@ mod tests {
             )),
             Err("pipewire adapter error: stream not found: missing-stream".into())
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -266,6 +272,7 @@ mod tests {
                         .muted,
                     None
                 );
+                fixture.assert_graph_update(graph);
             }
         });
     }
@@ -282,5 +289,6 @@ mod tests {
             )),
             Err("pipewire adapter error: stream not found: missing-stream".into())
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 }

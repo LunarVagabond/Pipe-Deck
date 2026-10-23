@@ -1,15 +1,17 @@
 use crate::config::store::lock_config_dir_env;
 use crate::core::engine::command_test_engine;
+use crate::core::models::RuntimeGraph;
 use crate::AppState;
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard};
 use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
-use tauri::{App, Manager};
+use tauri::{App, Listener, Manager};
 use tokio::sync::RwLock;
 
 pub(super) struct CommandFixture {
     pub app: App<MockRuntime>,
+    graph_updates: Arc<Mutex<Vec<RuntimeGraph>>>,
     config_dir: std::path::PathBuf,
     previous_env: Vec<(&'static str, Option<OsString>)>,
     _guard: MutexGuard<'static, ()>,
@@ -40,12 +42,33 @@ impl CommandFixture {
             })
             .build(mock_context(noop_assets()))
             .expect("build command test app");
+        let graph_updates = Arc::new(Mutex::new(Vec::new()));
+        let recorded = Arc::clone(&graph_updates);
+        // Rust listeners run inline, so completed commands have already recorded their events.
+        app.listen("graph-updated", move |event| {
+            let graph = serde_json::from_str(event.payload()).expect("graph-updated payload");
+            recorded.lock().unwrap().push(graph);
+        });
         Self {
             app,
+            graph_updates,
             config_dir,
             previous_env,
             _guard: guard,
         }
+    }
+
+    pub fn take_graph_updates(&self) -> Vec<RuntimeGraph> {
+        std::mem::take(&mut *self.graph_updates.lock().unwrap())
+    }
+
+    pub fn assert_graph_update(&self, expected: &RuntimeGraph) {
+        let updates = self.take_graph_updates();
+        assert_eq!(updates.len(), 1, "one graph-updated event per operation");
+        assert_eq!(
+            serde_json::to_value(&updates[0]).unwrap(),
+            serde_json::to_value(expected).unwrap()
+        );
     }
 
     pub fn fail_config_writes(&self) {

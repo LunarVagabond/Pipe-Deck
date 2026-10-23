@@ -108,6 +108,7 @@ mod tests {
                 .find(|stream| stream.id == "stream-discord")
                 .unwrap();
             assert_eq!(stream.current_target.as_deref(), Some("sink-speakers"));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -125,6 +126,14 @@ mod tests {
             serde_json::to_value(result).unwrap(),
             json!({"success": false, "message": "at least one target is required"})
         );
+        fixture.assert_graph_update(
+            fixture
+                .app
+                .state::<AppState>()
+                .engine
+                .blocking_read()
+                .runtime_graph(),
+        );
     }
 
     #[test]
@@ -140,6 +149,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(result).unwrap(),
             json!({"success": false, "message": "routing error: target device not found: missing-target"})
+        );
+        fixture.assert_graph_update(
+            fixture
+                .app
+                .state::<AppState>()
+                .engine
+                .blocking_read()
+                .runtime_graph(),
         );
     }
 
@@ -168,6 +185,7 @@ mod tests {
                 .find(|stream| stream.id == "stream-spotify")
                 .unwrap();
             assert_eq!(stream.current_target.as_deref(), Some("sink-headphones"));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -184,6 +202,14 @@ mod tests {
         assert_eq!(
             serde_json::to_value(result).unwrap(),
             json!({"success": false, "message": "routing error: stream not found: missing-stream"})
+        );
+        fixture.assert_graph_update(
+            fixture
+                .app
+                .state::<AppState>()
+                .engine
+                .blocking_read()
+                .runtime_graph(),
         );
     }
 
@@ -212,6 +238,7 @@ mod tests {
                 .find(|stream| stream.id == "stream-discord")
                 .unwrap();
             assert_eq!(stream.current_target, None);
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -226,6 +253,7 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(error, "routing error: stream not found: missing-stream");
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -241,6 +269,15 @@ mod tests {
             .await
             .unwrap();
             assert!(routed.success);
+            fixture.assert_graph_update(
+                fixture
+                    .app
+                    .state::<AppState>()
+                    .engine
+                    .read()
+                    .await
+                    .runtime_graph(),
+            );
             let result = undo_last_routing(
                 fixture.app.handle().clone(),
                 fixture.app.state::<AppState>(),
@@ -260,6 +297,7 @@ mod tests {
                 .find(|stream| stream.id == "stream-discord")
                 .unwrap();
             assert_eq!(stream.current_target.as_deref(), Some("sink-chat"));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -275,6 +313,14 @@ mod tests {
             serde_json::to_value(result).unwrap(),
             json!({"success": false, "message": "nothing to undo"})
         );
+        fixture.assert_graph_update(
+            fixture
+                .app
+                .state::<AppState>()
+                .engine
+                .blocking_read()
+                .runtime_graph(),
+        );
     }
 
     #[test]
@@ -284,6 +330,7 @@ mod tests {
             block_on(can_undo_routing(fixture.app.state::<AppState>())),
             Ok(false)
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -299,10 +346,20 @@ mod tests {
             .await
             .unwrap();
             assert!(routed.success);
+            fixture.assert_graph_update(
+                fixture
+                    .app
+                    .state::<AppState>()
+                    .engine
+                    .read()
+                    .await
+                    .runtime_graph(),
+            );
             assert_eq!(
                 can_undo_routing(fixture.app.state::<AppState>()).await,
                 Ok(true)
             );
+            assert!(fixture.take_graph_updates().is_empty());
             let undone = undo_last_routing(
                 fixture.app.handle().clone(),
                 fixture.app.state::<AppState>(),
@@ -310,10 +367,20 @@ mod tests {
             .await
             .unwrap();
             assert!(undone.success);
+            fixture.assert_graph_update(
+                fixture
+                    .app
+                    .state::<AppState>()
+                    .engine
+                    .read()
+                    .await
+                    .runtime_graph(),
+            );
             assert_eq!(
                 can_undo_routing(fixture.app.state::<AppState>()).await,
                 Ok(false)
             );
+            assert!(fixture.take_graph_updates().is_empty());
         });
     }
 
@@ -324,6 +391,7 @@ mod tests {
             block_on(get_last_error(fixture.app.state::<AppState>())),
             Ok(None)
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -339,12 +407,22 @@ mod tests {
             .await
             .unwrap();
             assert!(!failed.success);
+            fixture.assert_graph_update(
+                fixture
+                    .app
+                    .state::<AppState>()
+                    .engine
+                    .read()
+                    .await
+                    .runtime_graph(),
+            );
             assert_eq!(
                 get_last_error(fixture.app.state::<AppState>()).await,
                 Ok(Some(
                     "routing error: target device not found: missing-target".into()
                 ))
             );
+            assert!(fixture.take_graph_updates().is_empty());
             let routed = set_stream_target(
                 "stream-discord".into(),
                 "sink-speakers".into(),
@@ -354,10 +432,20 @@ mod tests {
             .await
             .unwrap();
             assert!(routed.success);
+            fixture.assert_graph_update(
+                fixture
+                    .app
+                    .state::<AppState>()
+                    .engine
+                    .read()
+                    .await
+                    .runtime_graph(),
+            );
             assert_eq!(
                 get_last_error(fixture.app.state::<AppState>()).await,
                 Ok(None)
             );
+            assert!(fixture.take_graph_updates().is_empty());
         });
     }
 }

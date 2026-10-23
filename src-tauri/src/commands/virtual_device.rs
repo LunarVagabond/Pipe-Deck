@@ -110,6 +110,7 @@ mod tests {
                 .unwrap();
             assert_eq!(device.direction, DeviceDirection::Output);
             assert_eq!(device.sink_mode, Some(SinkMode::Single));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -127,6 +128,7 @@ mod tests {
             error,
             "config error: failed to write config: File exists (os error 17)"
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -154,6 +156,7 @@ mod tests {
                 .unwrap();
             assert_eq!(device.direction, DeviceDirection::Input);
             assert_eq!(device.sink_mode, None);
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -171,6 +174,7 @@ mod tests {
             error,
             "config error: failed to write config: File exists (os error 17)"
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -198,6 +202,7 @@ mod tests {
                 .unwrap();
             assert_eq!(device.direction, DeviceDirection::Output);
             assert_eq!(device.sink_mode, Some(SinkMode::Multi));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -215,6 +220,7 @@ mod tests {
             error,
             "config error: failed to write config: File exists (os error 17)"
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -228,6 +234,15 @@ mod tests {
             )
             .await
             .unwrap();
+            fixture.assert_graph_update(
+                fixture
+                    .app
+                    .state::<AppState>()
+                    .engine
+                    .read()
+                    .await
+                    .runtime_graph(),
+            );
             assert_eq!(
                 remove_virtual_device(
                     "pipe-deck-disposable-monitor-73".into(),
@@ -248,6 +263,7 @@ mod tests {
                 .devices
                 .iter()
                 .any(|device| device.id == "sink-speakers"));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -263,6 +279,7 @@ mod tests {
             )),
             Err("config error: failed to write config: File exists (os error 17)".into())
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -310,6 +327,7 @@ mod tests {
                 .find(|stream| stream.id == "stream-discord")
                 .unwrap();
             assert_eq!(stream.current_target.as_deref(), Some("sink-chat"));
+            fixture.assert_graph_update(engine.runtime_graph());
         });
     }
 
@@ -324,6 +342,7 @@ mod tests {
         ))
         .unwrap_err();
         assert_eq!(error, "not found: stream not found: missing-stream");
+        assert!(fixture.take_graph_updates().is_empty());
     }
 
     #[test]
@@ -340,5 +359,6 @@ mod tests {
             error,
             "invalid input: passthrough target must be a virtual microphone"
         );
+        assert!(fixture.take_graph_updates().is_empty());
     }
 }
