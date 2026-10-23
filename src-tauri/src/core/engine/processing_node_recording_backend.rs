@@ -1,7 +1,8 @@
 use crate::backend::{AudioBackend, BackendError, GraphListener};
 use crate::core::models::{
     Device, DeviceDirection, EffectChainConfig, LatencyPathNode, LatencyPingResult, MixSourceSpec,
-    PortDirection, ProcessingNode, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
+    PortDirection, ProcessingNode, RoutingIntent, RuntimeGraph, VirtualDeviceInfo,
+    VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -131,6 +132,11 @@ impl AudioBackend for RecordingBackend {
             target_device_id: &str,
         ) -> Result<(), BackendError>;
         fn sync_live_routing_graph(&self, graph: &mut RuntimeGraph);
+        fn apply_routing_intent(
+            &self,
+            graph: &RuntimeGraph,
+            intent: &RoutingIntent,
+        ) -> Result<(), BackendError>;
         fn apply_user_cleared_routes(
             &self,
             graph: &mut RuntimeGraph,

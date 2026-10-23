@@ -3320,3 +3320,112 @@ fn delete_profile_rejects_deleting_the_last_remaining_profile() {
         Err(pipe_deck_lib::core::engine::EngineError::InvalidInput(_))
     ));
 }
+
+#[test]
+fn routing_rules_reach_the_backend_outside_graph_only_mode() {
+    use pipe_deck_lib::core::models::ActionStatus;
+    use pipe_deck_lib::core::rules::{apply_routing_rules_with_explanations, ApplyRulesContext};
+
+    let (backend, _store, _guard) = mock_backend_with_config();
+    let mut graph = backend.fetch_graph().unwrap();
+    let stream = graph.streams[0].clone();
+    let target = graph
+        .devices
+        .iter()
+        .find(|device| {
+            device.direction == DeviceDirection::Output
+                && stream.current_target.as_deref() != Some(device.id.as_str())
+        })
+        .unwrap()
+        .clone();
+    pipe_deck_lib::core::routing_rules::save_stream_route_rule(&stream, &target).unwrap();
+    let manual_overrides = Default::default();
+    let ctx = ApplyRulesContext {
+        manual_overrides: &manual_overrides,
+        dry_run: false,
+        mock_graph_only: false,
+        limit_to_stream_ids: None,
+        backend: &backend,
+    };
+
+    apply_routing_rules_with_explanations(&mut graph, &ctx).unwrap();
+
+    let refreshed = backend.fetch_graph().unwrap();
+    let routed = refreshed
+        .streams
+        .iter()
+        .find(|item| item.id == stream.id)
+        .unwrap();
+    assert_eq!(routed.current_target.as_deref(), Some(target.id.as_str()));
+    let applied = graph
+        .streams
+        .iter()
+        .find(|item| item.id == stream.id)
+        .unwrap();
+    assert_eq!(
+        applied.route_explanation.as_ref().unwrap().action_status,
+        ActionStatus::Applied
+    );
+}
+
+#[test]
+fn routing_intents_resolve_targets_and_persist_in_the_mock_backend() {
+    use pipe_deck_lib::core::models::RoutingIntent;
+
+    for (target_id, target_ids, system_name) in [
+        (Some("sink-music"), vec!["sink-chat"], Some("sink-chat")),
+        (None, vec!["sink-music", "sink-chat"], None),
+        (Some("stale-device-id"), vec![], Some("sink-music")),
+        (None, vec!["stale-device-id"], Some("sink-music")),
+    ] {
+        let backend = MockAudioBackend::new();
+        let graph = backend.fetch_graph().unwrap();
+        let stream_id = graph.streams[0].id.clone();
+        assert_ne!(
+            graph.streams[0].current_target.as_deref(),
+            Some("sink-music")
+        );
+        let intent = RoutingIntent {
+            stream_id: stream_id.clone(),
+            target_device_id: target_id.map(str::to_string),
+            target_device_ids: target_ids.into_iter().map(str::to_string).collect(),
+            target_system_name: system_name.map(str::to_string),
+        };
+
+        backend.apply_routing_intent(&graph, &intent).unwrap();
+
+        let refreshed = backend.fetch_graph().unwrap();
+        let stream = refreshed
+            .streams
+            .iter()
+            .find(|item| item.id == stream_id)
+            .unwrap();
+        assert_eq!(stream.current_target.as_deref(), Some("sink-music"));
+    }
+}
+
+#[test]
+fn routing_intents_reject_unresolvable_targets_and_unknown_streams() {
+    use pipe_deck_lib::core::models::RoutingIntent;
+
+    let backend = MockAudioBackend::new();
+    let graph = backend.fetch_graph().unwrap();
+    let stream = &graph.streams[0];
+    for (stream_id, target_id, system_name) in [
+        (stream.id.as_str(), None, None),
+        (stream.id.as_str(), None, Some("sink-music")),
+        (stream.id.as_str(), Some("missing-device"), None),
+        ("missing-stream", Some("sink-music"), None),
+    ] {
+        let intent = RoutingIntent {
+            stream_id: stream_id.to_string(),
+            target_device_id: target_id.map(str::to_string),
+            target_device_ids: Vec::new(),
+            target_system_name: system_name.map(str::to_string),
+        };
+
+        assert!(backend.apply_routing_intent(&graph, &intent).is_err());
+        let refreshed = backend.fetch_graph().unwrap();
+        assert_eq!(refreshed.streams[0].current_target, stream.current_target);
+    }
+}

@@ -1,5 +1,5 @@
 //! GUI-side client for native-effects IPC (issue #148). Used by
-//! `backend::linux::live::LinuxPipeWireBackend` instead of calling
+//! `LinuxPipeWireBackend` instead of calling
 //! `pipewire::native_host` directly in-process — the native host lives in
 //! the daemon process, reachable over `protocol::socket_path()`.
 
@@ -200,7 +200,7 @@ fn request_with_timeout(op: IpcOp, timeout: Duration) -> Result<IpcOkPayload, Ip
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod live_tests {
     //! `#[ignore]`d on purpose: hits a *real* PipeWire session, same
     //! convention as `core::engine::effects_ops::live_tests`. Only run via
@@ -210,9 +210,12 @@ mod live_tests {
     //! `pipe-deck-native-ipc-test` device name this test creates/destroys
     //! itself — never touches any device the user configured.
     use super::*;
-    use crate::backend::linux::pactl;
+    #[cfg(all(test, target_os = "linux"))]
+    use crate::backend as platform;
     use crate::core::models::EffectStage;
     use crate::daemon::ipc::server;
+    #[cfg(all(test, target_os = "linux"))]
+    use platform::linux::pactl;
     use std::path::PathBuf;
     use std::thread;
 
@@ -356,7 +359,7 @@ mod live_tests {
     /// this needs to observe the node the same way an external tool like
     /// `pw-top` would, independent of anything `native_host` itself tracks.
     fn node_state_via_pw_dump(node_name: &str) -> Option<String> {
-        let output = std::process::Command::new("pw-dump").output().ok()?;
+        let output = crate::sysproc::command("pw-dump").output().ok()?;
         if !output.status.success() {
             return None;
         }
@@ -443,7 +446,7 @@ mod live_tests {
         }
 
         for (playback_port, driver_port) in [("FL", "FL"), ("FR", "FR")] {
-            let status = std::process::Command::new("pw-link")
+            let status = crate::sysproc::command("pw-link")
                 .args([
                     format!("{playback_name}:output_{playback_port}"),
                     format!("{driver_sink_name}:playback_{driver_port}"),
@@ -455,7 +458,7 @@ mod live_tests {
             }
         }
 
-        let mut feed = match std::process::Command::new("pw-cat")
+        let mut feed = match crate::sysproc::command("pw-cat")
             .args([
                 "--playback",
                 "--raw",
@@ -576,7 +579,7 @@ mod live_tests {
     /// reports success but the underlying PipeWire module/node didn't
     /// actually go away.
     fn orphaned_module_count(device_system_name: &str) -> usize {
-        let output = std::process::Command::new("pactl")
+        let output = crate::sysproc::command("pactl")
             .args(["list", "short", "sinks"])
             .output();
         match output {
@@ -608,7 +611,7 @@ mod live_tests {
 
         let daemon_path = crate::daemon::daemon_binary_path()
             .expect("pipe-deck-daemon binary not found — run `make build-daemon-dev` first");
-        let mut child = std::process::Command::new(daemon_path)
+        let mut child = crate::sysproc::command(daemon_path)
             .env("PIPE_DECK_DAEMON_EPHEMERAL", "1")
             .env("PIPE_DECK_NATIVE_HOST_SOCKET", &socket_path)
             .spawn()

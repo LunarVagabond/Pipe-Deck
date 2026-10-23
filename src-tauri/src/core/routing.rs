@@ -1,6 +1,5 @@
-use crate::backend::linux::split_sink;
 use crate::backend::{AudioBackend, BackendError};
-use crate::core::models::{Profile, RoutingIntent, RuntimeGraph, Stream};
+use crate::core::models::{Profile, RoutingIntent, RuntimeGraph};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -41,7 +40,7 @@ pub fn capture_routing_snapshot(graph: &RuntimeGraph) -> RoutingSnapshot {
 /// `graph` right now. The raw id wins when it still matches a live device;
 /// otherwise falls back to `target_system_name` (stable across a BT/USB
 /// reconnect that assigned the device a new PipeWire node id — #13, #14).
-fn resolve_intent_target<'a>(
+pub(crate) fn resolve_intent_target<'a>(
     graph: &'a RuntimeGraph,
     intent: &'a RoutingIntent,
 ) -> Option<&'a str> {
@@ -60,29 +59,24 @@ fn resolve_intent_target<'a>(
         .map(|device| device.id.as_str())
 }
 
-pub fn apply_routing_intent(
+pub fn apply_profile_routing(
+    backend: &dyn AudioBackend,
     graph: &RuntimeGraph,
-    intent: &RoutingIntent,
+    profile: &Profile,
 ) -> Result<(), RoutingError> {
-    let target = resolve_intent_target(graph, intent)
-        .ok_or_else(|| RoutingError::Message("routing intent has no target".into()))?;
-    split_sink::apply_stream_to_sink(graph, &intent.stream_id, target)?;
-    Ok(())
-}
-
-pub fn apply_profile_routing(graph: &RuntimeGraph, profile: &Profile) -> Result<(), RoutingError> {
     for intent in &profile.routing_intents {
-        apply_routing_intent(graph, intent)?;
+        backend.apply_routing_intent(graph, intent)?;
     }
     Ok(())
 }
 
 pub fn restore_routing_snapshot(
+    backend: &dyn AudioBackend,
     graph: &RuntimeGraph,
     snapshot: &RoutingSnapshot,
 ) -> Result<(), RoutingError> {
     for intent in &snapshot.stream_intents {
-        apply_routing_intent(graph, intent)?;
+        backend.apply_routing_intent(graph, intent)?;
     }
     Ok(())
 }
@@ -114,15 +108,6 @@ pub fn apply_profile_volumes(
         backend.set_device_volume(graph, resolved_id, state.volume_percent)?;
         backend.set_device_mute(graph, resolved_id, state.muted)?;
     }
-    Ok(())
-}
-
-pub fn apply_stream_to_sink(
-    graph: &RuntimeGraph,
-    stream: &Stream,
-    target_device_id: &str,
-) -> Result<(), RoutingError> {
-    split_sink::apply_stream_to_sink(graph, &stream.id, target_device_id)?;
     Ok(())
 }
 

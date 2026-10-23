@@ -1,6 +1,7 @@
 use super::{AudioBackend, BackendError, GraphListener};
 use crate::core::models::{
-    Device, DeviceDirection, MixSourceSpec, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
+    Device, DeviceDirection, MixSourceSpec, RoutingIntent, RuntimeGraph, VirtualDeviceInfo,
+    VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -105,6 +106,16 @@ impl AudioBackend for StubBackend {
     }
 
     fn sync_live_routing_graph(&self, _graph: &mut RuntimeGraph) {}
+
+    fn apply_routing_intent(
+        &self,
+        _graph: &RuntimeGraph,
+        _intent: &RoutingIntent,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(
+            "no audio backend implemented for this platform yet".into(),
+        ))
+    }
 
     fn apply_user_cleared_routes(
         &self,

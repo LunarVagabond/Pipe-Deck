@@ -11,7 +11,7 @@ use crate::backend::slugify;
 use crate::backend::{AudioBackend, BackendError, GraphListener};
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, LatencyHop, LatencyPathNode, LatencyPingResult,
-    MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind, RuntimeGraph,
+    MixSourceSpec, PortDirection, ProcessingNode, ProcessingNodeKind, RoutingIntent, RuntimeGraph,
     VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
@@ -238,8 +238,18 @@ impl AudioBackend for LinuxPipeWireBackend {
             target_device_ids: Vec::new(),
             target_system_name: None,
         };
-        crate::core::routing::apply_routing_intent(graph, &intent)
-            .map_err(|error| BackendError::Message(error.to_string()))
+        self.apply_routing_intent(graph, &intent)
+    }
+
+    fn apply_routing_intent(
+        &self,
+        graph: &RuntimeGraph,
+        intent: &RoutingIntent,
+    ) -> Result<(), BackendError> {
+        let target = crate::core::routing::resolve_intent_target(graph, intent)
+            .ok_or_else(|| BackendError::Message("routing intent has no target".into()))?;
+        split_sink::apply_stream_to_sink(graph, &intent.stream_id, target)?;
+        Ok(())
     }
 
     fn sync_live_routing_graph(&self, graph: &mut RuntimeGraph) {

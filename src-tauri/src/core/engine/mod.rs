@@ -82,7 +82,7 @@ pub struct CoreEngine {
     /// passive `pw-dump` monitor's `apply_graph_update`). A plain field
     /// would be enough for command paths, which already hold `&mut self`
     /// under the engine's write lock, but the monitor thread in
-    /// `backend::linux::live::run_pw_dump_monitor` samples PipeWire
+    /// the Linux backend's `run_pw_dump_monitor` samples PipeWire
     /// (`enumerate_pipewire()`) *before* it ever touches the engine lock —
     /// it needs to read "what generation was authoritative right as I
     /// finished sampling" without awaiting that lock, which only a shared

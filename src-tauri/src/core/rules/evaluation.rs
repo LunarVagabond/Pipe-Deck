@@ -176,7 +176,8 @@ pub fn apply_routing_rules_with_explanations(
         let apply_result = if ctx.mock_graph_only {
             Ok(())
         } else {
-            crate::core::routing::apply_stream_to_sink(graph, &stream, &target_device.id)
+            ctx.backend
+                .route_stream(graph, &stream.id, &target_device.id)
                 .map_err(|error| BackendError::Message(error.to_string()))
         };
 
