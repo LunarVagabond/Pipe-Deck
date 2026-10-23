@@ -81,3 +81,6 @@ sd-notify = { version = "0.5" }
 # field-confidence addenda (issues #148/#205). Requires `libpipewire-0.3` dev
 # headers (via `pkg-config`) to build — see CONTRIBUTING.md for setup.
 pipewire = { version = "0.10" }
+
+[dev-dependencies]
+tauri = { version = "2", features = ["test"] }

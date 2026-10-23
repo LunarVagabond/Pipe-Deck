@@ -81,8 +81,9 @@ mod tests {
     };
     use crate::commands::test_support::CommandFixture;
     use crate::core::models::{DeviceDirection, SinkMode};
+    use crate::AppState;
     use serde_json::json;
-    use tauri::async_runtime::block_on;
+    use tauri::{async_runtime::block_on, Manager};
 
     #[test]
     fn create_virtual_output_returns_the_full_device_payload() {
@@ -90,8 +91,8 @@ mod tests {
         block_on(async {
             let result = create_virtual_output(
                 "Studio Monitor 73".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
@@ -99,7 +100,7 @@ mod tests {
                 serde_json::to_value(result).unwrap(),
                 json!({"device_id": "virtual-studio-monitor-73", "system_name": "pipe-deck-studio-monitor-73", "label": "Studio Monitor 73", "multi": false})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let device = engine
                 .runtime_graph()
@@ -118,8 +119,8 @@ mod tests {
         fixture.fail_config_writes();
         let error = block_on(create_virtual_output(
             "Studio Monitor 73".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap_err();
         assert_eq!(
@@ -132,15 +133,18 @@ mod tests {
     fn create_virtual_input_returns_the_full_device_payload() {
         let fixture = CommandFixture::new();
         block_on(async {
-            let result =
-                create_virtual_input("Studio Mic 29".into(), fixture.app.clone(), fixture.state())
-                    .await
-                    .unwrap();
+            let result = create_virtual_input(
+                "Studio Mic 29".into(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
+            )
+            .await
+            .unwrap();
             assert_eq!(
                 serde_json::to_value(result).unwrap(),
                 json!({"device_id": "virtual-studio-mic-29", "system_name": "pipe-deck-studio-mic-29", "label": "Studio Mic 29", "multi": false})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let device = engine
                 .runtime_graph()
@@ -159,8 +163,8 @@ mod tests {
         fixture.fail_config_writes();
         let error = block_on(create_virtual_input(
             "Studio Mic 29".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap_err();
         assert_eq!(
@@ -175,8 +179,8 @@ mod tests {
         block_on(async {
             let result = create_virtual_multi_output(
                 "Studio Fanout 61".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
@@ -184,7 +188,7 @@ mod tests {
                 serde_json::to_value(result).unwrap(),
                 json!({"device_id": "virtual-studio-fanout-61", "system_name": "pipe-deck-studio-fanout-61", "label": "Studio Fanout 61", "multi": true})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let device = engine
                 .runtime_graph()
@@ -203,8 +207,8 @@ mod tests {
         fixture.fail_config_writes();
         let error = block_on(create_virtual_multi_output(
             "Studio Fanout 61".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap_err();
         assert_eq!(
@@ -219,21 +223,21 @@ mod tests {
         block_on(async {
             create_virtual_output(
                 "Disposable Monitor 73".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
             assert_eq!(
                 remove_virtual_device(
                     "pipe-deck-disposable-monitor-73".into(),
-                    fixture.app.clone(),
-                    fixture.state()
+                    fixture.app.handle().clone(),
+                    fixture.app.state::<AppState>()
                 )
                 .await,
                 Ok(())
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let graph = engine.runtime_graph();
             assert!(!graph
@@ -254,8 +258,8 @@ mod tests {
         assert_eq!(
             block_on(remove_virtual_device(
                 "pipe-deck-missing-device".into(),
-                fixture.app.clone(),
-                fixture.state()
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>()
             )),
             Err("config error: failed to write config: File exists (os error 17)".into())
         );
@@ -268,8 +272,8 @@ mod tests {
             let result = enable_stream_mic_passthrough(
                 "stream-discord".into(),
                 "source-mic-filtered".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
@@ -277,7 +281,7 @@ mod tests {
                 serde_json::to_value(result).unwrap(),
                 json!({"success": true, "message": null})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let graph = engine.runtime_graph();
             let mic = graph
@@ -315,8 +319,8 @@ mod tests {
         let error = block_on(enable_stream_mic_passthrough(
             "missing-stream".into(),
             "source-mic-filtered".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap_err();
         assert_eq!(error, "not found: stream not found: missing-stream");
@@ -328,8 +332,8 @@ mod tests {
         let error = block_on(enable_stream_mic_passthrough(
             "stream-discord".into(),
             "source-mic".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap_err();
         assert_eq!(

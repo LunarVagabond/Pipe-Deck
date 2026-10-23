@@ -3,13 +3,13 @@ use crate::core::engine::command_test_engine;
 use crate::AppState;
 use std::ffi::OsString;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, MutexGuard, OnceLock};
-use std::time::Duration;
-use tauri::{AppHandle, Manager, State};
+use std::sync::{Arc, MutexGuard};
+use tauri::test::{mock_builder, mock_context, noop_assets, MockRuntime};
+use tauri::{App, Manager};
 use tokio::sync::RwLock;
 
 pub(super) struct CommandFixture {
-    pub app: &'static AppHandle,
+    pub app: App<MockRuntime>,
     config_dir: std::path::PathBuf,
     previous_env: Vec<(&'static str, Option<OsString>)>,
     _guard: MutexGuard<'static, ()>,
@@ -34,8 +34,12 @@ impl CommandFixture {
 
         let mut engine = command_test_engine();
         engine.refresh_graph().expect("initial mock graph refresh");
-        let app = test_app();
-        *app.state::<AppState>().engine.blocking_write() = engine;
+        let app = mock_builder()
+            .manage(AppState {
+                engine: Arc::new(RwLock::new(engine)),
+            })
+            .build(mock_context(noop_assets()))
+            .expect("build command test app");
         Self {
             app,
             config_dir,
@@ -44,13 +48,9 @@ impl CommandFixture {
         }
     }
 
-    pub fn state(&self) -> State<'_, AppState> {
-        self.app.state()
-    }
-
     pub fn fail_config_writes(&self) {
         // Exercise persistence with the mock backend still handling all audio operations.
-        let state = self.state();
+        let state = self.app.state::<AppState>();
         let mut engine = state.engine.blocking_write();
         let mut graph = engine.runtime_graph().clone();
         graph.data_source = "persisted-config-test".into();
@@ -70,31 +70,4 @@ impl Drop for CommandFixture {
             }
         }
     }
-}
-
-fn test_app() -> &'static AppHandle {
-    static APP: OnceLock<AppHandle> = OnceLock::new();
-    APP.get_or_init(|| {
-        let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-        // Concrete command signatures require Wry; share its single GTK event loop.
-        std::thread::spawn(move || {
-            let mut context = tauri::generate_context!(test = true);
-            context.config_mut().app.windows.clear();
-            let app = tauri::Builder::default()
-                .any_thread()
-                .manage(AppState {
-                    engine: Arc::new(RwLock::new(command_test_engine())),
-                })
-                .build(context)
-                .expect("build command test app (requires a display, e.g. xvfb-run)");
-            app.run_return(move |app, event| match event {
-                tauri::RunEvent::Ready => sender.send(app.clone()).unwrap(),
-                tauri::RunEvent::ExitRequested { api, .. } => api.prevent_exit(),
-                _ => {}
-            });
-        });
-        receiver
-            .recv_timeout(Duration::from_secs(30))
-            .expect("command test app must become ready")
-    })
 }

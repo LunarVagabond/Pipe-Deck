@@ -65,7 +65,8 @@ pub async fn set_stream_mute<R: tauri::Runtime>(
 mod tests {
     use super::{set_device_mute, set_device_volume, set_stream_mute, set_stream_volume};
     use crate::commands::test_support::CommandFixture;
-    use tauri::async_runtime::block_on;
+    use crate::AppState;
+    use tauri::{async_runtime::block_on, Manager};
 
     #[test]
     fn set_device_volume_updates_the_requested_device_and_clamps() {
@@ -76,13 +77,13 @@ mod tests {
                     set_device_volume(
                         "sink-speakers".into(),
                         percent,
-                        fixture.app.clone(),
-                        fixture.state()
+                        fixture.app.handle().clone(),
+                        fixture.app.state::<AppState>()
                     )
                     .await,
                     Ok(())
                 );
-                let state = fixture.state();
+                let state = fixture.app.state::<AppState>();
                 let engine = state.engine.read().await;
                 let graph = engine.runtime_graph();
                 assert_eq!(
@@ -114,8 +115,8 @@ mod tests {
             block_on(set_device_volume(
                 "missing-device".into(),
                 37,
-                fixture.app.clone(),
-                fixture.state()
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>()
             )),
             Err("pipewire adapter error: device not found: missing-device".into())
         );
@@ -130,13 +131,13 @@ mod tests {
                     set_device_mute(
                         "sink-speakers".into(),
                         muted,
-                        fixture.app.clone(),
-                        fixture.state()
+                        fixture.app.handle().clone(),
+                        fixture.app.state::<AppState>()
                     )
                     .await,
                     Ok(())
                 );
-                let state = fixture.state();
+                let state = fixture.app.state::<AppState>();
                 let engine = state.engine.read().await;
                 let graph = engine.runtime_graph();
                 assert_eq!(
@@ -168,8 +169,8 @@ mod tests {
             block_on(set_device_mute(
                 "missing-device".into(),
                 true,
-                fixture.app.clone(),
-                fixture.state()
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>()
             )),
             Err("pipewire adapter error: device not found: missing-device".into())
         );
@@ -184,13 +185,13 @@ mod tests {
                     set_stream_volume(
                         "stream-spotify".into(),
                         percent,
-                        fixture.app.clone(),
-                        fixture.state()
+                        fixture.app.handle().clone(),
+                        fixture.app.state::<AppState>()
                     )
                     .await,
                     Ok(())
                 );
-                let state = fixture.state();
+                let state = fixture.app.state::<AppState>();
                 let engine = state.engine.read().await;
                 let graph = engine.runtime_graph();
                 assert_eq!(
@@ -222,8 +223,8 @@ mod tests {
             block_on(set_stream_volume(
                 "missing-stream".into(),
                 23,
-                fixture.app.clone(),
-                fixture.state()
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>()
             )),
             Err("pipewire adapter error: stream not found: missing-stream".into())
         );
@@ -238,13 +239,13 @@ mod tests {
                     set_stream_mute(
                         "stream-spotify".into(),
                         muted,
-                        fixture.app.clone(),
-                        fixture.state()
+                        fixture.app.handle().clone(),
+                        fixture.app.state::<AppState>()
                     )
                     .await,
                     Ok(())
                 );
-                let state = fixture.state();
+                let state = fixture.app.state::<AppState>();
                 let engine = state.engine.read().await;
                 let graph = engine.runtime_graph();
                 assert_eq!(
@@ -276,8 +277,8 @@ mod tests {
             block_on(set_stream_mute(
                 "missing-stream".into(),
                 true,
-                fixture.app.clone(),
-                fixture.state()
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>()
             )),
             Err("pipewire adapter error: stream not found: missing-stream".into())
         );

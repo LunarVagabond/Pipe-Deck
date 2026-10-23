@@ -79,8 +79,9 @@ mod tests {
         set_stream_targets, undo_last_routing,
     };
     use crate::commands::test_support::CommandFixture;
+    use crate::AppState;
     use serde_json::json;
-    use tauri::async_runtime::block_on;
+    use tauri::{async_runtime::block_on, Manager};
 
     #[test]
     fn set_stream_targets_routes_to_the_primary_target() {
@@ -89,8 +90,8 @@ mod tests {
             let result = set_stream_targets(
                 "stream-discord".into(),
                 vec!["sink-speakers".into(), "sink-headphones".into()],
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
@@ -98,7 +99,7 @@ mod tests {
                 serde_json::to_value(result).unwrap(),
                 json!({"success": true, "message": null})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let stream = engine
                 .runtime_graph()
@@ -116,8 +117,8 @@ mod tests {
         let result = block_on(set_stream_targets(
             "stream-discord".into(),
             vec![],
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap();
         assert_eq!(
@@ -132,8 +133,8 @@ mod tests {
         let result = block_on(set_stream_targets(
             "stream-discord".into(),
             vec!["missing-target".into()],
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap();
         assert_eq!(
@@ -149,8 +150,8 @@ mod tests {
             let result = set_stream_target(
                 "stream-spotify".into(),
                 "sink-headphones".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
@@ -158,7 +159,7 @@ mod tests {
                 serde_json::to_value(result).unwrap(),
                 json!({"success": true, "message": null})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let stream = engine
                 .runtime_graph()
@@ -176,8 +177,8 @@ mod tests {
         let result = block_on(set_stream_target(
             "missing-stream".into(),
             "sink-speakers".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap();
         assert_eq!(
@@ -193,8 +194,8 @@ mod tests {
             let result = clear_stream_target(
                 "stream-discord".into(),
                 "sink-chat".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
@@ -202,7 +203,7 @@ mod tests {
                 serde_json::to_value(result).unwrap(),
                 json!({"success": true, "message": null})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let stream = engine
                 .runtime_graph()
@@ -220,8 +221,8 @@ mod tests {
         let error = block_on(clear_stream_target(
             "missing-stream".into(),
             "sink-chat".into(),
-            fixture.app.clone(),
-            fixture.state(),
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
         ))
         .unwrap_err();
         assert_eq!(error, "routing error: stream not found: missing-stream");
@@ -234,20 +235,23 @@ mod tests {
             let routed = set_stream_target(
                 "stream-discord".into(),
                 "sink-speakers".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
             assert!(routed.success);
-            let result = undo_last_routing(fixture.app.clone(), fixture.state())
-                .await
-                .unwrap();
+            let result = undo_last_routing(
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
+            )
+            .await
+            .unwrap();
             assert_eq!(
                 serde_json::to_value(result).unwrap(),
                 json!({"success": true, "message": null})
             );
-            let state = fixture.state();
+            let state = fixture.app.state::<AppState>();
             let engine = state.engine.read().await;
             let stream = engine
                 .runtime_graph()
@@ -262,7 +266,11 @@ mod tests {
     #[test]
     fn undo_last_routing_returns_a_failed_payload_without_history() {
         let fixture = CommandFixture::new();
-        let result = block_on(undo_last_routing(fixture.app.clone(), fixture.state())).unwrap();
+        let result = block_on(undo_last_routing(
+            fixture.app.handle().clone(),
+            fixture.app.state::<AppState>(),
+        ))
+        .unwrap();
         assert_eq!(
             serde_json::to_value(result).unwrap(),
             json!({"success": false, "message": "nothing to undo"})
@@ -272,7 +280,10 @@ mod tests {
     #[test]
     fn can_undo_routing_reports_no_history() {
         let fixture = CommandFixture::new();
-        assert_eq!(block_on(can_undo_routing(fixture.state())), Ok(false));
+        assert_eq!(
+            block_on(can_undo_routing(fixture.app.state::<AppState>())),
+            Ok(false)
+        );
     }
 
     #[test]
@@ -282,25 +293,37 @@ mod tests {
             let routed = set_stream_target(
                 "stream-discord".into(),
                 "sink-speakers".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
             assert!(routed.success);
-            assert_eq!(can_undo_routing(fixture.state()).await, Ok(true));
-            let undone = undo_last_routing(fixture.app.clone(), fixture.state())
-                .await
-                .unwrap();
+            assert_eq!(
+                can_undo_routing(fixture.app.state::<AppState>()).await,
+                Ok(true)
+            );
+            let undone = undo_last_routing(
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
+            )
+            .await
+            .unwrap();
             assert!(undone.success);
-            assert_eq!(can_undo_routing(fixture.state()).await, Ok(false));
+            assert_eq!(
+                can_undo_routing(fixture.app.state::<AppState>()).await,
+                Ok(false)
+            );
         });
     }
 
     #[test]
     fn get_last_error_reports_no_error() {
         let fixture = CommandFixture::new();
-        assert_eq!(block_on(get_last_error(fixture.state())), Ok(None));
+        assert_eq!(
+            block_on(get_last_error(fixture.app.state::<AppState>())),
+            Ok(None)
+        );
     }
 
     #[test]
@@ -310,14 +333,14 @@ mod tests {
             let failed = set_stream_target(
                 "stream-discord".into(),
                 "missing-target".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
             assert!(!failed.success);
             assert_eq!(
-                get_last_error(fixture.state()).await,
+                get_last_error(fixture.app.state::<AppState>()).await,
                 Ok(Some(
                     "routing error: target device not found: missing-target".into()
                 ))
@@ -325,13 +348,16 @@ mod tests {
             let routed = set_stream_target(
                 "stream-discord".into(),
                 "sink-speakers".into(),
-                fixture.app.clone(),
-                fixture.state(),
+                fixture.app.handle().clone(),
+                fixture.app.state::<AppState>(),
             )
             .await
             .unwrap();
             assert!(routed.success);
-            assert_eq!(get_last_error(fixture.state()).await, Ok(None));
+            assert_eq!(
+                get_last_error(fixture.app.state::<AppState>()).await,
+                Ok(None)
+            );
         });
     }
 }
