@@ -8,16 +8,18 @@ pub(crate) enum Platform {
 }
 
 impl Platform {
+    /// Single platform dispatch point for the path resolvers. Compile-time,
+    /// so each limb's body is exercised by tests compiled for that target
+    /// (scripts/tests/paths-windows-dispatch.test.sh drives the Windows limb
+    /// on any host; `cargo test` drives the non-Windows limb).
+    #[cfg(target_os = "windows")]
     pub(crate) fn current() -> Self {
-        Self::for_os(std::env::consts::OS)
+        Self::Windows
     }
 
-    pub(crate) fn for_os(os: &str) -> Self {
-        if os == "windows" {
-            Self::Windows
-        } else {
-            Self::Unix
-        }
+    #[cfg(not(target_os = "windows"))]
+    pub(crate) fn current() -> Self {
+        Self::Unix
     }
 
     pub(crate) fn join(self, base: PathBuf, suffix: &str) -> PathBuf {
@@ -186,14 +188,6 @@ pub(crate) mod tests {
 
     fn assert_path(actual: PathBuf, expected: &str) {
         assert_eq!(actual.as_os_str(), OsStr::new(expected));
-    }
-
-    #[test]
-    fn platform_selector_maps_os_names() {
-        assert!(matches!(Platform::for_os("windows"), Platform::Windows));
-        for os in ["linux", "macos", "unknown"] {
-            assert!(matches!(Platform::for_os(os), Platform::Unix), "{os}");
-        }
     }
 
     #[cfg(unix)]
