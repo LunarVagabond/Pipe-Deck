@@ -32,12 +32,7 @@ pub struct DaemonStateFile {
 }
 
 pub fn state_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("XDG_STATE_HOME") {
-        return PathBuf::from(path).join("pipe-deck");
-    }
-    std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".local/state/pipe-deck"))
-        .unwrap_or_else(|_| PathBuf::from(".pipe-deck-state"))
+    crate::paths::state_dir()
 }
 
 pub fn state_file_path() -> PathBuf {
@@ -45,12 +40,7 @@ pub fn state_file_path() -> PathBuf {
 }
 
 pub fn user_systemd_dir() -> PathBuf {
-    if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
-        return PathBuf::from(path).join("systemd/user");
-    }
-    std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".config/systemd/user"))
-        .unwrap_or_else(|_| PathBuf::from(".config/systemd/user"))
+    crate::paths::user_systemd_dir()
 }
 
 pub fn write_status(pid: u32, last_run: &str, last_error: Option<&str>, devices_restored: u32) {
@@ -670,6 +660,25 @@ fn is_service_running() -> bool {
 mod tests {
     use super::*;
 
+    #[test]
+    fn path_helpers_use_shared_policy() {
+        for values in [
+            vec![("XDG_STATE_HOME", "/state"), ("XDG_CONFIG_HOME", "/config")],
+            vec![("HOME", "/home/u")],
+            vec![],
+        ] {
+            let _env = crate::paths::tests::PathEnv::new(&values);
+            assert_eq!(
+                state_dir().as_os_str(),
+                crate::paths::state_dir().as_os_str()
+            );
+            assert_eq!(
+                user_systemd_dir().as_os_str(),
+                crate::paths::user_systemd_dir().as_os_str()
+            );
+        }
+    }
+
     fn sample_state(last_error: Option<&str>) -> DaemonStateFile {
         DaemonStateFile {
             pid: 1234,
@@ -700,6 +709,7 @@ mod tests {
 
     #[test]
     fn uninstall_user_service_unit_is_a_no_op_when_no_unit_file_exists() {
+        let _guard = crate::paths::lock_path_env();
         let temp_dir = std::env::temp_dir().join(format!(
             "pipe-deck-uninstall-unit-test-{}",
             std::process::id()

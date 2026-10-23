@@ -8,7 +8,7 @@ Plugins run in isolated subprocesses and communicate via JSON-RPC 2.0 over stdin
 
 ## Quick start
 
-1. Copy `plugins/template/` to `~/.config/pipe-deck/plugins/my-plugin/`
+1. Copy `plugins/template/` to `~/.config/pipe-deck/plugins/my-plugin/` on Unix (`%APPDATA%\pipe-deck\plugins\my-plugin` on Windows; see [Config Spec](../specs/Config_Spec.md#storage-layout) for overrides and fallbacks)
 2. Edit `plugin.yaml` (unique `id`, requested `capabilities`, and optionally `developer`/`repo` — these show up in the Plugins table and detail view)
 3. Implement the entry binary (Python, Rust, or any language with stdio JSON)
 4. Enable the plugin in **Settings → Plugins** and approve capabilities

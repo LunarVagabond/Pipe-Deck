@@ -9,7 +9,7 @@ Map the current codebase layout and day-to-day dev workflow so contributors can 
 - **Shell:** Tauri 2 (Rust)
 - **UI:** Vue 3 + TypeScript
 - **Styles:** SCSS partials under `src/styles/` (no `<style>` blocks in `.vue` files)
-- **Config:** YAML under `~/.config/pipe-deck/` (XDG), override via `PIPE_DECK_CONFIG_DIR`
+- **Config:** YAML under `~/.config/pipe-deck/` on Unix (XDG), `%APPDATA%\pipe-deck` on Windows (then `%LOCALAPPDATA%`); override via `PIPE_DECK_CONFIG_DIR`. See [Config Spec](../specs/Config_Spec.md#storage-layout) for fallbacks.
 
 ## Repository Layout
 
@@ -38,6 +38,7 @@ src-tauri/src/
     stub.rs                    Proof-of-concept second impl, wired in on non-Linux targets
     linux/                     The only real implementation today (LinuxPipeWireBackend + pactl/pw-link/pw-dump plumbing)
   pipewire/                  Effects/filter-chain plumbing (separate from the AudioBackend boundary)
+  paths.rs                   Shared platform-aware config/state/runtime path policy
   config/                    YAML config/profile persistence
   plugins/                   JSON-RPC-over-stdio plugin host
   daemon/                    Optional background restore daemon (systemd user service)

@@ -33,7 +33,7 @@ Drop one YAML file per scheme in:
 ~/.config/pipe-deck/themes/*.yaml
 ```
 
-(respects the `PIPE_DECK_CONFIG_DIR` override — see [Config Spec](../specs/Config_Spec.md)). Files are auto-discovered; the picker in Settings shows every valid file in that directory alongside the 4 built-ins.
+(Unix default; Windows uses `%APPDATA%\pipe-deck\themes\*.yaml`, then `%LOCALAPPDATA%`; respects the `PIPE_DECK_CONFIG_DIR` override — see [Config Spec](../specs/Config_Spec.md#storage-layout)). Files are auto-discovered; the picker in Settings shows every valid file in that directory alongside the 4 built-ins.
 
 ### Schema
 

@@ -15,12 +15,7 @@ struct AuditEntry<'a> {
 }
 
 pub fn audit_log_path() -> PathBuf {
-    if let Ok(path) = std::env::var("XDG_STATE_HOME") {
-        return PathBuf::from(path).join("pipe-deck/plugin-audit.jsonl");
-    }
-    std::env::var("HOME")
-        .map(|home| PathBuf::from(home).join(".local/state/pipe-deck/plugin-audit.jsonl"))
-        .unwrap_or_else(|_| PathBuf::from(".pipe-deck-state/plugin-audit.jsonl"))
+    crate::paths::audit_log_path()
 }
 
 pub fn log(plugin_id: &str, action: &str, result: &str, detail: Option<&str>) {
@@ -40,5 +35,26 @@ pub fn log(plugin_id: &str, action: &str, result: &str, detail: Option<&str>) {
     }
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = writeln!(file, "{line}");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn audit_path_uses_shared_state_policy_and_filename() {
+        for values in [
+            vec![("XDG_STATE_HOME", "/state")],
+            vec![("HOME", "/home/u")],
+            vec![],
+        ] {
+            let _env = crate::paths::tests::PathEnv::new(&values);
+            assert_eq!(
+                audit_log_path().as_os_str(),
+                crate::paths::audit_log_path().as_os_str()
+            );
+            assert_eq!(audit_log_path().file_name().unwrap(), "plugin-audit.jsonl");
+        }
     }
 }
