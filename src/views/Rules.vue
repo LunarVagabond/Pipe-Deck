@@ -7,6 +7,7 @@ import { useApplyResult } from "../stores/notices";
 import { useConfirm } from "../stores/confirm";
 import { useRuleDraft } from "../stores/ruleDraft";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
+import { useGlobalSearch } from "../composables/useGlobalSearch";
 import type {
   Device,
   RecentStreamIdentity,
@@ -34,7 +35,7 @@ const showSimulation = ref(false);
 const priorityPreview = ref<Record<string, number>>({});
 const showRuleModal = ref(false);
 const editingRuleId = ref<string | null>(null);
-const searchQuery = ref("");
+const { searchQuery } = useGlobalSearch();
 const { handleApplyResult } = useApplyResult();
 const { confirm } = useConfirm();
 const { consumePendingIdentity } = useRuleDraft();

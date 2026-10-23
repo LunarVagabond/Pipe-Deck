@@ -2,6 +2,7 @@ import { DOMWrapper, mount, flushPromises } from "@vue/test-utils";
 import { ref } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Rules from "./Rules.vue";
+import { useGlobalSearch } from "../composables/useGlobalSearch";
 import { makeDevice } from "../test/graphFixtures";
 import type { Rule, RuntimeGraph } from "../types/graph";
 
@@ -72,6 +73,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  useGlobalSearch().searchQuery.value = "";
   invokeMock.mockReset();
   confirmMock.mockClear();
   consumePendingIdentityMock.mockReturnValue(null);
@@ -91,6 +93,77 @@ beforeEach(() => {
 });
 
 describe("Rules view", () => {
+  it("shares shell and local search across name, resolved target, and condition, restoring the sorted list", async () => {
+    const { searchQuery } = useGlobalSearch();
+    graph.value.devices.push(
+      makeDevice({
+        id: "headset",
+        label: "Headset",
+        system_name: "alsa-output-2",
+      }),
+    );
+    invokeMock.mockImplementation((cmd: string) => {
+      if (cmd === "list_rules")
+        return Promise.resolve([
+          makeRule({
+            id: "condition",
+            name: "Calls",
+            priority: 5,
+            conditions: [{ type: "identity", value: "zoom" }],
+          }),
+          makeRule({
+            id: "target",
+            name: "Games",
+            priority: 20,
+            action: { target_system_name: "alsa-output-2" },
+            conditions: [{ type: "identity", value: "steam" }],
+          }),
+          makeRule({
+            id: "name",
+            name: "Music",
+            priority: 50,
+            conditions: [{ type: "identity", value: "spotify" }],
+          }),
+        ]);
+      if (cmd === "simulate_rules") return Promise.resolve([]);
+      return Promise.resolve(undefined);
+    });
+    searchQuery.value = " MUSIC ";
+    const { wrapper } = mountRules();
+    await flushPromises();
+    const names = () =>
+      wrapper.findAll(".rule-name-meta strong").map((node) => node.text());
+    expect(names()).toEqual(["Music"]);
+    expect(
+      wrapper.get<HTMLInputElement>(".rules-search-input").element.value,
+    ).toBe(" MUSIC ");
+
+    searchQuery.value = "headset";
+    await flushPromises();
+    expect(names()).toEqual(["Games"]);
+
+    await wrapper.get(".rules-search-input").setValue("ZOOM");
+    expect(searchQuery.value).toBe("ZOOM");
+    expect(names()).toEqual(["Calls"]);
+
+    searchQuery.value = "nothing-matches";
+    await flushPromises();
+    expect(names()).toEqual([]);
+    expect(wrapper.get(".rules-empty-state").text()).toContain(
+      'No rules match "nothing-matches"',
+    );
+    expect(wrapper.get(".rules-empty-state").text()).not.toContain(
+      "No authored rules yet.",
+    );
+
+    for (const query of ["", " \t "]) {
+      searchQuery.value = query;
+      await flushPromises();
+      expect(names()).toEqual(["Music", "Games", "Calls"]);
+      expect(wrapper.find(".rules-empty-state").exists()).toBe(false);
+    }
+  });
+
   it("loads and lists rules sorted by descending priority on mount", async () => {
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_rules") {
@@ -113,6 +186,7 @@ describe("Rules view", () => {
   });
 
   it("shows an empty state when there are no rules", async () => {
+    useGlobalSearch().searchQuery.value = "anything";
     invokeMock.mockImplementation((cmd: string) => {
       if (cmd === "list_rules") return Promise.resolve([]);
       if (cmd === "simulate_rules") return Promise.resolve([]);

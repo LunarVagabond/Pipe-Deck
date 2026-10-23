@@ -46,6 +46,15 @@ Users should understand current audio state quickly and complete common routing 
 - Rules View: create and inspect auto-routing rules with explanations.
 - Settings: global preferences and diagnostics controls.
 
+### Global Search
+
+The top bar's **Search devices, streams, and rules** input shares one query across Dashboard, Mixer, and Rules. Matching ignores case and surrounding whitespace; clearing the query or entering only whitespace restores the full lists.
+
+- Dashboard filters device cards by display label or system name. Summary counts and recently seen apps stay unchanged, and internal devices remain hidden.
+- Mixer filters stream channels by app name, executable, media name, or system name. Device channels stay visible and system streams remain hidden.
+- Rules filters by rule name, resolved target device label, or condition summary. Its search box remains above the table and edits the same query as the top bar.
+- Routing and YAML profile contents are outside global search.
+
 ## Primary Workflows
 
 ### Route an Application
@@ -81,14 +90,7 @@ Users should understand current audio state quickly and complete common routing 
 
 ## Dashboard Layout
 
-The default dashboard uses a four-column routing matrix:
-
-- **Applications** — active streams with per-stream **Route to** dropdown
-- **Routing** — virtual sinks (including third-party sinks like Soundux) with **Route to** for device chains
-- **Outputs** — hardware and virtual playback endpoints
-- **Inputs** — hardware and virtual capture endpoints
-
-Connection lines draw between linked nodes. Authored policies are managed in the **Rules** view; dashboard dropdown changes also persist lightweight `routing_rules` at lower priority.
+The default dashboard shows four summary counts (playback apps, capture apps, outputs in use, and virtual devices), recently seen apps, and device cards. Global search filters only the device cards. Use **Open full routing graph** to manage connections in Routing; authored policies are managed in **Rules**.
 
 ## First-Run Onboarding Checklist (issue #5)
 
@@ -107,7 +109,7 @@ A single close control dismisses the whole checklist as one unit (no per-item "n
 Componentized under `src/components/rules/` (issue #277/#116 UX pass): `RuleListItem.vue` (one table row), `RuleConditionEditor.vue` (one condition row, reused inside the modal), and `RuleFormModal.vue` (the full create/edit dialog) — `Rules.vue` itself is the thin orchestrator (data loading, save/delete/toggle/reorder, search filtering).
 
 - Full-width table of authored rules (name, conditions, target, live-match status, inline enable toggle, actions), sorted and displayed in priority order (highest first).
-- A search box above the table filters by rule name, condition value, or target device name.
+- A search box above the table filters by rule name, condition value, or target device name, sharing its query with the top bar's global search input.
 - Each row has an inline `ToggleSwitch` (reused from `components/ToggleSwitch.vue`) for enable/disable, and ▲/▼ priority-reorder buttons that swap the `priority` value with the adjacent rule and persist both — no drag-and-drop.
 - A **Live match** badge per row ("Matching N now" / "No live match") is computed from `simulate_rules` results (`RouteExplanation.matched_rule_key === rule.name`), refreshed after every rule mutation and on load — a rule that never matches anything currently live is now visibly distinguishable from one that does, which is what makes the seen-set fix (PD-030) worth having a UI for.
 - **+ New Rule** opens a centered modal for name, priority, target selection, and conditions.

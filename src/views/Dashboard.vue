@@ -4,9 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import NodeTypeIcon from "../components/NodeTypeIcon.vue";
 import ToggleSwitch from "../components/ToggleSwitch.vue";
 import { navigateKey } from "../composables/navigation";
+import { useGlobalSearch } from "../composables/useGlobalSearch";
 import { useAppConfig, useRuntimeGraph } from "../stores/runtimeGraph";
 import { useRuleDraft } from "../stores/ruleDraft";
 import { filterRuntimeGraph } from "../utils/filterGraph";
+import { deviceMatchesSearch } from "../utils/graphSearch";
 import { deviceColumn, isBluetoothDevice } from "../utils/routingLayout";
 import {
   filterRecentlySeen,
@@ -17,6 +19,7 @@ import type { Device, RecentStreamIdentity } from "../types/graph";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
 const { config } = useAppConfig();
+const { searchQuery } = useGlobalSearch();
 const { requestRuleForIdentity } = useRuleDraft();
 const navigate = inject(navigateKey);
 
@@ -41,6 +44,12 @@ watch(
 
 const displayGraph = computed(() =>
   filterRuntimeGraph(graph.value, showSystemStreams.value),
+);
+
+const matchingDevices = computed(() =>
+  displayGraph.value.devices.filter((device) =>
+    deviceMatchesSearch(device, searchQuery.value),
+  ),
 );
 
 const profileName = computed(() => {
@@ -219,9 +228,7 @@ function deviceCategoryLabel(device: Device): string {
         </div>
         <div class="dashboard-device-summary">
           <article
-            v-for="device in displayGraph.devices.filter((d) =>
-              deviceColumn(d),
-            )"
+            v-for="device in matchingDevices.filter((d) => deviceColumn(d))"
             :key="device.id"
             class="stat-card device-summary-card"
           >

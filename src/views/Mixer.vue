@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import MixerStrip from "../components/MixerStrip.vue";
+import { useGlobalSearch } from "../composables/useGlobalSearch";
 import { useRuntimeGraph } from "../stores/runtimeGraph";
+import { streamMatchesSearch } from "../utils/graphSearch";
 
 const { graph, loading, error, refresh } = useRuntimeGraph();
+const { searchQuery } = useGlobalSearch();
 
 const isMockData = computed(() => graph.value.data_source === "mock");
 
@@ -16,7 +19,10 @@ const hasMixerChannels = computed(
 );
 
 const mixerStreams = computed(() =>
-  graph.value.streams.filter((stream) => !stream.is_system),
+  graph.value.streams.filter(
+    (stream) =>
+      !stream.is_system && streamMatchesSearch(stream, searchQuery.value),
+  ),
 );
 
 const isEmpty = computed(
