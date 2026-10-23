@@ -157,6 +157,7 @@ Current targets include:
 | `make build-rust` | Compile Rust backend (debug), via `build-daemon-dev` + `build-cli` |
 | `make check` | Frontend + Rust checks, no bundles produced |
 | `make test` | Rust tests |
+| `make test-paths-windows-dispatch` | Test Windows path dispatch without building audio backends (also part of `make check`) |
 | `make test-e2e` | Frontend Playwright component tests (`src/e2e/`; run `npx playwright install chromium` once first) |
 | `make preview` | Preview the built frontend assets |
 | `make smoke` | Run install and compile smoke checks |

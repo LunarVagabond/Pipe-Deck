@@ -39,10 +39,12 @@ target/release/bundle/
 
 ## Config Paths
 
-All package formats must respect the same config layout (XDG):
+All Linux package formats must respect the same config layout (XDG):
 
 - Config: `~/.config/pipe-deck/`
 - Override: `PIPE_DECK_CONFIG_DIR` environment variable
+
+Windows path resolution uses `%APPDATA%\pipe-deck`, then `%LOCALAPPDATA%\pipe-deck`; see [Config Spec](../specs/Config_Spec.md#storage-layout) for relative fallbacks. This does not add Windows packaging or backend support.
 
 Installed packages must not embed user config; first run creates defaults in user config directory.
 

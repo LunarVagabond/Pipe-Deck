@@ -43,17 +43,7 @@ impl ConfigStore {
     }
 
     fn default_config_dir() -> PathBuf {
-        if let Ok(path) = std::env::var("PIPE_DECK_CONFIG_DIR") {
-            return PathBuf::from(path);
-        }
-
-        if let Ok(xdg) = std::env::var("XDG_CONFIG_HOME") {
-            return PathBuf::from(xdg).join("pipe-deck");
-        }
-
-        std::env::var("HOME")
-            .map(|home| PathBuf::from(home).join(".config/pipe-deck"))
-            .unwrap_or_else(|_| PathBuf::from(".pipe-deck"))
+        crate::paths::config_dir()
     }
 
     pub fn default_config() -> AppConfig {
@@ -954,24 +944,8 @@ fn migrate_mix_sources_to_mixer_nodes(config: &mut AppConfig) -> bool {
     true
 }
 
-/// Serializes any test (in this file or elsewhere in the crate) that mutates
-/// the process-wide `PIPE_DECK_CONFIG_DIR` env var via `std::env::set_var`.
-/// `cargo test`'s default parallel runner races concurrent `set_var`/
-/// `remove_var` calls to the same env var across threads, which manifests as
-/// sporadic failures in whichever test happened to read a config dir another
-/// thread was mid-swap on. A `static` declared *inside* a `#[test]` fn only
-/// guards re-entrant calls to that one function (which can't happen — each
-/// test runs once) and provides no cross-test exclusion at all, which is
-/// what let this race through despite every affected test already having its
-/// own (uselessly scoped) lock. This one is crate-level so every caller
-/// shares the same `Mutex`.
 #[cfg(test)]
-pub(crate) fn lock_config_dir_env() -> std::sync::MutexGuard<'static, ()> {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    LOCK.get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-}
+pub(crate) use crate::paths::lock_path_env as lock_config_dir_env;
 
 #[cfg(test)]
 mod tests {
@@ -989,6 +963,32 @@ mod tests {
         run(&store);
         let _ = fs::remove_dir_all(&temp_dir);
         std::env::remove_var("PIPE_DECK_CONFIG_DIR");
+    }
+
+    #[test]
+    fn windows_appdata_config_without_unix_env() {
+        let _env = crate::paths::tests::PathEnv::new(&[("APPDATA", r"C:\Users\u\AppData\Roaming")]);
+        // The explicit platform exercises Windows policy on a Unix test host too.
+        assert_eq!(
+            crate::paths::config_dir_for(crate::paths::Platform::Windows).as_os_str(),
+            std::ffi::OsStr::new(r"C:\Users\u\AppData\Roaming\pipe-deck")
+        );
+    }
+
+    #[test]
+    fn default_config_dir_uses_shared_policy() {
+        for values in [
+            vec![("XDG_CONFIG_HOME", "/config")],
+            vec![("HOME", "/home/u")],
+            vec![("PIPE_DECK_CONFIG_DIR", "")],
+            vec![],
+        ] {
+            let _env = crate::paths::tests::PathEnv::new(&values);
+            assert_eq!(
+                ConfigStore::default_config_dir().as_os_str(),
+                crate::paths::config_dir().as_os_str()
+            );
+        }
     }
 
     #[test]

@@ -26,7 +26,7 @@ Define how Pipe Deck stores user settings, profiles, and policy state in a forma
 
 ## Storage Layout
 
-Default path follows XDG Base Directory spec:
+On Unix, the default path follows the existing XDG layout:
 
 ```
 ~/.config/pipe-deck/
@@ -37,7 +37,17 @@ Default path follows XDG Base Directory spec:
     default.yaml
 ```
 
-Environment override: `PIPE_DECK_CONFIG_DIR` (optional).
+Environment override: `PIPE_DECK_CONFIG_DIR` (optional, on either platform).
+
+Path policy is shared by config, daemon state, plugin audit logs, and IPC:
+
+- Unix config: `XDG_CONFIG_HOME/pipe-deck`, then `$HOME/.config/pipe-deck`, then relative `.pipe-deck`.
+- Unix state: `XDG_STATE_HOME/pipe-deck`, then `$HOME/.local/state/pipe-deck`, then relative `.pipe-deck-state`. Audit logs append `plugin-audit.jsonl`.
+- Unix user units: `XDG_CONFIG_HOME/systemd/user`, then `$HOME/.config/systemd/user`, then relative `.config/systemd/user`.
+- Unix sockets: `$XDG_RUNTIME_DIR/pipe-deck-native-host.sock`, then `<state_dir>/native-host.sock`. `PIPE_DECK_NATIVE_HOST_SOCKET` overrides either platform's socket path.
+- Windows path resolution: config, state, audit, user-unit paths, and the socket fallback share `%APPDATA%\pipe-deck`, falling back to `%LOCALAPPDATA%\pipe-deck`. Windows ignores `HOME` and `XDG_*`. If both app-data variables are absent, config uses `.pipe-deck`, state/audit/socket use `.pipe-deck-state`, and user-unit paths use `.config/systemd/user`.
+
+Set-but-empty and relative Unix environment values are used as-is, including an empty `PIPE_DECK_CONFIG_DIR` override. Windows support here is path resolution only; systemd, audio backends, and named-pipe IPC transport are outside this change (PD-019).
 
 ## Serialization Format
 
@@ -196,7 +206,7 @@ On first run after upgrade, existing `pipe-deck-*` PipeWire modules are migrated
 
 ### Daemon status and safe mode (Phase 4)
 
-- **Status file:** `~/.local/state/pipe-deck/daemon.json` (`pid`, `last_run`, `last_error`, `devices_restored`)
+- **Status file:** `<state_dir>/daemon.json` (Unix default `~/.local/state/pipe-deck/daemon.json`; see Storage Layout for Windows paths) (`pid`, `last_run`, `last_error`, `devices_restored`)
 - **Safe mode:** if config is missing or corrupt on daemon start, the daemon records the error and exits without modifying PipeWire
 
 ## Profile Format (`profiles/<name>.yaml`)

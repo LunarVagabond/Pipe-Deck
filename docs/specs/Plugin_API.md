@@ -34,6 +34,8 @@ Define the extension contract for Pipe Deck plugins: transport, capabilities, li
 
 ### Example handshake
 
+The example uses a Unix config path; Windows resolves `%APPDATA%\pipe-deck` (then `%LOCALAPPDATA%\pipe-deck`). See [Config Spec](Config_Spec.md#storage-layout) for overrides and fallbacks.
+
 ```json
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"api_version":1,"plugin_id":"pipe-deck-effects","granted_capabilities":["graph.read","effects.manage","ui.panel.register"],"config_dir":"/home/user/.config/pipe-deck"}}
 ```
@@ -80,7 +82,7 @@ bundled: true
 | Location | Purpose |
 |----------|---------|
 | `$RESOURCE/plugins/<id>/` | Bundled first-party plugins |
-| `~/.config/pipe-deck/plugins/<id>/` | User-installed plugins |
+| `<config_dir>/plugins/<id>/` | User-installed plugins (Unix default `~/.config/pipe-deck/plugins/<id>/`; Windows uses the app-data directory above) |
 
 ## Capabilities (v1)
 
@@ -111,7 +113,7 @@ All five v1 capabilities are enforced as of PD-021 (`docs/architecture/Decisions
 
 - Principle of least privilege; deny-by-default until user approves in Settings.
 - Plugin failures must not crash or block core routing (PD-004).
-- Audit log: `~/.local/state/pipe-deck/plugin-audit.jsonl` (timestamp, plugin_id, action, result).
+- Audit log: `<state_dir>/plugin-audit.jsonl` (Unix default `~/.local/state/pipe-deck/plugin-audit.jsonl`; Windows shares the app-data directory above) (timestamp, plugin_id, action, result).
 - Plugins cannot mutate PipeWire directly; scoped operations go through the host.
 
 ## Versioning

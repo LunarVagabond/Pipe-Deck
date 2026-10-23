@@ -10,19 +10,24 @@ use std::path::PathBuf;
 /// `$XDG_RUNTIME_DIR/pipe-deck-native-host.sock` when available (tmpfs,
 /// user-scoped, auto-cleaned on logout) — falls back to
 /// `daemon::state_dir()` otherwise, matching that function's own
-/// `XDG_STATE_HOME`/`$HOME` fallback chain.
+/// `XDG_STATE_HOME`/`$HOME` fallback chain on Unix. Windows uses the app
+/// state directory as a plain path; named-pipe transport is out of scope.
 ///
 /// `PIPE_DECK_NATIVE_HOST_SOCKET` overrides this for tests that need a
 /// disposable socket path instead of the real one — mirrors
 /// `PIPE_DECK_FILTER_CHAIN_CONF_DIR`'s role for `pipewire::filter_chain`.
 pub fn socket_path() -> PathBuf {
+    socket_path_for(crate::paths::Platform::current())
+}
+
+fn socket_path_for(platform: crate::paths::Platform) -> PathBuf {
     if let Ok(path) = std::env::var("PIPE_DECK_NATIVE_HOST_SOCKET") {
         return PathBuf::from(path);
     }
-    if let Ok(dir) = std::env::var("XDG_RUNTIME_DIR") {
-        return PathBuf::from(dir).join("pipe-deck-native-host.sock");
+    if let Some(dir) = crate::paths::runtime_dir_for(platform) {
+        return platform.join(dir, "pipe-deck-native-host.sock");
     }
-    super::super::state_dir().join("native-host.sock")
+    platform.join(crate::paths::state_dir_for(platform), "native-host.sock")
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -111,6 +116,103 @@ pub enum IpcOkPayload {
 mod tests {
     use super::*;
     use crate::core::models::EffectStage;
+
+    #[test]
+    fn socket_path_platform_and_environment_matrix() {
+        use crate::paths::Platform::{Unix, Windows};
+        type Case<'a> = (crate::paths::Platform, &'a [(&'a str, &'a str)], &'a str);
+        let cases: &[Case<'_>] = &[
+            (
+                Unix,
+                &[
+                    ("XDG_RUNTIME_DIR", "/run/user/1000"),
+                    ("XDG_STATE_HOME", "/state"),
+                ],
+                "/run/user/1000/pipe-deck-native-host.sock",
+            ),
+            (
+                Unix,
+                &[("XDG_RUNTIME_DIR", "")],
+                "pipe-deck-native-host.sock",
+            ),
+            (
+                Unix,
+                &[("XDG_RUNTIME_DIR", "relative/run")],
+                "relative/run/pipe-deck-native-host.sock",
+            ),
+            (
+                Unix,
+                &[("XDG_STATE_HOME", "/state")],
+                "/state/pipe-deck/native-host.sock",
+            ),
+            (
+                Unix,
+                &[("XDG_STATE_HOME", "")],
+                "pipe-deck/native-host.sock",
+            ),
+            (
+                Unix,
+                &[("XDG_STATE_HOME", "relative/state")],
+                "relative/state/pipe-deck/native-host.sock",
+            ),
+            (
+                Unix,
+                &[("HOME", "/home/u")],
+                "/home/u/.local/state/pipe-deck/native-host.sock",
+            ),
+            (Unix, &[], ".pipe-deck-state/native-host.sock"),
+            (
+                Windows,
+                &[
+                    ("APPDATA", r"C:\Users\u\AppData\Roaming"),
+                    ("XDG_RUNTIME_DIR", "/ignored"),
+                ],
+                r"C:\Users\u\AppData\Roaming\pipe-deck\native-host.sock",
+            ),
+            (
+                Windows,
+                &[
+                    ("LOCALAPPDATA", r"C:\Users\u\AppData\Local"),
+                    ("HOME", r"C:\ignored"),
+                ],
+                r"C:\Users\u\AppData\Local\pipe-deck\native-host.sock",
+            ),
+            (Windows, &[], r".pipe-deck-state\native-host.sock"),
+            (
+                Windows,
+                &[("HOME", r"C:\ignored"), ("XDG_STATE_HOME", "/ignored")],
+                r".pipe-deck-state\native-host.sock",
+            ),
+        ];
+        for (platform, values, expected) in cases {
+            let _env = crate::paths::tests::PathEnv::new(values);
+            assert_eq!(
+                socket_path_for(*platform).as_os_str(),
+                std::ffi::OsStr::new(expected)
+            );
+        }
+    }
+
+    #[test]
+    fn socket_override_including_empty_takes_precedence() {
+        for platform in [
+            crate::paths::Platform::Unix,
+            crate::paths::Platform::Windows,
+        ] {
+            for value in ["override.sock", ""] {
+                let _env = crate::paths::tests::PathEnv::new(&[
+                    ("PIPE_DECK_NATIVE_HOST_SOCKET", value),
+                    ("XDG_RUNTIME_DIR", "/ignored"),
+                    ("APPDATA", r"C:\ignored"),
+                ]);
+                assert_eq!(
+                    socket_path_for(platform).as_os_str(),
+                    std::ffi::OsStr::new(value)
+                );
+                assert_eq!(socket_path().as_os_str(), std::ffi::OsStr::new(value));
+            }
+        }
+    }
 
     fn roundtrips(op: IpcOp) {
         let request = IpcRequest { id: 7, op };

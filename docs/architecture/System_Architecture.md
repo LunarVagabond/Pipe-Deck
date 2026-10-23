@@ -65,7 +65,7 @@ All state-changing operations flow through the core engine, and later through an
 
 - Persistent virtual device lifecycle at login (before GUI opens).
 - Restore workflows at session start via systemd user service.
-- Status written to `~/.local/state/pipe-deck/daemon.json` for GUI observability.
+- Status written to `<state_dir>/daemon.json` (Unix default `~/.local/state/pipe-deck/daemon.json`) for GUI observability. Shared [path resolution](../specs/Config_Spec.md#storage-layout) uses `%APPDATA%\pipe-deck` (then `%LOCALAPPDATA%`) on Windows; daemon/backend support remains deferred.
 - Safe mode: corrupt or missing config logs an error and exits without creating devices.
 
 ## Data and Control Flow

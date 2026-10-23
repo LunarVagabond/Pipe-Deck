@@ -30,7 +30,7 @@ Removing the Pipe Deck package (`apt remove`/`dnf remove`, or deleting the AppIm
 | Background-restore systemd unit | `~/.config/systemd/user/pipe-deck-daemon.service` | Enabling "Restore on login" in Settings |
 | Virtual devices (sinks/sources) | Not a file — runtime-only `pactl` modules, recreated from `config.yaml`'s `virtual_devices` list each time Pipe Deck starts | Creating a virtual device |
 
-All paths respect `PIPE_DECK_CONFIG_DIR` if you've set it — if you have, use that path instead of `~/.config/pipe-deck/` above.
+Config, profiles, and plugin paths respect `PIPE_DECK_CONFIG_DIR`; daemon state follows `XDG_STATE_HOME` separately. The table and cleanup commands describe Linux. Windows path resolution shares `%APPDATA%\pipe-deck` (then `%LOCALAPPDATA%\pipe-deck`) for config and state; see [Config Spec](../specs/Config_Spec.md#storage-layout) for fallbacks. This does not add Windows cleanup or systemd support.
 
 Pipe Deck writes no log files.
 

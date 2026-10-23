@@ -4,6 +4,7 @@ pub mod config;
 pub mod core;
 pub mod daemon;
 pub mod dsp;
+pub mod paths;
 pub mod pipewire;
 pub mod plugins;
 pub mod sysproc;
