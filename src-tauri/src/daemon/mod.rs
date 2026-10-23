@@ -10,8 +10,10 @@ use std::thread;
 use std::time::Duration;
 
 pub mod ipc;
+#[cfg(target_os = "linux")]
 mod systemd;
 
+#[cfg(target_os = "linux")]
 const SERVICE_NAME: &str = "pipe-deck-daemon.service";
 /// Bumped whenever `packaging/pipe-deck-daemon.service` changes in a way that
 /// requires reinstalling an already-installed unit rather than just
@@ -20,6 +22,7 @@ const SERVICE_NAME: &str = "pipe-deck-daemon.service";
 /// `daemon-reload` on a unit that's already active under the old type).
 /// Matches the `# pipe-deck-daemon-unit-version: N` comment at the top of the
 /// bundled unit file.
+#[cfg(target_os = "linux")]
 const CURRENT_UNIT_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +47,7 @@ pub fn state_file_path() -> PathBuf {
     state_dir().join("daemon.json")
 }
 
+#[cfg(target_os = "linux")]
 pub fn user_systemd_dir() -> PathBuf {
     if let Ok(path) = std::env::var("XDG_CONFIG_HOME") {
         return PathBuf::from(path).join("systemd/user");
@@ -181,6 +185,7 @@ fn serve_native_effects() {
     }
     reconcile_live_effects_state();
     reconcile_live_processing_nodes();
+    #[cfg(target_os = "linux")]
     let _ = sd_notify::notify(&[sd_notify::NotifyState::Ready]);
     let _ = ipc::server::run();
 }
@@ -552,6 +557,7 @@ fn find_in_path(name: &str) -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "linux")]
 pub fn bundled_service_unit() -> String {
     include_str!("../../packaging/pipe-deck-daemon.service").to_string()
 }
@@ -560,6 +566,7 @@ pub fn bundled_service_unit() -> String {
 /// unit file's contents, if present. `None` covers both "file doesn't exist"
 /// and "predates the marker entirely" (the original `Type=oneshot` unit) —
 /// both cases need the same reinstall treatment below.
+#[cfg(target_os = "linux")]
 fn installed_unit_version(contents: &str) -> Option<u32> {
     contents
         .lines()
@@ -567,6 +574,7 @@ fn installed_unit_version(contents: &str) -> Option<u32> {
         .and_then(|value| value.trim().parse().ok())
 }
 
+#[cfg(target_os = "linux")]
 pub fn install_user_service_unit() -> Result<(), String> {
     let daemon_path =
         daemon_binary_path().ok_or_else(|| "pipe-deck-daemon binary not found".to_string())?;
@@ -595,6 +603,7 @@ pub fn install_user_service_unit() -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(target_os = "linux")]
 pub fn enable_background_service() -> Result<(), String> {
     install_user_service_unit()?;
     systemd::enable_and_start(SERVICE_NAME)?;
@@ -603,6 +612,7 @@ pub fn enable_background_service() -> Result<(), String> {
         .map_err(|error| error.to_string())
 }
 
+#[cfg(target_os = "linux")]
 pub fn disable_background_service() -> Result<(), String> {
     let _ = systemd::disable_and_stop(SERVICE_NAME);
     ConfigStore::new()
@@ -617,6 +627,7 @@ pub fn disable_background_service() -> Result<(), String> {
 /// toggle — a user turning background restore back on later should still
 /// find a working unit without needing to reinstall the package.
 /// Returns the removed unit path, or `None` if there was nothing to remove.
+#[cfg(target_os = "linux")]
 pub fn uninstall_user_service_unit() -> Result<Option<PathBuf>, String> {
     let unit_path = user_systemd_dir().join(SERVICE_NAME);
     if !unit_path.exists() {
@@ -626,6 +637,21 @@ pub fn uninstall_user_service_unit() -> Result<Option<PathBuf>, String> {
     fs::remove_file(&unit_path).map_err(|error| error.to_string())?;
     let _ = systemd::reload();
     Ok(Some(unit_path))
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn enable_background_service() -> Result<(), String> {
+    Err("background restore is not supported on this platform".to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn disable_background_service() -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn uninstall_user_service_unit() -> Result<Option<PathBuf>, String> {
+    Ok(None)
 }
 
 pub fn get_status() -> DaemonStatus {
@@ -658,12 +684,24 @@ fn stale_state_filter(enabled: bool, state: Option<DaemonStateFile>) -> Option<D
     }
 }
 
+#[cfg(target_os = "linux")]
 fn is_service_enabled() -> bool {
     systemd::is_enabled(SERVICE_NAME)
 }
 
+#[cfg(target_os = "linux")]
 fn is_service_running() -> bool {
     systemd::is_active(SERVICE_NAME)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_service_enabled() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+fn is_service_running() -> bool {
+    false
 }
 
 #[cfg(test)]
