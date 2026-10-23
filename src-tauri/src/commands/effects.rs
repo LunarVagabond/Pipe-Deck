@@ -60,10 +60,10 @@ pub async fn is_effect_chain_live(
 /// requires — the frontend no longer gates this behind a separate confirm
 /// dialog, just a one-time informational toast.
 #[tauri::command]
-pub async fn apply_effect_chain_structural(
+pub async fn apply_effect_chain_structural<R: tauri::Runtime>(
     device_id: String,
     config: EffectChainConfig,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -75,9 +75,9 @@ pub async fn apply_effect_chain_structural(
 }
 
 #[tauri::command]
-pub async fn remove_effect_chain_structural(
+pub async fn remove_effect_chain_structural<R: tauri::Runtime>(
     device_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -106,10 +106,10 @@ pub async fn set_effect_chain_live_params(
 /// Node-scoped effects UI entry point (PD-025) — adds `stage` and applies
 /// immediately, no separate enable step.
 #[tauri::command]
-pub async fn add_effect_stage(
+pub async fn add_effect_stage<R: tauri::Runtime>(
     device_id: String,
     stage: EffectStage,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -121,10 +121,10 @@ pub async fn add_effect_stage(
 }
 
 #[tauri::command]
-pub async fn remove_effect_stage(
+pub async fn remove_effect_stage<R: tauri::Runtime>(
     device_id: String,
     stage_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -136,10 +136,10 @@ pub async fn remove_effect_stage(
 }
 
 #[tauri::command]
-pub async fn reorder_effect_stages(
+pub async fn reorder_effect_stages<R: tauri::Runtime>(
     device_id: String,
     ordered_stage_ids: Vec<String>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;

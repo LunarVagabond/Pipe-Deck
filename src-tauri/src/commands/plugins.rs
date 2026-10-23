@@ -10,10 +10,10 @@ pub async fn list_plugins(
 }
 
 #[tauri::command]
-pub async fn set_plugin_enabled(
+pub async fn set_plugin_enabled<R: tauri::Runtime>(
     plugin_id: String,
     enabled: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -23,10 +23,10 @@ pub async fn set_plugin_enabled(
 }
 
 #[tauri::command]
-pub async fn grant_plugin_capabilities(
+pub async fn grant_plugin_capabilities<R: tauri::Runtime>(
     plugin_id: String,
     capabilities: Vec<String>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -48,8 +48,8 @@ pub async fn list_plugin_ui_panels(
 }
 
 #[tauri::command]
-pub async fn rescan_plugins(
-    app: tauri::AppHandle,
+pub async fn rescan_plugins<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;

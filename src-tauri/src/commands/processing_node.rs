@@ -3,10 +3,10 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn create_processing_node(
+pub async fn create_processing_node<R: tauri::Runtime>(
     label: String,
     kind: ProcessingNodeSpecKind,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ProcessingNode, String> {
     let mut engine = state.engine.write().await;
@@ -18,10 +18,10 @@ pub async fn create_processing_node(
 }
 
 #[tauri::command]
-pub async fn create_output_group(
+pub async fn create_output_group<R: tauri::Runtime>(
     label: String,
     member_device_ids: Vec<String>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ProcessingNode, String> {
     let mut engine = state.engine.write().await;
@@ -33,9 +33,9 @@ pub async fn create_output_group(
 }
 
 #[tauri::command]
-pub async fn remove_processing_node(
+pub async fn remove_processing_node<R: tauri::Runtime>(
     id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -47,11 +47,11 @@ pub async fn remove_processing_node(
 }
 
 #[tauri::command]
-pub async fn connect_processing_node_port(
+pub async fn connect_processing_node_port<R: tauri::Runtime>(
     node_id: String,
     direction: PortDirection,
     peer_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -63,12 +63,12 @@ pub async fn connect_processing_node_port(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_input_gain(
+pub async fn update_processing_node_input_gain<R: tauri::Runtime>(
     node_id: String,
     port_index: u32,
     gain_percent: u8,
     muted: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -80,11 +80,11 @@ pub async fn update_processing_node_input_gain(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_volume(
+pub async fn update_processing_node_volume<R: tauri::Runtime>(
     node_id: String,
     volume_percent: u8,
     muted: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -97,7 +97,7 @@ pub async fn update_processing_node_volume(
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn update_processing_node_eq_params(
+pub async fn update_processing_node_eq_params<R: tauri::Runtime>(
     node_id: String,
     eq_sub: i32,
     eq_bass: i32,
@@ -105,7 +105,7 @@ pub async fn update_processing_node_eq_params(
     eq_treble: i32,
     eq_air: i32,
     output_gain: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -125,12 +125,12 @@ pub async fn update_processing_node_eq_params(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_delay_params(
+pub async fn update_processing_node_delay_params<R: tauri::Runtime>(
     node_id: String,
     delay_ms: i32,
     feedback_percent: i32,
     feedforward_percent: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -147,12 +147,12 @@ pub async fn update_processing_node_delay_params(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_limiter_params(
+pub async fn update_processing_node_limiter_params<R: tauri::Runtime>(
     node_id: String,
     ceiling_db: i32,
     floor_db: i32,
     symmetric: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -164,11 +164,11 @@ pub async fn update_processing_node_limiter_params(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_hpf_params(
+pub async fn update_processing_node_hpf_params<R: tauri::Runtime>(
     node_id: String,
     freq_hz: i32,
     resonance_x10: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -180,10 +180,10 @@ pub async fn update_processing_node_hpf_params(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_reverb_params(
+pub async fn update_processing_node_reverb_params<R: tauri::Runtime>(
     node_id: String,
     mix_percent: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -195,10 +195,10 @@ pub async fn update_processing_node_reverb_params(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_widener_params(
+pub async fn update_processing_node_widener_params<R: tauri::Runtime>(
     node_id: String,
     width_percent: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -210,10 +210,10 @@ pub async fn update_processing_node_widener_params(
 }
 
 #[tauri::command]
-pub async fn update_processing_node_pan_params(
+pub async fn update_processing_node_pan_params<R: tauri::Runtime>(
     node_id: String,
     balance_percent: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -226,14 +226,14 @@ pub async fn update_processing_node_pan_params(
 
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
-pub async fn update_processing_node_compressor_params(
+pub async fn update_processing_node_compressor_params<R: tauri::Runtime>(
     node_id: String,
     threshold_db: i32,
     ratio_x10: i32,
     attack_ms: i32,
     release_ms: i32,
     makeup_gain_db: i32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -252,10 +252,10 @@ pub async fn update_processing_node_compressor_params(
 }
 
 #[tauri::command]
-pub async fn set_processing_node_bypassed(
+pub async fn set_processing_node_bypassed<R: tauri::Runtime>(
     node_id: String,
     bypassed: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -267,11 +267,11 @@ pub async fn set_processing_node_bypassed(
 }
 
 #[tauri::command]
-pub async fn disconnect_processing_node_port(
+pub async fn disconnect_processing_node_port<R: tauri::Runtime>(
     node_id: String,
     direction: PortDirection,
     port_index: u32,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
