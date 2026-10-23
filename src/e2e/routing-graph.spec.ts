@@ -361,6 +361,19 @@ test.describe("RoutingGraph grouping", () => {
     if (!boxesBefore[0] || !boxesBefore[1])
       throw new Error("missing member bounding boxes before ungroup");
 
+    // Ungrouping persists positions on the 20-unit graph grid. The fixture's
+    // second member starts at y=150 and therefore snaps to y=160.
+    const zoom = await page
+      .locator(".vue-flow__transformationpane")
+      .evaluate(
+        (element) =>
+          new DOMMatrixReadOnly(getComputedStyle(element).transform).a,
+      );
+    const expectedBoxes = [
+      boxesBefore[0],
+      { ...boxesBefore[1], y: boxesBefore[1].y + 10 * zoom },
+    ];
+
     await page.click(".routing-graph-group-ungroup");
     await expect(page.locator(".vue-flow__node-groupNode")).toHaveCount(0);
 
@@ -372,8 +385,8 @@ test.describe("RoutingGraph grouping", () => {
       throw new Error("missing member bounding boxes after ungroup");
 
     for (let i = 0; i < 2; i += 1) {
-      expect(Math.abs(boxesAfter[i]!.x - boxesBefore[i]!.x)).toBeLessThan(5);
-      expect(Math.abs(boxesAfter[i]!.y - boxesBefore[i]!.y)).toBeLessThan(5);
+      expect(Math.abs(boxesAfter[i]!.x - expectedBoxes[i]!.x)).toBeLessThan(5);
+      expect(Math.abs(boxesAfter[i]!.y - expectedBoxes[i]!.y)).toBeLessThan(5);
     }
   });
 
@@ -603,6 +616,26 @@ test.describe("RoutingGraph bring node here", () => {
     // position, but high enough up that the menu (which grows downward from
     // the click point) still fits inside the default 720px-tall viewport.
     const clickPoint = { x: boxBefore.x + 400, y: boxBefore.y + 60 };
+    // Convert the click independently to the graph's 20-unit grid so the
+    // destination assertion catches relocation to the wrong point as well.
+    const expectedPosition = await page
+      .locator(".vue-flow")
+      .evaluate((element, point) => {
+        const pane = element.querySelector(".vue-flow__transformationpane");
+        if (!pane) throw new Error("missing graph transform");
+        const transform = new DOMMatrixReadOnly(
+          getComputedStyle(pane).transform,
+        );
+        const rect = element.getBoundingClientRect();
+        return {
+          x:
+            Math.round((point.x - rect.x - transform.e) / transform.a / 20) *
+            20,
+          y:
+            Math.round((point.y - rect.y - transform.f) / transform.d / 20) *
+            20,
+        };
+      }, clickPoint);
     await page.mouse.click(clickPoint.x, clickPoint.y, { button: "right" });
     await page.waitForSelector(".routing-graph-context-menu");
 
@@ -618,6 +651,10 @@ test.describe("RoutingGraph bring node here", () => {
     await pickButton.click();
 
     await expect(page.locator(".routing-graph-context-menu")).toHaveCount(0);
+    await expect(streamNode).toHaveCSS(
+      "transform",
+      `matrix(1, 0, 0, 1, ${expectedPosition.x}, ${expectedPosition.y})`,
+    );
 
     const boxAfter = await streamNode.boundingBox();
     if (!boxAfter) throw new Error("missing bounding box after relocation");
@@ -626,16 +663,12 @@ test.describe("RoutingGraph bring node here", () => {
     // than staying at its pre-relocation spot.
     expect(Math.abs(boxAfter.x - boxBefore.x)).toBeGreaterThan(50);
 
-    // Key bumped to v2 in buildGraph.ts (LANE_X changes invalidating old
-    // saved positions) — this test was never updated to match, so it always
-    // read back `null` and failed regardless of whether the relocation
-    // itself worked.
     const layoutRaw = await page.evaluate(() =>
-      localStorage.getItem("pipe-deck-routing-layout-v2"),
+      localStorage.getItem("pipe-deck-routing-layout-v3"),
     );
     expect(layoutRaw).toBeTruthy();
     const layout = JSON.parse(layoutRaw ?? "{}");
-    expect(layout["stream:stream-1"]).toBeDefined();
+    expect(layout["stream:stream-1"]).toEqual(expectedPosition);
   });
 });
 
@@ -651,16 +684,22 @@ test.describe("RoutingGraph context menu", () => {
     const viewport = page.viewportSize();
     if (!viewport) throw new Error("missing viewport size");
 
-    // Before the menu clamped itself to the viewport, a click this close to
-    // the corner rendered it partly (or fully) off-screen — see the
-    // "Bring node here" test above, which had to click "high enough up" to
-    // work around exactly this.
-    await page.mouse.click(viewport.width - 20, viewport.height - 20, {
-      button: "right",
-    });
+    // This exposed strip is inside the rounded canvas corner but beyond the
+    // docked latency panel, which intercepts the old 20px-inset click.
+    const clickPoint = { x: viewport.width - 6, y: viewport.height - 6 };
+    expect(
+      await page.evaluate(
+        (point) =>
+          document
+            .elementFromPoint(point.x, point.y)
+            ?.classList.contains("vue-flow__pane"),
+        clickPoint,
+      ),
+    ).toBe(true);
+    await page.mouse.click(clickPoint.x, clickPoint.y, { button: "right" });
     const menu = page.locator(".routing-graph-context-menu");
     await expect(menu).toHaveCount(1);
-    await page.waitForTimeout(100);
+    await expect(menu).toBeInViewport({ ratio: 1 });
 
     const box = await menu.boundingBox();
     if (!box) throw new Error("missing context menu bounding box");
