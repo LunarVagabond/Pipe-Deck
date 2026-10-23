@@ -1147,16 +1147,24 @@ impl AudioBackend for LinuxPipeWireBackend {
                             // ports to `pw-link` — move it onto its own
                             // per-pair feed sink (same independent-gain
                             // mechanism as a device source above) instead of
-                            // linking a monitor. Named off the raw peer id
-                            // (not the stream's own system_name, which may
-                            // still be unresolved) so connect and disconnect
-                            // always compute the identical feed sink name.
+                            // linking a monitor. A replacement stream reuses
+                            // the original port's feed sink and its gain.
                             let node_label =
                                 node.map(|node| node.label.as_str()).unwrap_or(system_name);
-                            let feed_name =
-                                pactl::ensure_feed_sink_for_mix_pair(system_name, id, node_label)?;
-                            pactl::move_stream_to_sink_name(graph, id, &feed_name)?;
-                            pactl::set_sink_volume_by_name(&feed_name, 100)?;
+                            let feed_name = relink_mixer_stream_input(
+                                node,
+                                port_index,
+                                id,
+                                |feed_key| {
+                                    pactl::ensure_feed_sink_for_mix_pair(
+                                        system_name,
+                                        feed_key,
+                                        node_label,
+                                    )
+                                },
+                                |feed_name| pactl::move_stream_to_sink_name(graph, id, feed_name),
+                                |feed_name| pactl::set_sink_volume_by_name(feed_name, 100),
+                            )?;
                             pw_link::link_sink_monitor_to_target(&feed_name, system_name, false)
                         } else {
                             pactl::move_stream_to_sink_name(graph, id, system_name)?;
@@ -1603,6 +1611,30 @@ fn push_eq_params_and_reforce_volume(
     push_result
 }
 
+fn relink_mixer_stream_input(
+    node: Option<&ProcessingNode>,
+    port_index: u32,
+    stream_id: &str,
+    ensure_feed: impl FnOnce(&str) -> Result<String, BackendError>,
+    move_stream: impl FnOnce(&str) -> Result<(), BackendError>,
+    initialize_gain: impl FnOnce(&str) -> Result<(), BackendError>,
+) -> Result<String, BackendError> {
+    let feed_key = node
+        .and_then(|node| {
+            node.inputs.iter().find(|port| {
+                port.index == port_index && port.connected_id.as_deref() == Some(stream_id)
+            })
+        })
+        .and_then(|port| port.feed_key.as_deref())
+        .unwrap_or(stream_id);
+    let feed_name = ensure_feed(feed_key)?;
+    move_stream(&feed_name)?;
+    if feed_key == stream_id {
+        initialize_gain(&feed_name)?;
+    }
+    Ok(feed_name)
+}
+
 fn query_pipewire_version() -> Option<String> {
     let output = sysproc::command("pw-cli").arg("--version").output().ok()?;
     if !output.status.success() {
@@ -1847,9 +1879,124 @@ fn enumerate_pipewire() -> Result<RuntimeGraph, BackendError> {
 
 #[cfg(test)]
 mod version_tests {
-    use super::{parse_pipewire_version, push_eq_params_and_reforce_volume};
+    use super::{
+        parse_pipewire_version, push_eq_params_and_reforce_volume, relink_mixer_stream_input,
+    };
     use crate::backend::BackendError;
     use std::cell::Cell;
+
+    #[test]
+    fn processing_route_mixer_feed_key_preserves_the_original_sink_for_a_replacement() {
+        use crate::core::models::{ProcessingNode, ProcessingNodeKind, ProcessingNodePort};
+
+        let mut node = ProcessingNode {
+            id: "processing-mixer-stream-mix".into(),
+            label: "Stream Mix".into(),
+            kind: ProcessingNodeKind::Mixer {
+                input_gains_percent: vec![80],
+            },
+            system_name: "pipe-deck-proc-mixer-stream-mix".into(),
+            bypassed: false,
+            live: true,
+            inputs: vec![ProcessingNodePort {
+                index: 0,
+                connected_id: Some("node-99".into()),
+                feed_key: Some("node-99".into()),
+            }],
+            outputs: Vec::new(),
+        };
+        let calls = std::cell::RefCell::new(Vec::new());
+        let relink = |node: Option<&ProcessingNode>, port_index, stream_id| {
+            relink_mixer_stream_input(
+                node,
+                port_index,
+                stream_id,
+                |key| {
+                    calls.borrow_mut().push(format!("ensure {key}"));
+                    Ok(format!("feed-{key}"))
+                },
+                |feed| {
+                    calls.borrow_mut().push(format!("move {feed}"));
+                    Ok(())
+                },
+                |feed| {
+                    calls.borrow_mut().push(format!("initialize gain {feed}"));
+                    Ok(())
+                },
+            )
+            .unwrap()
+        };
+        assert_eq!(relink(Some(&node), 0, "node-99"), "feed-node-99");
+        assert_eq!(
+            *calls.borrow(),
+            vec![
+                "ensure node-99",
+                "move feed-node-99",
+                "initialize gain feed-node-99"
+            ]
+        );
+        calls.borrow_mut().clear();
+        node.inputs[0].connected_id = Some("node-200".into());
+        assert_eq!(
+            relink(Some(&node), 0, "node-200"),
+            "feed-node-99",
+            "(c) the live relink must address the original feed sink"
+        );
+        assert_eq!(
+            *calls.borrow(),
+            vec!["ensure node-99", "move feed-node-99"],
+            "replacement relinking must preserve the original feed gain"
+        );
+        calls.borrow_mut().clear();
+        assert_eq!(
+            relink(Some(&node), 0, "node-300"),
+            "feed-node-300",
+            "a different peer must create its own feed"
+        );
+        assert_eq!(
+            *calls.borrow(),
+            vec![
+                "ensure node-300",
+                "move feed-node-300",
+                "initialize gain feed-node-300"
+            ]
+        );
+        calls.borrow_mut().clear();
+        assert_eq!(
+            relink(Some(&node), 1, "node-200"),
+            "feed-node-200",
+            "a new input port must create its own feed"
+        );
+        assert_eq!(
+            *calls.borrow(),
+            vec![
+                "ensure node-200",
+                "move feed-node-200",
+                "initialize gain feed-node-200"
+            ]
+        );
+        calls.borrow_mut().clear();
+        assert_eq!(relink(None, 0, "node-200"), "feed-node-200");
+        assert_eq!(
+            *calls.borrow(),
+            vec![
+                "ensure node-200",
+                "move feed-node-200",
+                "initialize gain feed-node-200"
+            ]
+        );
+        calls.borrow_mut().clear();
+        node.inputs[0].feed_key = None;
+        assert_eq!(relink(Some(&node), 0, "node-200"), "feed-node-200");
+        assert_eq!(
+            *calls.borrow(),
+            vec![
+                "ensure node-200",
+                "move feed-node-200",
+                "initialize gain feed-node-200"
+            ]
+        );
+    }
 
     #[test]
     fn parses_linked_with_line() {

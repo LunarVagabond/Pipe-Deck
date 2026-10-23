@@ -10,16 +10,17 @@ use super::{CoreEngine, EngineError};
 
 impl CoreEngine {
     pub fn refresh_graph(&mut self) -> Result<(), EngineError> {
-        self.graph = self
+        let graph = self
             .adapter
             .fetch_graph()
             .map_err(|error| EngineError::Adapter(error.to_string()))?;
+        let previous_nodes = std::mem::replace(&mut self.graph, graph).processing_nodes;
         merge_virtual_devices(
             &mut self.graph,
             &mut self.device_id_remap,
             self.adapter.as_ref(),
         );
-        merge_processing_nodes(&mut self.graph, self.adapter.as_ref());
+        merge_processing_nodes(&mut self.graph, &previous_nodes, self.adapter.as_ref());
         self.sync_live_graph();
         self.reconcile_effect_chain_liveness_after_refresh();
         self.finalize_graph_snapshot();
@@ -38,13 +39,13 @@ impl CoreEngine {
     }
 
     pub fn apply_graph_update(&mut self, graph: RuntimeGraph) {
-        self.graph = graph;
+        let previous_nodes = std::mem::replace(&mut self.graph, graph).processing_nodes;
         merge_virtual_devices(
             &mut self.graph,
             &mut self.device_id_remap,
             self.adapter.as_ref(),
         );
-        merge_processing_nodes(&mut self.graph, self.adapter.as_ref());
+        merge_processing_nodes(&mut self.graph, &previous_nodes, self.adapter.as_ref());
         self.sync_live_graph();
         self.reconcile_effect_chain_liveness_after_refresh();
         self.finalize_graph_snapshot();
