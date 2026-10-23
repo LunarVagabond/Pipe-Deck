@@ -449,3 +449,8 @@ pub(crate) fn command_test_with_plugin_manager(
 ) {
     arrange(&mut engine.plugin_manager.lock().unwrap());
 }
+
+#[cfg(test)]
+pub(crate) fn command_test_set_backend(engine: &mut CoreEngine, backend: Box<dyn AudioBackend>) {
+    engine.adapter = backend;
+}

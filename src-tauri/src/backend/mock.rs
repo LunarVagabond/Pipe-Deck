@@ -17,6 +17,8 @@ use std::sync::Mutex;
 /// data on every call and relied on `CoreEngine`'s own
 /// `data_source == "mock"` branches to fake persistence in-place.
 pub struct MockAudioBackend {
+    #[cfg(test)]
+    pub(crate) command_test_soundboard: Option<std::sync::Arc<Mutex<CommandTestSoundboard>>>,
     graph: Mutex<RuntimeGraph>,
     /// system_names with a live effect chain "loaded" — tracked so
     /// `is_effect_chain_loaded` reflects real load/unload calls instead of
@@ -41,6 +43,14 @@ pub struct MockAudioBackend {
     /// `default_output_device_name` has something to answer immediately,
     /// same as a real PipeWire session always having *some* default sink.
     default_output: Mutex<Option<String>>,
+}
+
+#[cfg(test)]
+#[derive(Default)]
+pub(crate) struct CommandTestSoundboard {
+    pub played: Vec<(std::path::PathBuf, String, u8)>,
+    pub stops: u32,
+    pub stop_error: Option<String>,
 }
 
 impl Default for MockAudioBackend {
@@ -94,6 +104,8 @@ impl MockAudioBackend {
             })
             .map(|device| device.system_name.clone());
         Self {
+            #[cfg(test)]
+            command_test_soundboard: None,
             graph: Mutex::new(graph),
             loaded_effect_chains: Mutex::new(HashSet::new()),
             loaded_processing_nodes: Mutex::new(HashSet::new()),
@@ -916,6 +928,14 @@ impl AudioBackend for MockAudioBackend {
         target_system_name: &str,
         volume_percent: u8,
     ) -> Result<(), BackendError> {
+        #[cfg(test)]
+        if let Some(observed) = &self.command_test_soundboard {
+            observed.lock().unwrap().played.push((
+                path.to_path_buf(),
+                target_system_name.to_string(),
+                volume_percent,
+            ));
+        }
         self.played_sounds
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -928,6 +948,14 @@ impl AudioBackend for MockAudioBackend {
     }
 
     fn stop_sound(&self) -> Result<(), BackendError> {
+        #[cfg(test)]
+        if let Some(observed) = &self.command_test_soundboard {
+            let mut observed = observed.lock().unwrap();
+            observed.stops += 1;
+            if let Some(error) = &observed.stop_error {
+                return Err(BackendError::Message(error.clone()));
+            }
+        }
         *self
             .soundboard_stop_calls
             .lock()

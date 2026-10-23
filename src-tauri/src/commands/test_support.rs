@@ -70,6 +70,13 @@ impl CommandFixture {
         std::mem::take(&mut *self.graph_updates.lock().unwrap())
     }
 
+    pub fn use_backend(&self, backend: Box<dyn crate::backend::AudioBackend>) {
+        crate::core::engine::command_test_set_backend(
+            &mut self.app.state::<AppState>().engine.blocking_write(),
+            backend,
+        );
+    }
+
     pub fn assert_graph_update(&self, expected: &RuntimeGraph) {
         let updates = self.take_graph_updates();
         assert_eq!(updates.len(), 1, "one graph-updated event per operation");
