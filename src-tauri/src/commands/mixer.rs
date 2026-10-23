@@ -2,10 +2,10 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn set_device_volume(
+pub async fn set_device_volume<R: tauri::Runtime>(
     device_id: String,
     percent: u8,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -17,10 +17,10 @@ pub async fn set_device_volume(
 }
 
 #[tauri::command]
-pub async fn set_device_mute(
+pub async fn set_device_mute<R: tauri::Runtime>(
     device_id: String,
     muted: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -32,10 +32,10 @@ pub async fn set_device_mute(
 }
 
 #[tauri::command]
-pub async fn set_stream_volume(
+pub async fn set_stream_volume<R: tauri::Runtime>(
     stream_id: String,
     percent: u8,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -47,10 +47,10 @@ pub async fn set_stream_volume(
 }
 
 #[tauri::command]
-pub async fn set_stream_mute(
+pub async fn set_stream_mute<R: tauri::Runtime>(
     stream_id: String,
     muted: bool,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;

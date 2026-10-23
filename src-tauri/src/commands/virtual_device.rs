@@ -3,9 +3,9 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn create_virtual_output(
+pub async fn create_virtual_output<R: tauri::Runtime>(
     name: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<VirtualDeviceResult, String> {
     let mut engine = state.engine.write().await;
@@ -17,9 +17,9 @@ pub async fn create_virtual_output(
 }
 
 #[tauri::command]
-pub async fn create_virtual_input(
+pub async fn create_virtual_input<R: tauri::Runtime>(
     name: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<VirtualDeviceResult, String> {
     let mut engine = state.engine.write().await;
@@ -31,9 +31,9 @@ pub async fn create_virtual_input(
 }
 
 #[tauri::command]
-pub async fn create_virtual_multi_output(
+pub async fn create_virtual_multi_output<R: tauri::Runtime>(
     name: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<VirtualDeviceResult, String> {
     let mut engine = state.engine.write().await;
@@ -45,9 +45,9 @@ pub async fn create_virtual_multi_output(
 }
 
 #[tauri::command]
-pub async fn remove_virtual_device(
+pub async fn remove_virtual_device<R: tauri::Runtime>(
     system_name: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<(), String> {
     let mut engine = state.engine.write().await;
@@ -59,10 +59,10 @@ pub async fn remove_virtual_device(
 }
 
 #[tauri::command]
-pub async fn enable_stream_mic_passthrough(
+pub async fn enable_stream_mic_passthrough<R: tauri::Runtime>(
     stream_id: String,
     mic_device_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;

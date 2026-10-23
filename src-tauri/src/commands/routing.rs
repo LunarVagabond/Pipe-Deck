@@ -3,10 +3,10 @@ use crate::AppState;
 use tauri::State;
 
 #[tauri::command]
-pub async fn set_stream_targets(
+pub async fn set_stream_targets<R: tauri::Runtime>(
     stream_id: String,
     target_device_ids: Vec<String>,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -18,10 +18,10 @@ pub async fn set_stream_targets(
 }
 
 #[tauri::command]
-pub async fn set_stream_target(
+pub async fn set_stream_target<R: tauri::Runtime>(
     stream_id: String,
     target_device_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -33,10 +33,10 @@ pub async fn set_stream_target(
 }
 
 #[tauri::command]
-pub async fn clear_stream_target(
+pub async fn clear_stream_target<R: tauri::Runtime>(
     stream_id: String,
     previous_target_device_id: String,
-    app: tauri::AppHandle,
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
@@ -48,8 +48,8 @@ pub async fn clear_stream_target(
 }
 
 #[tauri::command]
-pub async fn undo_last_routing(
-    app: tauri::AppHandle,
+pub async fn undo_last_routing<R: tauri::Runtime>(
+    app: tauri::AppHandle<R>,
     state: State<'_, AppState>,
 ) -> Result<ApplyResult, String> {
     let mut engine = state.engine.write().await;
