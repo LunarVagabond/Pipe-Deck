@@ -14,8 +14,14 @@ if ! rustc --edition=2021 --test --cfg 'target_os="windows"' \
   exit 1
 fi
 
-if ! "$TEST_ROOT/paths-windows-dispatch-tests.exe" \
-  --exact windows_public_wrappers_use_appdata; then
+if ! test_output="$("$TEST_ROOT/paths-windows-dispatch-tests.exe" \
+  --exact windows_public_wrappers_use_appdata)"; then
+  printf '%s\n' "$test_output"
   printf 'ASSERTION FAILED: Windows path dispatch must use APPDATA\n' >&2
+  exit 1
+fi
+printf '%s\n' "$test_output"
+if [[ "$test_output" != *"test result: ok. 1 passed; 0 failed; 0 ignored;"* ]]; then
+  printf 'ASSERTION FAILED: Windows path dispatch must run exactly one non-ignored test\n' >&2
   exit 1
 fi
