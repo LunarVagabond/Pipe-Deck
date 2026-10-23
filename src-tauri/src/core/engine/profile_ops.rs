@@ -27,7 +27,7 @@ impl CoreEngine {
         let apply_result = if self.graph.data_source == "mock" {
             apply_mock_profile(&mut self.graph, &profile)
         } else {
-            apply_profile_routing(&self.graph, &profile)
+            apply_profile_routing(self.adapter.as_ref(), &self.graph, &profile)
                 .map_err(|error| EngineError::Routing(error.to_string()))
         };
 
@@ -239,7 +239,7 @@ impl CoreEngine {
         let routing_result = if self.graph.data_source == "mock" {
             apply_mock_profile(&mut self.graph, &profile)
         } else {
-            apply_profile_routing(&self.graph, &profile)
+            apply_profile_routing(self.adapter.as_ref(), &self.graph, &profile)
                 .map_err(|error| EngineError::Routing(error.to_string()))
         };
 
@@ -249,7 +249,7 @@ impl CoreEngine {
             let _ = if self.graph.data_source == "mock" {
                 apply_mock_snapshot(&mut self.graph, &snapshot)
             } else {
-                restore_routing_snapshot(&self.graph, &snapshot)
+                restore_routing_snapshot(self.adapter.as_ref(), &self.graph, &snapshot)
                     .map_err(|error| EngineError::Routing(error.to_string()))
             };
             if self.graph.data_source != "mock" {
@@ -266,7 +266,7 @@ impl CoreEngine {
             {
                 let message = error.to_string();
                 self.last_error = Some(message.clone());
-                let _ = restore_routing_snapshot(&self.graph, &snapshot);
+                let _ = restore_routing_snapshot(self.adapter.as_ref(), &self.graph, &snapshot);
                 self.refresh_graph()?;
                 return Ok(ApplyResult {
                     success: false,

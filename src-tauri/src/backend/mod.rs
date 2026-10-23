@@ -5,7 +5,8 @@ pub mod stub;
 
 use crate::core::models::{
     Device, DeviceDirection, EffectChainConfig, LatencyPathNode, LatencyPingResult, MixSourceSpec,
-    PortDirection, ProcessingNode, RuntimeGraph, VirtualDeviceInfo, VirtualDeviceResult,
+    PortDirection, ProcessingNode, RoutingIntent, RuntimeGraph, VirtualDeviceInfo,
+    VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -105,6 +106,13 @@ pub trait AudioBackend: Send + Sync {
         graph: &RuntimeGraph,
         stream_id: &str,
         target_device_id: &str,
+    ) -> Result<(), BackendError>;
+
+    /// Applies a saved intent, resolving stale device ids via its system name.
+    fn apply_routing_intent(
+        &self,
+        graph: &RuntimeGraph,
+        intent: &RoutingIntent,
     ) -> Result<(), BackendError>;
 
     // Graph/routing reconciliation. These stay call-granularity-agnostic on
@@ -737,6 +745,14 @@ impl AudioBackend for EmptyAudioBackend {
         _graph: &RuntimeGraph,
         _stream_id: &str,
         _target_device_id: &str,
+    ) -> Result<(), BackendError> {
+        Err(BackendError::Message(self.notice.clone()))
+    }
+
+    fn apply_routing_intent(
+        &self,
+        _graph: &RuntimeGraph,
+        _intent: &RoutingIntent,
     ) -> Result<(), BackendError> {
         Err(BackendError::Message(self.notice.clone()))
     }

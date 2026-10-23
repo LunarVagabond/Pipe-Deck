@@ -1,4 +1,3 @@
-use crate::backend::linux::split_sink;
 use crate::backend::BackendError;
 use crate::config::store::ConfigStore;
 use crate::core::models::{Device, RuntimeGraph, Stream, StreamRouteRule};
@@ -38,22 +37,6 @@ pub fn save_stream_route_rule(stream: &Stream, target: &Device) -> Result<(), Ba
     ConfigStore::new()
         .save_routing_rules(&rules)
         .map_err(|error| BackendError::Message(error.to_string()))
-}
-
-pub fn apply_stream_to_target(
-    graph: &RuntimeGraph,
-    stream: &Stream,
-    target: &Device,
-) -> Result<(), BackendError> {
-    split_sink::apply_stream_to_sink(graph, &stream.id, &target.id)
-}
-
-pub fn apply_stream_to_sink_id(
-    graph: &RuntimeGraph,
-    stream: &Stream,
-    target_device_id: &str,
-) -> Result<(), BackendError> {
-    split_sink::apply_stream_to_sink(graph, &stream.id, target_device_id)
 }
 
 pub fn find_device_by_system_name<'a>(

@@ -195,7 +195,7 @@ fn serve_native_effects() {
 ///
 /// Deliberately does **not** re-establish downstream routing (fan-out
 /// targets, mic-mix feeders) for the reloaded `effect_output.*`/
-/// `effect_input.*` nodes — that's `backend::linux::graph_routing`'s job,
+/// `effect_input.*` nodes — handled by the Linux backend's `graph_routing`,
 /// and it already runs generically on every GUI graph refresh, keyed off
 /// persisted routing intent, with no idea (or need to know) how a node came
 /// to exist. So a reloaded chain's audio processing comes back immediately;
@@ -208,7 +208,7 @@ fn serve_native_effects() {
 /// persisted chain belongs to which live device" doesn't need graph state:
 /// for a `pipe-deck-*` virtual device, `Device.id` is always exactly
 /// `format!("virtual-{}", system_name.trim_start_matches("pipe-deck-"))`
-/// (`backend::linux::virtual_devices`), and `list_virtual_devices()` already
+/// (the Linux backend's `virtual_devices`), and `list_virtual_devices()` already
 /// returns that `device_id` paired with `system_name`/`direction` directly.
 fn reconcile_live_effects_state() {
     let Ok(chains) = ConfigStore::new().effect_chains() else {
@@ -231,7 +231,7 @@ fn reconcile_live_effects_state() {
         }
 
         let is_input = info.direction == crate::core::models::DeviceDirection::Input;
-        // Same dispatch as `backend::linux::live::LinuxPipeWireBackend::load_effect_chain`
+        // Same dispatch as `LinuxPipeWireBackend::load_effect_chain`
         // — a portable-DSP-capable chain must come back on the same
         // transport after a crash/restart, not silently switch to the
         // builtin-module path just because this is the recovery caller.
@@ -436,7 +436,7 @@ fn reconcile_live_processing_nodes() {
         if crate::pipewire::native_host::load_chain(&system_name, false, &config).is_err() {
             continue;
         }
-        // Mirrors `backend::linux::live::load_processing_node`'s DSP-kind
+        // Mirrors `LinuxPipeWireBackend::load_processing_node`'s DSP-kind
         // arms: a brand-new filter-chain sink has never had its volume set
         // by anyone, and comes up muted/zero-volume by whatever default
         // WirePlumber applies otherwise (issue #303).
@@ -739,7 +739,7 @@ mod tests {
     // never `SERVICE_NAME` — see that module for the real live coverage.
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod live_tests {
     //! `#[ignore]`d on purpose: hits a *real* PipeWire session, same
     //! convention as `core::engine::effects_ops::live_tests` and
@@ -749,10 +749,13 @@ mod live_tests {
     //! Exercises a disposable `Recovery Test Bus` virtual output this
     //! test creates and removes itself.
     use super::*;
-    use crate::backend::linux::pactl;
+    #[cfg(all(test, target_os = "linux"))]
+    use crate::backend as platform;
     use crate::config::store::lock_config_dir_env;
     use crate::core::engine::CoreEngine;
     use crate::core::models::{EffectChainConfig, EffectStage};
+    #[cfg(all(test, target_os = "linux"))]
+    use platform::linux::pactl;
 
     #[test]
     #[ignore]

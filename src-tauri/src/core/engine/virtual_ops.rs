@@ -9,7 +9,7 @@ impl CoreEngine {
     /// Persists a device alias and, for Pipe Deck-owned virtual devices,
     /// syncs the feed sink and pactl module description to match. Moved
     /// here from the `set_device_alias` command handler, which used to call
-    /// `backend::linux::pactl` directly instead of going through the engine.
+    /// the Linux backend's `pactl` helpers directly instead of going through the engine.
     pub fn apply_device_alias(
         &mut self,
         system_name: &str,

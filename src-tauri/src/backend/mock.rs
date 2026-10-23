@@ -2,8 +2,8 @@ use crate::backend::{AudioBackend, BackendError, GraphListener};
 use crate::core::models::{
     Device, DeviceDirection, DeviceKind, EffectChainConfig, LatencyHop, LatencyPathNode,
     LatencyPingResult, Link, MixSource, MixSourceSpec, PortDirection, ProcessingNode,
-    ProcessingNodeKind, RuntimeGraph, SinkMode, Stream, StreamDirection, VirtualDeviceInfo,
-    VirtualDeviceResult,
+    ProcessingNodeKind, RoutingIntent, RuntimeGraph, SinkMode, Stream, StreamDirection,
+    VirtualDeviceInfo, VirtualDeviceResult,
 };
 use crate::core::rules::ApplyRulesContext;
 use crate::core::stream_identity::StreamIdentityKey;
@@ -638,6 +638,16 @@ impl AudioBackend for MockAudioBackend {
             .ok_or_else(|| BackendError::Message(format!("stream not found: {stream_id}")))?;
         stream.current_target = Some(target_device_id.to_string());
         Ok(())
+    }
+
+    fn apply_routing_intent(
+        &self,
+        graph: &RuntimeGraph,
+        intent: &RoutingIntent,
+    ) -> Result<(), BackendError> {
+        let target = crate::core::routing::resolve_intent_target(graph, intent)
+            .ok_or_else(|| BackendError::Message("routing intent has no target".into()))?;
+        self.route_stream(graph, &intent.stream_id, target)
     }
 
     /// Trait default always returns `false`, which was fine while nothing

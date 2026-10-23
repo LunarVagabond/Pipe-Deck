@@ -1,5 +1,5 @@
-#[cfg(test)]
-use crate::backend::linux::{pactl, pw_link};
+#[cfg(all(test, target_os = "linux"))]
+use crate::backend as platform;
 use crate::config::ConfigStore;
 use crate::core::models::{
     effect_input_name_for_device, is_pipe_deck_device, ApplyResult, DeviceDirection, DeviceKind,
@@ -7,8 +7,10 @@ use crate::core::models::{
 };
 use crate::pipewire::fx_capability::FxCapabilities;
 use crate::pipewire::fx_validate::PreflightResult;
+#[cfg(all(test, target_os = "linux"))]
+use platform::linux::{pactl, pw_link};
 use std::collections::HashMap;
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 use std::time::Duration;
 
 use super::{CoreEngine, EngineError};
@@ -706,7 +708,7 @@ impl CoreEngine {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "linux"))]
 mod live_tests {
     //! `#[ignore]`d on purpose: these hit a *real* PipeWire session and
     //! `filter-chain.service`, unlike every other test in this crate. Never
@@ -875,7 +877,7 @@ mod live_tests {
         );
     }
 
-    /// Isolates issue #74's portable-DSP dispatch (`backend::linux::live`'s
+    /// Isolates issue #74's portable-DSP dispatch (`LinuxPipeWireBackend`'s
     /// `native_dsp_host::supports(config)` branch, wired through
     /// `daemon::ipc`) from the *pre-existing, unrelated* mic-feeder-relink
     /// bug that `apply_effect_chain_structural_round_trips_on_a_virtual_input`
