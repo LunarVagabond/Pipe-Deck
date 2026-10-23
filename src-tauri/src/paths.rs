@@ -4,6 +4,8 @@ use std::path::PathBuf;
 #[derive(Clone, Copy)]
 pub(crate) enum Platform {
     Unix,
+    // Only Windows Platform::current() constructs this in production; non-Windows cfgs it out, and paths-windows-dispatch.test.sh compiles and exercises it.
+    #[cfg_attr(all(not(target_os = "windows"), not(test)), expect(dead_code))]
     Windows,
 }
 
@@ -206,7 +208,8 @@ pub(crate) mod tests {
     fn unix_path_matrix_preserves_exact_bytes() {
         // These byte-exact expectations assume Unix-host PathBuf::join syntax (Linux CI);
         // portable policy is exercised through the explicit-platform matrices.
-        let cases: &[(&[(&str, &str)], [&str; 4], Option<&str>)] = &[
+        type Case<'a> = (&'a [(&'a str, &'a str)], [&'a str; 4], Option<&'a str>);
+        let cases: &[Case<'_>] = &[
             (
                 &[
                     ("XDG_CONFIG_HOME", "/config"),
@@ -302,7 +305,8 @@ pub(crate) mod tests {
 
     #[test]
     fn windows_path_matrix_ignores_unix_environment() {
-        let cases: &[(&[(&str, &str)], [&str; 4])] = &[
+        type Case<'a> = (&'a [(&'a str, &'a str)], [&'a str; 4]);
+        let cases: &[Case<'_>] = &[
             (
                 &[("APPDATA", "")],
                 [

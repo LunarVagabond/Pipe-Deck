@@ -120,7 +120,8 @@ mod tests {
     #[test]
     fn socket_path_platform_and_environment_matrix() {
         use crate::paths::Platform::{Unix, Windows};
-        let cases: &[(crate::paths::Platform, &[(&str, &str)], &str)] = &[
+        type Case<'a> = (crate::paths::Platform, &'a [(&'a str, &'a str)], &'a str);
+        let cases: &[Case<'_>] = &[
             (
                 Unix,
                 &[
