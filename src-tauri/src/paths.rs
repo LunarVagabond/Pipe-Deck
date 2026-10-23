@@ -9,7 +9,11 @@ pub(crate) enum Platform {
 
 impl Platform {
     pub(crate) fn current() -> Self {
-        if cfg!(target_os = "windows") {
+        Self::for_os(std::env::consts::OS)
+    }
+
+    pub(crate) fn for_os(os: &str) -> Self {
+        if os == "windows" {
             Self::Windows
         } else {
             Self::Unix
@@ -120,7 +124,7 @@ pub(crate) fn audit_log_path_for(platform: Platform) -> PathBuf {
     platform.join(state_dir_for(platform), "plugin-audit.jsonl")
 }
 
-/// All tests that change path environment variables share this lock, including legacy callers.
+/// Serializes the path-env tests added here and legacy callers of the config-env lock.
 #[cfg(test)]
 pub(crate) fn lock_path_env() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -185,7 +189,29 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn platform_selector_maps_os_names() {
+        assert!(matches!(Platform::for_os("windows"), Platform::Windows));
+        for os in ["linux", "macos", "unknown"] {
+            assert!(matches!(Platform::for_os(os), Platform::Unix), "{os}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn public_wrappers_use_unix_environment() {
+        let _env = PathEnv::new(&[
+            ("XDG_CONFIG_HOME", "/x"),
+            ("XDG_STATE_HOME", "/s"),
+            ("HOME", "/h"),
+        ]);
+        assert_path(config_dir(), "/x/pipe-deck");
+        assert_path(state_dir(), "/s/pipe-deck");
+    }
+
+    #[test]
     fn unix_path_matrix_preserves_exact_bytes() {
+        // These byte-exact expectations assume Unix-host PathBuf::join syntax (Linux CI);
+        // portable policy is exercised through the explicit-platform matrices.
         let cases: &[(&[(&str, &str)], [&str; 4], Option<&str>)] = &[
             (
                 &[
