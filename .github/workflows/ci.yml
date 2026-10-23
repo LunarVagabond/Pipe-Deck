@@ -3,6 +3,8 @@ name: CI
 on:
   pull_request:
     types: [opened, reopened, synchronize]
+  push:
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
@@ -60,3 +62,9 @@ jobs:
 
       - name: make test
         run: make test
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: make test-e2e
+        run: make test-e2e
