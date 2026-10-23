@@ -58,6 +58,14 @@ impl CommandFixture {
         }
     }
 
+    pub fn isolate_plugins(&mut self) {
+        self.previous_env.push((
+            "PIPE_DECK_BUNDLED_PLUGINS",
+            std::env::var_os("PIPE_DECK_BUNDLED_PLUGINS"),
+        ));
+        std::env::set_var("PIPE_DECK_BUNDLED_PLUGINS", self.config_dir.join("bundled"));
+    }
+
     pub fn take_graph_updates(&self) -> Vec<RuntimeGraph> {
         std::mem::take(&mut *self.graph_updates.lock().unwrap())
     }

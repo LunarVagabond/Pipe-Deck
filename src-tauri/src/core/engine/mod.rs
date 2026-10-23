@@ -441,3 +441,11 @@ pub(crate) fn command_test_engine() -> CoreEngine {
         ..CoreEngine::new()
     }
 }
+
+#[cfg(test)]
+pub(crate) fn command_test_with_plugin_manager(
+    engine: &CoreEngine,
+    arrange: impl FnOnce(&mut PluginManager),
+) {
+    arrange(&mut engine.plugin_manager.lock().unwrap());
+}

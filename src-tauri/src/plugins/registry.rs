@@ -463,3 +463,23 @@ pub fn bundled_plugins_dir() -> Option<PathBuf> {
 pub fn user_plugins_dir() -> PathBuf {
     ConfigStore::new().config_dir().join("plugins")
 }
+
+#[cfg(all(test, unix))]
+pub(crate) fn command_test_observe_plugin(
+    manager: &mut PluginManager,
+    plugin_id: &str,
+    panels: Vec<PluginUiPanel>,
+    suggestions: Vec<crate::core::models::RoutingSuggestion>,
+) {
+    // Seed received host observations; command tests exercise reads, not plugin RPC.
+    let mut process = PluginProcess::spawn(
+        std::path::Path::new("/bin/true"),
+        plugin_id,
+        ConfigStore::new().config_dir(),
+    )
+    .unwrap();
+    assert!(process.child.wait().unwrap().success());
+    process.ui_panels = panels;
+    process.routing_suggestions = suggestions.into();
+    manager.running.insert(plugin_id.into(), process);
+}
