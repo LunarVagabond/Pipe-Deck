@@ -123,10 +123,7 @@ fn dispatch(op: IpcOp) -> IpcResult {
             },
         },
         IpcOp::UnloadDspChain { device_system_name } => {
-            native_dsp_host::unload_chain(&device_system_name);
-            IpcResult::Ok {
-                payload: IpcOkPayload::Unit,
-            }
+            unload_dsp_chain_result(native_dsp_host::unload_chain(&device_system_name))
         }
         IpcOp::IsDspChainLoaded { device_system_name } => IpcResult::Ok {
             payload: IpcOkPayload::Loaded {
@@ -144,5 +141,68 @@ fn dispatch(op: IpcOp) -> IpcResult {
                 message: error.to_string(),
             },
         },
+    }
+}
+
+fn unload_dsp_chain_result(result: Result<(), native_dsp_host::NativeDspHostError>) -> IpcResult {
+    match result {
+        Ok(()) => IpcResult::Ok {
+            payload: IpcOkPayload::Unit,
+        },
+        Err(error) => IpcResult::Error {
+            message: error.to_string(),
+        },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unload_dsp_chain_dispatch_forwards_actual_result() {
+        let source = include_str!("server.rs");
+        let dispatch = source
+            .split("fn dispatch(op: IpcOp) -> IpcResult {")
+            .nth(1)
+            .expect("server.rs: dispatch function must exist")
+            .split("\nfn unload_dsp_chain_result")
+            .next()
+            .expect("server.rs: dispatch body must exist");
+        let forwarding = regex::Regex::new(concat!(
+            r"IpcOp::UnloadDspChain\s*\{\s*device_system_name\s*\}\s*=>\s*\{\s*",
+            r"unload_dsp_chain_result\(\s*native_dsp_host::unload_chain\(\s*&device_system_name\s*\)\s*\)\s*\}"
+        ))
+        .expect("valid unload dispatch forwarding pattern");
+        assert!(
+            forwarding.is_match(dispatch),
+            "server.rs: dispatch UnloadDspChain arm must forward the actual native_dsp_host::unload_chain result into unload_dsp_chain_result"
+        );
+    }
+
+    #[test]
+    fn unload_dsp_chain_without_loaded_host_returns_unit() {
+        let host = Err::<(), _>(native_dsp_host::NativeDspHostError::InitFailed(
+            "unavailable host".to_string(),
+        ));
+        let result = native_dsp_host::unload_if_initialized(host, |()| {
+            panic!("an unavailable host must not unload a chain");
+        });
+        assert_eq!(
+            unload_dsp_chain_result(result),
+            IpcResult::Ok {
+                payload: IpcOkPayload::Unit,
+            }
+        );
+    }
+
+    #[test]
+    fn unload_dsp_chain_poison_returns_ipc_error() {
+        assert_eq!(
+            unload_dsp_chain_result(Err(native_dsp_host::NativeDspHostError::LockPoisoned)),
+            IpcResult::Error {
+                message: "native dsp host mutex poisoned".to_string(),
+            }
+        );
     }
 }

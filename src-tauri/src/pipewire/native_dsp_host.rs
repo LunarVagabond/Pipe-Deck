@@ -153,7 +153,7 @@ use ringbuf::{HeapCons, HeapProd, HeapRb};
 use std::collections::HashMap;
 use std::ffi::CString;
 use std::os::raw::c_void;
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 use thiserror::Error;
 
 #[derive(Debug, Clone, Error)]
@@ -172,6 +172,8 @@ pub enum NativeDspHostError {
     PodBuildFailed(String),
     #[error("couldn't start the effects engine — is PipeWire running? ({0})")]
     InitFailed(String),
+    #[error("native dsp host mutex poisoned")]
+    LockPoisoned,
 }
 
 /// Fixed at stereo — see module doc "Scope / known limitation".
@@ -489,6 +491,10 @@ unsafe impl Send for DspHost {}
 
 static HOST: OnceLock<Result<Mutex<DspHost>, NativeDspHostError>> = OnceLock::new();
 
+fn lock_host<T>(host: &Mutex<T>) -> Result<MutexGuard<'_, T>, NativeDspHostError> {
+    host.lock().map_err(|_| NativeDspHostError::LockPoisoned)
+}
+
 /// Reuses `native_host`'s connection (`shared_connection()`) rather than
 /// opening a second, independent one — an earlier version of this module
 /// did open its own, and hitting it through the real daemon (two concurrent
@@ -603,7 +609,7 @@ pub fn load_chain(
 ) -> Result<String, NativeDspHostError> {
     const SAMPLE_RATE_HZ: f64 = 48000.0;
 
-    unload_chain(device_system_name);
+    unload_chain(device_system_name)?;
 
     let (capture_name, playback_name, playback_media_class) = if is_input {
         (
@@ -619,7 +625,7 @@ pub fn load_chain(
         )
     };
 
-    let mut guard = host()?.lock().expect("native dsp host mutex poisoned");
+    let mut guard = lock_host(host()?)?;
 
     // Built inside a closure so the `thread_loop` lock guard(s) it holds are
     // dropped before `guard.loaded.insert` below needs an exclusive borrow
@@ -767,32 +773,43 @@ pub fn load_chain(
 /// streams. A no-op if nothing is loaded for `device_system_name` — including
 /// when the host itself never initialized, since nothing could have been
 /// loaded on a connection that doesn't exist.
-pub fn unload_chain(device_system_name: &str) {
-    let Ok(host) = host() else {
-        return;
+pub fn unload_chain(device_system_name: &str) -> Result<(), NativeDspHostError> {
+    unload_if_initialized(host(), |host| {
+        let mut guard = lock_host(host)?;
+        let Some(loaded) = guard.loaded.remove(device_system_name) else {
+            return Ok(());
+        };
+        // Streams must be disconnected/destroyed with the thread loop locked,
+        // same contract as every other `pw::*` teardown in this codebase — drop
+        // them explicitly inside the lock rather than relying on `loaded`'s own
+        // `Drop` running at an unlocked, unspecified point.
+        let _lock = guard.thread_loop.lock();
+        drop(loaded);
+        Ok(())
+    })
+}
+
+pub(crate) fn unload_if_initialized<T>(
+    host: Result<T, NativeDspHostError>,
+    unload: impl FnOnce(T) -> Result<(), NativeDspHostError>,
+) -> Result<(), NativeDspHostError> {
+    let Ok(host) = host else {
+        return Ok(());
     };
-    let mut guard = host.lock().expect("native dsp host mutex poisoned");
-    let Some(loaded) = guard.loaded.remove(device_system_name) else {
-        return;
-    };
-    // Streams must be disconnected/destroyed with the thread loop locked,
-    // same contract as every other `pw::*` teardown in this codebase — drop
-    // them explicitly inside the lock rather than relying on `loaded`'s own
-    // `Drop` running at an unlocked, unspecified point.
-    let _lock = guard.thread_loop.lock();
-    drop(loaded);
+    unload(host)
 }
 
 /// Whether a portable-DSP chain is currently loaded for `device_system_name`.
-/// `false` if the native DSP host itself never initialized.
+/// `false` if the native DSP host itself never initialized. Also returns
+/// `false` if the host mutex is poisoned.
 pub fn is_loaded(device_system_name: &str) -> bool {
     let Ok(host) = host() else {
         return false;
     };
-    host.lock()
-        .expect("native dsp host mutex poisoned")
-        .loaded
-        .contains_key(device_system_name)
+    let Ok(guard) = lock_host(host) else {
+        return false;
+    };
+    guard.loaded.contains_key(device_system_name)
 }
 
 /// Pushes an updated chain (rebuilt off the audio thread from new params) to
@@ -804,7 +821,7 @@ pub fn set_live_chain(
     device_system_name: &str,
     config: &EffectChainConfig,
 ) -> Result<(), NativeDspHostError> {
-    let mut guard = host()?.lock().expect("native dsp host mutex poisoned");
+    let mut guard = lock_host(host()?)?;
     let Some(loaded) = guard.loaded.get_mut(device_system_name) else {
         return Ok(());
     };
@@ -817,6 +834,90 @@ pub fn set_live_chain(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+    use std::sync::Arc;
+
+    #[test]
+    fn unload_dsp_chain_initialized_host_preserves_poison_error() {
+        let received = Cell::new(None);
+        let result = unload_if_initialized(Ok(7), |host| {
+            received.set(Some(host));
+            Err(NativeDspHostError::LockPoisoned)
+        });
+        assert_eq!(received.get(), Some(7));
+        assert!(matches!(result, Err(NativeDspHostError::LockPoisoned)));
+    }
+
+    #[test]
+    fn unload_dsp_chain_initialized_host_preserves_success() {
+        let received = Cell::new(None);
+        let result = unload_if_initialized(Ok(11), |host| {
+            received.set(Some(host));
+            Ok(())
+        });
+        assert_eq!(received.get(), Some(11));
+        assert!(matches!(result, Ok(())));
+    }
+
+    #[test]
+    fn poisoned_host_lock_returns_typed_error() {
+        let mutex = Arc::new(Mutex::new(()));
+        let thread_mutex = mutex.clone();
+        let panic = std::thread::spawn(move || {
+            let Ok(_guard) = thread_mutex.lock() else {
+                panic!("fresh mutex was poisoned");
+            };
+            panic!("poison the test mutex");
+        })
+        .join();
+        assert!(panic.is_err());
+        assert!(mutex.is_poisoned());
+
+        for _ in 0..2 {
+            assert!(matches!(
+                lock_host(&mutex),
+                Err(NativeDspHostError::LockPoisoned)
+            ));
+        }
+    }
+
+    #[test]
+    fn healthy_host_lock_preserves_state_and_guard_lifetime() {
+        let mutex = Mutex::new(7);
+        let mut guard = lock_host(&mutex).expect("healthy mutex must lock");
+        assert_eq!(*guard, 7);
+        *guard = 11;
+        assert!(matches!(
+            mutex.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        ));
+        drop(guard);
+
+        assert_eq!(*lock_host(&mutex).expect("mutex must unlock on drop"), 11);
+    }
+
+    #[test]
+    fn native_dsp_host_locks_do_not_panic_on_poison() {
+        let source = include_str!("native_dsp_host.rs");
+        let lock_then_panic =
+            regex::Regex::new(r"\.\s*lock\s*\(\s*\)\s*\.\s*(?:expect|unwrap)\s*\(")
+                .expect("valid lock acquisition pattern");
+        let occurrences: Vec<_> = lock_then_panic
+            .find_iter(source)
+            .map(|matched| {
+                let line = source[..matched.start()]
+                    .bytes()
+                    .filter(|b| *b == b'\n')
+                    .count()
+                    + 1;
+                format!("line {line}: {}", matched.as_str())
+            })
+            .collect();
+        assert!(
+            occurrences.is_empty(),
+            "native dsp host lock acquisitions must propagate poison instead of panicking: {occurrences:?}"
+        );
+    }
 
     /// Diagnostic-only (issue #74): mirrors the daemon's own structure —
     /// `warm_up()` on one thread (matching daemon startup), then
@@ -848,7 +949,7 @@ mod tests {
 
         let handle = std::thread::spawn(move || load_chain(device_system_name, true, &config));
         let result = handle.join().expect("spawned thread panicked");
-        unload_chain(device_system_name);
+        let _ = unload_chain(device_system_name);
         result.expect("load_chain from a different thread than warm_up failed");
     }
 
@@ -863,7 +964,9 @@ mod tests {
         assert_ne!(std::env::var("PIPE_DECK_USE_MOCK").as_deref(), Ok("1"));
 
         let device_system_name = "pipe-deck-dsp-host-smoke-test";
-        let cleanup = || unload_chain(device_system_name);
+        let cleanup = || {
+            let _ = unload_chain(device_system_name);
+        };
         cleanup();
 
         let config = EffectChainConfig {
