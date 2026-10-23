@@ -16,6 +16,8 @@ Grab the latest release from [GitHub Releases](https://github.com/LunarVagabond/
 
 Open Pipe Deck and you land on the **Dashboard** — a live overview of every device and stream PipeWire currently knows about: playback apps, capture apps, outputs in use, and any virtual devices you've created.
 
+Use **Search devices, streams, and rules** in the top bar to find Dashboard device cards by display or system name, Mixer stream channels by app name, executable, stream name, or system name, and Rules by name, target device, or condition. The query follows you between views; the Rules search box edits the same query. Clear either box to restore the full lists. Dashboard totals and recently seen apps, Mixer devices, and the Routing view stay unchanged.
+
 ![Dashboard — live audio graph](../images/dashboard.png)
 
 ## Create your first route

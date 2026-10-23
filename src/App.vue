@@ -11,6 +11,7 @@ import AppFooter from "./components/AppFooter.vue";
 import NewDeviceDialog from "./components/NewDeviceDialog.vue";
 import NavIcon from "./components/NavIcon.vue";
 import { navigateKey } from "./composables/navigation";
+import { useGlobalSearch } from "./composables/useGlobalSearch";
 import Dashboard from "./views/Dashboard.vue";
 import Effects from "./views/Effects.vue";
 import Mixer from "./views/Mixer.vue";
@@ -49,6 +50,7 @@ const navItems = ref<
 ]);
 
 const activeView = ref<AppView>("dashboard");
+const { searchQuery } = useGlobalSearch();
 const sidebarCollapsed = ref(false);
 const { handleApplyResult } = useApplyResult();
 const { openNewDeviceDialog } = useNewDeviceDialog();
@@ -317,6 +319,13 @@ onUnmounted(() => {
     <div class="main-area">
       <header class="topbar">
         <div class="topbar-title">{{ topbarTitle }}</div>
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="global-search-input"
+          aria-label="Search devices, streams, and rules"
+          placeholder="Search devices, streams, and rules"
+        />
         <div class="topbar-actions">
           <button
             type="button"
