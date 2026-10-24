@@ -169,7 +169,7 @@ impl CoreEngine {
         }
     }
 
-    pub fn emit_graph_update(&self, app: &AppHandle) {
+    pub fn emit_graph_update<R: tauri::Runtime>(&self, app: &AppHandle<R>) {
         let _ = app.emit("graph-updated", self.graph.clone());
     }
 }
