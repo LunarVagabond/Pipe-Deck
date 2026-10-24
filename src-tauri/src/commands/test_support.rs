@@ -21,12 +21,13 @@ impl CommandFixture {
     pub fn new() -> Self {
         let guard = lock_config_dir_env();
         static COUNTER: AtomicU32 = AtomicU32::new(0);
-        let config_dir = std::env::temp_dir()
-            .join(format!(
-                "pipe-deck-command-test-config-{}",
-                std::process::id()
-            ))
-            .join(COUNTER.fetch_add(1, Ordering::SeqCst).to_string());
+        // One flat root per fixture instance: Drop removes exactly this path,
+        // so cleanup never needs to know how many fixtures share the parent.
+        let config_dir = std::env::temp_dir().join(format!(
+            "pipe-deck-command-test-config-{}-{}",
+            std::process::id(),
+            COUNTER.fetch_add(1, Ordering::SeqCst)
+        ));
         std::fs::create_dir_all(&config_dir).unwrap();
         let previous_env = ["PIPE_DECK_CONFIG_DIR", "PIPE_DECK_USE_MOCK"]
             .map(|name| (name, std::env::var_os(name)))
@@ -123,5 +124,67 @@ impl Drop for CommandFixture {
                 None => std::env::remove_var(name),
             }
         }
+        let _ = std::fs::remove_dir_all(&self.config_dir);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandFixture;
+
+    #[test]
+    fn drop_restores_env_and_removes_its_config_directory() {
+        // Record the baseline while holding the crate-wide env lock so the
+        // values below are a quiesced state rather than a live fixture's
+        // transient ones; the lock is released before the fixture takes it.
+        let guard = crate::config::store::lock_config_dir_env();
+        let previous_config_dir = std::env::var_os("PIPE_DECK_CONFIG_DIR");
+        let previous_use_mock = std::env::var_os("PIPE_DECK_USE_MOCK");
+        drop(guard);
+        let fixture = CommandFixture::new();
+        let config_dir = fixture.config_dir.clone();
+        assert!(
+            config_dir.is_dir(),
+            "fixture must create its config directory, or the absence check below proves nothing"
+        );
+        drop(fixture);
+        assert!(
+            !config_dir.exists(),
+            "dropping the fixture must remove its config directory"
+        );
+        // Every writer of these two variables holds the crate-wide
+        // `lock_config_dir_env` mutex for the whole mutation window, so
+        // re-acquiring it here freezes the environment for these reads.
+        let _guard = crate::config::store::lock_config_dir_env();
+        assert_eq!(
+            std::env::var_os("PIPE_DECK_CONFIG_DIR"),
+            previous_config_dir,
+            "drop must restore PIPE_DECK_CONFIG_DIR"
+        );
+        assert_eq!(
+            std::env::var_os("PIPE_DECK_USE_MOCK"),
+            previous_use_mock,
+            "drop must restore PIPE_DECK_USE_MOCK"
+        );
+    }
+
+    #[test]
+    fn drop_removes_the_config_directory_even_when_the_fixture_unwinds() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let handle = std::thread::spawn(move || {
+            let fixture = CommandFixture::new();
+            tx.send(fixture.config_dir.clone())
+                .expect("test still waiting for the fixture path");
+            panic!("drop the fixture during unwind");
+        });
+        let config_dir = rx.recv().expect("fixture path before the panic");
+        assert!(
+            handle.join().is_err(),
+            "the spawned thread should have panicked while holding the fixture"
+        );
+        assert!(
+            !config_dir.exists(),
+            "unwinding out of the fixture must still remove its config directory"
+        );
     }
 }
